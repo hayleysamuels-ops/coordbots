@@ -1,0 +1,20 @@
+{
+  "name": "ashby-scorecard-bot",
+  "version": "1.0.0",
+  "description": "Slack bot that DMs an interviewer to submit their scorecard when their Ashby interview ends.",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "send-test": "node scripts/send-test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@slack/web-api": "^7.8.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2"
+  }
+}
