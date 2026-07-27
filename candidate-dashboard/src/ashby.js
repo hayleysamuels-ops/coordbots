@@ -1,0 +1,340 @@
+"use strict";
+
+const config = require("./config");
+const { mapWithConcurrency } = require("./concurrency");
+
+function authHeader() {
+  return `Basic ${Buffer.from(`${config.ashbyApiKey}:`).toString("base64")}`;
+}
+
+async function ashbyPost(endpoint, body) {
+  const res = await fetch(`https://api.ashbyhq.com/${endpoint}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: authHeader() },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`${endpoint} -> HTTP ${res.status}`);
+  const json = await res.json();
+  if (json.success === false) throw new Error(`${endpoint} -> ${JSON.stringify(json.errors || json)}`);
+  return json;
+}
+
+// Ashby responses are { success, results, moreDataAvailable, nextCursor }.
+// This walks every page and concatenates `results`.
+async function fetchAllPages(endpoint, baseBody) {
+  const all = [];
+  let cursor;
+  for (;;) {
+    const json = await ashbyPost(endpoint, cursor ? { ...baseBody, cursor } : baseBody);
+    all.push(...(json.results || []));
+    if (!json.moreDataAvailable || !json.nextCursor) break;
+    cursor = json.nextCursor;
+  }
+  return all;
+}
+
+// Ashby's candidate-feed URL needs both the candidate id and the application
+// id, plus a pipeline-view segment ("active" here). Every caller of this
+// function today is guaranteed Active status by the filter in
+// fetchApplicationSummaries below, so "active" is always correct in
+// practice — this hasn't been verified for Hired/Archived/Lead candidates,
+// which this dashboard never links to.
+function profileUrl(candidateId, applicationId) {
+  if (!candidateId || !applicationId) return undefined;
+  return (
+    `${config.ashbyAppBaseUrl}/candidates/pipeline/active/right-side` +
+    `/candidates/${candidateId}/applications/${applicationId}/feed`
+  );
+}
+
+// Application-review-stage applications haven't been engaged with yet — no
+// interview has happened, no email back-and-forth is expected. Excluded per
+// product decision: this dashboard is for candidates actively moving through
+// the pipeline, not the top-of-funnel application backlog (which, in this
+// org, is the overwhelming majority of "Active" applications).
+function isPreInterview(app) {
+  return (app.currentInterviewStage || {}).type === "PreInterviewScreen";
+}
+
+/**
+ * Looks up full application details (candidate, job, status, stage) only for
+ * the given applicationIds — not a scan of every active application. Filters
+ * out anything no longer Active or still sitting in Application Review.
+ */
+async function fetchApplicationSummaries(applicationIds) {
+  const fetched = await mapWithConcurrency(applicationIds, 8, async (id) => {
+    try {
+      const json = await ashbyPost("application.info", { applicationId: id });
+      return json.results;
+    } catch (err) {
+      console.warn(`[ashby] application.info failed for ${id}:`, err.message);
+      return null;
+    }
+  });
+
+  const byId = new Map();
+  for (const app of fetched) {
+    if (!app || app.status !== "Active" || isPreInterview(app)) continue;
+    const candidate = app.candidate || {};
+    byId.set(app.id, {
+      applicationId: app.id,
+      candidateId: candidate.id,
+      candidateName: candidate.name,
+      candidateEmail: candidate.primaryEmailAddress && candidate.primaryEmailAddress.value,
+      jobTitle: (app.job && app.job.title) || "Unknown role",
+      ashbyProfileUrl: profileUrl(candidate.id, app.id),
+    });
+  }
+  return byId;
+}
+
+// Interview schedules created more than this long ago and still unresolved
+// are treated as stale pipeline debris rather than live coordinator work.
+// Bound chosen to keep each refresh cycle fast on orgs with heavy interview
+// volume — see README for the tradeoff.
+const SCHEDULE_LOOKBACK_DAYS = 30;
+
+// Monday 00:00 UTC of the week containing `date`.
+function startOfWeekUTC(date) {
+  const daysSinceMonday = (date.getUTCDay() + 6) % 7; // getUTCDay: 0=Sun..6=Sat
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - daysSinceMonday));
+}
+
+/**
+ * Counts interviews per interviewer for the current calendar week (Mon–Sun
+ * UTC), from the same `schedules` already fetched for listIssues() — no
+ * extra Ashby call. Cancelled schedules don't count toward load. Note this
+ * inherits the same SCHEDULE_LOOKBACK_DAYS bound: an interview booked more
+ * than 30 days ago for a slot this week wouldn't be counted.
+ */
+function countInterviewsThisWeek(schedules) {
+  const now = new Date();
+  const weekStart = startOfWeekUTC(now).getTime();
+  const weekEnd = weekStart + 7 * 24 * 60 * 60 * 1000;
+
+  const byInterviewer = new Map();
+
+  for (const schedule of schedules) {
+    if (schedule.status === "Cancelled") continue;
+
+    for (const event of schedule.interviewEvents || []) {
+      if (!event.startTime) continue;
+      const start = new Date(event.startTime).getTime();
+      if (start < weekStart || start >= weekEnd) continue;
+
+      for (const interviewer of event.interviewers || []) {
+        if (!interviewer.id) continue;
+        const existing = byInterviewer.get(interviewer.id) || {
+          userId: interviewer.id,
+          name: `${interviewer.firstName || ""} ${interviewer.lastName || ""}`.trim() || interviewer.email,
+          email: interviewer.email,
+          scheduledCount: 0,
+        };
+        existing.scheduledCount += 1;
+        byInterviewer.set(interviewer.id, existing);
+      }
+    }
+  }
+
+  return byInterviewer;
+}
+
+/**
+ * Interviewers whose remaining weekly capacity (Ashby's configured
+ * weeklyLimit minus interviews already on the calendar this week) has
+ * dropped to INTERVIEWER_LIMIT_BUFFER slots or fewer. Interviewers with no
+ * weeklyLimit set in Ashby are never flagged — there's nothing to be near.
+ */
+async function listInterviewerLimits(schedules) {
+  const counts = countInterviewsThisWeek(schedules);
+  if (!counts.size) return [];
+
+  const settingsById = new Map(
+    (
+      await mapWithConcurrency([...counts.keys()], 8, async (userId) => {
+        try {
+          const json = await ashbyPost("user.interviewerSettings", { userId });
+          return [userId, json.results];
+        } catch (err) {
+          console.warn(`[ashby] user.interviewerSettings failed for ${userId}:`, err.message);
+          return null;
+        }
+      })
+    ).filter(Boolean)
+  );
+
+  const nearingLimit = [];
+  for (const [userId, info] of counts) {
+    const settings = settingsById.get(userId);
+    if (!settings || settings.weeklyLimit == null) continue;
+
+    const remaining = settings.weeklyLimit - info.scheduledCount;
+    if (remaining <= config.interviewerLimitBuffer) {
+      nearingLimit.push({ ...info, weeklyLimit: settings.weeklyLimit, remaining });
+    }
+  }
+
+  nearingLimit.sort((a, b) => a.remaining - b.remaining);
+  return nearingLimit;
+}
+
+/**
+ * Everything is driven off recent interview schedules rather than a full
+ * active-application scan (this org has 1,600+ active applications, almost
+ * all sitting untouched in Application Review — paginating all of them took
+ * minutes and mostly produced records this dashboard doesn't care about).
+ *
+ * Returns:
+ * - feedbackOverdue: interview events that ended > FEEDBACK_OVERDUE_HOURS ago
+ *   with no submitted feedback.
+ * - needsScheduling: schedules stuck in Ashby's "NeedsScheduling" status,
+ *   aged past NEEDS_SCHEDULING_ALERT_HOURS. NOT the same as "candidate
+ *   submitted availability" — see README.
+ * - staleCandidates: candidates far enough past either threshold
+ *   (STALE_FEEDBACK_HOURS / STALE_SCHEDULING_HOURS) that they're pulled out
+ *   of the two lists above into their own section — these have likely fallen
+ *   through the cracks rather than just being freshly overdue. This is a
+ *   candidate-level exclusion: if ANY of a candidate's schedules/events is
+ *   stale, none of their entries appear in feedbackOverdue/needsScheduling,
+ *   even a separate event for the same candidate that's below the stale bar.
+ * - interviewerLimits: interviewers at or nearing their Ashby-configured
+ *   weekly interview limit for the current calendar week — see
+ *   listInterviewerLimits above. Independent of application status; an
+ *   interviewer's load counts regardless of whether their candidates are
+ *   Active, Hired, or Archived.
+ */
+async function listIssues() {
+  const createdAfter = Date.now() - SCHEDULE_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
+  const schedules = await fetchAllPages("interviewSchedule.list", { limit: 100, createdAfter });
+
+  const applicationIds = [...new Set(schedules.map((s) => s.applicationId).filter(Boolean))];
+  const [applications, interviewerLimits] = await Promise.all([
+    fetchApplicationSummaries(applicationIds),
+    listInterviewerLimits(schedules),
+  ]);
+
+  const now = Date.now();
+  const feedbackEntries = [];
+  const schedulingEntries = [];
+
+  for (const schedule of schedules) {
+    const app = applications.get(schedule.applicationId);
+    if (!app) continue; // not Active, or still in Application Review
+
+    if (schedule.status === "NeedsScheduling") {
+      const hoursPending = (now - new Date(schedule.createdAt).getTime()) / (1000 * 60 * 60);
+      if (hoursPending >= config.needsSchedulingAlertHours) {
+        schedulingEntries.push({
+          ...app,
+          scheduleId: schedule.id,
+          createdAt: schedule.createdAt,
+          hoursPending: Math.round(hoursPending),
+          isStale: hoursPending >= config.staleSchedulingHours,
+        });
+      }
+    }
+
+    for (const event of schedule.interviewEvents || []) {
+      if (event.hasSubmittedFeedback || !event.endTime) continue;
+      const hoursOverdue = (now - new Date(event.endTime).getTime()) / (1000 * 60 * 60);
+      if (hoursOverdue < config.feedbackOverdueHours) continue;
+
+      feedbackEntries.push({
+        ...app,
+        scheduleId: schedule.id,
+        interviewEventId: event.id,
+        endTime: event.endTime,
+        hoursOverdue: Math.round(hoursOverdue),
+        interviewers: (event.interviewers || []).map((i) => ({
+          name: `${i.firstName || ""} ${i.lastName || ""}`.trim() || i.email,
+          email: i.email,
+        })),
+        isStale: hoursOverdue >= config.staleFeedbackHours,
+      });
+    }
+  }
+
+  // Candidate-level: once any entry for an applicationId is stale, that
+  // candidate is excluded entirely from the two regular lists below.
+  const staleApplicationIds = new Set(
+    [...feedbackEntries, ...schedulingEntries].filter((e) => e.isStale).map((e) => e.applicationId)
+  );
+
+  const staleCandidates = [
+    ...feedbackEntries
+      .filter((e) => e.isStale)
+      .map(({ isStale, ...e }) => ({ ...e, reason: "feedbackOverdue", reasonLabel: "Feedback overdue", hoursStale: e.hoursOverdue })),
+    ...schedulingEntries
+      .filter((e) => e.isStale)
+      .map(({ isStale, ...e }) => ({ ...e, reason: "needsScheduling", reasonLabel: "Needs scheduling", hoursStale: e.hoursPending })),
+  ];
+
+  const feedbackOverdue = feedbackEntries
+    .filter((e) => !e.isStale && !staleApplicationIds.has(e.applicationId))
+    .map(({ isStale, ...e }) => e);
+  const needsScheduling = schedulingEntries
+    .filter((e) => !e.isStale && !staleApplicationIds.has(e.applicationId))
+    .map(({ isStale, ...e }) => e);
+
+  feedbackOverdue.sort((a, b) => b.hoursOverdue - a.hoursOverdue);
+  needsScheduling.sort((a, b) => b.hoursPending - a.hoursPending);
+  staleCandidates.sort((a, b) => b.hoursStale - a.hoursStale);
+
+  return { feedbackOverdue, needsScheduling, staleCandidates, interviewerLimits };
+}
+
+// Classify an application's source into "Referral" / "Agency", or null if it's
+// neither. Matches on the sourceType title rather than a hardcoded id, and
+// uses substrings so slightly different wording ("Agencies" vs "Agency")
+// still resolves. Source titles in this org: "Referral", "Agencies",
+// "Sourced", "Inbound", "Internal", "Prospecting", "Third-party boards".
+function classifySource(app) {
+  const title = ((app.source || {}).sourceType || {}).title || "";
+  const lower = title.toLowerCase();
+  if (lower.includes("referr")) return "Referral";
+  if (lower.includes("agenc")) return "Agency";
+  return null;
+}
+
+/**
+ * Applications CREATED in the last SOURCED_LOOKBACK_DAYS whose source is a
+ * referral or an agency. Unlike the rest of the dashboard this is
+ * application-creation-driven, not schedule-driven — a candidate referred or
+ * agency-submitted three days ago almost certainly hasn't interviewed yet, so
+ * the schedule-based path would never surface them. `application.list` already
+ * carries the candidate, job, status, and source, so no per-application
+ * lookup is needed. All statuses are included (Active/Archived/Hired/Lead) —
+ * this section is purely about who came in via referral/agency recently, and
+ * the status is shown on each card.
+ */
+async function listRecentSourced() {
+  const createdAfter = Date.now() - config.sourcedLookbackDays * 24 * 60 * 60 * 1000;
+  const apps = await fetchAllPages("application.list", { limit: 100, createdAfter });
+
+  const results = [];
+  for (const app of apps) {
+    const sourceCategory = classifySource(app);
+    if (!sourceCategory) continue;
+
+    const candidate = app.candidate || {};
+    results.push({
+      applicationId: app.id,
+      candidateId: candidate.id,
+      candidateName: candidate.name,
+      jobTitle: (app.job && app.job.title) || "Unknown role",
+      status: app.status,
+      sourceCategory, // "Referral" | "Agency"
+      sourceTitle: (app.source || {}).title, // e.g. "Candidate Labs", "Referral Link"
+      createdAt: app.createdAt,
+      // Only link Active applications: the profile URL hardcodes the "active"
+      // pipeline segment, which is unverified for Archived/Hired/Lead. Better
+      // to show those as plain text than ship a link we suspect 404s.
+      ashbyProfileUrl: app.status === "Active" ? profileUrl(candidate.id, app.id) : undefined,
+    });
+  }
+
+  results.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return results;
+}
+
+module.exports = { listIssues, listRecentSourced };

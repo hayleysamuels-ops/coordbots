@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Candidate Issues Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>Candidate Issues</h1>
+    <div class="topbar-meta">
+      <div class="topbar-meta-text">
+        <span id="last-updated" class="muted">Loading…</span>
+        <span id="last-loaded" class="muted"></span>
+      </div>
+      <button id="refresh-btn" type="button" aria-label="Refresh now" title="Refresh now">↻</button>
+    </div>
+  </header>
+
+  <nav class="section-nav">
+    <a href="#staleCandidates">Stale Candidates</a>
+    <a href="#feedbackOverdue">Feedback Overdue</a>
+    <a href="#needsScheduling">Needs Scheduling</a>
+    <a href="#interviewerLimits">Interviewer Weekly Limits</a>
+    <a href="#recentSourced">Recently Sourced</a>
+  </nav>
+
+  <main>
+    <section id="staleCandidates" class="column wide-section tint-critical" data-key="staleCandidates">
+      <h2><span class="dot dot-critical"></span>Stale Candidates</h2>
+      <p class="column-sub">
+        Far enough past the normal thresholds that these have likely fallen
+        through the cracks, not just freshly overdue.
+      </p>
+      <div class="cards" id="cards-staleCandidates"></div>
+    </section>
+
+    <div class="board" id="board">
+      <section id="feedbackOverdue" class="column" data-key="feedbackOverdue">
+        <h2><span class="dot dot-critical"></span>Feedback Overdue</h2>
+        <p class="column-sub">Interview ended, scorecard still not submitted.</p>
+        <div class="cards" id="cards-feedbackOverdue"></div>
+      </section>
+
+      <section id="needsScheduling" class="column" data-key="needsScheduling">
+        <h2><span class="dot dot-warning"></span>Needs Scheduling</h2>
+        <p class="column-sub">
+          No interview has been booked yet. Ashby can't tell us whether the
+          candidate has submitted availability — only that nobody's scheduled it.
+        </p>
+        <div class="cards" id="cards-needsScheduling"></div>
+      </section>
+    </div>
+
+    <section id="interviewerLimits" class="column wide-section" data-key="interviewerLimits">
+      <h2><span class="dot dot-warning"></span>Interviewer Weekly Limits</h2>
+      <p class="column-sub">
+        Interviewers at or nearing their Ashby-configured weekly interview
+        limit, for the current calendar week. Interviewers with no limit set
+        never appear here.
+      </p>
+      <div class="cards" id="cards-interviewerLimits"></div>
+    </section>
+
+    <section id="recentSourced" class="column wide-section" data-key="recentSourced">
+      <h2><span class="dot dot-good"></span>Recently Sourced</h2>
+      <p class="column-sub" id="recentSourced-sub">
+        Candidates referred or sourced by an agency in the last few days.
+      </p>
+      <div class="cards" id="cards-recentSourced"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
