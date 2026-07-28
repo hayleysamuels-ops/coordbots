@@ -20,8 +20,13 @@ you need the old approach back). It's now just a link, below the Onsite
 Interviews Today card, out to Ashby's own Active Referrals report — no
 reason to re-derive in this app what Ashby already reports on natively.
 
-A candidate that crosses a stale threshold appears **only** in Stale
-Candidates, not also in its regular column, to avoid double-counting.
+Every candidate appears in **at most one** of the five sections above
+(Feedback Overdue, Needs Scheduling, Availability Submitted, Onsite
+Interviews Today, Stale Candidates) — never several at once. If a candidate
+has activity across more than one (say, an old interview whose feedback is
+still outstanding, and a newer round scheduled for today), only their single
+most recent event is kept; the rest are dropped rather than shown twice or
+moved to Stale Candidates.
 
 ## Department / job filter
 

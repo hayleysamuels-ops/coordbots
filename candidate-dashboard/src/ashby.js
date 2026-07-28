@@ -254,7 +254,38 @@ async function listInterviewerLimits(schedules) {
  * - onsiteToday: today's panel/final-round interview events — see
  *   listOnsiteToday above for how "onsite" is approximated (Ashby has no
  *   real signal for it in this org).
+ *
+ * A candidate appears in at most ONE of feedbackOverdue/needsScheduling/
+ * availabilitySubmitted/onsiteToday/staleCandidates, never several at once —
+ * see keepMostRecentPerCandidate below. Without this, a candidate could
+ * legitimately show up in both, e.g., Feedback Overdue (an old interview's
+ * feedback still isn't in) AND Onsite Interviews Today (they've since moved
+ * on to a new round) — confusing, since the old feedback item is stale
+ * information once a newer round exists. Only the single most recent event
+ * per candidate is kept; everything else for that candidate is dropped
+ * entirely (not moved to Stale Candidates either, unless that most-recent
+ * event is itself the stale one).
  */
+// Collapses a pool of candidate-linked entries (tagged with `eventTime`, a
+// millisecond timestamp, and `__section`) down to one entry per candidateId
+// — whichever has the latest eventTime. Entries with no candidateId (should
+// never happen in practice; every Ashby candidate has one) pass through
+// untouched rather than being silently dropped.
+function keepMostRecentPerCandidate(taggedEntries) {
+  const bestByCandidate = new Map();
+  const passthrough = [];
+  for (const entry of taggedEntries) {
+    if (!entry.candidateId) {
+      passthrough.push(entry);
+      continue;
+    }
+    const existing = bestByCandidate.get(entry.candidateId);
+    if (!existing || entry.eventTime > existing.eventTime) {
+      bestByCandidate.set(entry.candidateId, entry);
+    }
+  }
+  return [...bestByCandidate.values(), ...passthrough];
+}
 // A recruiting coordinator's day-of prep list. Ashby has no per-interview
 // "onsite" flag anywhere in this org — checked interviewEvents,
 // interview.info, interviewStage.info, and all 38 org custom fields; none
@@ -348,12 +379,12 @@ async function listIssues() {
   ]);
   // Depends on `applications` (to know which schedules are for still-Active
   // candidates), so it can't join the Promise.all above.
-  const onsiteToday = await listOnsiteToday(schedules, applications);
+  let onsiteToday = await listOnsiteToday(schedules, applications);
 
   const now = Date.now();
-  const feedbackEntries = [];
-  const schedulingEntries = [];
-  const availabilitySubmitted = [];
+  let feedbackEntries = [];
+  let schedulingEntries = [];
+  let availabilitySubmitted = [];
 
   for (const schedule of schedules) {
     const app = applications.get(schedule.applicationId);
@@ -401,6 +432,22 @@ async function listIssues() {
       });
     }
   }
+
+  // Collapse every candidate down to their single most recent event across
+  // ALL FOUR lists (not just within one) — see the big comment on
+  // listIssues() above. Everything else for that candidate this refresh is
+  // dropped, not just hidden from one section.
+  const winners = keepMostRecentPerCandidate([
+    ...feedbackEntries.map((e) => ({ ...e, eventTime: new Date(e.endTime).getTime(), __section: "feedback" })),
+    ...schedulingEntries.map((e) => ({ ...e, eventTime: new Date(e.createdAt).getTime(), __section: "scheduling" })),
+    ...availabilitySubmitted.map((e) => ({ ...e, eventTime: new Date(e.submittedAt).getTime(), __section: "availability" })),
+    ...onsiteToday.map((e) => ({ ...e, eventTime: new Date(e.startTime).getTime(), __section: "onsite" })),
+  ]);
+  const stripTag = ({ eventTime, __section, ...e }) => e;
+  feedbackEntries = winners.filter((e) => e.__section === "feedback").map(stripTag);
+  schedulingEntries = winners.filter((e) => e.__section === "scheduling").map(stripTag);
+  availabilitySubmitted = winners.filter((e) => e.__section === "availability").map(stripTag);
+  onsiteToday = winners.filter((e) => e.__section === "onsite").map(stripTag);
 
   // Candidate-level: once any entry for an applicationId is stale, that
   // candidate is excluded entirely from the two regular lists below.

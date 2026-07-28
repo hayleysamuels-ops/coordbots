@@ -124,15 +124,31 @@ is normally still in Application Review and any status).
   Feedback Overdue / Needs Scheduling / Availability Submitted (see
   `isPreInterview` in `ashby.js`) — no interview activity is expected at
   that stage.
+- **A candidate appears in at most ONE of feedbackOverdue/needsScheduling/
+  availabilitySubmitted/onsiteToday/staleCandidates, globally, never
+  several at once.** `keepMostRecentPerCandidate()` in `ashby.js`'s
+  `listIssues()` pools every candidate-linked entry across all four
+  event-driven lists (tagged with a comparable `eventTime` — `endTime` for
+  feedback, `createdAt` for scheduling, `submittedAt` for availability,
+  `startTime` for onsite — plus a `__section` marker) and keeps only the
+  single most recent one per `candidateId`; everything else for that
+  candidate is dropped entirely this refresh, not just hidden from one
+  section. This runs BEFORE the stale-exclusion step below, so a stale old
+  entry that's no longer a candidate's most recent event won't appear in
+  Stale Candidates either — it's genuinely superseded, not just relocated.
+  Real example this fixed: a candidate with an old unsubmitted-feedback
+  interview AND a newer onsite round scheduled today showed up in both
+  Feedback Overdue and Onsite Interviews Today; now only the onsite entry
+  survives. If you add a new event-driven candidate section, tag its
+  entries with `eventTime`/`__section` and fold them into the `winners`
+  pool too, or it won't participate in this dedup.
 - **Stale Candidates is exclusive at the candidate (applicationId) level, not
-  the entry level.** If ANY of a candidate's entries crosses
+  the entry level.** If ANY of a candidate's (post-dedup) entries crosses
   `STALE_FEEDBACK_HOURS` / `STALE_SCHEDULING_HOURS`, that whole candidate is
-  excluded from `feedbackOverdue`/`needsScheduling` — including their other,
-  non-stale entries (e.g. a second interview event for the same candidate
-  that's individually below the stale bar). See `staleApplicationIds` in
-  `ashby.js`'s `listIssues()`. Don't narrow this back to per-entry filtering;
-  that was the bug this fixed — a candidate showing up both in Stale
-  Candidates and a regular column.
+  excluded from `feedbackOverdue`/`needsScheduling`. See `staleApplicationIds`
+  in `ashby.js`'s `listIssues()`. Don't narrow this back to per-entry
+  filtering; that was the bug this fixed — a candidate showing up both in
+  Stale Candidates and a regular column.
 - **Interviewer Weekly Limits ignores application status entirely.** Load is
   computed straight from `interviewSchedule.list` events (`countInterviewsThisWeek`
   in `ashby.js`) without going through `fetchApplicationSummaries` — an
