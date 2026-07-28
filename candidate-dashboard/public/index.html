@@ -33,12 +33,16 @@
   </nav>
 
   <div class="filter-bar">
-    <span class="filter-bar-label">Department</span>
-    <div class="dept-filter">
-      <button id="department-filter-btn" type="button" aria-haspopup="true" aria-expanded="false">
+    <span class="filter-bar-label">Filter by</span>
+    <div class="filter-mode-toggle" role="group" aria-label="Filter by">
+      <button type="button" class="filter-mode-btn is-active" data-mode="department" aria-pressed="true">Department</button>
+      <button type="button" class="filter-mode-btn" data-mode="job" aria-pressed="false">Job</button>
+    </div>
+    <div class="entity-filter">
+      <button id="entity-filter-btn" type="button" aria-haspopup="true" aria-expanded="false">
         All departments
       </button>
-      <div id="department-filter-menu" class="dept-filter-menu" hidden></div>
+      <div id="entity-filter-menu" class="entity-filter-menu" hidden></div>
     </div>
   </div>
 

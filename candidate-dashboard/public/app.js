@@ -1,59 +1,109 @@
 (() => {
   const REFRESH_MS = 60 * 1000;
 
-  // Department filter is purely client-side: the last-fetched snapshot is
-  // cached here so checking/unchecking a department re-renders instantly
-  // without a network round-trip. Applies to every candidate-facing section;
-  // NOT Interviewer Weekly Limits, which has no department concept (an
-  // interviewer isn't tied to one job/department the way a candidate's
-  // application is).
+  // The filter is purely client-side: the last-fetched snapshot is cached
+  // here so checking/unchecking an option, or switching which field to
+  // filter by, re-renders instantly without a network round-trip. Applies
+  // to every candidate-facing section; NOT Interviewer Weekly Limits, which
+  // has no department/job concept (an interviewer isn't tied to one
+  // job/department the way a candidate's application is).
   let lastData = null;
   let lastDepartments = [];
-  // Empty set = "All departments" (no filter), matching the old empty-string
-  // convention. Populated with department IDs the user has checked.
+
+  // Which field is currently live: "department" | "job". Only one filters
+  // at a time — switching modes doesn't combine department + job filtering,
+  // it replaces which one is active. Each mode remembers its own selection
+  // independently (switching back and forth doesn't lose either one).
+  let filterMode = "department";
+  // Empty set = "All departments"/"All jobs" (no filter), matching the old
+  // empty-string convention. Populated with IDs the user has checked.
   let selectedDepartmentIds = new Set();
+  let selectedJobIds = new Set();
 
-  function filterByDepartment(items) {
-    if (selectedDepartmentIds.size === 0) return items;
-    return items.filter((item) => selectedDepartmentIds.has(item.departmentId));
+  function activeSelection() {
+    return filterMode === "job"
+      ? { ids: selectedJobIds, key: "jobId", noun: "job", pluralNoun: "jobs" }
+      : { ids: selectedDepartmentIds, key: "departmentId", noun: "department", pluralNoun: "departments" };
   }
 
-  function departmentButtonLabel() {
-    if (selectedDepartmentIds.size === 0) return "All departments";
-    if (selectedDepartmentIds.size === 1) {
-      const only = lastDepartments.find((d) => selectedDepartmentIds.has(d.id));
-      return only ? only.name : "1 department";
+  function filterByEntity(items) {
+    const { ids, key } = activeSelection();
+    if (ids.size === 0) return items;
+    return items.filter((item) => ids.has(item[key]));
+  }
+
+  // Sections that carry job/department info on their items — used to derive
+  // the job filter's options client-side, since (unlike departments) there's
+  // no org-wide job list from the server; only jobs actually represented in
+  // the current candidate sections are worth offering as filter options.
+  const CANDIDATE_SECTION_KEYS = [
+    "feedbackOverdue",
+    "needsScheduling",
+    "availabilitySubmitted",
+    "staleCandidates",
+    "recentSourced",
+    "activeReferrals",
+    "onsiteToday",
+  ];
+
+  function collectJobs(data) {
+    const byId = new Map();
+    for (const key of CANDIDATE_SECTION_KEYS) {
+      for (const item of data[key] || []) {
+        if (item.jobId && !byId.has(item.jobId)) {
+          byId.set(item.jobId, item.jobTitle || "Unknown role");
+        }
+      }
     }
-    return `${selectedDepartmentIds.size} departments`;
+    return [...byId.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  function updateDepartmentButtonLabel() {
-    document.getElementById("department-filter-btn").textContent = departmentButtonLabel();
+  function currentEntityOptions() {
+    return filterMode === "job" ? collectJobs(lastData || {}) : lastDepartments;
   }
 
-  // Rebuilds the menu's checkbox rows from the latest department list,
-  // dropping any selected IDs that no longer exist (departments rarely
-  // change, but the snapshot refreshes periodically regardless).
-  function populateDepartmentOptions(departments) {
-    lastDepartments = departments;
-    const validIds = new Set(departments.map((d) => d.id));
-    for (const id of selectedDepartmentIds) {
-      if (!validIds.has(id)) selectedDepartmentIds.delete(id);
+  function entityButtonLabel() {
+    const { ids, noun, pluralNoun } = activeSelection();
+    if (ids.size === 0) return `All ${pluralNoun}`;
+    if (ids.size === 1) {
+      const only = currentEntityOptions().find((o) => ids.has(o.id));
+      return only ? only.name : `1 ${noun}`;
+    }
+    return `${ids.size} ${pluralNoun}`;
+  }
+
+  function updateEntityButtonLabel() {
+    document.getElementById("entity-filter-btn").textContent = entityButtonLabel();
+  }
+
+  // Rebuilds the menu's checkbox rows from the current mode's option list,
+  // dropping any selected IDs that no longer exist (departments/jobs rarely
+  // change, but the snapshot refreshes periodically regardless). Called both
+  // after a fresh render() and when the mode toggle switches fields.
+  function populateEntityOptions() {
+    const options = currentEntityOptions();
+    const { ids, pluralNoun } = activeSelection();
+    const validIds = new Set(options.map((o) => o.id));
+    for (const id of ids) {
+      if (!validIds.has(id)) ids.delete(id);
     }
 
-    const menu = document.getElementById("department-filter-menu");
-    const rows = [`<button type="button" class="dept-filter-reset">All departments</button>`, `<hr class="dept-filter-divider">`]
+    const menu = document.getElementById("entity-filter-menu");
+    const resetLabel = `All ${pluralNoun}`;
+    const rows = [`<button type="button" class="entity-filter-reset">${resetLabel}</button>`, `<hr class="entity-filter-divider">`]
       .concat(
-        departments.map(
-          (d) => `
-            <label class="dept-filter-row">
-              <input type="checkbox" value="${d.id}" ${selectedDepartmentIds.has(d.id) ? "checked" : ""}>
-              ${d.name}
+        options.map(
+          (o) => `
+            <label class="entity-filter-row">
+              <input type="checkbox" value="${o.id}" ${ids.has(o.id) ? "checked" : ""}>
+              ${o.name}
             </label>`
         )
       );
     menu.innerHTML = rows.join("");
-    updateDepartmentButtonLabel();
+    updateEntityButtonLabel();
   }
 
   const columns = [
@@ -327,16 +377,17 @@
 
   function render(data) {
     lastData = data;
-    populateDepartmentOptions(data.departments || []);
+    lastDepartments = data.departments || [];
+    populateEntityOptions();
 
     for (const col of columns) {
-      renderColumn(col, filterByDepartment(data[col.key] || []), data.thresholds[col.thresholdKey]);
+      renderColumn(col, filterByEntity(data[col.key] || []), data.thresholds[col.thresholdKey]);
     }
-    renderStale(filterByDepartment(data.staleCandidates || []));
-    renderInterviewerLimits(data.interviewerLimits || []); // no department filter — see DEPARTMENT_FILTERED_KEYS note
-    renderRecentSourced(filterByDepartment(data.recentSourced || []));
-    renderActiveReferrals(filterByDepartment(data.activeReferrals || []));
-    renderOnsiteToday(filterByDepartment(data.onsiteToday || []));
+    renderStale(filterByEntity(data.staleCandidates || []));
+    renderInterviewerLimits(data.interviewerLimits || []); // no department/job filter — no job/department concept for an interviewer
+    renderRecentSourced(filterByEntity(data.recentSourced || []));
+    renderActiveReferrals(filterByEntity(data.activeReferrals || []));
+    renderOnsiteToday(filterByEntity(data.onsiteToday || []));
     updateSourcedSubtitle(data.thresholds && data.thresholds.sourcedLookbackDays);
 
     for (const key of SECTION_TIMESTAMP_KEYS) {
@@ -395,13 +446,13 @@
 
   function closeAllMenus() {
     document.querySelectorAll(".dismiss-menu").forEach((m) => m.setAttribute("hidden", ""));
-    document.getElementById("department-filter-menu").setAttribute("hidden", "");
-    document.getElementById("department-filter-btn").setAttribute("aria-expanded", "false");
+    document.getElementById("entity-filter-menu").setAttribute("hidden", "");
+    document.getElementById("entity-filter-btn").setAttribute("aria-expanded", "false");
     document.querySelectorAll(".card-details.open").forEach((d) => d.classList.remove("open"));
   }
 
   // Positions a card's floating `.card-details` popup from its card's real
-  // viewport rect, same anchoring approach as .dismiss-menu/.dept-filter-menu.
+  // viewport rect, same anchoring approach as .dismiss-menu/.entity-filter-menu.
   // Prefers below the card; flips above if there isn't room. At most one
   // popup is open at a time.
   function showCardDetails(card) {
@@ -471,65 +522,82 @@
       return;
     }
 
-    const deptReset = e.target.closest(".dept-filter-reset");
-    if (deptReset) {
-      selectedDepartmentIds.clear();
-      populateDepartmentOptions(lastDepartments);
-      if (lastData) render(lastData);
-      return;
-    }
-
-    const deptToggle = e.target.closest("#department-filter-btn");
-    if (deptToggle) {
-      const menu = document.getElementById("department-filter-menu");
-      const wasHidden = menu.hasAttribute("hidden");
-      closeAllMenus();
-      if (wasHidden) {
-        // Anchored the same way as .dismiss-menu — see rationale above.
-        const rect = deptToggle.getBoundingClientRect();
-        menu.style.top = `${rect.bottom + 4}px`;
-        menu.style.right = `${window.innerWidth - rect.right}px`;
-        menu.removeAttribute("hidden");
-        deptToggle.setAttribute("aria-expanded", "true");
+    const modeBtn = e.target.closest(".filter-mode-btn");
+    if (modeBtn) {
+      const newMode = modeBtn.dataset.mode;
+      if (newMode !== filterMode) {
+        filterMode = newMode;
+        document.querySelectorAll(".filter-mode-btn").forEach((b) => {
+          const isActive = b.dataset.mode === filterMode;
+          b.classList.toggle("is-active", isActive);
+          b.setAttribute("aria-pressed", isActive ? "true" : "false");
+        });
+        populateEntityOptions();
+        if (lastData) render(lastData);
       }
       return;
     }
 
-    // Clicks inside the department menu itself (e.g. on a checkbox's label
-    // text) shouldn't close it — selecting multiple departments requires the
-    // menu to stay open across several clicks. Its own change listener below
+    const entityReset = e.target.closest(".entity-filter-reset");
+    if (entityReset) {
+      activeSelection().ids.clear();
+      populateEntityOptions();
+      if (lastData) render(lastData);
+      return;
+    }
+
+    const entityToggle = e.target.closest("#entity-filter-btn");
+    if (entityToggle) {
+      const menu = document.getElementById("entity-filter-menu");
+      const wasHidden = menu.hasAttribute("hidden");
+      closeAllMenus();
+      if (wasHidden) {
+        // Anchored the same way as .dismiss-menu — see rationale above.
+        const rect = entityToggle.getBoundingClientRect();
+        menu.style.top = `${rect.bottom + 4}px`;
+        menu.style.right = `${window.innerWidth - rect.right}px`;
+        menu.removeAttribute("hidden");
+        entityToggle.setAttribute("aria-expanded", "true");
+      }
+      return;
+    }
+
+    // Clicks inside the entity menu itself (e.g. on a checkbox's label text)
+    // shouldn't close it — selecting multiple options requires the menu to
+    // stay open across several clicks. Its own change listener below
     // handles updating the filter; this just prevents the fallthrough close.
-    if (e.target.closest("#department-filter-menu")) {
+    if (e.target.closest("#entity-filter-menu")) {
       return;
     }
 
     closeAllMenus();
   });
 
-  // Checking/unchecking a department re-renders instantly from the cached
+  // Checking/unchecking an option re-renders instantly from the cached
   // snapshot — no network call — and deliberately leaves the menu open so
-  // several departments can be picked in one go.
-  document.getElementById("department-filter-menu").addEventListener("change", (e) => {
+  // several options can be picked in one go.
+  document.getElementById("entity-filter-menu").addEventListener("change", (e) => {
     const checkbox = e.target.closest("input[type=checkbox]");
     if (!checkbox) return;
+    const { ids } = activeSelection();
     if (checkbox.checked) {
-      selectedDepartmentIds.add(checkbox.value);
+      ids.add(checkbox.value);
     } else {
-      selectedDepartmentIds.delete(checkbox.value);
+      ids.delete(checkbox.value);
     }
-    updateDepartmentButtonLabel();
+    updateEntityButtonLabel();
     if (lastData) render(lastData);
   });
 
   // A menu positioned from a stale rect (post-scroll) would float away from
   // its button, so any scroll — page or a .cards container — closes it.
-  // Exception: the department menu's own internal scroll (it's
-  // overflow-y: auto so long department lists can scroll) would otherwise
-  // trigger this same capture-phase listener and immediately close itself.
+  // Exception: the entity menu's own internal scroll (it's overflow-y: auto
+  // so long option lists can scroll) would otherwise trigger this same
+  // capture-phase listener and immediately close itself.
   window.addEventListener(
     "scroll",
     (e) => {
-      if (e.target instanceof Element && e.target.closest("#department-filter-menu")) return;
+      if (e.target instanceof Element && e.target.closest("#entity-filter-menu")) return;
       closeAllMenus();
     },
     true

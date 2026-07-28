@@ -233,7 +233,41 @@ button#refresh-btn.spinning {
   display: inline-block;
 }
 
-#department-filter-btn {
+/* Segmented control choosing which field the filter below applies to.
+   Only one mode is active at a time — switching modes doesn't combine
+   department + job filtering, it replaces which one is live. */
+.filter-mode-toggle {
+  display: flex;
+  border: 2px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.filter-mode-btn {
+  border: none;
+  background: var(--white);
+  color: var(--text-secondary);
+  padding: 5px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.filter-mode-btn:not(:first-child) {
+  border-left: 2px solid var(--border-default);
+}
+
+.filter-mode-btn:hover {
+  color: var(--text-primary);
+}
+
+.filter-mode-btn.is-active {
+  background: var(--grafite);
+  color: var(--white);
+}
+
+#entity-filter-btn {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -248,17 +282,17 @@ button#refresh-btn.spinning {
   cursor: pointer;
 }
 
-#department-filter-btn::after {
+#entity-filter-btn::after {
   content: "▾";
   font-size: 0.65rem;
   color: var(--text-muted);
 }
 
-#department-filter-btn:hover {
+#entity-filter-btn:hover {
   border-color: var(--grafite);
 }
 
-.dept-filter-menu {
+.entity-filter-menu {
   /* Fixed, not absolute — same reasoning as .dismiss-menu: positioned from JS
      via the button's real viewport rect so it's never clipped by a scrollable
      ancestor. This menu isn't inside a .cards container, but staying
@@ -277,11 +311,11 @@ button#refresh-btn.spinning {
   padding: 4px;
 }
 
-.dept-filter-menu[hidden] {
+.entity-filter-menu[hidden] {
   display: none;
 }
 
-.dept-filter-reset {
+.entity-filter-reset {
   border: none;
   background: transparent;
   color: var(--text-primary);
@@ -294,18 +328,18 @@ button#refresh-btn.spinning {
   border-radius: var(--radius-sm);
 }
 
-.dept-filter-reset:hover {
+.entity-filter-reset:hover {
   background: var(--surface-sunken);
 }
 
-.dept-filter-divider {
+.entity-filter-divider {
   height: 1px;
   margin: 4px 2px;
   background: var(--gridline);
   border: none;
 }
 
-.dept-filter-row {
+.entity-filter-row {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -315,11 +349,11 @@ button#refresh-btn.spinning {
   cursor: pointer;
 }
 
-.dept-filter-row:hover {
+.entity-filter-row:hover {
   background: var(--surface-sunken);
 }
 
-.dept-filter-row input {
+.entity-filter-row input {
   margin: 0;
   flex: none;
   accent-color: var(--ember);
@@ -618,7 +652,7 @@ button#refresh-btn.spinning {
 /* Candidate cards show only the name at rest; everything else (age,
    dismiss, job title, badges, detail) appears in a floating popup on
    hover, positioned from JS (see showCardDetails() in app.js) exactly like
-   .dismiss-menu/.dept-filter-menu — fixed, not in-flow, so it never
+   .dismiss-menu/.entity-filter-menu — fixed, not in-flow, so it never
    pushes surrounding cards around. JS also shows it on focusin so tabbing
    to the name link (and then the dismiss button inside) still works for
    keyboard users. */

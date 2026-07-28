@@ -17,32 +17,44 @@ A small dashboard for a recruiting coordinator: at a glance, which candidates
 A candidate that crosses a stale threshold appears **only** in Stale
 Candidates, not also in its regular column, to avoid double-counting.
 
-## Department filter
+## Department / job filter
 
 A multi-select menu at the top of the page filters every candidate-facing
 section (Stale Candidates, Feedback Overdue, Needs Scheduling, Availability
-Submitted, Recently Sourced, Active Referrals) by department, using Ashby's
-`department.list` (12 total on this org, including 2 archived — fetched
-with `includeArchived: true` so a job whose department was later archived
-still resolves to a real name instead of a blank). **Interviewer Weekly
-Limits is not affected** — an interviewer isn't tied to one department the
-way a candidate's application is, so there's no natural mapping to filter
-by.
+Submitted, Recently Sourced, Active Referrals, Onsite Interviews Today). A
+segmented **Department / Job** toggle picks which field it filters on — only
+one is ever live at a time (switching doesn't AND the two together, it
+replaces which one is active), and each remembers its own selection
+independently, so switching back and forth doesn't lose either one.
+**Interviewer Weekly Limits is not affected** by either mode — an
+interviewer isn't tied to one department or job the way a candidate's
+application is, so there's no natural mapping to filter by.
+
+- **Department options** come from Ashby's `department.list` (12 total on
+  this org, including 2 archived — fetched with `includeArchived: true` so a
+  job whose department was later archived still resolves to a real name
+  instead of a blank).
+- **Job options** are derived client-side from whichever jobs are actually
+  represented among the candidates currently shown across all sections —
+  there's no separate org-wide job list call. This is deliberate: a full
+  `job.list` would include every closed/archived job in the org (dozens to
+  hundreds), making for a mostly-irrelevant dropdown; deriving from the
+  candidates already on screen keeps every option meaningful.
 
 The button opens a checkbox dropdown (mirroring the existing per-card
 dismiss-menu's fixed-position/anchor-to-button pattern); any number of
-departments can be checked at once, and a candidate is shown if their
-department is any of the checked ones (an OR, not an AND). No selection
-means no filter ("All departments"). The button label reflects the current
-selection: "All departments", a single department's name, or "N
-departments".
+options can be checked at once, and a candidate is shown if their
+department/job is any of the checked ones (an OR, not an AND). No selection
+means no filter ("All departments"/"All jobs"). The button label reflects
+the current selection: "All departments", a single option's name, or "N
+departments"/"N jobs".
 
-The filter is purely client-side: department options and each candidate's
-`departmentId` (from `job.departmentId` on the underlying Ashby application)
-are already part of the normal `/api/issues` payload, so checking or
-unchecking a department re-renders instantly from the already-fetched
-snapshot — no additional network request, and it works even while Active
-Referrals is mid-scan.
+The filter is purely client-side: department options, each candidate's
+`departmentId` and `jobId` (both from the underlying Ashby application's
+`job` object), are already part of the normal `/api/issues` payload, so
+checking/unchecking an option or switching modes re-renders instantly from
+the already-fetched snapshot — no additional network request, and it works
+even while Active Referrals is mid-scan.
 
 Two things were scoped out because Ashby has no data for them:
 

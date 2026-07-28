@@ -277,27 +277,37 @@ is normally still in Application Review and any status).
   separately using `data.activeReferralsUpdated`/`activeReferralsError`. If
   you add a new main-cycle section, add its key to
   `SECTION_TIMESTAMP_KEYS` — it's not automatic.
-- **The department filter (`public/app.js`) is multi-select and purely
-  client-side, filtering the already-fetched snapshot in memory — not a new
-  API call.** Selection state is `selectedDepartmentIds` (a `Set` of
-  department IDs; empty = no filter/"All departments"), not a single string
-  — `filterByDepartment()` does `items.filter(i =>
-  selectedDepartmentIds.has(i.departmentId))`, an OR across selections.
-  `lastData` caches the last render's payload; checking/unchecking a
-  checkbox in `#department-filter-menu` just calls `render(lastData)` again
-  (see the delegated `change` listener). The menu itself mirrors the
-  existing per-card dismiss-menu's fixed-position/anchor-to-button pattern,
-  but deliberately does NOT close on selection (unlike dismiss-menu) since
-  picking several departments requires staying open — it closes only on the
-  reset button, outside-click, or scroll. `filterByDepartment()` is applied
-  to the seven candidate sections' arrays before each is rendered
-  (`renderColumn`/`renderStale`/`renderRecentSourced`/`renderActiveReferrals`/
-  `renderOnsiteToday`)
-  — Interviewer Weekly Limits deliberately skips it, since an interviewer
-  isn't tied to one department. If you add a new candidate-facing section,
-  wrap its render call with `filterByDepartment(...)` too, and make sure
-  `ashby.js`/`referralCache.js` actually populate `departmentId` on its
-  records (from `app.job.departmentId`) — it's not automatic either.
+- **The department/job filter (`public/app.js`) is multi-select, mode-
+  switchable, and purely client-side, filtering the already-fetched
+  snapshot in memory — not a new API call.** `filterMode` is `"department"`
+  or `"job"`; only ONE mode's Set actually filters at a time —
+  `selectedDepartmentIds`/`selectedJobIds` are two independent Sets (empty =
+  no filter), each remembering its own selection across mode switches.
+  `activeSelection()` returns `{ ids, key }` for whichever mode is live;
+  `filterByEntity()` does `items.filter(i => ids.has(i[key]))`, an OR across
+  selections. `lastData` caches the last render's payload; checking/
+  unchecking a checkbox in `#entity-filter-menu`, or clicking a
+  `.filter-mode-btn`, just calls `render(lastData)` again. The menu mirrors
+  the existing per-card dismiss-menu's fixed-position/anchor-to-button
+  pattern, but deliberately does NOT close on selection (unlike
+  dismiss-menu) since picking several options requires staying open — it
+  closes only on the reset button, outside-click, or scroll.
+  **Department options come from the server** (`data.departments`, Ashby's
+  `department.list`). **Job options are derived client-side** via
+  `collectJobs()` from whichever jobs are actually represented across
+  `CANDIDATE_SECTION_KEYS`' items in `lastData` — deliberately NOT a
+  separate `job.list` call, since that would include every closed/archived
+  job org-wide (dozens to hundreds) rather than just the ones with
+  candidates currently on screen. `filterByEntity()` is applied to the seven
+  candidate sections' arrays before each is rendered (`renderColumn`/
+  `renderStale`/`renderRecentSourced`/`renderActiveReferrals`/
+  `renderOnsiteToday`) — Interviewer Weekly Limits deliberately skips it,
+  since an interviewer isn't tied to one department/job. If you add a new
+  candidate-facing section, wrap its render call with `filterByEntity(...)`
+  too, add its key to `CANDIDATE_SECTION_KEYS` (so it's included when
+  deriving job options), and make sure `ashby.js`/`referralCache.js`
+  actually populate `departmentId`/`jobId` on its records (from
+  `app.job.departmentId`/`app.job.id`) — neither is automatic.
 
 - **Dismissals are applied at serve time, not refresh time.** `issues.js`
   `getSnapshot()` runs `applyDismissals()` over the cached snapshot on every

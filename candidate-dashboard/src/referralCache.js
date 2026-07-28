@@ -24,7 +24,7 @@ const CHECKPOINT_FILE = path.join(DATA_DIR, "referral-scan-checkpoint.json");
 // `null`, until something happened to touch it). A version mismatch on load
 // discards the cache and forces a full rebuild instead of serving
 // incomplete records.
-const RECORD_SCHEMA_VERSION = 3; // 1: original shape. 2: added departmentId. 3: added referrerName.
+const RECORD_SCHEMA_VERSION = 4; // 1: original shape. 2: added departmentId. 3: added referrerName. 4: added jobId.
 
 // { schemaVersion, syncToken: string|null, applications: { [applicationId]: referralRecord } }
 // `applications` holds ONLY currently-qualifying (Active + Referral) records
@@ -135,6 +135,7 @@ function toRecord(app) {
     candidateId: candidate.id,
     candidateName: candidate.name,
     jobTitle: (app.job && app.job.title) || "Unknown role",
+    jobId: (app.job && app.job.id) || null,
     departmentId: (app.job && app.job.departmentId) || null,
     stageTitle: stage.title || "Unknown stage",
     stageOrder: stage.orderInInterviewPlan ?? 0,

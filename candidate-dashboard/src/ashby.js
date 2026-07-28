@@ -144,6 +144,7 @@ async function fetchApplicationSummaries(applicationIds) {
       candidateName: candidate.name,
       candidateEmail: candidate.primaryEmailAddress && candidate.primaryEmailAddress.value,
       jobTitle: (app.job && app.job.title) || "Unknown role",
+      jobId: (app.job && app.job.id) || null,
       departmentId: (app.job && app.job.departmentId) || null,
       ashbyProfileUrl: profileUrl(candidate.id, app.id),
     });
@@ -489,6 +490,7 @@ async function listRecentSourced() {
       candidateId: candidate.id,
       candidateName: candidate.name,
       jobTitle: (app.job && app.job.title) || "Unknown role",
+      jobId: (app.job && app.job.id) || null,
       departmentId: (app.job && app.job.departmentId) || null,
       status: app.status,
       sourceCategory, // "Referral" | "Agency"
