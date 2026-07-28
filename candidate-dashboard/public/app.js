@@ -125,20 +125,25 @@
     return `candidate:${item.candidateId}`;
   }
 
-  function cardHtml(item, { sev, ageLabel, detail, reasonBadge }) {
+  // Candidate cards show only the name by default — everything else
+  // (age/severity, job title, dismiss control, badges, detail line) lives in
+  // `.card-details`, revealed on hover (see style.css `.card:hover
+  // .card-details`). `:focus-within` mirrors that for keyboard users tabbing
+  // to the dismiss button, since it'd otherwise be unreachable.
+  function cardHtml(item, { sev, ageLabel, ageClass, detail, reasonBadge }) {
     const nameHtml = item.ashbyProfileUrl
       ? `<a href="${item.ashbyProfileUrl}" target="_blank" rel="noopener">${item.candidateName || "Unknown candidate"}</a>`
       : item.candidateName || "Unknown candidate";
 
     return `
       <div class="card sev-${sev}">
-        <div class="card-top">
-          <div class="card-name">${nameHtml}</div>
-          ${cardTopRight(ageLabel, `sev-${sev}`, candidateKey(item))}
+        <div class="card-name">${nameHtml}</div>
+        <div class="card-details">
+          ${cardTopRight(ageLabel, ageClass || `sev-${sev}`, candidateKey(item))}
+          <div class="card-sub">${item.jobTitle || ""}</div>
+          ${reasonBadge ? `<div class="reason-badge">${reasonBadge}</div>` : ""}
+          ${detail ? `<div class="card-detail">${detail}</div>` : ""}
         </div>
-        <div class="card-sub">${item.jobTitle || ""}</div>
-        ${reasonBadge ? `<div class="reason-badge">${reasonBadge}</div>` : ""}
-        ${detail ? `<div class="card-detail">${detail}</div>` : ""}
       </div>
     `;
   }
@@ -220,9 +225,6 @@
     }
     container.innerHTML = items
       .map((item) => {
-        const nameHtml = item.ashbyProfileUrl
-          ? `<a href="${item.ashbyProfileUrl}" target="_blank" rel="noopener">${item.candidateName || "Unknown candidate"}</a>`
-          : item.candidateName || "Unknown candidate";
         const source = item.sourceTitle
           ? `${item.sourceCategory} · ${item.sourceTitle}`
           : item.sourceCategory;
@@ -230,16 +232,12 @@
           item.status && item.status !== "Active"
             ? `<span class="status-badge">${item.status}</span>`
             : "";
-        return `
-          <div class="card sev-good">
-            <div class="card-top">
-              <div class="card-name">${nameHtml}</div>
-              ${cardTopRight(formatAgo(item.createdAt), "muted", candidateKey(item))}
-            </div>
-            <div class="card-sub">${item.jobTitle || ""}</div>
-            <div class="card-detail">${source}${statusBadge}</div>
-          </div>
-        `;
+        return cardHtml(item, {
+          sev: "good",
+          ageLabel: formatAgo(item.createdAt),
+          ageClass: "muted",
+          detail: `${source}${statusBadge}`,
+        });
       })
       .join("");
   }
@@ -251,20 +249,13 @@
       return;
     }
     container.innerHTML = items
-      .map((item) => {
-        const nameHtml = item.ashbyProfileUrl
-          ? `<a href="${item.ashbyProfileUrl}" target="_blank" rel="noopener">${item.candidateName || "Unknown candidate"}</a>`
-          : item.candidateName || "Unknown candidate";
-        return `
-          <div class="card sev-good">
-            <div class="card-top">
-              <div class="card-name">${nameHtml}</div>
-              ${cardTopRight(item.stageTitle, "muted", candidateKey(item))}
-            </div>
-            <div class="card-sub">${item.jobTitle || ""}</div>
-          </div>
-        `;
-      })
+      .map((item) =>
+        cardHtml(item, {
+          sev: "good",
+          ageLabel: item.stageTitle,
+          ageClass: "muted",
+        })
+      )
       .join("");
   }
 

@@ -41,26 +41,24 @@
     </div>
   </div>
 
-  <main class="page-layout">
-    <div class="main-content">
-      <div class="board" id="board">
-        <section id="feedbackOverdue" class="column" data-key="feedbackOverdue">
-          <h2><span class="dot dot-critical"></span>Feedback Overdue</h2>
-          <span class="section-updated muted" id="updated-feedbackOverdue"></span>
-          <p class="column-sub">Interview ended, scorecard still not submitted.</p>
-          <div class="cards" id="cards-feedbackOverdue"></div>
-        </section>
+  <main class="page-stack">
+    <section id="feedbackOverdue" class="column wide-section" data-key="feedbackOverdue">
+      <h2><span class="dot dot-critical"></span>Feedback Overdue</h2>
+      <span class="section-updated muted" id="updated-feedbackOverdue"></span>
+      <p class="column-sub">Interview ended, scorecard still not submitted.</p>
+      <div class="cards" id="cards-feedbackOverdue"></div>
+    </section>
 
-        <section id="needsScheduling" class="column" data-key="needsScheduling">
-          <h2><span class="dot dot-warning"></span>Needs Scheduling</h2>
-          <span class="section-updated muted" id="updated-needsScheduling"></span>
-          <p class="column-sub">
-            Nothing has been sent to the candidate yet — no availability
-            request, no self-schedule link.
-          </p>
-          <div class="cards" id="cards-needsScheduling"></div>
-        </section>
-      </div>
+    <div class="row-pair">
+      <section id="needsScheduling" class="column" data-key="needsScheduling">
+        <h2><span class="dot dot-warning"></span>Needs Scheduling</h2>
+        <span class="section-updated muted" id="updated-needsScheduling"></span>
+        <p class="column-sub">
+          Nothing has been sent to the candidate yet — no availability
+          request, no self-schedule link.
+        </p>
+        <div class="cards" id="cards-needsScheduling"></div>
+      </section>
 
       <section id="availabilitySubmitted" class="column wide-section" data-key="availabilitySubmitted">
         <h2><span class="dot dot-warning"></span>Availability Submitted</h2>
@@ -71,43 +69,39 @@
         </p>
         <div class="cards" id="cards-availabilitySubmitted"></div>
       </section>
-
-      <section id="activeReferrals" class="column wide-section" data-key="activeReferrals">
-        <h2><span class="dot dot-good"></span>Active Referrals</h2>
-        <span class="section-updated muted" id="updated-activeReferrals"></span>
-        <p class="column-sub">
-          Every active referral candidate org-wide and their current pipeline
-          stage, regardless of when they applied. Refreshes on its own,
-          separate schedule from the rest of the page — see timestamp above.
-        </p>
-        <div class="cards" id="cards-activeReferrals"></div>
-      </section>
     </div>
 
-    <aside class="sidebar">
-      <section id="interviewerLimits" class="column sidebar-section" data-key="interviewerLimits">
-        <h2><span class="dot dot-warning"></span>Interviewer Weekly Limits</h2>
-        <span class="section-updated muted" id="updated-interviewerLimits"></span>
-        <p class="column-sub">
-          Interviewers at or nearing their Ashby-configured weekly interview
-          limit, for the current calendar week. Interviewers with no limit set
-          never appear here. Not affected by the department filter above.
-        </p>
-        <div class="cards" id="cards-interviewerLimits"></div>
-      </section>
+    <section id="activeReferrals" class="column wide-section" data-key="activeReferrals">
+      <h2><span class="dot dot-good"></span>Active Referrals</h2>
+      <span class="section-updated muted" id="updated-activeReferrals"></span>
+      <p class="column-sub">
+        Every active referral candidate org-wide and their current pipeline
+        stage, regardless of when they applied. Refreshes on its own,
+        separate schedule from the rest of the page — see timestamp above.
+      </p>
+      <div class="cards" id="cards-activeReferrals"></div>
+    </section>
 
-      <section id="recentSourced" class="column sidebar-section" data-key="recentSourced">
-        <h2><span class="dot dot-good"></span>Recently Sourced</h2>
-        <span class="section-updated muted" id="updated-recentSourced"></span>
-        <p class="column-sub" id="recentSourced-sub">
-          Candidates referred or sourced by an agency in the last few days.
-        </p>
-        <div class="cards" id="cards-recentSourced"></div>
-      </section>
-    </aside>
-  </main>
+    <section id="interviewerLimits" class="column wide-section" data-key="interviewerLimits">
+      <h2><span class="dot dot-warning"></span>Interviewer Weekly Limits</h2>
+      <span class="section-updated muted" id="updated-interviewerLimits"></span>
+      <p class="column-sub">
+        Interviewers at or nearing their Ashby-configured weekly interview
+        limit, for the current calendar week. Interviewers with no limit set
+        never appear here. Not affected by the department filter above.
+      </p>
+      <div class="cards" id="cards-interviewerLimits"></div>
+    </section>
 
-  <div class="bottom-section">
+    <section id="recentSourced" class="column wide-section" data-key="recentSourced">
+      <h2><span class="dot dot-good"></span>Recently Sourced</h2>
+      <span class="section-updated muted" id="updated-recentSourced"></span>
+      <p class="column-sub" id="recentSourced-sub">
+        Candidates referred or sourced by an agency in the last few days.
+      </p>
+      <div class="cards" id="cards-recentSourced"></div>
+    </section>
+
     <section id="staleCandidates" class="column wide-section tint-critical" data-key="staleCandidates">
       <h2><span class="dot dot-critical"></span>Stale Candidates</h2>
       <span class="section-updated muted" id="updated-staleCandidates"></span>
@@ -117,7 +111,7 @@
       </p>
       <div class="cards" id="cards-staleCandidates"></div>
     </section>
-  </div>
+  </main>
 
   <footer class="page-footer">Created by Hayley</footer>
 

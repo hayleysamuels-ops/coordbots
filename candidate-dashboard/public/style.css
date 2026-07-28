@@ -325,80 +325,52 @@ button#refresh-btn.spinning {
   accent-color: var(--ember);
 }
 
-.page-layout {
+/* Every section is its own full-width horizontal band, stacked vertically —
+   except Needs Scheduling and Availability Submitted, paired side by side
+   in a .row-pair (see below). */
+.page-stack {
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
   gap: 24px;
   max-width: 1300px;
   margin: 0 auto;
   padding: 24px 28px;
-}
-
-.bottom-section {
-  max-width: 1300px;
-  margin: 0 auto;
-  padding: 24px 28px;
-  border-top: 1px solid var(--gridline);
-}
-
-.main-content {
-  flex: 1;
-  min-width: 0; /* let children shrink/wrap instead of overflowing the flex item */
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.sidebar {
-  flex: 0 0 300px;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
 }
 
 /* Very light dividers between sections — subtle, not a hard rule. Only
    between siblings (first child never gets one), so nothing doubles up with
    the border the section-nav already has. */
-.main-content > * + *,
-.sidebar > * + * {
+.page-stack > * + * {
   border-top: 1px solid var(--gridline);
   padding-top: 24px;
 }
 
-.board > .column:not(:first-child) {
+.row-pair {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.row-pair > .column {
+  flex: 1;
+  min-width: 0; /* let children shrink/wrap instead of overflowing the flex item */
+}
+
+.row-pair > .column:not(:first-child) {
   border-left: 1px solid var(--gridline);
   padding-left: 20px;
 }
 
 @media (max-width: 700px) {
-  .board > .column:not(:first-child) {
+  .row-pair {
+    flex-direction: column;
+  }
+
+  .row-pair > .column:not(:first-child) {
     border-left: none;
     padding-left: 0;
     border-top: 1px solid var(--gridline);
     padding-top: 20px;
-  }
-}
-
-@media (max-width: 900px) {
-  .page-layout {
-    flex-direction: column;
-  }
-
-  .sidebar {
-    flex-basis: auto;
-    width: 100%;
-  }
-}
-
-.board {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px;
-}
-
-@media (max-width: 700px) {
-  .board {
-    grid-template-columns: 1fr;
   }
 }
 
@@ -586,6 +558,25 @@ button#refresh-btn.spinning {
 .card-name a:hover {
   color: var(--ember);
   text-decoration: underline;
+}
+
+/* Candidate cards show only the name at rest; everything else (age,
+   dismiss, job title, badges, detail) reveals on hover. :focus-within
+   mirrors that for keyboard users tabbing to the dismiss button, which
+   would otherwise be unreachable. */
+.card-details {
+  max-height: 0;
+  margin-top: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-height 150ms ease, opacity 150ms ease, margin-top 150ms ease;
+}
+
+.card:hover .card-details,
+.card:focus-within .card-details {
+  max-height: 200px;
+  margin-top: 8px;
+  opacity: 1;
 }
 
 .card-age {
