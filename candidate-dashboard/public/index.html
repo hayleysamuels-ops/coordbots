@@ -22,13 +22,14 @@
   </header>
 
   <nav class="section-nav">
-    <a href="#staleCandidates">Stale Candidates</a>
     <a href="#feedbackOverdue">Feedback Overdue</a>
     <a href="#needsScheduling">Needs Scheduling</a>
     <a href="#availabilitySubmitted">Availability Submitted</a>
+    <a href="#activeReferrals">Active Referrals</a>
     <a href="#interviewerLimits">Interviewer Weekly Limits</a>
     <a href="#recentSourced">Recently Sourced</a>
-    <a href="#activeReferrals">Active Referrals</a>
+    <a href="#staleCandidates">Stale Candidates</a>
+    <a href="#onsiteToday">Onsite Interviews Today</a>
   </nav>
 
   <div class="filter-bar">
@@ -41,6 +42,7 @@
     </div>
   </div>
 
+  <div class="page-with-margin">
   <main class="page-stack">
     <section id="feedbackOverdue" class="column wide-section" data-key="feedbackOverdue">
       <h2><span class="dot dot-critical"></span>Feedback Overdue</h2>
@@ -112,6 +114,20 @@
       <div class="cards" id="cards-staleCandidates"></div>
     </section>
   </main>
+
+  <aside class="side-margin">
+    <section id="onsiteToday" class="column onsite-section" data-key="onsiteToday">
+      <h2><span class="dot dot-warning"></span>Onsite Interviews Today</h2>
+      <span class="section-updated muted" id="updated-onsiteToday"></span>
+      <p class="column-sub">
+        Today's panel and final-round interviews. Ashby has no per-interview
+        onsite flag in this org, so this is approximated by interview stage
+        name (panel/final round) rather than a real location signal.
+      </p>
+      <div class="cards" id="cards-onsiteToday"></div>
+    </section>
+  </aside>
+  </div>
 
   <footer class="page-footer">Created by Hayley</footer>
 

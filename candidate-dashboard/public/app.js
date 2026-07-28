@@ -223,6 +223,13 @@
     return `${formatAge(hours)} ago`;
   }
 
+  // Rendered in the browser's own local timezone — the "is this today"
+  // filtering happens server-side on a UTC calendar day (see
+  // listOnsiteToday in ashby.js), so this is display-only.
+  function formatEventTime(iso) {
+    return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+
   function renderRecentSourced(items) {
     const container = document.getElementById("cards-recentSourced");
     if (!items.length) {
@@ -266,6 +273,28 @@
       .join("");
   }
 
+  function renderOnsiteToday(items) {
+    const container = document.getElementById("cards-onsiteToday");
+    if (!items.length) {
+      container.innerHTML = `<div class="empty-state">Nothing scheduled today</div>`;
+      return;
+    }
+    container.innerHTML = items
+      .map((item) =>
+        cardHtml(item, {
+          sev: "warning",
+          ageLabel: formatEventTime(item.startTime),
+          ageClass: "muted",
+          reasonBadge: item.stageTitle,
+          detail:
+            item.interviewers && item.interviewers.length
+              ? `Interviewers: ${item.interviewers.map((i) => i.name).join(", ")}`
+              : "",
+        })
+      )
+      .join("");
+  }
+
   // Six sections share one refresh cycle (data.lastUpdated/lastError);
   // Active Referrals refreshes independently on its own, much slower cycle
   // (data.activeReferralsUpdated/activeReferralsError) — see referralCache.js.
@@ -278,6 +307,7 @@
     "interviewerLimits",
     "recentSourced",
     "staleCandidates",
+    "onsiteToday",
   ];
 
   function formatUpdatedAgo(iso) {
@@ -306,6 +336,7 @@
     renderInterviewerLimits(data.interviewerLimits || []); // no department filter — see DEPARTMENT_FILTERED_KEYS note
     renderRecentSourced(filterByDepartment(data.recentSourced || []));
     renderActiveReferrals(filterByDepartment(data.activeReferrals || []));
+    renderOnsiteToday(filterByDepartment(data.onsiteToday || []));
     updateSourcedSubtitle(data.thresholds && data.thresholds.sourcedLookbackDays);
 
     for (const key of SECTION_TIMESTAMP_KEYS) {

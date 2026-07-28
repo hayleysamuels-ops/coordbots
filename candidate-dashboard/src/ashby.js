@@ -269,7 +269,92 @@ async function listInterviewerLimits(schedules) {
  *   listInterviewerLimits above. Independent of application status; an
  *   interviewer's load counts regardless of whether their candidates are
  *   Active, Hired, or Archived.
+ * - onsiteToday: today's panel/final-round interview events — see
+ *   listOnsiteToday above for how "onsite" is approximated (Ashby has no
+ *   real signal for it in this org).
  */
+// A recruiting coordinator's day-of prep list. Ashby has no per-interview
+// "onsite" flag anywhere in this org — checked interviewEvents,
+// interview.info, interviewStage.info, and all 38 org custom fields; none
+// carry a location/format signal, and no stage/interview title says
+// "onsite" either. Per explicit product decision, "onsite" is approximated
+// by interview STAGE title containing "panel" or "final" (case-insensitive)
+// — this org's actual onsite rounds, even though Ashby doesn't structurally
+// say so. "Today" is a UTC calendar day, the same tradeoff
+// countInterviewsThisWeek already makes for "this week" (see above) —
+// display times still render in the browser's local zone client-side, only
+// the day boundary is computed in UTC here.
+const ONSITE_STAGE_TITLE_PATTERN = /panel|final/i;
+
+function isTodayUTC(dateStr) {
+  const d = new Date(dateStr);
+  const now = new Date();
+  return (
+    d.getUTCFullYear() === now.getUTCFullYear() &&
+    d.getUTCMonth() === now.getUTCMonth() &&
+    d.getUTCDate() === now.getUTCDate()
+  );
+}
+
+/**
+ * Today's panel/final-round interview events for still-Active candidates.
+ * Reuses the same `schedules`/`applications` listIssues() already computed
+ * — no extra pagination call — except for resolving each involved
+ * schedule's interviewStageId to a title, which interviewSchedule.list
+ * doesn't include directly. Stage IDs are heavily reused across schedules
+ * (most orgs have a handful of stages), so this is a small, cheap,
+ * concurrency-limited, per-unique-stage-id lookup, not one per schedule.
+ */
+async function listOnsiteToday(schedules, applications) {
+  const candidates = schedules.filter(
+    (s) =>
+      applications.has(s.applicationId) &&
+      (s.interviewEvents || []).some((e) => e.startTime && isTodayUTC(e.startTime))
+  );
+  if (!candidates.length) return [];
+
+  const stageIds = [...new Set(candidates.map((s) => s.interviewStageId).filter(Boolean))];
+  const stageTitleById = new Map(
+    (
+      await mapWithConcurrency(stageIds, 8, async (interviewStageId) => {
+        try {
+          const json = await ashbyPost("interviewStage.info", { interviewStageId });
+          return [interviewStageId, json.results.title];
+        } catch (err) {
+          console.warn(`[ashby] interviewStage.info failed for ${interviewStageId}:`, err.message);
+          return null;
+        }
+      })
+    ).filter(Boolean)
+  );
+
+  const entries = [];
+  for (const schedule of candidates) {
+    const stageTitle = stageTitleById.get(schedule.interviewStageId);
+    if (!stageTitle || !ONSITE_STAGE_TITLE_PATTERN.test(stageTitle)) continue;
+
+    const app = applications.get(schedule.applicationId);
+    for (const event of schedule.interviewEvents || []) {
+      if (!event.startTime || !isTodayUTC(event.startTime)) continue;
+      entries.push({
+        ...app,
+        scheduleId: schedule.id,
+        interviewEventId: event.id,
+        stageTitle,
+        startTime: event.startTime,
+        endTime: event.endTime,
+        interviewers: (event.interviewers || []).map((i) => ({
+          name: `${i.firstName || ""} ${i.lastName || ""}`.trim() || i.email,
+          email: i.email,
+        })),
+      });
+    }
+  }
+
+  entries.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+  return entries;
+}
+
 async function listIssues() {
   const createdAfter = Date.now() - SCHEDULE_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
   const schedules = await fetchAllPages("interviewSchedule.list", { limit: 100, createdAfter });
@@ -279,6 +364,9 @@ async function listIssues() {
     fetchApplicationSummaries(applicationIds),
     listInterviewerLimits(schedules),
   ]);
+  // Depends on `applications` (to know which schedules are for still-Active
+  // candidates), so it can't join the Promise.all above.
+  const onsiteToday = await listOnsiteToday(schedules, applications);
 
   const now = Date.now();
   const feedbackEntries = [];
@@ -359,7 +447,7 @@ async function listIssues() {
   staleCandidates.sort((a, b) => b.hoursStale - a.hoursStale);
   availabilitySubmitted.sort((a, b) => b.hoursWaiting - a.hoursWaiting);
 
-  return { feedbackOverdue, needsScheduling, staleCandidates, interviewerLimits, availabilitySubmitted };
+  return { feedbackOverdue, needsScheduling, staleCandidates, interviewerLimits, availabilitySubmitted, onsiteToday };
 }
 
 // Classify an application's source into "Referral" / "Agency", or null if it's
@@ -436,7 +524,7 @@ async function listDepartments() {
 // once (measured: 718s pagination, negligible client-side filtering — see
 // README § Scope) but persists a syncToken so subsequent refreshes are
 // incremental instead of repeating the full scan every time, and runs on
-// its own timer so that cost never blocks the six sections above. See
+// its own timer so that cost never blocks the seven sections above. See
 // referralCache.js for fullScan()/incrementalSync(); it reuses this file's
 // fetchAllPages/classifySource/profileUrl, exported below.
 

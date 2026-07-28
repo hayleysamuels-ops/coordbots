@@ -328,13 +328,55 @@ button#refresh-btn.spinning {
 /* Every section is its own full-width horizontal band, stacked vertically —
    except Needs Scheduling and Availability Submitted, paired side by side
    in a .row-pair (see below). */
+/* Outer wrapper: the main section stack on the left, a persistent
+   right-margin column alongside it on the right. */
+.page-with-margin {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  max-width: 1620px;
+  margin: 0 auto;
+  padding: 24px 28px;
+}
+
 .page-stack {
+  flex: 1;
+  min-width: 0; /* let children shrink/wrap instead of overflowing the flex item */
   display: flex;
   flex-direction: column;
   gap: 24px;
-  max-width: 1300px;
-  margin: 0 auto;
-  padding: 24px 28px;
+}
+
+.side-margin {
+  flex: 0 0 300px;
+  position: sticky;
+  top: 24px;
+}
+
+@media (max-width: 900px) {
+  .page-with-margin {
+    flex-direction: column;
+  }
+
+  .side-margin {
+    flex-basis: auto;
+    width: 100%;
+    position: static;
+  }
+}
+
+/* Onsite Interviews Today gets a full, clearly-visible border (not just the
+   subtle top-divider the rest of the page uses) — it's meant to stand out
+   as a distinct, check-this-now panel in the margin. */
+.onsite-section {
+  /* text-primary, not the raw --grafite value — grafite stays dark in both
+     light AND dark mode (it's the dark mode page background), which would
+     make this border nearly invisible against the page exactly in the mode
+     where it matters. text-primary correctly flips per mode. */
+  border: 2px solid var(--text-primary);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  background: var(--surface);
 }
 
 /* Very light dividers between sections — subtle, not a hard rule. Only

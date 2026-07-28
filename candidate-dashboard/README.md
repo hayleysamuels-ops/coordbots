@@ -1,7 +1,7 @@
 # Candidate issues dashboard
 
 A small dashboard for a recruiting coordinator: at a glance, which candidates
-(and interviewers) need attention right now. Seven sections:
+(and interviewers) need attention right now. Eight sections:
 
 | Section | What it flags | Source |
 | --- | --- | --- |
@@ -11,7 +11,8 @@ A small dashboard for a recruiting coordinator: at a glance, which candidates
 | **Availability Submitted** | The candidate replied with their availability; waiting on someone to book it. Shown regardless of age (not threshold-gated); `AVAILABILITY_SUBMITTED_ALERT_HOURS` (default 24h) only drives the amber/red color-coding. | Ashby `interviewSchedule.list` — `status: "CandidateAvailabilitySubmitted"`. |
 | **Interviewer Weekly Limits** | An interviewer whose remaining weekly interview capacity has dropped to `INTERVIEWER_LIMIT_BUFFER` slots or fewer (default 1) — i.e. their Ashby-configured `weeklyLimit` minus interviews already on their calendar this week (Mon–Sun UTC). Interviewers with no `weeklyLimit` set never appear. | Ashby `user.interviewerSettings` (the limit) + `interviewSchedule.list` event data (the count). |
 | **Recently Sourced** | Candidates whose application was **created** in the last `SOURCED_LOOKBACK_DAYS` (default 3) with a referral or agency source. All statuses shown (Active/Archived/Hired/Lead), labeled per card. | Ashby `application.list` (`createdAfter` + `source.sourceType`). |
-| **Active Referrals** | Every currently-Active referral candidate whose application was created within `REFERRAL_LOOKBACK_DAYS` (default 90), by current pipeline stage. Refreshes on its **own independent schedule** from the other six sections — see § Active Referrals below. | Ashby `application.list` (`status: "Active"` + `createdAfter` on the one-time full scan; incremental afterwards via `syncToken`, unbounded by date), filtered client-side to `source.sourceType` = Referral. |
+| **Active Referrals** | Every currently-Active referral candidate whose application was created within `REFERRAL_LOOKBACK_DAYS` (default 90), by current pipeline stage. Refreshes on its **own independent schedule** from the other seven sections — see § Active Referrals below. | Ashby `application.list` (`status: "Active"` + `createdAfter` on the one-time full scan; incremental afterwards via `syncToken`, unbounded by date), filtered client-side to `source.sourceType` = Referral. |
+| **Onsite Interviews Today** | Today's panel/final-round interview events, shown in a persistent right-margin column with a deliberately heavier border than the rest of the page. "Onsite" is **approximated**: Ashby has no per-interview location/format field anywhere in this org (checked interview events, interview definitions, interview stages, and all 38 org custom fields), so this matches on the interview stage title containing "panel" or "final" instead, per explicit product decision. "Today" is a UTC calendar day; display times render in the browser's local zone. | Ashby `interviewSchedule.list` (the same fetch `listIssues()` already does — no extra pagination call) + `interviewStage.info` per unique stage id involved. |
 
 A candidate that crosses a stale threshold appears **only** in Stale
 Candidates, not also in its regular column, to avoid double-counting.
@@ -231,7 +232,7 @@ Fill in `.env`:
 | `INTERVIEWER_LIMIT_BUFFER` | no | Default `1`. An interviewer is flagged once remaining weekly capacity drops to this many slots or fewer. |
 | `SOURCED_LOOKBACK_DAYS` | no | Default `3`. Recently Sourced shows referral/agency applications created within this many days. |
 | `AVAILABILITY_SUBMITTED_ALERT_HOURS` | no | Default `24`. Color-coding threshold only — every submitted-and-unbooked candidate is shown regardless of age. |
-| `REFRESH_INTERVAL_MINUTES` | no | How often the server re-pulls Ashby for the six main sections. Default `5`. The page itself polls the cached snapshot every 60s regardless. |
+| `REFRESH_INTERVAL_MINUTES` | no | How often the server re-pulls Ashby for the seven main sections. Default `5`. The page itself polls the cached snapshot every 60s regardless. |
 | `ACTIVE_REFERRALS_REFRESH_INTERVAL_MINUTES` | no | Default `5`. Separate timer for Active Referrals only — see § Active Referrals. Independent of `REFRESH_INTERVAL_MINUTES` on purpose. |
 | `REFERRAL_LOOKBACK_DAYS` | no | Default `90`. Bounds Active Referrals' one-time full scan to applications created within this many days (measured: cuts 317 pages to 34). Does not affect incremental syncs after that. |
 | `DATA_DIR` | no | Where dismissals (`dismissals.json`), the Active Referrals cache (`referral-cache.json`), and its in-progress scan checkpoint (`referral-scan-checkpoint.json`) are persisted. Defaults to `./data`. On a cloud host, point at a mounted volume so none of these are lost on redeploy. |
@@ -242,10 +243,10 @@ Fill in `.env`:
 npm start
 ```
 
-Open `http://localhost:3000`. Both background refresh loops (six main
+Open `http://localhost:3000`. Both background refresh loops (seven main
 sections, and Active Referrals separately) start immediately on startup and
 then run on their own intervals; there's also a "Refresh now" button on the
-page for an on-demand pull of the **six main sections only** — it
+page for an on-demand pull of the **seven main sections only** — it
 deliberately doesn't force Active Referrals to refresh too, since that could
 mean waiting for a scan instead of the instant response the button implies.
 
@@ -275,7 +276,7 @@ entry from `dismissals.json`.
 | `src/referralCache.js` | Active Referrals' own persisted cache + incremental sync + resumable full-scan checkpointing, and independent refresh timer — see § Active Referrals. |
 | `src/concurrency.js` | `mapWithConcurrency` — bounds parallel `application.info` / `user.interviewerSettings` lookups. |
 | `src/dismissals.js` | Persisted store of dismissed cards (`dismissals.json`); handles "today" expiry and "forever". |
-| `src/issues.js` | Orchestrates the six schedule-driven lists, merges in Active Referrals from `referralCache.js`, guards against overlapping refreshes, filters out dismissed cards at serve time, holds the cached snapshot. |
+| `src/issues.js` | Orchestrates the seven schedule-driven lists, merges in Active Referrals from `referralCache.js`, guards against overlapping refreshes, filters out dismissed cards at serve time, holds the cached snapshot. |
 | `public/` | The dashboard itself — plain HTML/CSS/JS, polls `/api/issues` every 60s. |
 
 ## Notes & limitations

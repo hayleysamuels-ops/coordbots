@@ -52,7 +52,7 @@ Background poll (not webhooks — a dashboard just needs current state), and
 
 `issues.js`'s `getSnapshot()` merges both into one payload for
 `GET /api/issues` (see `server.js`), with **separate timestamps**:
-`lastUpdated`/`lastError` for the six main sections, `activeReferralsUpdated`/
+`lastUpdated`/`lastError` for the seven main sections, `activeReferralsUpdated`/
 `activeReferralsError` for Active Referrals. The frontend (`public/app.js`)
 polls that one endpoint every 60s and renders a per-section "Updated Xm ago"
 using whichever timestamp applies to that section — it never hits Ashby
@@ -60,7 +60,7 @@ directly, and never needs to know these are two different refresh cycles
 beyond reading the right timestamp field.
 
 This split exists because Active Referrals' full scan (~12 minutes measured
-on this org, unbounded) would otherwise have delayed the other six sections
+on this org, unbounded) would otherwise have delayed the other seven sections
 on every refresh — it used to run inside `issues.js`'s own `Promise.all`,
 which meant nothing updated until the slowest call finished. See README
 § Active Referrals for the full history and design.
@@ -107,13 +107,26 @@ is normally still in Application Review and any status).
   timer. `start()` is called from `issues.js`'s `start()`, not `index.js`
   directly, so `issues.start()` remains the single entry point for "start
   all background refresh loops."
-- `src/issues.js` — orchestrator + cache for the six main sections; merges in
+- `src/issues.js` — orchestrator + cache for the seven main sections; merges in
   Active Referrals from `referralCache.js` at serve time; also applies
   dismissals at serve time (see below).
 - `public/` — plain HTML/CSS/JS dashboard, no framework.
 
 ## Key design facts (don't "fix" these — they're intentional)
 
+- **"Onsite" in Onsite Interviews Today is a naming-convention approximation,
+  not a real Ashby signal.** Checked interviewEvents, interview.info,
+  interviewStage.info, and all 38 org custom fields — none carry a
+  location/format field anywhere. `listOnsiteToday()` in `src/ashby.js`
+  instead matches on the interview STAGE title containing "panel" or "final"
+  (case-insensitive, `ONSITE_STAGE_TITLE_PATTERN`), per explicit product
+  decision (confirmed live: this org really does have a "Panel Round" stage).
+  If a future org's stage names don't follow this convention, this section
+  will silently show nothing rather than error — check the stage titles via
+  `interviewStage.info` before assuming the pattern is broken. "Today" is a
+  UTC calendar day (`isTodayUTC`), the same tradeoff `countInterviewsThisWeek`
+  already makes for weekly limits — display times still render in the
+  browser's local zone client-side.
 - **`interviewSchedule.status` is a real, granular state machine — treat it
   that way, not as a coarse 3-value enum.** Confirmed values in this org:
   `NeedsScheduling` → `WaitingOnCandidateAvailability` /
@@ -259,7 +272,7 @@ is normally still in Application Review and any status).
   `referralCache.js`'s) just attaches to the in-flight promise instead of
   starting a new one. Don't remove either guard.
 - **Per-section timestamps reveal the two-cycle split, don't hide it.**
-  `public/app.js`'s `SECTION_TIMESTAMP_KEYS` lists the six sections that
+  `public/app.js`'s `SECTION_TIMESTAMP_KEYS` lists the seven sections that
   share `data.lastUpdated`/`lastError`; Active Referrals is rendered
   separately using `data.activeReferralsUpdated`/`activeReferralsError`. If
   you add a new main-cycle section, add its key to
@@ -277,8 +290,9 @@ is normally still in Application Review and any status).
   but deliberately does NOT close on selection (unlike dismiss-menu) since
   picking several departments requires staying open — it closes only on the
   reset button, outside-click, or scroll. `filterByDepartment()` is applied
-  to the six candidate sections' arrays before each is rendered
-  (`renderColumn`/`renderStale`/`renderRecentSourced`/`renderActiveReferrals`)
+  to the seven candidate sections' arrays before each is rendered
+  (`renderColumn`/`renderStale`/`renderRecentSourced`/`renderActiveReferrals`/
+  `renderOnsiteToday`)
   — Interviewer Weekly Limits deliberately skips it, since an interviewer
   isn't tied to one department. If you add a new candidate-facing section,
   wrap its render call with `filterByDepartment(...)` too, and make sure
@@ -292,7 +306,7 @@ is normally still in Application Review and any status).
   the background refresh doesn't need to re-run. Don't move filtering into
   `refresh()`; that would delay dismissals by up to `REFRESH_INTERVAL_MINUTES`.
 - **Dismiss keys are entity-scoped, not row-scoped.** `candidate:<id>` hides a
-  person from all six candidate sections at once (including Active
+  person from all seven candidate sections at once (including Active
   Referrals, even though it refreshes independently — `applyDismissals()`
   filters it too, after `getSnapshot()` merges it in from `referralCache.js`);
   `interviewer:<id>` hides an interviewer from the limits section. There's an

@@ -60,7 +60,7 @@ const config = {
 
   // Active Referrals refreshes on its own independent timer (see
   // referralCache.js) so its full-scan cost (~12 minutes measured on this
-  // org) never blocks the other six sections. Safe to run more often than
+  // org) never blocks the other seven sections. Safe to run more often than
   // that once the initial full scan completes, since subsequent refreshes
   // are incremental (syncToken-based) and typically fast.
   activeReferralsRefreshIntervalMinutes: number("ACTIVE_REFERRALS_REFRESH_INTERVAL_MINUTES", 5),

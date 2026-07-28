@@ -17,7 +17,7 @@ const thresholds = {
 
 // Active Referrals is NOT part of this snapshot — it refreshes on its own
 // independent timer via referralCache.js (see start()/getSnapshot() below),
-// specifically so its full-scan cost never delays these six sections.
+// specifically so its full-scan cost never delays these seven sections.
 let snapshot = {
   feedbackOverdue: [],
   needsScheduling: [],
@@ -25,6 +25,7 @@ let snapshot = {
   interviewerLimits: [],
   recentSourced: [],
   availabilitySubmitted: [],
+  onsiteToday: [],
   departments: [],
   thresholds,
 };
@@ -47,7 +48,8 @@ async function computeIssues() {
     timed("listDepartments", ashby.listDepartments()),
   ]);
 
-  const { feedbackOverdue, needsScheduling, staleCandidates, interviewerLimits, availabilitySubmitted } = issues;
+  const { feedbackOverdue, needsScheduling, staleCandidates, interviewerLimits, availabilitySubmitted, onsiteToday } =
+    issues;
   return {
     feedbackOverdue,
     needsScheduling,
@@ -55,6 +57,7 @@ async function computeIssues() {
     interviewerLimits,
     recentSourced,
     availabilitySubmitted,
+    onsiteToday,
     departments,
     thresholds,
   };
@@ -82,7 +85,8 @@ async function refresh() {
           `${snapshot.staleCandidates.length} stale, ` +
           `${snapshot.interviewerLimits.length} nearing interview limit, ` +
           `${snapshot.recentSourced.length} recently sourced, ` +
-          `${snapshot.availabilitySubmitted.length} availability submitted`
+          `${snapshot.availabilitySubmitted.length} availability submitted, ` +
+          `${snapshot.onsiteToday.length} onsite today`
       );
     } catch (err) {
       lastError = err.message;
@@ -114,6 +118,7 @@ function applyDismissals(snap) {
     staleCandidates: snap.staleCandidates.filter(keepCandidate),
     recentSourced: snap.recentSourced.filter(keepCandidate),
     availabilitySubmitted: snap.availabilitySubmitted.filter(keepCandidate),
+    onsiteToday: snap.onsiteToday.filter(keepCandidate),
     activeReferrals: snap.activeReferrals.filter(keepCandidate),
     interviewerLimits: snap.interviewerLimits.filter(keepInterviewer),
   };
@@ -126,7 +131,7 @@ function getSnapshot() {
     ...applyDismissals(merged),
     lastUpdated,
     lastError,
-    // Active Referrals' own timestamp/error, independent of the six above —
+    // Active Referrals' own timestamp/error, independent of the seven above —
     // see § per-section timestamps in the frontend and referralCache.js.
     activeReferralsUpdated: referralSnap.lastUpdated,
     activeReferralsError: referralSnap.lastError,
