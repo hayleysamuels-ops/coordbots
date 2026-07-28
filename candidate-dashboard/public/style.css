@@ -494,6 +494,11 @@ button#refresh-btn.spinning {
   flex: none;
 }
 
+/* Sits on the always-visible card row (not the hover popup), but stays very
+   subtle at rest — it's a secondary action, not something that should
+   compete with the candidate name. Fades in on card hover/button
+   hover/keyboard focus rather than disappearing entirely, so it's never
+   truly hidden (still reachable via Tab). */
 .dismiss-btn {
   border: none;
   background: transparent;
@@ -503,6 +508,14 @@ button#refresh-btn.spinning {
   line-height: 1;
   padding: 0 2px;
   border-radius: var(--radius-sm);
+  opacity: 0.3;
+  transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+.card:hover .dismiss-btn,
+.dismiss-btn:hover,
+.dismiss-btn:focus-visible {
+  opacity: 1;
 }
 
 .dismiss-btn:hover {

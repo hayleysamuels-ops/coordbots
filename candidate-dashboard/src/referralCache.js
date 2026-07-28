@@ -24,7 +24,7 @@ const CHECKPOINT_FILE = path.join(DATA_DIR, "referral-scan-checkpoint.json");
 // `null`, until something happened to touch it). A version mismatch on load
 // discards the cache and forces a full rebuild instead of serving
 // incomplete records.
-const RECORD_SCHEMA_VERSION = 2; // 1: original shape. 2: added departmentId.
+const RECORD_SCHEMA_VERSION = 3; // 1: original shape. 2: added departmentId. 3: added referrerName.
 
 // { schemaVersion, syncToken: string|null, applications: { [applicationId]: referralRecord } }
 // `applications` holds ONLY currently-qualifying (Active + Referral) records
@@ -118,6 +118,15 @@ function qualifies(app) {
   return app.status === "Active" && ashby.classifySource(app) === "Referral";
 }
 
+// Ashby's application.list/application.info already include creditedToUser
+// per result — the employee credited with the referral — so this needs no
+// extra per-application lookup call, unlike departmentId did not either.
+function referrerName(app) {
+  const referrer = app.creditedToUser;
+  if (!referrer) return null;
+  return `${referrer.firstName || ""} ${referrer.lastName || ""}`.trim() || referrer.email || null;
+}
+
 function toRecord(app) {
   const candidate = app.candidate || {};
   const stage = app.currentInterviewStage || {};
@@ -129,6 +138,7 @@ function toRecord(app) {
     departmentId: (app.job && app.job.departmentId) || null,
     stageTitle: stage.title || "Unknown stage",
     stageOrder: stage.orderInInterviewPlan ?? 0,
+    referrerName: referrerName(app),
     ashbyProfileUrl: ashby.profileUrl(candidate.id, app.id),
   };
 }

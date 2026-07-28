@@ -134,11 +134,18 @@
       ? `<a href="${item.ashbyProfileUrl}" target="_blank" rel="noopener">${item.candidateName || "Unknown candidate"}</a>`
       : item.candidateName || "Unknown candidate";
 
+    // Dismiss lives on the always-visible card row (styled very subtle by
+    // default — see .dismiss-btn in style.css), not in the hover popup, so
+    // it doesn't require hovering just to hide a card. Age/job title/badges/
+    // detail stay in `.card-details`, the floating popup.
     return `
       <div class="card sev-${sev}">
-        <div class="card-name">${nameHtml}</div>
+        <div class="card-top">
+          <div class="card-name">${nameHtml}</div>
+          ${dismissHtml(candidateKey(item))}
+        </div>
         <div class="card-details">
-          ${cardTopRight(ageLabel, ageClass || `sev-${sev}`, candidateKey(item))}
+          <div class="card-age ${ageClass || `sev-${sev}`}">${ageLabel}</div>
           <div class="card-sub">${item.jobTitle || ""}</div>
           ${reasonBadge ? `<div class="reason-badge">${reasonBadge}</div>` : ""}
           ${detail ? `<div class="card-detail">${detail}</div>` : ""}
@@ -253,6 +260,7 @@
           sev: "good",
           ageLabel: item.stageTitle,
           ageClass: "muted",
+          detail: item.referrerName ? `Referred by ${item.referrerName}` : "",
         })
       )
       .join("");
