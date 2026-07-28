@@ -50,10 +50,24 @@ function load() {
   }
 }
 
+// Writes to a temp file in the same directory, then renames over the real
+// path — fs.rename is atomic on POSIX as long as source and destination are
+// on the same filesystem (true here: both live under DATA_DIR), so a reader
+// only ever sees either the old complete file or the new complete one, never
+// a partial write. Matters because this data dir sits on a Railway volume
+// that survives container restarts — a plain writeFileSync killed mid-write
+// (container restart, crash) would otherwise leave a truncated file behind
+// for the next process to read on startup.
+function atomicWriteFileSync(filePath, contents) {
+  const tempPath = path.join(path.dirname(filePath), `.${path.basename(filePath)}.tmp-${process.pid}`);
+  fs.writeFileSync(tempPath, contents);
+  fs.renameSync(tempPath, filePath);
+}
+
 function save() {
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(FILE, JSON.stringify({ schemaVersion: RECORD_SCHEMA_VERSION, ...cache }));
+    atomicWriteFileSync(FILE, JSON.stringify({ schemaVersion: RECORD_SCHEMA_VERSION, ...cache }));
   } catch (err) {
     console.warn("[referralCache] save failed:", err.message);
   }
@@ -85,7 +99,7 @@ function loadCheckpoint(expectedLookbackDays) {
 function saveCheckpoint(checkpoint) {
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
-    fs.writeFileSync(CHECKPOINT_FILE, JSON.stringify(checkpoint));
+    atomicWriteFileSync(CHECKPOINT_FILE, JSON.stringify(checkpoint));
   } catch (err) {
     console.warn("[referralCache] checkpoint save failed:", err.message);
   }
