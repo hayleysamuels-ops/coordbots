@@ -264,11 +264,20 @@ is normally still in Application Review and any status).
   separately using `data.activeReferralsUpdated`/`activeReferralsError`. If
   you add a new main-cycle section, add its key to
   `SECTION_TIMESTAMP_KEYS` — it's not automatic.
-- **The department filter (`public/app.js`) is purely client-side, filtering
-  the already-fetched snapshot in memory — not a new API call.**
-  `lastData` caches the last render's payload; the `<select>`'s `change`
-  listener just calls `render(lastData)` again. `filterByDepartment()` is
-  applied to the six candidate sections' arrays before each is rendered
+- **The department filter (`public/app.js`) is multi-select and purely
+  client-side, filtering the already-fetched snapshot in memory — not a new
+  API call.** Selection state is `selectedDepartmentIds` (a `Set` of
+  department IDs; empty = no filter/"All departments"), not a single string
+  — `filterByDepartment()` does `items.filter(i =>
+  selectedDepartmentIds.has(i.departmentId))`, an OR across selections.
+  `lastData` caches the last render's payload; checking/unchecking a
+  checkbox in `#department-filter-menu` just calls `render(lastData)` again
+  (see the delegated `change` listener). The menu itself mirrors the
+  existing per-card dismiss-menu's fixed-position/anchor-to-button pattern,
+  but deliberately does NOT close on selection (unlike dismiss-menu) since
+  picking several departments requires staying open — it closes only on the
+  reset button, outside-click, or scroll. `filterByDepartment()` is applied
+  to the six candidate sections' arrays before each is rendered
   (`renderColumn`/`renderStale`/`renderRecentSourced`/`renderActiveReferrals`)
   — Interviewer Weekly Limits deliberately skips it, since an interviewer
   isn't tied to one department. If you add a new candidate-facing section,

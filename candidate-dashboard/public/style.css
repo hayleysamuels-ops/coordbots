@@ -136,17 +136,98 @@ button#refresh-btn.spinning {
   font-size: 0.8rem;
 }
 
-.filter-bar label {
+.filter-bar-label {
   color: var(--text-secondary);
 }
 
-.filter-bar select {
+#department-filter-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   background: var(--surface);
   color: var(--text-primary);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 4px 8px;
+  padding: 4px 10px;
   font-size: 0.8rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+#department-filter-btn::after {
+  content: "▾";
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+
+#department-filter-btn:hover {
+  border-color: var(--text-secondary);
+}
+
+.dept-filter-menu {
+  /* Fixed, not absolute — same reasoning as .dismiss-menu: positioned from JS
+     via the button's real viewport rect so it's never clipped by a scrollable
+     ancestor. This menu isn't inside a .cards container, but staying
+     consistent avoids a second positioning strategy in the codebase. */
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+}
+
+.dept-filter-menu[hidden] {
+  display: none;
+}
+
+.dept-filter-reset {
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.dept-filter-reset:hover {
+  background: color-mix(in srgb, var(--text-primary) 8%, var(--surface));
+}
+
+.dept-filter-divider {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--gridline);
+  border: none;
+}
+
+.dept-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.dept-filter-row:hover {
+  background: color-mix(in srgb, var(--text-primary) 8%, var(--surface));
+}
+
+.dept-filter-row input {
+  margin: 0;
+  flex: none;
 }
 
 .page-layout {

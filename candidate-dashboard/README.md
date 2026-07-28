@@ -18,8 +18,8 @@ Candidates, not also in its regular column, to avoid double-counting.
 
 ## Department filter
 
-A dropdown at the top of the page filters every candidate-facing section
-(Stale Candidates, Feedback Overdue, Needs Scheduling, Availability
+A multi-select menu at the top of the page filters every candidate-facing
+section (Stale Candidates, Feedback Overdue, Needs Scheduling, Availability
 Submitted, Recently Sourced, Active Referrals) by department, using Ashby's
 `department.list` (12 total on this org, including 2 archived — fetched
 with `includeArchived: true` so a job whose department was later archived
@@ -28,12 +28,20 @@ Limits is not affected** — an interviewer isn't tied to one department the
 way a candidate's application is, so there's no natural mapping to filter
 by.
 
+The button opens a checkbox dropdown (mirroring the existing per-card
+dismiss-menu's fixed-position/anchor-to-button pattern); any number of
+departments can be checked at once, and a candidate is shown if their
+department is any of the checked ones (an OR, not an AND). No selection
+means no filter ("All departments"). The button label reflects the current
+selection: "All departments", a single department's name, or "N
+departments".
+
 The filter is purely client-side: department options and each candidate's
 `departmentId` (from `job.departmentId` on the underlying Ashby application)
-are already part of the normal `/api/issues` payload, so changing the
-dropdown re-renders instantly from the already-fetched snapshot — no
-additional network request, and it works even while Active Referrals is
-mid-scan.
+are already part of the normal `/api/issues` payload, so checking or
+unchecking a department re-renders instantly from the already-fetched
+snapshot — no additional network request, and it works even while Active
+Referrals is mid-scan.
 
 Two things were scoped out because Ashby has no data for them:
 

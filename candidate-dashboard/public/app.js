@@ -2,32 +2,58 @@
   const REFRESH_MS = 60 * 1000;
 
   // Department filter is purely client-side: the last-fetched snapshot is
-  // cached here so changing the dropdown re-renders instantly without a
-  // network round-trip. Applies to every candidate-facing section; NOT
-  // Interviewer Weekly Limits, which has no department concept (an
+  // cached here so checking/unchecking a department re-renders instantly
+  // without a network round-trip. Applies to every candidate-facing section;
+  // NOT Interviewer Weekly Limits, which has no department concept (an
   // interviewer isn't tied to one job/department the way a candidate's
   // application is).
   let lastData = null;
-  let selectedDepartmentId = "";
+  let lastDepartments = [];
+  // Empty set = "All departments" (no filter), matching the old empty-string
+  // convention. Populated with department IDs the user has checked.
+  let selectedDepartmentIds = new Set();
 
   function filterByDepartment(items) {
-    if (!selectedDepartmentId) return items;
-    return items.filter((item) => item.departmentId === selectedDepartmentId);
+    if (selectedDepartmentIds.size === 0) return items;
+    return items.filter((item) => selectedDepartmentIds.has(item.departmentId));
   }
 
-  // Rebuilds the dropdown's options from the latest department list, keeping
-  // the current selection if it's still a valid option (departments rarely
+  function departmentButtonLabel() {
+    if (selectedDepartmentIds.size === 0) return "All departments";
+    if (selectedDepartmentIds.size === 1) {
+      const only = lastDepartments.find((d) => selectedDepartmentIds.has(d.id));
+      return only ? only.name : "1 department";
+    }
+    return `${selectedDepartmentIds.size} departments`;
+  }
+
+  function updateDepartmentButtonLabel() {
+    document.getElementById("department-filter-btn").textContent = departmentButtonLabel();
+  }
+
+  // Rebuilds the menu's checkbox rows from the latest department list,
+  // dropping any selected IDs that no longer exist (departments rarely
   // change, but the snapshot refreshes periodically regardless).
   function populateDepartmentOptions(departments) {
-    const select = document.getElementById("department-filter");
-    const previousValue = select.value;
-    const options = ['<option value="">All departments</option>']
-      .concat(departments.map((d) => `<option value="${d.id}">${d.name}</option>`));
-    select.innerHTML = options.join("");
-    if (departments.some((d) => d.id === previousValue)) {
-      select.value = previousValue;
+    lastDepartments = departments;
+    const validIds = new Set(departments.map((d) => d.id));
+    for (const id of selectedDepartmentIds) {
+      if (!validIds.has(id)) selectedDepartmentIds.delete(id);
     }
-    selectedDepartmentId = select.value;
+
+    const menu = document.getElementById("department-filter-menu");
+    const rows = [`<button type="button" class="dept-filter-reset">All departments</button>`, `<hr class="dept-filter-divider">`]
+      .concat(
+        departments.map(
+          (d) => `
+            <label class="dept-filter-row">
+              <input type="checkbox" value="${d.id}" ${selectedDepartmentIds.has(d.id) ? "checked" : ""}>
+              ${d.name}
+            </label>`
+        )
+      );
+    menu.innerHTML = rows.join("");
+    updateDepartmentButtonLabel();
   }
 
   const columns = [
@@ -340,6 +366,8 @@
 
   function closeAllMenus() {
     document.querySelectorAll(".dismiss-menu").forEach((m) => m.setAttribute("hidden", ""));
+    document.getElementById("department-filter-menu").setAttribute("hidden", "");
+    document.getElementById("department-filter-btn").setAttribute("aria-expanded", "false");
   }
 
   async function dismiss(key, scope) {
@@ -382,19 +410,60 @@
       }
       return;
     }
+
+    const deptReset = e.target.closest(".dept-filter-reset");
+    if (deptReset) {
+      selectedDepartmentIds.clear();
+      populateDepartmentOptions(lastDepartments);
+      if (lastData) render(lastData);
+      return;
+    }
+
+    const deptToggle = e.target.closest("#department-filter-btn");
+    if (deptToggle) {
+      const menu = document.getElementById("department-filter-menu");
+      const wasHidden = menu.hasAttribute("hidden");
+      closeAllMenus();
+      if (wasHidden) {
+        // Anchored the same way as .dismiss-menu — see rationale above.
+        const rect = deptToggle.getBoundingClientRect();
+        menu.style.top = `${rect.bottom + 4}px`;
+        menu.style.right = `${window.innerWidth - rect.right}px`;
+        menu.removeAttribute("hidden");
+        deptToggle.setAttribute("aria-expanded", "true");
+      }
+      return;
+    }
+
+    // Clicks inside the department menu itself (e.g. on a checkbox's label
+    // text) shouldn't close it — selecting multiple departments requires the
+    // menu to stay open across several clicks. Its own change listener below
+    // handles updating the filter; this just prevents the fallthrough close.
+    if (e.target.closest("#department-filter-menu")) {
+      return;
+    }
+
     closeAllMenus();
+  });
+
+  // Checking/unchecking a department re-renders instantly from the cached
+  // snapshot — no network call — and deliberately leaves the menu open so
+  // several departments can be picked in one go.
+  document.getElementById("department-filter-menu").addEventListener("change", (e) => {
+    const checkbox = e.target.closest("input[type=checkbox]");
+    if (!checkbox) return;
+    if (checkbox.checked) {
+      selectedDepartmentIds.add(checkbox.value);
+    } else {
+      selectedDepartmentIds.delete(checkbox.value);
+    }
+    updateDepartmentButtonLabel();
+    if (lastData) render(lastData);
   });
 
   // A menu positioned from a stale rect (post-scroll) would float away from
   // its button, so any scroll — page or a .cards container — closes it.
   window.addEventListener("scroll", closeAllMenus, true);
-
-  // Changing the filter re-renders from the already-fetched snapshot — no
-  // network call, so it's instant even while Active Referrals is mid-scan.
-  document.getElementById("department-filter").addEventListener("change", (e) => {
-    selectedDepartmentId = e.target.value;
-    if (lastData) render(lastData);
-  });
 
   load();
   setInterval(load, REFRESH_MS);

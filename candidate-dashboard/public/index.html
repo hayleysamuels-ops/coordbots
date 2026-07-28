@@ -29,10 +29,13 @@
   </nav>
 
   <div class="filter-bar">
-    <label for="department-filter">Department</label>
-    <select id="department-filter">
-      <option value="">All departments</option>
-    </select>
+    <span class="filter-bar-label">Department</span>
+    <div class="dept-filter">
+      <button id="department-filter-btn" type="button" aria-haspopup="true" aria-expanded="false">
+        All departments
+      </button>
+      <div id="department-filter-menu" class="dept-filter-menu" hidden></div>
+    </div>
   </div>
 
   <main class="page-layout">
