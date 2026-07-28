@@ -1,34 +1,95 @@
+/* ============================================================
+   Carrara design tokens, ported from the "Carrara Design System"
+   (Manrope/PT Serif type, ember/grafite/marmol palette, sharp
+   angular radii with a chamfer accent). Copied in directly rather
+   than linked, since this app has no build step to pull an
+   external stylesheet at request time.
+   ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=PT+Serif:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+
 :root {
   color-scheme: light;
-  --page: #f9f9f7;
-  --surface: #fcfcfb;
-  --text-primary: #0b0b0b;
-  --text-secondary: #52514e;
-  --text-muted: #898781;
-  --border: rgba(11, 11, 11, 0.1);
-  --gridline: #e1e0d9;
 
-  --good: #0ca30c;
-  --warning: #fab219;
-  --serious: #ec835a;
-  --critical: #d03b3b;
+  /* --- Core palette --- */
+  --white: #ffffff;
+  --ember: #eb4e19;
+  --ember-hover: #d2440f;
+  --ember-press: #b93a0c;
+  --ember-wash: #fce7df;
+  --grafite: #2d2a2a;
+  --nuvola: #9a938e;
+  --ardesia: #59534f;
+  --marmol: #edebea;
+  --border-subtle: #e2dfdd;
+  --border-default: #d3cfcc;
+
+  /* --- Accent palette, darkened for text/icon legibility (matches the
+     design system's Tag component, which uses these same darker bases
+     rather than the raw swatch hex) --- */
+  --moss: #4e7a45;
+  --moss-wash: #e7f0e4;
+  --lemon: #8a7a17;
+  --lemon-wash: #fbfbd9;
+
+  /* --- Fonts --- */
+  --font-serif: "PT Serif", Georgia, "Times New Roman", serif;
+  --font-sans: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* --- Spacing / radii / shadows (Carrara is angular: small radii,
+     pill reserved for tags/chips, chamfer as the signature cut-block
+     accent) --- */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+  --radius-pill: 999px;
+  --chamfer-sm: 8px;
+  --shadow-xs: 0 1px 2px rgba(45, 42, 42, 0.06);
+  --shadow-sm: 0 2px 8px rgba(45, 42, 42, 0.08);
+
+  /* --- Semantic aliases --- */
+  --page: var(--white);
+  --surface: var(--white);
+  --surface-sunken: var(--marmol);
+  --text-primary: var(--grafite);
+  --text-secondary: var(--ardesia);
+  --text-muted: var(--nuvola);
+  --border: var(--border-default);
+  --gridline: var(--border-subtle);
+
+  /* --- Severity, mapped onto Carrara's own palette rather than
+     invented colors: an ascending "heat" ramp through the brand's
+     ember ramp for warning → serious → critical, moss for good. --- */
+  --good: var(--moss);
+  --good-wash: var(--moss-wash);
+  --warning: var(--lemon);
+  --warning-wash: var(--lemon-wash);
+  --serious: var(--ember);
+  --serious-wash: var(--ember-wash);
+  --critical: var(--ember-press);
+  --critical-wash: #f7d9cd;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --page: #0d0d0d;
-    --surface: #1a1a19;
+    --page: var(--grafite);
+    --surface: #3a3634;
+    --surface-sunken: #242121;
     --text-primary: #ffffff;
-    --text-secondary: #c3c2b7;
-    --text-muted: #898781;
-    --border: rgba(255, 255, 255, 0.1);
-    --gridline: #2c2c2a;
+    --text-secondary: #d3cfcb;
+    --text-muted: #a9a29c;
+    --border: rgba(255, 255, 255, 0.12);
+    --gridline: rgba(255, 255, 255, 0.12);
 
-    --good: #0ca30c;
-    --warning: #fab219;
-    --serious: #ec835a;
-    --critical: #e66767;
+    /* Lighter tints of the same hues so they hold contrast on grafite. */
+    --good: #8fc17d;
+    --good-wash: rgba(143, 193, 125, 0.16);
+    --warning: #e8cf5c;
+    --warning-wash: rgba(232, 207, 92, 0.16);
+    --serious: #ff7a45;
+    --serious-wash: rgba(255, 122, 69, 0.16);
+    --critical: #ff9270;
+    --critical-wash: rgba(255, 146, 112, 0.18);
   }
 }
 
@@ -40,7 +101,7 @@ body {
   margin: 0;
   background: var(--page);
   color: var(--text-primary);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
 }
 
 .topbar {
@@ -51,9 +112,23 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.topbar-brand img {
+  height: 26px;
+  width: auto;
+  display: block;
+}
+
 .topbar h1 {
-  font-size: 1.15rem;
-  font-weight: 600;
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   margin: 0;
 }
 
@@ -61,7 +136,7 @@ body {
   display: flex;
   align-items: center;
   gap: 14px;
-  font-size: 0.85rem;
+  font-size: 14px;
 }
 
 .topbar-meta-text {
@@ -80,21 +155,22 @@ button#refresh-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   padding: 0;
-  border: 1px solid var(--border);
-  background: var(--surface);
+  border: 2px solid var(--border-default);
+  background: var(--white);
   color: var(--text-primary);
-  border-radius: 50%;
+  border-radius: var(--radius-sm);
   font-size: 1.15rem;
   line-height: 1;
   cursor: pointer;
-  transition: transform 0.2s ease;
+  transition: border-color 120ms ease, color 120ms ease, transform 120ms ease;
 }
 
 button#refresh-btn:hover {
-  border-color: var(--text-secondary);
+  border-color: var(--ember);
+  color: var(--ember);
 }
 
 button#refresh-btn.spinning {
@@ -109,10 +185,11 @@ button#refresh-btn.spinning {
 
 .section-nav {
   display: flex;
-  gap: 18px;
+  gap: 20px;
   padding: 10px 28px;
   border-bottom: 1px solid var(--border);
-  font-size: 0.8rem;
+  font-size: 14px;
+  font-weight: 600;
   overflow-x: auto;
 }
 
@@ -123,33 +200,50 @@ button#refresh-btn.spinning {
 }
 
 .section-nav a:hover {
-  color: var(--text-primary);
-  text-decoration: underline;
+  color: var(--ember);
 }
 
 .filter-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   padding: 10px 28px;
   border-bottom: 1px solid var(--border);
-  font-size: 0.8rem;
+  font-size: 14px;
 }
 
+/* Eyebrow treatment (uppercase, wide tracking, small ember tick), lifted
+   from the design system's Eyebrow component. */
 .filter-bar-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   color: var(--text-secondary);
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.filter-bar-label::before {
+  content: "";
+  width: 18px;
+  height: 2px;
+  background: var(--ember);
+  display: inline-block;
 }
 
 #department-filter-btn {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: var(--surface);
+  background: var(--white);
   color: var(--text-primary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 4px 10px;
-  font-size: 0.8rem;
+  border: 2px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  font-size: 14px;
+  font-weight: 600;
   font-family: inherit;
   cursor: pointer;
 }
@@ -161,7 +255,7 @@ button#refresh-btn.spinning {
 }
 
 #department-filter-btn:hover {
-  border-color: var(--text-secondary);
+  border-color: var(--grafite);
 }
 
 .dept-filter-menu {
@@ -176,10 +270,10 @@ button#refresh-btn.spinning {
   min-width: 200px;
   max-height: 320px;
   overflow-y: auto;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+  background: var(--white);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: 0 6px 18px rgba(45, 42, 42, 0.18);
   padding: 4px;
 }
 
@@ -193,15 +287,15 @@ button#refresh-btn.spinning {
   color: var(--text-primary);
   text-align: left;
   padding: 8px 10px;
-  font-size: 0.8rem;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 700;
   font-family: inherit;
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .dept-filter-reset:hover {
-  background: color-mix(in srgb, var(--text-primary) 8%, var(--surface));
+  background: var(--surface-sunken);
 }
 
 .dept-filter-divider {
@@ -216,18 +310,19 @@ button#refresh-btn.spinning {
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  font-size: 0.8rem;
-  border-radius: 4px;
+  font-size: 14px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 
 .dept-filter-row:hover {
-  background: color-mix(in srgb, var(--text-primary) 8%, var(--surface));
+  background: var(--surface-sunken);
 }
 
 .dept-filter-row input {
   margin: 0;
   flex: none;
+  accent-color: var(--ember);
 }
 
 .page-layout {
@@ -323,32 +418,38 @@ button#refresh-btn.spinning {
 }
 
 .reason-badge {
-  display: inline-block;
-  font-size: 0.7rem;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  margin-top: 4px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   color: var(--critical);
-  margin-top: 2px;
+  background: var(--critical-wash);
+  border-radius: var(--radius-pill);
 }
 
 .column h2 {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 1rem;
-  font-weight: 600;
+  gap: 9px;
+  font-family: var(--font-serif);
+  font-size: 19px;
+  font-weight: 700;
   margin: 0 0 6px;
 }
 
 .column-sub {
   color: var(--text-secondary);
-  font-size: 0.8rem;
-  line-height: 1.4;
+  font-size: 14px;
+  line-height: 1.5;
   margin: 0 0 14px;
 }
 
 .section-updated {
   display: block;
-  font-size: 0.7rem;
+  font-size: 12px;
   margin: 2px 0 8px;
 }
 
@@ -356,10 +457,13 @@ button#refresh-btn.spinning {
   color: var(--warning);
 }
 
+/* Small chamfered squares instead of circles — a quiet nod to Carrara's
+   "sharp, not soft" brand geometry for the per-section status indicator. */
 .dot {
   width: 10px;
   height: 10px;
-  border-radius: 50%;
+  border-radius: var(--radius-sm);
+  clip-path: polygon(0 0, calc(100% - 3px) 0, 100% 3px, 100% 100%, 0 100%);
   flex: none;
 }
 
@@ -386,7 +490,8 @@ button#refresh-btn.spinning {
   background: var(--surface);
   border: 1px solid var(--gridline);
   border-left: 3px solid var(--text-muted);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
   padding: 12px 14px;
 }
 
@@ -425,12 +530,12 @@ button#refresh-btn.spinning {
   font-size: 1.05rem;
   line-height: 1;
   padding: 0 2px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .dismiss-btn:hover {
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--ember);
+  background: var(--ember-wash);
 }
 
 .dismiss-menu {
@@ -442,10 +547,10 @@ button#refresh-btn.spinning {
   display: flex;
   flex-direction: column;
   min-width: 160px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+  background: var(--white);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: 0 6px 18px rgba(45, 42, 42, 0.18);
   overflow: hidden;
 }
 
@@ -459,18 +564,18 @@ button#refresh-btn.spinning {
   color: var(--text-primary);
   text-align: left;
   padding: 8px 12px;
-  font-size: 0.8rem;
+  font-size: 14px;
   cursor: pointer;
   white-space: nowrap;
 }
 
 .dismiss-menu button:hover {
-  background: color-mix(in srgb, var(--text-primary) 8%, var(--surface));
+  background: var(--surface-sunken);
 }
 
 .card-name {
-  font-weight: 600;
-  font-size: 0.92rem;
+  font-weight: 700;
+  font-size: 15px;
 }
 
 .card-name a {
@@ -479,12 +584,13 @@ button#refresh-btn.spinning {
 }
 
 .card-name a:hover {
+  color: var(--ember);
   text-decoration: underline;
 }
 
 .card-age {
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 700;
   white-space: nowrap;
 }
 
@@ -500,33 +606,35 @@ button#refresh-btn.spinning {
 
 .card-sub {
   color: var(--text-secondary);
-  font-size: 0.8rem;
+  font-size: 14px;
   margin-top: 3px;
 }
 
 .card-detail {
   color: var(--text-muted);
-  font-size: 0.75rem;
+  font-size: 13px;
   margin-top: 6px;
 }
 
 .empty-state {
   color: var(--text-muted);
-  font-size: 0.85rem;
+  font-size: 14px;
   padding: 18px 0;
   text-align: center;
   border: 1px dashed var(--gridline);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 }
 
 .status-badge {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
   margin-left: 6px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  font-size: 0.68rem;
-  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
   color: var(--text-secondary);
   vertical-align: middle;
 }
@@ -534,8 +642,8 @@ button#refresh-btn.spinning {
 .page-footer {
   margin-top: 24px;
   padding: 16px 28px 24px;
-  border-top: 1px solid #ffffff;
+  border-top: 1px solid var(--gridline);
   text-align: center;
-  font-size: 0.75rem;
+  font-size: 13px;
   color: var(--text-muted);
 }

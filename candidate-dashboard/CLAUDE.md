@@ -308,6 +308,16 @@ is normally still in Application Review and any status).
 - Keep secrets in `.env` only. **Never commit `.env`** — it's gitignored.
 - When adding config, add it to `src/config.js` *and* document it in
   `.env.example` and the README table.
+- **`public/style.css` ports design tokens from the "Carrara Design
+  System"** (colors, PT Serif/Manrope type, spacing/radii/shadows) —
+  copied in as plain CSS custom properties rather than linked, since
+  there's no build step to fetch an external stylesheet at request time.
+  Severity colors (`--good`/`--warning`/`--serious`/`--critical`) are a
+  derived mapping onto that palette (moss → lemon → ember →
+  ember-press), not official Carrara semantic tokens — the source system
+  only defines brand/text/surface roles, not alert-severity ones. If the
+  design system changes, re-pull the relevant `tokens/*.css` files rather
+  than hand-tweaking colors here.
 
 ## Guardrails
 
