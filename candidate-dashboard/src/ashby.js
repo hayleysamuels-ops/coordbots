@@ -7,16 +7,58 @@ function authHeader() {
   return `Basic ${Buffer.from(`${config.ashbyApiKey}:`).toString("base64")}`;
 }
 
+// A single rate-limited request (whether it's one page of a multi-page
+// pagination walk, or a one-off lookup like user.interviewerSettings)
+// retries with exponential backoff instead of throwing immediately — without
+// this, a 429 mid-pagination would abort the entire fetchAllPages() walk
+// (and therefore the whole refresh cycle) rather than just slowing down.
+// Honors a Retry-After header when Ashby sends one; otherwise doubles the
+// delay each attempt. Gives up once *cumulative* waiting would exceed
+// RATE_LIMIT_MAX_TOTAL_BACKOFF_MS, at which point it throws like before and
+// the caller's own error handling takes over (fetchApplicationSummaries/
+// listInterviewerLimits already skip a single failed item; fetchAllPages
+// still propagates, same as a non-429 failure always has).
+const RATE_LIMIT_MAX_TOTAL_BACKOFF_MS = 4 * 60 * 1000;
+const RATE_LIMIT_INITIAL_DELAY_MS = 1000;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function ashbyPost(endpoint, body) {
-  const res = await fetch(`https://api.ashbyhq.com/${endpoint}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: authHeader() },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`${endpoint} -> HTTP ${res.status}`);
-  const json = await res.json();
-  if (json.success === false) throw new Error(`${endpoint} -> ${JSON.stringify(json.errors || json)}`);
-  return json;
+  let attempt = 0;
+  let totalWaitedMs = 0;
+
+  for (;;) {
+    const res = await fetch(`https://api.ashbyhq.com/${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: authHeader() },
+      body: JSON.stringify(body),
+    });
+
+    if (res.status === 429) {
+      const retryAfterSeconds = parseInt(res.headers.get("retry-after"), 10);
+      const backoffMs =
+        !Number.isNaN(retryAfterSeconds) && retryAfterSeconds >= 0
+          ? Math.max(retryAfterSeconds * 1000, 250)
+          : RATE_LIMIT_INITIAL_DELAY_MS * 2 ** attempt;
+
+      if (totalWaitedMs + backoffMs > RATE_LIMIT_MAX_TOTAL_BACKOFF_MS) {
+        throw new Error(`${endpoint} -> HTTP 429 (gave up after ${Math.round(totalWaitedMs / 1000)}s of retries)`);
+      }
+
+      attempt += 1;
+      totalWaitedMs += backoffMs;
+      console.warn(`[ashby] ${endpoint} rate-limited (429), waiting ${Math.round(backoffMs / 1000)}s before retry ${attempt}`);
+      await sleep(backoffMs);
+      continue;
+    }
+
+    if (!res.ok) throw new Error(`${endpoint} -> HTTP ${res.status}`);
+    const json = await res.json();
+    if (json.success === false) throw new Error(`${endpoint} -> ${JSON.stringify(json.errors || json)}`);
+    return json;
+  }
 }
 
 // Ashby responses are { success, results, moreDataAvailable, nextCursor }, and
