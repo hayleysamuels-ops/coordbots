@@ -3,7 +3,6 @@
 const config = require("./config");
 const ashby = require("./ashby");
 const dismissals = require("./dismissals");
-const referralCache = require("./referralCache");
 
 const thresholds = {
   feedbackOverdueHours: config.feedbackOverdueHours,
@@ -15,9 +14,6 @@ const thresholds = {
   availabilitySubmittedAlertHours: config.availabilitySubmittedAlertHours,
 };
 
-// Active Referrals is NOT part of this snapshot — it refreshes on its own
-// independent timer via referralCache.js (see start()/getSnapshot() below),
-// specifically so its full-scan cost never delays these seven sections.
 let snapshot = {
   feedbackOverdue: [],
   needsScheduling: [],
@@ -102,7 +98,6 @@ async function refresh() {
 function start() {
   refresh();
   setInterval(refresh, config.refreshIntervalMinutes * 60 * 1000);
-  referralCache.start(); // independent refresh cycle — see referralCache.js
 }
 
 // Apply dismissals at serve time (not refresh time) so a dismiss takes effect
@@ -119,22 +114,15 @@ function applyDismissals(snap) {
     recentSourced: snap.recentSourced.filter(keepCandidate),
     availabilitySubmitted: snap.availabilitySubmitted.filter(keepCandidate),
     onsiteToday: snap.onsiteToday.filter(keepCandidate),
-    activeReferrals: snap.activeReferrals.filter(keepCandidate),
     interviewerLimits: snap.interviewerLimits.filter(keepInterviewer),
   };
 }
 
 function getSnapshot() {
-  const referralSnap = referralCache.getSnapshot();
-  const merged = { ...snapshot, activeReferrals: referralSnap.activeReferrals };
   return {
-    ...applyDismissals(merged),
+    ...applyDismissals(snapshot),
     lastUpdated,
     lastError,
-    // Active Referrals' own timestamp/error, independent of the seven above —
-    // see § per-section timestamps in the frontend and referralCache.js.
-    activeReferralsUpdated: referralSnap.lastUpdated,
-    activeReferralsError: referralSnap.lastError,
   };
 }
 

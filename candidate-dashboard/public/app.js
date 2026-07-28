@@ -42,7 +42,6 @@
     "availabilitySubmitted",
     "staleCandidates",
     "recentSourced",
-    "activeReferrals",
     "onsiteToday",
   ];
 
@@ -305,24 +304,6 @@
       .join("");
   }
 
-  function renderActiveReferrals(items) {
-    const container = document.getElementById("cards-activeReferrals");
-    if (!items.length) {
-      container.innerHTML = `<div class="empty-state">Nothing flagged</div>`;
-      return;
-    }
-    container.innerHTML = items
-      .map((item) =>
-        cardHtml(item, {
-          sev: "good",
-          ageLabel: item.stageTitle,
-          ageClass: "muted",
-          detail: item.referrerName ? `Referred by ${item.referrerName}` : "",
-        })
-      )
-      .join("");
-  }
-
   function renderOnsiteToday(items) {
     const container = document.getElementById("cards-onsiteToday");
     if (!items.length) {
@@ -345,11 +326,6 @@
       .join("");
   }
 
-  // Six sections share one refresh cycle (data.lastUpdated/lastError);
-  // Active Referrals refreshes independently on its own, much slower cycle
-  // (data.activeReferralsUpdated/activeReferralsError) — see referralCache.js.
-  // Per-section timestamps make that split visible instead of implying every
-  // section is equally fresh.
   const SECTION_TIMESTAMP_KEYS = [
     "feedbackOverdue",
     "needsScheduling",
@@ -386,14 +362,12 @@
     renderStale(filterByEntity(data.staleCandidates || []));
     renderInterviewerLimits(data.interviewerLimits || []); // no department/job filter — no job/department concept for an interviewer
     renderRecentSourced(filterByEntity(data.recentSourced || []));
-    renderActiveReferrals(filterByEntity(data.activeReferrals || []));
     renderOnsiteToday(filterByEntity(data.onsiteToday || []));
     updateSourcedSubtitle(data.thresholds && data.thresholds.sourcedLookbackDays);
 
     for (const key of SECTION_TIMESTAMP_KEYS) {
       renderSectionTimestamp(key, data.lastUpdated, data.lastError);
     }
-    renderSectionTimestamp("activeReferrals", data.activeReferralsUpdated, data.activeReferralsError);
 
     const lastUpdatedEl = document.getElementById("last-updated");
     if (data.lastUpdated) {

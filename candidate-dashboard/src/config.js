@@ -22,9 +22,8 @@ const number = hours;
 const config = {
   port: parseInt(process.env.PORT || "3000", 10),
 
-  // Every persisted cache/checkpoint file lives under here. Point it at a
-  // mounted volume on a cloud host so dismissals/referral cache survive
-  // redeploys.
+  // Every persisted file lives under here. Point it at a mounted volume on
+  // a cloud host so dismissals survive redeploys.
   dataDir: process.env.DATA_DIR || path.join(__dirname, "..", "data"),
 
   // HTTP Basic Auth, checked in front of every route (see src/auth.js).
@@ -57,20 +56,6 @@ const config = {
   // only, not filtering — every currently-submitted candidate is shown) for
   // how long a candidate's submitted availability has sat unbooked.
   availabilitySubmittedAlertHours: hours("AVAILABILITY_SUBMITTED_ALERT_HOURS", 24),
-
-  // Active Referrals refreshes on its own independent timer (see
-  // referralCache.js) so its full-scan cost (~12 minutes measured on this
-  // org) never blocks the other seven sections. Safe to run more often than
-  // that once the initial full scan completes, since subsequent refreshes
-  // are incremental (syncToken-based) and typically fast.
-  activeReferralsRefreshIntervalMinutes: number("ACTIVE_REFERRALS_REFRESH_INTERVAL_MINUTES", 5),
-
-  // Bounds the Active Referrals FULL scan (not the incremental syncs after
-  // it) to applications created within this many days. Trades completeness
-  // for speed: a referral candidate who's been sitting active for longer
-  // than this and hasn't triggered any other page fetch won't appear. See
-  // README for the measured page-count impact of this bound.
-  referralLookbackDays: number("REFERRAL_LOOKBACK_DAYS", 90),
 };
 
 module.exports = config;

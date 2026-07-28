@@ -61,34 +61,15 @@ async function ashbyPost(endpoint, body) {
   }
 }
 
-// Ashby responses are { success, results, moreDataAvailable, nextCursor }, and
-// once pagination reaches the last page also { syncToken } — a checkpoint you
-// can pass back in a later call to fetch only what's changed since. This
-// walks every page and concatenates `results`. Optional `stats` object
-// collects { pages, networkMs, syncToken } for callers that want a timing
-// breakdown and/or the final syncToken. Optional `onPage(pageResults,
-// nextCursor)` runs after each page — used by referralCache.js to checkpoint
-// progress to disk as it goes, so a long scan can resume rather than restart
-// from page 1 after a crash/restart.
-//
-// To RESUME a walk from a previously-saved cursor, just include `cursor` in
-// `baseBody` yourself — the loop's own `cursor` (below) starts undefined, so
-// the first request is sent as `baseBody` verbatim (cursor and all), and every
-// request after that overwrites it with the freshly-received one.
-async function fetchAllPages(endpoint, baseBody, stats, onPage) {
+// Ashby responses are { success, results, moreDataAvailable, nextCursor }.
+// This walks every page and concatenates `results`.
+async function fetchAllPages(endpoint, baseBody) {
   const all = [];
   let cursor;
   for (;;) {
-    const pageStart = Date.now();
     const json = await ashbyPost(endpoint, cursor ? { ...baseBody, cursor } : baseBody);
-    if (stats) {
-      stats.pages = (stats.pages || 0) + 1;
-      stats.networkMs = (stats.networkMs || 0) + (Date.now() - pageStart);
-      if (json.syncToken) stats.syncToken = json.syncToken;
-    }
     const results = json.results || [];
     all.push(...results);
-    if (onPage) await onPage(results, json.nextCursor || null);
     if (!json.moreDataAvailable || !json.nextCursor) break;
     cursor = json.nextCursor;
   }
@@ -520,23 +501,8 @@ async function listDepartments() {
   return (json.results || []).map((d) => ({ id: d.id, name: d.name }));
 }
 
-// Active Referrals (every active referral candidate org-wide, by pipeline
-// stage) used to be computed here via a listActiveReferrals() full scan.
-// It's now owned entirely by referralCache.js, which does the same scan
-// once (measured: 718s pagination, negligible client-side filtering — see
-// README § Scope) but persists a syncToken so subsequent refreshes are
-// incremental instead of repeating the full scan every time, and runs on
-// its own timer so that cost never blocks the seven sections above. See
-// referralCache.js for fullScan()/incrementalSync(); it reuses this file's
-// fetchAllPages/classifySource/profileUrl, exported below.
-
 module.exports = {
   listIssues,
   listRecentSourced,
   listDepartments,
-  // Exported for referralCache.js, which needs these same low-level
-  // primitives for its full-scan and incremental-sync logic.
-  fetchAllPages,
-  classifySource,
-  profileUrl,
 };

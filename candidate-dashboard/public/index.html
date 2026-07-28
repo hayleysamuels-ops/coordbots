@@ -25,7 +25,6 @@
     <a href="#feedbackOverdue">Feedback Overdue</a>
     <a href="#needsScheduling">Needs Scheduling</a>
     <a href="#availabilitySubmitted">Availability Submitted</a>
-    <a href="#activeReferrals">Active Referrals</a>
     <a href="#interviewerLimits">Interviewer Weekly Limits</a>
     <a href="#recentSourced">Recently Sourced</a>
     <a href="#staleCandidates">Stale Candidates</a>
@@ -77,24 +76,13 @@
       </section>
     </div>
 
-    <section id="activeReferrals" class="column wide-section" data-key="activeReferrals">
-      <h2><span class="dot dot-good"></span>Active Referrals</h2>
-      <span class="section-updated muted" id="updated-activeReferrals"></span>
-      <p class="column-sub">
-        Every active referral candidate org-wide and their current pipeline
-        stage, regardless of when they applied. Refreshes on its own,
-        separate schedule from the rest of the page — see timestamp above.
-      </p>
-      <div class="cards" id="cards-activeReferrals"></div>
-    </section>
-
     <section id="interviewerLimits" class="column wide-section" data-key="interviewerLimits">
       <h2><span class="dot dot-warning"></span>Interviewer Weekly Limits</h2>
       <span class="section-updated muted" id="updated-interviewerLimits"></span>
       <p class="column-sub">
         Interviewers at or nearing their Ashby-configured weekly interview
         limit, for the current calendar week. Interviewers with no limit set
-        never appear here. Not affected by the department filter above.
+        never appear here. Not affected by the filter above.
       </p>
       <div class="cards" id="cards-interviewerLimits"></div>
     </section>
@@ -130,6 +118,10 @@
       </p>
       <div class="cards" id="cards-onsiteToday"></div>
     </section>
+
+    <a class="ashby-report-link" href="https://app.ashbyhq.com/reports/saved-v1/18e76bf4-d2ed-4f0b-abef-cf78ea7213a2" target="_blank" rel="noopener">
+      View Active Referrals report in Ashby →
+    </a>
   </aside>
   </div>
 

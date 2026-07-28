@@ -413,6 +413,28 @@ button#refresh-btn.spinning {
   background: var(--surface);
 }
 
+/* Below the Onsite Interviews Today card, in the same right-margin column.
+   Active Referrals is no longer computed in-app — this links straight to
+   Ashby's own report instead. */
+.ashby-report-link {
+  display: block;
+  margin-top: 24px;
+  padding: 10px 16px;
+  border: 2px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 14px;
+  text-align: center;
+  text-decoration: none;
+}
+
+.ashby-report-link:hover {
+  border-color: var(--ember);
+  color: var(--ember);
+}
+
 /* Very light dividers between sections — subtle, not a hard rule. Only
    between siblings (first child never gets one), so nothing doubles up with
    the border the section-nav already has. */
