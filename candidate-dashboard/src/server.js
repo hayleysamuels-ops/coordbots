@@ -16,7 +16,11 @@ function createServer() {
   });
 
   // Manual refresh button on the dashboard hits this instead of waiting for
-  // the background interval.
+  // the background interval. Deliberately only refreshes the six main
+  // sections (issues.refresh()) — NOT Active Referrals, which stays on its
+  // own independent timer (referralCache.js). Forcing that here on every
+  // button click would reintroduce exactly the multi-minute wait the whole
+  // two-timer split exists to avoid.
   app.post("/api/refresh", async (req, res) => {
     await issues.refresh();
     res.json(issues.getSnapshot());

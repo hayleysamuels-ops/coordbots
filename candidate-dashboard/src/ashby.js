@@ -19,14 +19,34 @@ async function ashbyPost(endpoint, body) {
   return json;
 }
 
-// Ashby responses are { success, results, moreDataAvailable, nextCursor }.
-// This walks every page and concatenates `results`.
-async function fetchAllPages(endpoint, baseBody) {
+// Ashby responses are { success, results, moreDataAvailable, nextCursor }, and
+// once pagination reaches the last page also { syncToken } — a checkpoint you
+// can pass back in a later call to fetch only what's changed since. This
+// walks every page and concatenates `results`. Optional `stats` object
+// collects { pages, networkMs, syncToken } for callers that want a timing
+// breakdown and/or the final syncToken. Optional `onPage(pageResults,
+// nextCursor)` runs after each page — used by referralCache.js to checkpoint
+// progress to disk as it goes, so a long scan can resume rather than restart
+// from page 1 after a crash/restart.
+//
+// To RESUME a walk from a previously-saved cursor, just include `cursor` in
+// `baseBody` yourself — the loop's own `cursor` (below) starts undefined, so
+// the first request is sent as `baseBody` verbatim (cursor and all), and every
+// request after that overwrites it with the freshly-received one.
+async function fetchAllPages(endpoint, baseBody, stats, onPage) {
   const all = [];
   let cursor;
   for (;;) {
+    const pageStart = Date.now();
     const json = await ashbyPost(endpoint, cursor ? { ...baseBody, cursor } : baseBody);
-    all.push(...(json.results || []));
+    if (stats) {
+      stats.pages = (stats.pages || 0) + 1;
+      stats.networkMs = (stats.networkMs || 0) + (Date.now() - pageStart);
+      if (json.syncToken) stats.syncToken = json.syncToken;
+    }
+    const results = json.results || [];
+    all.push(...results);
+    if (onPage) await onPage(results, json.nextCursor || null);
     if (!json.moreDataAvailable || !json.nextCursor) break;
     cursor = json.nextCursor;
   }
@@ -82,6 +102,7 @@ async function fetchApplicationSummaries(applicationIds) {
       candidateName: candidate.name,
       candidateEmail: candidate.primaryEmailAddress && candidate.primaryEmailAddress.value,
       jobTitle: (app.job && app.job.title) || "Unknown role",
+      departmentId: (app.job && app.job.departmentId) || null,
       ashbyProfileUrl: profileUrl(candidate.id, app.id),
     });
   }
@@ -188,8 +209,12 @@ async function listInterviewerLimits(schedules) {
  * - feedbackOverdue: interview events that ended > FEEDBACK_OVERDUE_HOURS ago
  *   with no submitted feedback.
  * - needsScheduling: schedules stuck in Ashby's "NeedsScheduling" status,
- *   aged past NEEDS_SCHEDULING_ALERT_HOURS. NOT the same as "candidate
- *   submitted availability" — see README.
+ *   aged past NEEDS_SCHEDULING_ALERT_HOURS — nothing has been sent to the
+ *   candidate yet. Distinct from availabilitySubmitted below; see README.
+ * - availabilitySubmitted: schedules in Ashby's "CandidateAvailabilitySubmitted"
+ *   status — the candidate replied with their times, waiting on someone to
+ *   book it. Shown regardless of age (not threshold-gated like the other
+ *   lists); AVAILABILITY_SUBMITTED_ALERT_HOURS only drives severity coloring.
  * - staleCandidates: candidates far enough past either threshold
  *   (STALE_FEEDBACK_HOURS / STALE_SCHEDULING_HOURS) that they're pulled out
  *   of the two lists above into their own section — these have likely fallen
@@ -216,6 +241,7 @@ async function listIssues() {
   const now = Date.now();
   const feedbackEntries = [];
   const schedulingEntries = [];
+  const availabilitySubmitted = [];
 
   for (const schedule of schedules) {
     const app = applications.get(schedule.applicationId);
@@ -232,6 +258,16 @@ async function listIssues() {
           isStale: hoursPending >= config.staleSchedulingHours,
         });
       }
+    } else if (schedule.status === "CandidateAvailabilitySubmitted") {
+      // updatedAt is when the schedule last changed state — i.e. when the
+      // candidate's submission landed, not when scheduling was first started.
+      const hoursWaiting = (now - new Date(schedule.updatedAt).getTime()) / (1000 * 60 * 60);
+      availabilitySubmitted.push({
+        ...app,
+        scheduleId: schedule.id,
+        submittedAt: schedule.updatedAt,
+        hoursWaiting: Math.round(hoursWaiting),
+      });
     }
 
     for (const event of schedule.interviewEvents || []) {
@@ -279,8 +315,9 @@ async function listIssues() {
   feedbackOverdue.sort((a, b) => b.hoursOverdue - a.hoursOverdue);
   needsScheduling.sort((a, b) => b.hoursPending - a.hoursPending);
   staleCandidates.sort((a, b) => b.hoursStale - a.hoursStale);
+  availabilitySubmitted.sort((a, b) => b.hoursWaiting - a.hoursWaiting);
 
-  return { feedbackOverdue, needsScheduling, staleCandidates, interviewerLimits };
+  return { feedbackOverdue, needsScheduling, staleCandidates, interviewerLimits, availabilitySubmitted };
 }
 
 // Classify an application's source into "Referral" / "Agency", or null if it's
@@ -322,6 +359,7 @@ async function listRecentSourced() {
       candidateId: candidate.id,
       candidateName: candidate.name,
       jobTitle: (app.job && app.job.title) || "Unknown role",
+      departmentId: (app.job && app.job.departmentId) || null,
       status: app.status,
       sourceCategory, // "Referral" | "Agency"
       sourceTitle: (app.source || {}).title, // e.g. "Candidate Labs", "Referral Link"
@@ -337,4 +375,36 @@ async function listRecentSourced() {
   return results;
 }
 
-module.exports = { listIssues, listRecentSourced };
+/**
+ * All departments (including archived ones) as { id, name } — used to build
+ * the department filter dropdown and to resolve each candidate record's
+ * `departmentId` to a human name. Small, cheap, no pagination: this org has
+ * 12 total (10 active + 2 archived). `includeArchived: true` matters —
+ * without it, a job whose department was later archived would resolve to
+ * nothing and show as blank in the filter.
+ */
+async function listDepartments() {
+  const json = await ashbyPost("department.list", { includeArchived: true });
+  return (json.results || []).map((d) => ({ id: d.id, name: d.name }));
+}
+
+// Active Referrals (every active referral candidate org-wide, by pipeline
+// stage) used to be computed here via a listActiveReferrals() full scan.
+// It's now owned entirely by referralCache.js, which does the same scan
+// once (measured: 718s pagination, negligible client-side filtering — see
+// README § Scope) but persists a syncToken so subsequent refreshes are
+// incremental instead of repeating the full scan every time, and runs on
+// its own timer so that cost never blocks the six sections above. See
+// referralCache.js for fullScan()/incrementalSync(); it reuses this file's
+// fetchAllPages/classifySource/profileUrl, exported below.
+
+module.exports = {
+  listIssues,
+  listRecentSourced,
+  listDepartments,
+  // Exported for referralCache.js, which needs these same low-level
+  // primitives for its full-scan and incremental-sync logic.
+  fetchAllPages,
+  classifySource,
+  profileUrl,
+};

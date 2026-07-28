@@ -127,13 +127,97 @@ button#refresh-btn.spinning {
   text-decoration: underline;
 }
 
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 28px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8rem;
+}
+
+.filter-bar label {
+  color: var(--text-secondary);
+}
+
+.filter-bar select {
+  background: var(--surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+}
+
+.page-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  max-width: 1300px;
+  margin: 0 auto;
+  padding: 24px 28px;
+}
+
+.bottom-section {
+  max-width: 1300px;
+  margin: 0 auto;
+  padding: 24px 28px;
+  border-top: 1px solid var(--gridline);
+}
+
+.main-content {
+  flex: 1;
+  min-width: 0; /* let children shrink/wrap instead of overflowing the flex item */
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.sidebar {
+  flex: 0 0 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Very light dividers between sections — subtle, not a hard rule. Only
+   between siblings (first child never gets one), so nothing doubles up with
+   the border the section-nav already has. */
+.main-content > * + *,
+.sidebar > * + * {
+  border-top: 1px solid var(--gridline);
+  padding-top: 24px;
+}
+
+.board > .column:not(:first-child) {
+  border-left: 1px solid var(--gridline);
+  padding-left: 20px;
+}
+
+@media (max-width: 700px) {
+  .board > .column:not(:first-child) {
+    border-left: none;
+    padding-left: 0;
+    border-top: 1px solid var(--gridline);
+    padding-top: 20px;
+  }
+}
+
+@media (max-width: 900px) {
+  .page-layout {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    flex-basis: auto;
+    width: 100%;
+  }
+}
+
 .board {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px;
-  padding: 24px 28px;
-  max-width: 1000px;
-  margin: 0 auto;
 }
 
 @media (max-width: 700px) {
@@ -142,15 +226,11 @@ button#refresh-btn.spinning {
   }
 }
 
-.wide-section {
-  max-width: 1000px;
-  margin: 0 auto;
-  padding: 24px 28px 0;
-}
-
 .wide-section .cards {
   flex-direction: row;
   flex-wrap: wrap;
+  align-content: flex-start;
+  max-height: 210px;
 }
 
 .wide-section .card {
@@ -185,6 +265,16 @@ button#refresh-btn.spinning {
   margin: 0 0 14px;
 }
 
+.section-updated {
+  display: block;
+  font-size: 0.7rem;
+  margin: 2px 0 8px;
+}
+
+.section-updated.stale {
+  color: var(--warning);
+}
+
 .dot {
   width: 10px;
   height: 10px;
@@ -206,6 +296,9 @@ button#refresh-btn.spinning {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .card {
@@ -243,10 +336,6 @@ button#refresh-btn.spinning {
   flex: none;
 }
 
-.dismiss {
-  position: relative;
-}
-
 .dismiss-btn {
   border: none;
   background: transparent;
@@ -264,10 +353,11 @@ button#refresh-btn.spinning {
 }
 
 .dismiss-menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
-  z-index: 10;
+  /* Fixed (not absolute) so it isn't clipped by the scrollable .cards
+     container it lives inside — position is set from JS via top/right on
+     open, anchored to the toggle button's actual viewport position. */
+  position: fixed;
+  z-index: 1000;
   display: flex;
   flex-direction: column;
   min-width: 160px;
@@ -358,4 +448,13 @@ button#refresh-btn.spinning {
   font-weight: 600;
   color: var(--text-secondary);
   vertical-align: middle;
+}
+
+.page-footer {
+  margin-top: 24px;
+  padding: 16px 28px 24px;
+  border-top: 1px solid #ffffff;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-muted);
 }

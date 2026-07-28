@@ -1,6 +1,35 @@
 (() => {
   const REFRESH_MS = 60 * 1000;
 
+  // Department filter is purely client-side: the last-fetched snapshot is
+  // cached here so changing the dropdown re-renders instantly without a
+  // network round-trip. Applies to every candidate-facing section; NOT
+  // Interviewer Weekly Limits, which has no department concept (an
+  // interviewer isn't tied to one job/department the way a candidate's
+  // application is).
+  let lastData = null;
+  let selectedDepartmentId = "";
+
+  function filterByDepartment(items) {
+    if (!selectedDepartmentId) return items;
+    return items.filter((item) => item.departmentId === selectedDepartmentId);
+  }
+
+  // Rebuilds the dropdown's options from the latest department list, keeping
+  // the current selection if it's still a valid option (departments rarely
+  // change, but the snapshot refreshes periodically regardless).
+  function populateDepartmentOptions(departments) {
+    const select = document.getElementById("department-filter");
+    const previousValue = select.value;
+    const options = ['<option value="">All departments</option>']
+      .concat(departments.map((d) => `<option value="${d.id}">${d.name}</option>`));
+    select.innerHTML = options.join("");
+    if (departments.some((d) => d.id === previousValue)) {
+      select.value = previousValue;
+    }
+    selectedDepartmentId = select.value;
+  }
+
   const columns = [
     {
       key: "feedbackOverdue",
@@ -10,20 +39,31 @@
         item.interviewers && item.interviewers.length
           ? `Waiting on: ${item.interviewers.map((i) => i.name).join(", ")}`
           : "",
-      ageLabel: (hours) => `${hours}h overdue`,
+      ageLabel: (hours) => `${formatAge(hours)} overdue`,
     },
     {
       key: "needsScheduling",
       hoursField: "hoursPending",
       thresholdKey: "needsSchedulingAlertHours",
       renderDetail: () => "",
-      ageLabel: (hours) => `${formatDuration(hours)} pending`,
+      ageLabel: (hours) => `${formatAge(hours)} pending`,
+    },
+    {
+      key: "availabilitySubmitted",
+      hoursField: "hoursWaiting",
+      thresholdKey: "availabilitySubmittedAlertHours",
+      renderDetail: () => "",
+      ageLabel: (hours) => `${formatAge(hours)} waiting`,
     },
   ];
 
-  function formatDuration(hours) {
-    if (hours < 48) return `${hours}h`;
-    return `${Math.floor(hours / 24)}d`;
+  // Under 24h shows whole hours; 24h and up shows days (one decimal place)
+  // instead of whole/floored days. The underlying data is still
+  // hour-denominated (config thresholds, severity ratios) — this only
+  // affects what's shown.
+  function formatAge(hours) {
+    if (hours < 24) return `${Math.round(hours)}h`;
+    return `${(hours / 24).toFixed(1)}d`;
   }
 
   function severity(hours, thresholdHours) {
@@ -105,7 +145,7 @@
       .map((item) =>
         cardHtml(item, {
           sev: "critical",
-          ageLabel: `${formatDuration(item.hoursStale)} stale`,
+          ageLabel: `${formatAge(item.hoursStale)} stale`,
           reasonBadge: item.reasonLabel,
           detail:
             item.interviewers && item.interviewers.length
@@ -143,8 +183,7 @@
   function formatAgo(iso) {
     const hours = (Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60);
     if (hours < 1) return "just now";
-    if (hours < 24) return `${Math.round(hours)}h ago`;
-    return `${Math.floor(hours / 24)}d ago`;
+    return `${formatAge(hours)} ago`;
   }
 
   function renderRecentSourced(items) {
@@ -179,14 +218,76 @@
       .join("");
   }
 
-  function render(data) {
-    for (const col of columns) {
-      renderColumn(col, data[col.key] || [], data.thresholds[col.thresholdKey]);
+  function renderActiveReferrals(items) {
+    const container = document.getElementById("cards-activeReferrals");
+    if (!items.length) {
+      container.innerHTML = `<div class="empty-state">Nothing flagged</div>`;
+      return;
     }
-    renderStale(data.staleCandidates || []);
-    renderInterviewerLimits(data.interviewerLimits || []);
-    renderRecentSourced(data.recentSourced || []);
+    container.innerHTML = items
+      .map((item) => {
+        const nameHtml = item.ashbyProfileUrl
+          ? `<a href="${item.ashbyProfileUrl}" target="_blank" rel="noopener">${item.candidateName || "Unknown candidate"}</a>`
+          : item.candidateName || "Unknown candidate";
+        return `
+          <div class="card sev-good">
+            <div class="card-top">
+              <div class="card-name">${nameHtml}</div>
+              ${cardTopRight(item.stageTitle, "muted", candidateKey(item))}
+            </div>
+            <div class="card-sub">${item.jobTitle || ""}</div>
+          </div>
+        `;
+      })
+      .join("");
+  }
+
+  // Six sections share one refresh cycle (data.lastUpdated/lastError);
+  // Active Referrals refreshes independently on its own, much slower cycle
+  // (data.activeReferralsUpdated/activeReferralsError) — see referralCache.js.
+  // Per-section timestamps make that split visible instead of implying every
+  // section is equally fresh.
+  const SECTION_TIMESTAMP_KEYS = [
+    "feedbackOverdue",
+    "needsScheduling",
+    "availabilitySubmitted",
+    "interviewerLimits",
+    "recentSourced",
+    "staleCandidates",
+  ];
+
+  function formatUpdatedAgo(iso) {
+    if (!iso) return "Never updated";
+    const minutes = Math.round((Date.now() - new Date(iso).getTime()) / (1000 * 60));
+    if (minutes < 1) return "Updated just now";
+    if (minutes < 60) return `Updated ${minutes}m ago`;
+    return `Updated ${formatAge(minutes / 60)} ago`;
+  }
+
+  function renderSectionTimestamp(key, iso, errorMessage) {
+    const el = document.getElementById(`updated-${key}`);
+    if (!el) return;
+    el.textContent = errorMessage ? `${formatUpdatedAgo(iso)} — refresh failed` : formatUpdatedAgo(iso);
+    el.classList.toggle("stale", Boolean(errorMessage));
+  }
+
+  function render(data) {
+    lastData = data;
+    populateDepartmentOptions(data.departments || []);
+
+    for (const col of columns) {
+      renderColumn(col, filterByDepartment(data[col.key] || []), data.thresholds[col.thresholdKey]);
+    }
+    renderStale(filterByDepartment(data.staleCandidates || []));
+    renderInterviewerLimits(data.interviewerLimits || []); // no department filter — see DEPARTMENT_FILTERED_KEYS note
+    renderRecentSourced(filterByDepartment(data.recentSourced || []));
+    renderActiveReferrals(filterByDepartment(data.activeReferrals || []));
     updateSourcedSubtitle(data.thresholds && data.thresholds.sourcedLookbackDays);
+
+    for (const key of SECTION_TIMESTAMP_KEYS) {
+      renderSectionTimestamp(key, data.lastUpdated, data.lastError);
+    }
+    renderSectionTimestamp("activeReferrals", data.activeReferralsUpdated, data.activeReferralsError);
 
     const lastUpdatedEl = document.getElementById("last-updated");
     if (data.lastUpdated) {
@@ -270,10 +371,29 @@
       const menu = toggle.parentElement.querySelector(".dismiss-menu");
       const wasHidden = menu.hasAttribute("hidden");
       closeAllMenus();
-      if (wasHidden) menu.removeAttribute("hidden");
+      if (wasHidden) {
+        // Anchor the fixed-position menu to the button's real viewport
+        // position (not CSS relative-positioning) so it can't be clipped by
+        // the scrollable .cards container it lives inside.
+        const rect = toggle.getBoundingClientRect();
+        menu.style.top = `${rect.bottom + 4}px`;
+        menu.style.right = `${window.innerWidth - rect.right}px`;
+        menu.removeAttribute("hidden");
+      }
       return;
     }
     closeAllMenus();
+  });
+
+  // A menu positioned from a stale rect (post-scroll) would float away from
+  // its button, so any scroll — page or a .cards container — closes it.
+  window.addEventListener("scroll", closeAllMenus, true);
+
+  // Changing the filter re-renders from the already-fetched snapshot — no
+  // network call, so it's instant even while Active Referrals is mid-scan.
+  document.getElementById("department-filter").addEventListener("change", (e) => {
+    selectedDepartmentId = e.target.value;
+    if (lastData) render(lastData);
   });
 
   load();
