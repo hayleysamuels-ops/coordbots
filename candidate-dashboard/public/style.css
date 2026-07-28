@@ -561,22 +561,27 @@ button#refresh-btn.spinning {
 }
 
 /* Candidate cards show only the name at rest; everything else (age,
-   dismiss, job title, badges, detail) reveals on hover. :focus-within
-   mirrors that for keyboard users tabbing to the dismiss button, which
-   would otherwise be unreachable. */
+   dismiss, job title, badges, detail) appears in a floating popup on
+   hover, positioned from JS (see showCardDetails() in app.js) exactly like
+   .dismiss-menu/.dept-filter-menu — fixed, not in-flow, so it never
+   pushes surrounding cards around. JS also shows it on focusin so tabbing
+   to the name link (and then the dismiss button inside) still works for
+   keyboard users. */
 .card-details {
-  max-height: 0;
-  margin-top: 0;
-  opacity: 0;
-  overflow: hidden;
-  transition: max-height 150ms ease, opacity 150ms ease, margin-top 150ms ease;
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  min-width: 240px;
+  max-width: 320px;
+  background: var(--white);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  box-shadow: 0 6px 18px rgba(45, 42, 42, 0.18);
+  padding: 10px 12px;
 }
 
-.card:hover .card-details,
-.card:focus-within .card-details {
-  max-height: 200px;
-  margin-top: 8px;
-  opacity: 1;
+.card-details.open {
+  display: block;
 }
 
 .card-age {

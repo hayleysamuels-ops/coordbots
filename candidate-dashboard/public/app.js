@@ -127,9 +127,8 @@
 
   // Candidate cards show only the name by default — everything else
   // (age/severity, job title, dismiss control, badges, detail line) lives in
-  // `.card-details`, revealed on hover (see style.css `.card:hover
-  // .card-details`). `:focus-within` mirrors that for keyboard users tabbing
-  // to the dismiss button, since it'd otherwise be unreachable.
+  // `.card-details`, shown as a floating popup on hover/focus (positioned by
+  // showCardDetails() below) rather than expanding the card in place.
   function cardHtml(item, { sev, ageLabel, ageClass, detail, reasonBadge }) {
     const nameHtml = item.ashbyProfileUrl
       ? `<a href="${item.ashbyProfileUrl}" target="_blank" rel="noopener">${item.candidateName || "Unknown candidate"}</a>`
@@ -359,6 +358,37 @@
     document.querySelectorAll(".dismiss-menu").forEach((m) => m.setAttribute("hidden", ""));
     document.getElementById("department-filter-menu").setAttribute("hidden", "");
     document.getElementById("department-filter-btn").setAttribute("aria-expanded", "false");
+    document.querySelectorAll(".card-details.open").forEach((d) => d.classList.remove("open"));
+  }
+
+  // Positions a card's floating `.card-details` popup from its card's real
+  // viewport rect, same anchoring approach as .dismiss-menu/.dept-filter-menu.
+  // Prefers below the card; flips above if there isn't room. At most one
+  // popup is open at a time.
+  function showCardDetails(card) {
+    const details = card.querySelector(".card-details");
+    if (!details) return;
+    document.querySelectorAll(".card-details.open").forEach((d) => {
+      if (d !== details) d.classList.remove("open");
+    });
+
+    details.classList.add("open");
+    const rect = card.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    if (spaceBelow >= details.offsetHeight + 12 || rect.top < details.offsetHeight) {
+      details.style.top = `${rect.bottom + 6}px`;
+      details.style.bottom = "";
+    } else {
+      details.style.top = "";
+      details.style.bottom = `${window.innerHeight - rect.top + 6}px`;
+    }
+    const left = Math.min(rect.left, window.innerWidth - details.offsetWidth - 12);
+    details.style.left = `${Math.max(8, left)}px`;
+  }
+
+  function hideCardDetails(card) {
+    const details = card.querySelector(".card-details");
+    if (details) details.classList.remove("open");
   }
 
   async function dismiss(key, scope) {
@@ -465,6 +495,35 @@
     },
     true
   );
+
+  // Hover/focus delegation for the candidate-card detail popup. mouseover/
+  // mouseout (rather than mouseenter/mouseleave) so a single listener on
+  // document can handle every card even as they're re-rendered on each
+  // poll; the relatedTarget check treats moving between a card's own
+  // children (e.g. name -> the popup itself, since it's a DOM descendant of
+  // .card even though it renders fixed-position) as staying "inside" the
+  // card, so it doesn't flicker closed. focusin/focusout mirror the same
+  // logic for keyboard users tabbing to the name link and then the dismiss
+  // button inside the now-visible popup.
+  document.addEventListener("mouseover", (e) => {
+    const card = e.target.closest(".card");
+    if (!card || (e.relatedTarget && card.contains(e.relatedTarget))) return;
+    showCardDetails(card);
+  });
+  document.addEventListener("mouseout", (e) => {
+    const card = e.target.closest(".card");
+    if (!card || (e.relatedTarget && card.contains(e.relatedTarget))) return;
+    hideCardDetails(card);
+  });
+  document.addEventListener("focusin", (e) => {
+    const card = e.target.closest(".card");
+    if (card) showCardDetails(card);
+  });
+  document.addEventListener("focusout", (e) => {
+    const card = e.target.closest(".card");
+    if (!card || (e.relatedTarget && card.contains(e.relatedTarget))) return;
+    hideCardDetails(card);
+  });
 
   load();
   setInterval(load, REFRESH_MS);
