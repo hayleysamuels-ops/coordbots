@@ -4,9 +4,14 @@ const path = require("path");
 const express = require("express");
 const issues = require("./issues");
 const dismissals = require("./dismissals");
+const { basicAuth } = require("./auth");
 
 function createServer() {
   const app = express();
+
+  // First, ahead of static files and every /api/* route — nothing on this
+  // server is reachable without valid credentials.
+  app.use(basicAuth);
 
   app.use(express.json());
   app.use(express.static(path.join(__dirname, "..", "public")));

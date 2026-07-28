@@ -2,10 +2,11 @@
 
 const fs = require("fs");
 const path = require("path");
+const config = require("./config");
 
-// Persisted so a "dismiss indefinitely" survives restarts. Point DATA_DIR at a
-// mounted volume on a cloud host if you want dismissals to survive redeploys.
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "..", "data");
+// Persisted so a "dismiss indefinitely" survives restarts. See
+// config.dataDir for where this lives.
+const DATA_DIR = config.dataDir;
 const FILE = path.join(DATA_DIR, "dismissals.json");
 
 // key -> { scope: "today" | "forever", expiresAt: number | null }

@@ -7,9 +7,8 @@ const ashby = require("./ashby");
 
 // Persisted so the expensive full scan only ever has to happen once (or
 // again if an incremental sync's token gets rejected) — not on every server
-// restart. Point DATA_DIR at a mounted volume on a cloud host, same as
-// dismissals.json.
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "..", "data");
+// restart. See config.dataDir for where this lives.
+const DATA_DIR = config.dataDir;
 const FILE = path.join(DATA_DIR, "referral-cache.json");
 // Separate from FILE on purpose: FILE always holds a complete, servable
 // result set; this holds an IN-PROGRESS full scan's partial state, and only

@@ -1,5 +1,7 @@
 "use strict";
 
+const path = require("path");
+
 require("dotenv").config();
 
 function required(name) {
@@ -19,6 +21,15 @@ const number = hours;
 
 const config = {
   port: parseInt(process.env.PORT || "3000", 10),
+
+  // Every persisted cache/checkpoint file lives under here. Point it at a
+  // mounted volume on a cloud host so dismissals/referral cache survive
+  // redeploys.
+  dataDir: process.env.DATA_DIR || path.join(__dirname, "..", "data"),
+
+  // HTTP Basic Auth, checked in front of every route (see src/auth.js).
+  dashboardUser: required("DASHBOARD_USER"),
+  dashboardPassword: required("DASHBOARD_PASSWORD"),
 
   ashbyApiKey: required("ASHBY_API_KEY"),
   ashbyAppBaseUrl: (process.env.ASHBY_APP_BASE_URL || "https://app.ashbyhq.com").replace(/\/+$/, ""),
