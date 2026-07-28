@@ -463,7 +463,17 @@
 
   // A menu positioned from a stale rect (post-scroll) would float away from
   // its button, so any scroll — page or a .cards container — closes it.
-  window.addEventListener("scroll", closeAllMenus, true);
+  // Exception: the department menu's own internal scroll (it's
+  // overflow-y: auto so long department lists can scroll) would otherwise
+  // trigger this same capture-phase listener and immediately close itself.
+  window.addEventListener(
+    "scroll",
+    (e) => {
+      if (e.target instanceof Element && e.target.closest("#department-filter-menu")) return;
+      closeAllMenus();
+    },
+    true
+  );
 
   load();
   setInterval(load, REFRESH_MS);
