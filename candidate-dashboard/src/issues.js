@@ -31,6 +31,8 @@ let snapshot = {
   recentSourced: [],
   availabilitySubmitted: [],
   onsiteToday: [],
+  rescheduledInterviews: [],
+  interviewerTraining: [],
   departments: [],
   thresholds,
   appConfig,
@@ -48,14 +50,22 @@ async function timed(label, promise) {
 }
 
 async function computeIssues() {
-  const [issues, recentSourced, departments] = await Promise.all([
+  const [issues, recentSourced, departments, interviewerTraining] = await Promise.all([
     timed("listIssues", ashby.listIssues()),
     timed("listRecentSourced", ashby.listRecentSourced()),
     timed("listDepartments", ashby.listDepartments()),
+    timed("listInterviewerTraining", ashby.listInterviewerTraining()),
   ]);
 
-  const { feedbackOverdue, needsScheduling, staleCandidates, interviewerLimits, availabilitySubmitted, onsiteToday } =
-    issues;
+  const {
+    feedbackOverdue,
+    needsScheduling,
+    staleCandidates,
+    interviewerLimits,
+    availabilitySubmitted,
+    onsiteToday,
+    rescheduledInterviews,
+  } = issues;
   return {
     feedbackOverdue,
     needsScheduling,
@@ -64,6 +74,8 @@ async function computeIssues() {
     recentSourced,
     availabilitySubmitted,
     onsiteToday,
+    rescheduledInterviews,
+    interviewerTraining,
     departments,
     thresholds,
     appConfig,
@@ -93,7 +105,9 @@ async function refresh() {
           `${snapshot.interviewerLimits.length} nearing interview limit, ` +
           `${snapshot.recentSourced.length} recently sourced, ` +
           `${snapshot.availabilitySubmitted.length} availability submitted, ` +
-          `${snapshot.onsiteToday.length} onsite today`
+          `${snapshot.onsiteToday.length} onsite today, ` +
+          `${snapshot.rescheduledInterviews.length} rescheduled interviews, ` +
+          `${snapshot.interviewerTraining.length} interviewer training entries`
       );
     } catch (err) {
       lastError = err.message;
@@ -125,7 +139,9 @@ function applyDismissals(snap) {
     recentSourced: snap.recentSourced.filter(keepCandidate),
     availabilitySubmitted: snap.availabilitySubmitted.filter(keepCandidate),
     onsiteToday: snap.onsiteToday.filter(keepCandidate),
+    rescheduledInterviews: snap.rescheduledInterviews.filter(keepCandidate),
     interviewerLimits: snap.interviewerLimits.filter(keepInterviewer),
+    interviewerTraining: snap.interviewerTraining.filter(keepInterviewer),
   };
 }
 

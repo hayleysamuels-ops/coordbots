@@ -1,7 +1,7 @@
 # Candidate issues dashboard
 
 A small dashboard for a recruiting coordinator: at a glance, which candidates
-(and interviewers) need attention right now. Seven sections, plus a link out
+(and interviewers) need attention right now. Nine sections, plus a link out
 to Ashby's own Active Referrals report (see below):
 
 | Section | What it flags | Source |
@@ -13,6 +13,8 @@ to Ashby's own Active Referrals report (see below):
 | **Interviewer Weekly Limits** | An interviewer whose remaining weekly interview capacity has dropped to `INTERVIEWER_LIMIT_BUFFER` slots or fewer (default 1) — i.e. their Ashby-configured `weeklyLimit` minus interviews already on their calendar this week (Mon–Sun UTC). Interviewers with no `weeklyLimit` set never appear. | Ashby `user.interviewerSettings` (the limit) + `interviewSchedule.list` event data (the count). |
 | **Recently Sourced** | Candidates whose application was **created** in the last `SOURCED_LOOKBACK_DAYS` (default 3) with a referral or agency source. All statuses shown (Active/Archived/Hired/Lead), labeled per card. | Ashby `application.list` (`createdAfter` + `source.sourceType`). |
 | **Onsite Interviews Today** | Today's panel/final-round interview events, shown in a persistent right-margin column with a deliberately heavier border than the rest of the page. "Onsite" is **approximated**: Ashby has no per-interview location/format field anywhere in this org (checked interview events, interview definitions, interview stages, and all 38 org custom fields), so this matches on the interview stage title containing "panel" or "final" instead, per explicit product decision. "Today" is a UTC calendar day; display times render in the browser's local zone. | Ashby `interviewSchedule.list` (the same fetch `listIssues()` already does — no extra pagination call) + `interviewStage.info` per unique stage id involved. |
+| **Interviewer Training** | Every interviewer currently enrolled in a pool's training path — real Ashby `Shadow`/`ReverseShadow` roles (not a naming-convention guess), with progress toward each stage's required interview count. Paused trainees surface first. Not tied to any candidate/application. | Ashby `interviewerPool.list` + `interviewerPool.info` per pool with an enabled `trainingPath` (small, bounded — 22 pools on this org). |
+| **Rescheduled Interviews** | Interview events whose reschedule count exceeds `RESCHEDULE_COUNT_THRESHOLD` (default 2, i.e. the 3rd reschedule onward). **Ashby has no reschedule history anywhere in its API** — checked schedule fields, event fields, `application.listHistory`, and `extraData` across a live sample of 131 events; only the event's *current* `startTime` exists. This app tracks it itself: each refresh, compares every event's `startTime` against what it last saw for that event id and increments a persisted counter when it changes. Counting starts at zero the first time a given event is ever seen — it can only catch reschedules from then on, not any that happened before. | Ashby `interviewSchedule.list` (the same fetch `listIssues()` already does) + this app's own persisted `<DATA_DIR>/reschedule-tracking.json`. |
 
 **Active Referrals** used to be computed in-app (a bounded full
 `application.list` scan + incremental `syncToken` sync — see git history if
@@ -172,7 +174,8 @@ Fill in `.env`:
 | `INTERVIEWER_LIMIT_BUFFER` | no | Default `1`. An interviewer is flagged once remaining weekly capacity drops to this many slots or fewer. |
 | `SOURCED_LOOKBACK_DAYS` | no | Default `3`. Recently Sourced shows referral/agency applications created within this many days. |
 | `AVAILABILITY_SUBMITTED_ALERT_HOURS` | no | Default `24`. Color-coding threshold only — every submitted-and-unbooked candidate is shown regardless of age. |
-| `REFRESH_INTERVAL_MINUTES` | no | How often the server re-pulls Ashby for the seven sections. Default `5`. The page itself polls the cached snapshot every 60s regardless. |
+| `REFRESH_INTERVAL_MINUTES` | no | How often the server re-pulls Ashby for the nine sections. Default `5`. The page itself polls the cached snapshot every 60s regardless. |
+| `RESCHEDULE_COUNT_THRESHOLD` | no | Default `2`. Flags an interview event once its (self-tracked) reschedule count exceeds this. See § Rescheduled Interviews above. |
 | `DATA_DIR` | no | Where dismissals (`dismissals.json`) are persisted. Defaults to `./data`. On a cloud host, point at a mounted volume so dismissals aren't lost on redeploy. |
 | `SCHEDULE_LOOKBACK_DAYS` | no | Default `30`. How far back `interviewSchedule.list` is pulled for the schedule-driven sections. Tune per client's interview volume — see § Scope. |
 | `SOURCE_REFERRAL_KEYWORDS` / `SOURCE_AGENCY_KEYWORDS` | no | Defaults `referr` / `agenc`. Comma-separated, case-insensitive substrings matched against `source.sourceType.title` to classify Recently Sourced. **Every Ashby org names these differently** — run `scripts/check-ashby-compatibility.js` against a new client before trusting the defaults. Set to an empty value to disable a category. |
@@ -253,7 +256,8 @@ entry from `dismissals.json`.
 | `src/ashby.js` | Paginated Ashby client; computes Feedback Overdue, Needs Scheduling, Availability Submitted, Stale Candidates, Interviewer Weekly Limits, Recently Sourced, and Onsite Interviews Today. |
 | `src/concurrency.js` | `mapWithConcurrency` — bounds parallel `application.info` / `user.interviewerSettings` lookups. |
 | `src/dismissals.js` | Persisted store of dismissed cards (`dismissals.json`); handles "today" expiry and "forever". |
-| `src/issues.js` | Orchestrates the seven schedule-driven lists, guards against overlapping refreshes, filters out dismissed cards at serve time, holds the cached snapshot. |
+| `src/issues.js` | Orchestrates the nine sections (schedule/application-driven, plus interviewer training pool data), guards against overlapping refreshes, filters out dismissed cards at serve time, holds the cached snapshot. |
+| `src/rescheduleTracking.js` | Persisted (`<DATA_DIR>/reschedule-tracking.json`) reschedule counter per interview event id, since Ashby has none of its own — see § Rescheduled Interviews above. |
 | `public/` | The dashboard itself — plain HTML/CSS/JS, polls `/api/issues` every 60s. |
 
 ## Notes & limitations

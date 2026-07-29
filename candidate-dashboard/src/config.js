@@ -79,6 +79,14 @@ const config = {
   // catching old stragglers and refresh-cycle speed — see README § Scope.
   scheduleLookbackDays: number("SCHEDULE_LOOKBACK_DAYS", 30),
 
+  // "Rescheduled Interviews" section: flag once an interview event's
+  // tracked reschedule count exceeds this many (default 2, i.e. "more than
+  // 2 times" = 3rd reschedule onward). Ashby has no reschedule history of
+  // its own — see src/rescheduleTracking.js — so this only counts
+  // reschedules that happen from whenever this app first started tracking
+  // a given event onward, not any that happened before.
+  rescheduleCountThreshold: number("RESCHEDULE_COUNT_THRESHOLD", 2),
+
   // "Recently Sourced" / source classification: which `source.sourceType.title`
   // substrings count as a referral or an agency. Every Ashby org names these
   // differently — verify against this client's actual source.list before

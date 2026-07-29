@@ -22,6 +22,7 @@
     "staleCandidates",
     "recentSourced",
     "onsiteToday",
+    "rescheduledInterviews",
   ];
 
   function collectDistinct(data, idKey, nameKey) {
@@ -296,6 +297,31 @@
       .join("");
   }
 
+  function renderInterviewerTraining(items) {
+    const container = document.getElementById("cards-interviewerTraining");
+    if (!items.length) {
+      container.innerHTML = `<div class="empty-state">Nothing flagged</div>`;
+      return;
+    }
+    container.innerHTML = items
+      .map((item) => {
+        const sev = item.isPaused ? "critical" : "good";
+        const roleLabel = item.stageRole === "ReverseShadow" ? "Reverse shadow" : "Shadow";
+        const progressLabel = `${item.interviewsCompleted} of ${item.interviewsRequired}`;
+        return `
+          <div class="card sev-${sev}">
+            <div class="card-top">
+              <div class="card-name">${item.interviewerName || "Unknown interviewer"}</div>
+              ${cardTopRight(item.isPaused ? "Paused" : progressLabel, `sev-${sev}`, `interviewer:${item.userId}`)}
+            </div>
+            <div class="card-sub">${roleLabel} — ${item.poolTitle}</div>
+            ${item.isPaused ? `<div class="card-detail">${progressLabel} completed</div>` : ""}
+          </div>
+        `;
+      })
+      .join("");
+  }
+
   function formatAgo(iso) {
     const hours = (Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60);
     if (hours < 1) return "just now";
@@ -307,6 +333,14 @@
   // listOnsiteToday in ashby.js), so this is display-only.
   function formatEventTime(iso) {
     return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+
+  // Unlike formatEventTime above (today's onsite events, time-only), a
+  // rescheduled interview's current slot could be any date, so this
+  // includes the date too.
+  function formatEventDateTime(iso) {
+    if (!iso) return "not yet scheduled";
+    return new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   }
 
   function renderRecentSourced(items) {
@@ -356,6 +390,27 @@
       .join("");
   }
 
+  function renderRescheduledInterviews(items) {
+    const container = document.getElementById("cards-rescheduledInterviews");
+    if (!items.length) {
+      container.innerHTML = `<div class="empty-state">Nothing flagged</div>`;
+      return;
+    }
+    container.innerHTML = items
+      .map((item) =>
+        cardHtml(item, {
+          sev: "critical",
+          ageLabel: `${item.rescheduleCount} reschedules`,
+          detail:
+            `Currently scheduled: ${formatEventDateTime(item.startTime)}` +
+            (item.interviewers && item.interviewers.length
+              ? ` — Interviewers: ${item.interviewers.map((i) => i.name).join(", ")}`
+              : ""),
+        })
+      )
+      .join("");
+  }
+
   const SECTION_TIMESTAMP_KEYS = [
     "feedbackOverdue",
     "needsScheduling",
@@ -364,6 +419,8 @@
     "recentSourced",
     "staleCandidates",
     "onsiteToday",
+    "rescheduledInterviews",
+    "interviewerTraining",
   ];
 
   function formatUpdatedAgo(iso) {
@@ -410,8 +467,10 @@
     }
     renderStale(filterByEntity(data.staleCandidates || []));
     renderInterviewerLimits(data.interviewerLimits || []); // no department/job filter — no job/department concept for an interviewer
+    renderInterviewerTraining(data.interviewerTraining || []); // same — not tied to a candidate
     renderRecentSourced(filterByEntity(data.recentSourced || []));
     renderOnsiteToday(filterByEntity(data.onsiteToday || []));
+    renderRescheduledInterviews(filterByEntity(data.rescheduledInterviews || []));
     updateSourcedSubtitle(data.thresholds && data.thresholds.sourcedLookbackDays);
 
     for (const key of SECTION_TIMESTAMP_KEYS) {

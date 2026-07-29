@@ -39,10 +39,13 @@ No build step, no test framework, no linter. Node 18+, CommonJS (`require`).
 
 Background poll (not webhooks — a dashboard just needs current state), one
 refresh cycle: `issues.js` refreshes every `REFRESH_INTERVAL_MINUTES` by
-calling `ashby.listIssues()` and `ashby.listRecentSourced()` in parallel —
-the seven sections (Feedback Overdue, Needs Scheduling, Availability
-Submitted, Stale Candidates, Interviewer Weekly Limits, Recently Sourced,
-Onsite Interviews Today).
+calling `ashby.listIssues()`, `ashby.listRecentSourced()`, and
+`ashby.listInterviewerTraining()` in parallel — the nine sections
+(Feedback Overdue, Needs Scheduling, Availability Submitted, Stale
+Candidates, Interviewer Weekly Limits, Recently Sourced, Onsite Interviews
+Today, Interviewer Training, Rescheduled Interviews). Rescheduled
+Interviews is computed inside `ashby.listIssues()` itself (it reuses that
+same `interviewSchedule.list` fetch), not a separate top-level call.
 
 `issues.js`'s `getSnapshot()` serves this as one payload for
 `GET /api/issues` (see `server.js`), with `lastUpdated`/`lastError`. The
@@ -76,13 +79,17 @@ is normally still in Application Review and any status).
 - `src/ashby.js` — paginated Ashby client (`fetchAllPages` walks
   `moreDataAvailable`/`nextCursor`) + flag computation for Feedback Overdue,
   Needs Scheduling, Availability Submitted, Stale Candidates, Interviewer
-  Weekly Limits, Recently Sourced, and Onsite Interviews Today, plus
-  `listDepartments()` for the department filter. The Active-only /
-  past-Application-Review filter applies to Feedback Overdue / Needs
-  Scheduling / Availability Submitted only — Interviewer Weekly Limits counts
-  interviews regardless of candidate status, and Recently Sourced shows all
-  statuses.
-- `src/issues.js` — orchestrator + cache for the seven sections; applies
+  Weekly Limits, Recently Sourced, Onsite Interviews Today, Interviewer
+  Training, and Rescheduled Interviews, plus `listDepartments()` for the
+  department filter. The Active-only / past-Application-Review filter
+  applies to Feedback Overdue / Needs Scheduling / Availability Submitted
+  only — Interviewer Weekly Limits and Interviewer Training count
+  regardless of candidate status (they aren't candidate-driven at all), and
+  Recently Sourced shows all statuses.
+- `src/rescheduleTracking.js` — persisted (`<DATA_DIR>/reschedule-
+  tracking.json`) reschedule counter per interview event id; see the key
+  design fact below.
+- `src/issues.js` — orchestrator + cache for the nine sections; applies
   dismissals at serve time (see below).
 - `public/` — plain HTML/CSS/JS dashboard, no framework.
 - `scripts/check-ashby-compatibility.js` — standalone, read-only pre-
@@ -93,6 +100,55 @@ is normally still in Application Review and any status).
 
 ## Key design facts (don't "fix" these — they're intentional)
 
+- **Interviewer Training (`listInterviewerTraining()` in `ashby.js`) uses
+  real, structured Ashby fields (`Shadow`/`ReverseShadow` via
+  `interviewerPool.list`'s `trainingPath.trainingStages[].interviewerRole`)
+  — unlike Onsite Interviews Today below, this is NOT a naming-convention
+  guess.** One call to `interviewerPool.list` (paginated but small — 22
+  pools on this org), then one `interviewerPool.info` call per pool with
+  `trainingPath.enabled === true` (bounded, concurrency-limited via
+  `mapWithConcurrency`, same shape as `listInterviewerLimits`'s per-user
+  calls) — each response's `trainees[]` already carries
+  `currentProgress.trainingPathStageId`, resolved against that SAME
+  response's `trainingPath.trainingStages` (no extra lookup). Not tied to
+  any candidate/application — entries are interviewer-centric like
+  Interviewer Weekly Limits, so `filterByEntity()` (department/job/
+  recruiter/coordinator) deliberately skips this section too, and it
+  reuses the same `interviewer:<userId>` dismiss keyspace as Interviewer
+  Weekly Limits (dismissing an interviewer hides them from both). Sorted
+  paused-first (blocked, needs a nudge), then alphabetical — not by
+  progress-remaining, so the list doesn't reshuffle every refresh as
+  trainees complete interviews.
+- **Rescheduled Interviews requires this app to track its own history —
+  Ashby's API genuinely has none.** Checked `interviewSchedule`/
+  `interviewEvent` fields, `application.listHistory` (stage transitions
+  only), and `extraData` across a live sample of 131 events: nothing
+  records a previous `startTime` or a reschedule count anywhere.
+  `src/rescheduleTracking.js` persists `{ lastKnownStartTime,
+  rescheduleCount }` per interview event id to `<DATA_DIR>/reschedule-
+  tracking.json`, incrementing the counter when `startTime` differs from
+  what was last seen; `trackAndGetCounts()` is called once per
+  `listIssues()` refresh with every event in the lookback window
+  (regardless of candidate status — reschedule count is a property of the
+  event, not the candidate), and events no longer seen are pruned so the
+  file doesn't grow forever. **Counting starts at zero the first time a
+  given event is ever observed** — it can only catch reschedules from then
+  on, never ones that happened before this feature existed; don't present
+  a "3 reschedules" flag as if it were the interview's whole history.
+  `config.rescheduleCountThreshold` (`RESCHEDULE_COUNT_THRESHOLD`, default
+  2) is the count that must be *exceeded* to flag, i.e. default flags the
+  3rd reschedule onward, matching "more than 2 times." **A real bug caught
+  in testing**: the first version only set the `save()`-triggering
+  `changed` flag when an *existing* event's time changed, not when a
+  *new* event was first added to the store — meaning the tracking file
+  was never created on a fresh install (verified live: ran a full refresh,
+  confirmed the file genuinely didn't exist afterward). Fixed by also
+  setting `changed = true` on first-seen events; don't regress this, or a
+  server restarted before any reschedule occurs loses its whole baseline
+  and starts over. Deliberately NOT part of `keepMostRecentPerCandidate()`'s
+  dedup pool (see above) — it's an orthogonal fact about an event's history,
+  not a mutually-exclusive candidate state, so a candidate can appear here
+  AND in one of the four deduped sections at the same time.
 - **"Onsite" in Onsite Interviews Today is a naming-convention approximation,
   not a real Ashby signal — this is CLIENT-SPECIFIC, not universal.** Checked
   interviewEvents, interview.info, interviewStage.info, and all 38 org
@@ -254,11 +310,12 @@ is normally still in Application Review and any status).
   items in `lastData` — deliberately NOT a separate `job.list`/etc. call,
   since e.g. `job.list` would include every closed/archived job org-wide
   (dozens to hundreds) rather than just the ones with candidates currently
-  on screen. `filterByEntity()` is applied to the six candidate sections'
+  on screen. `filterByEntity()` is applied to the seven candidate sections'
   arrays before each is rendered (`renderColumn`/`renderStale`/
-  `renderRecentSourced`/`renderOnsiteToday`) — Interviewer Weekly Limits
-  deliberately skips it, since an interviewer isn't tied to one department/
-  job/recruiter/coordinator. If you add a new candidate-facing section,
+  `renderRecentSourced`/`renderOnsiteToday`/`renderRescheduledInterviews`) —
+  Interviewer Weekly Limits and Interviewer Training deliberately skip it,
+  since an interviewer isn't tied to one department/job/recruiter/
+  coordinator. If you add a new candidate-facing section,
   wrap its render call with `filterByEntity(...)` too, add its key to
   `CANDIDATE_SECTION_KEYS` (so it's included when deriving job/recruiter/
   coordinator options), and make sure `ashby.js` actually populates
@@ -275,7 +332,7 @@ is normally still in Application Review and any status).
   the background refresh doesn't need to re-run. Don't move filtering into
   `refresh()`; that would delay dismissals by up to `REFRESH_INTERVAL_MINUTES`.
 - **Dismiss keys are entity-scoped, not row-scoped.** `candidate:<id>` hides a
-  person from all six candidate sections at once;
+  person from all seven candidate sections at once;
   `interviewer:<id>` hides an interviewer from the limits section. There's an
   `/api/undismiss` endpoint but no UI button for it yet (documented in
   README). If you add a new candidate-facing section, add it to the

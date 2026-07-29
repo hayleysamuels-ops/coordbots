@@ -2,6 +2,7 @@
 
 const config = require("./config");
 const { mapWithConcurrency } = require("./concurrency");
+const rescheduleTracking = require("./rescheduleTracking");
 
 function authHeader() {
   return `Basic ${Buffer.from(`${config.ashbyApiKey}:`).toString("base64")}`;
@@ -265,6 +266,11 @@ async function listInterviewerLimits(schedules) {
  * - onsiteToday: today's panel/final-round interview events — see
  *   listOnsiteToday above for how "onsite" is approximated (Ashby has no
  *   real signal for it in this org).
+ * - rescheduledInterviews: interview events whose tracked reschedule count
+ *   exceeds RESCHEDULE_COUNT_THRESHOLD (default 2). Ashby has no reschedule
+ *   history of its own — see rescheduleTracking.js — so counting only
+ *   starts from whenever this app first saw a given event; it can't detect
+ *   reschedules that already happened before that.
  *
  * A candidate appears in at most ONE of feedbackOverdue/needsScheduling/
  * availabilitySubmitted/onsiteToday/staleCandidates, never several at once —
@@ -275,7 +281,10 @@ async function listInterviewerLimits(schedules) {
  * information once a newer round exists. Only the single most recent event
  * per candidate is kept; everything else for that candidate is dropped
  * entirely (not moved to Stale Candidates either, unless that most-recent
- * event is itself the stale one).
+ * event is itself the stale one). rescheduledInterviews is deliberately NOT
+ * part of that pool — it's an orthogonal fact about a specific event's
+ * history, not a mutually-exclusive candidate state, so a candidate can be
+ * in Rescheduled Interviews AND one of the others at the same time.
  */
 // Collapses a pool of candidate-linked entries (tagged with `eventTime`, a
 // millisecond timestamp, and `__section`) down to one entry per candidateId
@@ -392,6 +401,12 @@ async function listIssues() {
   const createdAfter = Date.now() - config.scheduleLookbackDays * 24 * 60 * 60 * 1000;
   const schedules = await fetchAllPages("interviewSchedule.list", { limit: 100, createdAfter });
 
+  // Reschedule tracking is a property of the event itself, not the
+  // candidate — run it over every event in the lookback window regardless
+  // of application status, before the Active-only filtering below.
+  const allEvents = schedules.flatMap((s) => (s.interviewEvents || []).map((e) => ({ id: e.id, startTime: e.startTime })));
+  const rescheduleCounts = rescheduleTracking.trackAndGetCounts(allEvents);
+
   const applicationIds = [...new Set(schedules.map((s) => s.applicationId).filter(Boolean))];
   const [applications, interviewerLimits] = await Promise.all([
     fetchApplicationSummaries(applicationIds),
@@ -405,6 +420,7 @@ async function listIssues() {
   let feedbackEntries = [];
   let schedulingEntries = [];
   let availabilitySubmitted = [];
+  const rescheduledInterviews = [];
 
   for (const schedule of schedules) {
     const app = applications.get(schedule.applicationId);
@@ -434,6 +450,21 @@ async function listIssues() {
     }
 
     for (const event of schedule.interviewEvents || []) {
+      const rescheduleCount = rescheduleCounts.get(event.id) || 0;
+      if (rescheduleCount > config.rescheduleCountThreshold) {
+        rescheduledInterviews.push({
+          ...app,
+          scheduleId: schedule.id,
+          interviewEventId: event.id,
+          startTime: event.startTime,
+          rescheduleCount,
+          interviewers: (event.interviewers || []).map((i) => ({
+            name: `${i.firstName || ""} ${i.lastName || ""}`.trim() || i.email,
+            email: i.email,
+          })),
+        });
+      }
+
       if (event.hasSubmittedFeedback || !event.endTime) continue;
       const hoursOverdue = (now - new Date(event.endTime).getTime()) / (1000 * 60 * 60);
       if (hoursOverdue < config.feedbackOverdueHours) continue;
@@ -495,8 +526,17 @@ async function listIssues() {
   needsScheduling.sort((a, b) => b.hoursPending - a.hoursPending);
   staleCandidates.sort((a, b) => b.hoursStale - a.hoursStale);
   availabilitySubmitted.sort((a, b) => b.hoursWaiting - a.hoursWaiting);
+  rescheduledInterviews.sort((a, b) => b.rescheduleCount - a.rescheduleCount);
 
-  return { feedbackOverdue, needsScheduling, staleCandidates, interviewerLimits, availabilitySubmitted, onsiteToday };
+  return {
+    feedbackOverdue,
+    needsScheduling,
+    staleCandidates,
+    interviewerLimits,
+    availabilitySubmitted,
+    onsiteToday,
+    rescheduledInterviews,
+  };
 }
 
 // Classify an application's source into "Referral" / "Agency", or null if
@@ -576,8 +616,71 @@ async function listDepartments() {
   return (json.results || []).map((d) => ({ id: d.id, name: d.name }));
 }
 
+/**
+ * Current interviewer-training status: every trainee currently enrolled in
+ * a pool's training path, their stage (Shadow/ReverseShadow — real Ashby
+ * enum values via interviewerPool.trainingPath.trainingStages, not a
+ * naming-convention guess like Onsite Interviews Today's stage-title
+ * matching), and their progress (interviewsCompleted vs. that stage's
+ * interviewsRequired). Not tied to any candidate/application — this is
+ * purely about interviewer readiness.
+ *
+ * interviewerPool.list is cheap (paginated, but small — 22 pools on this
+ * org). interviewerPool.info (one call per pool with an enabled
+ * trainingPath) returns that pool's trainees directly, no per-trainee
+ * lookup needed — bounded, concurrency-limited, same shape as
+ * listInterviewerLimits' per-user calls.
+ */
+async function listInterviewerTraining() {
+  const pools = await fetchAllPages("interviewerPool.list", { limit: 100 });
+  const trainablePools = pools.filter((p) => p.trainingPath && p.trainingPath.enabled);
+  if (!trainablePools.length) return [];
+
+  const poolDetails = (
+    await mapWithConcurrency(trainablePools, 8, async (pool) => {
+      try {
+        const json = await ashbyPost("interviewerPool.info", { interviewerPoolId: pool.id });
+        return json.results;
+      } catch (err) {
+        console.warn(`[ashby] interviewerPool.info failed for ${pool.id}:`, err.message);
+        return null;
+      }
+    })
+  ).filter(Boolean);
+
+  const entries = [];
+  for (const pool of poolDetails) {
+    const stagesById = new Map(((pool.trainingPath || {}).trainingStages || []).map((s) => [s.id, s]));
+    for (const trainee of pool.trainees || []) {
+      const progress = trainee.currentProgress;
+      if (!progress) continue;
+      const stage = stagesById.get(progress.trainingPathStageId);
+      if (!stage) continue;
+
+      entries.push({
+        userId: trainee.id,
+        interviewerName: `${trainee.firstName || ""} ${trainee.lastName || ""}`.trim() || trainee.email,
+        poolTitle: pool.title,
+        stageRole: stage.interviewerRole, // "Shadow" | "ReverseShadow"
+        interviewsCompleted: progress.interviewsCompleted || 0,
+        interviewsRequired: stage.interviewsRequired,
+        isPaused: Boolean(trainee.isPaused),
+      });
+    }
+  }
+
+  // Paused trainees (blocked, needs a nudge) surface first; otherwise
+  // alphabetical by name so the list doesn't reshuffle on every refresh.
+  entries.sort((a, b) => {
+    if (a.isPaused !== b.isPaused) return a.isPaused ? -1 : 1;
+    return a.interviewerName.localeCompare(b.interviewerName);
+  });
+  return entries;
+}
+
 module.exports = {
   listIssues,
   listRecentSourced,
   listDepartments,
+  listInterviewerTraining,
 };

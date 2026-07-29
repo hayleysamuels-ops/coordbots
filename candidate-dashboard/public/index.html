@@ -25,7 +25,9 @@
     <a href="#feedbackOverdue">Feedback Overdue</a>
     <a href="#needsScheduling">Needs Scheduling</a>
     <a href="#availabilitySubmitted">Availability Submitted</a>
+    <a href="#rescheduledInterviews">Rescheduled Interviews</a>
     <a href="#interviewerLimits">Interviewer Weekly Limits</a>
+    <a href="#interviewerTraining">Interviewer Training</a>
     <a href="#recentSourced">Recently Sourced</a>
     <a href="#staleCandidates">Stale Candidates</a>
     <a href="#onsiteToday">Onsite Interviews Today</a>
@@ -78,6 +80,18 @@
       </section>
     </div>
 
+    <section id="rescheduledInterviews" class="column wide-section" data-key="rescheduledInterviews">
+      <h2><span class="dot dot-critical"></span>Rescheduled Interviews</h2>
+      <span class="section-updated muted" id="updated-rescheduledInterviews"></span>
+      <p class="column-sub">
+        Interview events rescheduled more than a couple times. Ashby has no
+        reschedule history of its own, so this only counts reschedules
+        this app has actually observed since it started tracking — it
+        can't see further back than that.
+      </p>
+      <div class="cards" id="cards-rescheduledInterviews"></div>
+    </section>
+
     <section id="interviewerLimits" class="column wide-section" data-key="interviewerLimits">
       <h2><span class="dot dot-warning"></span>Interviewer Weekly Limits</h2>
       <span class="section-updated muted" id="updated-interviewerLimits"></span>
@@ -87,6 +101,17 @@
         never appear here. Not affected by the filter above.
       </p>
       <div class="cards" id="cards-interviewerLimits"></div>
+    </section>
+
+    <section id="interviewerTraining" class="column wide-section" data-key="interviewerTraining">
+      <h2><span class="dot dot-good"></span>Interviewer Training</h2>
+      <span class="section-updated muted" id="updated-interviewerTraining"></span>
+      <p class="column-sub">
+        Interviewers currently in a pool's training path — shadow and
+        reverse-shadow stages, with progress toward each stage's required
+        interview count. Not affected by the filter above.
+      </p>
+      <div class="cards" id="cards-interviewerTraining"></div>
     </section>
 
     <section id="recentSourced" class="column wide-section" data-key="recentSourced">
