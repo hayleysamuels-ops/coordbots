@@ -6,7 +6,8 @@
   "type": "commonjs",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "dev": "node --watch src/index.js",
+    "check-ashby-compatibility": "node scripts/check-ashby-compatibility.js"
   },
   "engines": {
     "node": ">=18"

@@ -52,7 +52,8 @@ directly.
 
 `ashby.listIssues()` is **schedule-driven, not a full active-application
 scan**: it paginates `interviewSchedule.list` for the last
-`SCHEDULE_LOOKBACK_DAYS` (30) days, then calls `application.info` only for
+`config.scheduleLookbackDays` (`SCHEDULE_LOOKBACK_DAYS`, default 30) days,
+then calls `application.info` only for
 the applications those schedules reference — not every Active application
 org-wide. This was a deliberate fix after discovering the org has 31,000+
 Active applications (almost all untouched in Application Review) and 700+
@@ -84,22 +85,64 @@ is normally still in Application Review and any status).
 - `src/issues.js` — orchestrator + cache for the seven sections; applies
   dismissals at serve time (see below).
 - `public/` — plain HTML/CSS/JS dashboard, no framework.
+- `scripts/check-ashby-compatibility.js` — standalone, read-only pre-
+  onboarding diagnostic for a new client's Ashby org (see § client-specific
+  assumptions below and the script's own header comment). Zero dependency
+  on `src/` — duplicates the minimal fetch/pagination/concurrency helpers
+  it needs so it stays runnable before a client even has a `.env` set up.
 
 ## Key design facts (don't "fix" these — they're intentional)
 
 - **"Onsite" in Onsite Interviews Today is a naming-convention approximation,
-  not a real Ashby signal.** Checked interviewEvents, interview.info,
-  interviewStage.info, and all 38 org custom fields — none carry a
-  location/format field anywhere. `listOnsiteToday()` in `src/ashby.js`
-  instead matches on the interview STAGE title containing "panel" or "final"
-  (case-insensitive, `ONSITE_STAGE_TITLE_PATTERN`), per explicit product
-  decision (confirmed live: this org really does have a "Panel Round" stage).
-  If a future org's stage names don't follow this convention, this section
-  will silently show nothing rather than error — check the stage titles via
-  `interviewStage.info` before assuming the pattern is broken. "Today" is a
-  UTC calendar day (`isTodayUTC`), the same tradeoff `countInterviewsThisWeek`
-  already makes for weekly limits — display times still render in the
-  browser's local zone client-side.
+  not a real Ashby signal — this is CLIENT-SPECIFIC, not universal.** Checked
+  interviewEvents, interview.info, interviewStage.info, and all 38 org
+  custom fields — none carry a location/format field anywhere, in any Ashby
+  org, structurally. `listOnsiteToday()` in `src/ashby.js` instead matches
+  on the interview STAGE title against `config.onsiteStageKeywords`
+  (`ONSITE_STAGE_KEYWORDS` env var, default `panel,final` — January's
+  convention, confirmed live via a real "Panel Round" stage, NOT an Ashby
+  default). An empty keyword list disables the section outright rather than
+  silently matching nothing. Before onboarding a new client, run
+  `scripts/check-ashby-compatibility.js` against their org — it lists their
+  actual stage titles so you can pick real keywords instead of guessing.
+  "Today" is a UTC calendar day (`isTodayUTC`), the same tradeoff
+  `countInterviewsThisWeek` already makes for weekly limits — display times
+  still render in the browser's local zone client-side.
+- **Source classification (Recently Sourced) is also client-specific
+  keyword matching, not a fixed Ashby taxonomy.** `classifySource()` in
+  `ashby.js` matches `source.sourceType.title` against
+  `config.sourceReferralKeywords`/`sourceAgencyKeywords`
+  (`SOURCE_REFERRAL_KEYWORDS`/`SOURCE_AGENCY_KEYWORDS`, defaults
+  `referr`/`agenc`) — every Ashby org names its source types differently
+  (this org: "Referral", "Agencies", "Sourced", "Inbound", "Internal",
+  "Prospecting", "Third-party boards"). Same compatibility-script guidance
+  as onsite keywords above.
+- **Recruiter/Coordinator filter is an EXACT role-name match, not a
+  substring/keyword list like source/onsite above** —
+  `hiringTeamMember()` in `ashby.js` finds the `hiringTeam[]` entry whose
+  `role === config.recruiterRoleName` (`RECRUITER_ROLE_NAME`/
+  `COORDINATOR_ROLE_NAME`, defaults `Recruiter`/`Recruiting Coordinator`).
+  `hiringTeam[]` is already present on every `application.list`/
+  `application.info` result, no extra lookup. Ashby's `hiringTeamRole.list`
+  is a small controlled per-org list (this org: "Hiring Manager",
+  "Recruiter", "Recruiting Coordinator", "Sourcer"), but it's still
+  org-specific naming — verify with `scripts/check-ashby-compatibility.js`
+  before onboarding a new client, same as the keyword-matched config above.
+  `recruiterId`/`recruiterName`/`coordinatorId`/`coordinatorName` are set on
+  every candidate record built in `fetchApplicationSummaries()` and
+  `listRecentSourced()`; `listOnsiteToday()` inherits them for free since
+  its entries spread `...app` from `fetchApplicationSummaries`'s output.
+- **Client-specific display config (`DASHBOARD_TITLE`,
+  `ACTIVE_REFERRALS_REPORT_URL`) is injected client-side via `/api/issues`'s
+  `appConfig` field, not server-side templating.** `public/index.html` is a
+  static file served by `express.static` — there's no templating step to
+  bake env values into it at request time. `issues.js` sets a static
+  `appConfig` object once at module load (see near `thresholds`);
+  `app.js`'s `applyAppConfig()` sets `document.title` / `#dashboard-title`
+  text and the report-link's `href`/`hidden` on every render (idempotent,
+  so no special-casing "only on first load" is needed). If you add another
+  client-specific display value, follow the same path — don't reach for
+  server-side HTML templating for a single value.
 - **`interviewSchedule.status` is a real, granular state machine — treat it
   that way, not as a coarse 3-value enum.** Confirmed values in this org:
   `NeedsScheduling` → `WaitingOnCandidateAvailability` /
@@ -115,11 +158,12 @@ is normally still in Application Review and any status).
   looked like.
 - A failed refresh keeps serving the last good snapshot rather than clearing
   the dashboard; see `lastError` in `issues.js`.
-- Interview-schedule lookback is a hardcoded 30 days
-  (`SCHEDULE_LOOKBACK_DAYS` in `ashby.js`), not configurable via env — chosen
-  for refresh-cycle speed on a large org, not because anything older is
-  meaningless. Raise it if you need to catch very old stragglers and can
-  tolerate a slower refresh.
+- Interview-schedule lookback is `config.scheduleLookbackDays`
+  (`SCHEDULE_LOOKBACK_DAYS` env var, default 30) — chosen for refresh-cycle
+  speed on a large org, not because anything older is meaningless. A
+  different client's interview volume/velocity may want a different value;
+  raise it if you need to catch very old stragglers and can tolerate a
+  slower refresh.
 - Application Review-stage applications are deliberately excluded from
   Feedback Overdue / Needs Scheduling / Availability Submitted (see
   `isPreInterview` in `ashby.js`) — no interview activity is expected at
@@ -183,13 +227,18 @@ is normally still in Application Review and any status).
   `refreshPromise` — a refresh triggered while one is already in flight
   (interval tick, or the manual "Refresh now" button) just attaches to the
   in-flight promise instead of starting a new one. Don't remove this guard.
-- **The department/job filter (`public/app.js`) is multi-select, mode-
-  switchable, and purely client-side, filtering the already-fetched
-  snapshot in memory — not a new API call.** `filterMode` is `"department"`
-  or `"job"`; only ONE mode's Set actually filters at a time —
-  `selectedDepartmentIds`/`selectedJobIds` are two independent Sets (empty =
-  no filter), each remembering its own selection across mode switches.
-  `activeSelection()` returns `{ ids, key }` for whichever mode is live;
+- **The department/job/recruiter/coordinator filter (`public/app.js`) is
+  multi-select, mode-switchable, table-driven, and purely client-side,
+  filtering the already-fetched snapshot in memory — not a new API call.**
+  `FILTER_MODES` is a `{ department, job, recruiter, coordinator }` table,
+  each entry giving its `key` (the item field to match), `noun`/`pluralNoun`
+  (for labels), and an `options()` function. `filterMode` names which one
+  is live; `selectedIdsByMode` holds one independent `Set` per mode (built
+  from `Object.keys(FILTER_MODES)`, so adding a mode doesn't require a new
+  variable), each remembering its own selection across mode switches. Only
+  ONE mode's Set actually filters at a time — switching modes doesn't
+  combine two fields, it replaces which one is active. `activeSelection()`
+  returns `{ ids, key, noun, pluralNoun }` for whichever mode is live;
   `filterByEntity()` does `items.filter(i => ids.has(i[key]))`, an OR across
   selections. `lastData` caches the last render's payload; checking/
   unchecking a checkbox in `#entity-filter-menu`, or clicking a
@@ -199,20 +248,25 @@ is normally still in Application Review and any status).
   dismiss-menu) since picking several options requires staying open — it
   closes only on the reset button, outside-click, or scroll.
   **Department options come from the server** (`data.departments`, Ashby's
-  `department.list`). **Job options are derived client-side** via
-  `collectJobs()` from whichever jobs are actually represented across
-  `CANDIDATE_SECTION_KEYS`' items in `lastData` — deliberately NOT a
-  separate `job.list` call, since that would include every closed/archived
-  job org-wide (dozens to hundreds) rather than just the ones with
-  candidates currently on screen. `filterByEntity()` is applied to the six
-  candidate sections' arrays before each is rendered (`renderColumn`/
-  `renderStale`/`renderRecentSourced`/`renderOnsiteToday`) — Interviewer
-  Weekly Limits deliberately skips it, since an interviewer isn't tied to one
-  department/job. If you add a new candidate-facing section, wrap its render
-  call with `filterByEntity(...)` too, add its key to `CANDIDATE_SECTION_KEYS`
-  (so it's included when deriving job options), and make sure `ashby.js`
-  actually populates `departmentId`/`jobId` on its records (from
-  `app.job.departmentId`/`app.job.id`) — neither is automatic.
+  `department.list`). **Job/recruiter/coordinator options are all derived
+  client-side** via the shared `collectDistinct(data, idKey, nameKey)` from
+  whichever ones are actually represented across `CANDIDATE_SECTION_KEYS`'
+  items in `lastData` — deliberately NOT a separate `job.list`/etc. call,
+  since e.g. `job.list` would include every closed/archived job org-wide
+  (dozens to hundreds) rather than just the ones with candidates currently
+  on screen. `filterByEntity()` is applied to the six candidate sections'
+  arrays before each is rendered (`renderColumn`/`renderStale`/
+  `renderRecentSourced`/`renderOnsiteToday`) — Interviewer Weekly Limits
+  deliberately skips it, since an interviewer isn't tied to one department/
+  job/recruiter/coordinator. If you add a new candidate-facing section,
+  wrap its render call with `filterByEntity(...)` too, add its key to
+  `CANDIDATE_SECTION_KEYS` (so it's included when deriving job/recruiter/
+  coordinator options), and make sure `ashby.js` actually populates
+  `departmentId`/`jobId`/`recruiterId`/`coordinatorId` on its records —
+  none of it is automatic. To add a fifth filterable field, add one entry
+  to `FILTER_MODES` and one `.filter-mode-btn` in `index.html`; everything
+  else (Set management, menu population, button label, filtering) is
+  already generic over the table.
 
 - **Dismissals are applied at serve time, not refresh time.** `issues.js`
   `getSnapshot()` runs `applyDismissals()` over the cached snapshot on every

@@ -28,43 +28,51 @@ still outstanding, and a newer round scheduled for today), only their single
 most recent event is kept; the rest are dropped rather than shown twice or
 moved to Stale Candidates.
 
-## Department / job filter
+## Department / Job / Recruiter / Coordinator filter
 
 A multi-select menu at the top of the page filters every candidate-facing
 section (Stale Candidates, Feedback Overdue, Needs Scheduling, Availability
-Submitted, Recently Sourced, Onsite Interviews Today). A
-segmented **Department / Job** toggle picks which field it filters on — only
-one is ever live at a time (switching doesn't AND the two together, it
-replaces which one is active), and each remembers its own selection
-independently, so switching back and forth doesn't lose either one.
-**Interviewer Weekly Limits is not affected** by either mode — an
-interviewer isn't tied to one department or job the way a candidate's
-application is, so there's no natural mapping to filter by.
+Submitted, Recently Sourced, Onsite Interviews Today). A segmented
+**Department / Job / Recruiter / Coordinator** toggle picks which field it
+filters on — only one is ever live at a time (switching doesn't AND
+multiple fields together, it replaces which one is active), and each
+remembers its own selection independently, so switching back and forth
+doesn't lose any of them. **Interviewer Weekly Limits is not affected** by
+any mode — an interviewer isn't tied to one department/job/recruiter/
+coordinator the way a candidate's application is, so there's no natural
+mapping to filter by.
 
 - **Department options** come from Ashby's `department.list` (12 total on
   this org, including 2 archived — fetched with `includeArchived: true` so a
   job whose department was later archived still resolves to a real name
   instead of a blank).
-- **Job options** are derived client-side from whichever jobs are actually
-  represented among the candidates currently shown across all sections —
-  there's no separate org-wide job list call. This is deliberate: a full
-  `job.list` would include every closed/archived job in the org (dozens to
-  hundreds), making for a mostly-irrelevant dropdown; deriving from the
-  candidates already on screen keeps every option meaningful.
+- **Job/Recruiter/Coordinator options** are all derived client-side from
+  whichever ones are actually represented among the candidates currently
+  shown across all sections — there's no separate org-wide list call for
+  any of them. This is deliberate: a full `job.list` would include every
+  closed/archived job in the org (dozens to hundreds), making for a
+  mostly-irrelevant dropdown; deriving from the candidates already on
+  screen keeps every option meaningful. Recruiter/Coordinator come from
+  each application's `hiringTeam[]` (already present on every
+  `application.list`/`application.info` result — no extra lookup),
+  matched by exact role name (`RECRUITER_ROLE_NAME`/`COORDINATOR_ROLE_NAME`,
+  defaults `Recruiter`/`Recruiting Coordinator` — **this org's actual
+  `hiringTeamRole.list` values, not an Ashby-wide standard**; verify with
+  `scripts/check-ashby-compatibility.js` before onboarding a new client).
 
 The button opens a checkbox dropdown (mirroring the existing per-card
 dismiss-menu's fixed-position/anchor-to-button pattern); any number of
 options can be checked at once, and a candidate is shown if their
-department/job is any of the checked ones (an OR, not an AND). No selection
-means no filter ("All departments"/"All jobs"). The button label reflects
-the current selection: "All departments", a single option's name, or "N
-departments"/"N jobs".
+department/job/recruiter/coordinator is any of the checked ones (an OR, not
+an AND). No selection means no filter ("All departments", etc). The button
+label reflects the current selection: "All departments", a single option's
+name, or "N departments"/"N jobs"/etc.
 
-The filter is purely client-side: department options, each candidate's
-`departmentId` and `jobId` (both from the underlying Ashby application's
-`job` object), are already part of the normal `/api/issues` payload, so
-checking/unchecking an option or switching modes re-renders instantly from
-the already-fetched snapshot — no additional network request.
+The filter is purely client-side: department options and each candidate's
+`departmentId`/`jobId`/`recruiterId`/`coordinatorId` are already part of the
+normal `/api/issues` payload, so checking/unchecking an option or switching
+modes re-renders instantly from the already-fetched snapshot — no
+additional network request.
 
 Two things were scoped out because Ashby has no data for them:
 
@@ -166,6 +174,49 @@ Fill in `.env`:
 | `AVAILABILITY_SUBMITTED_ALERT_HOURS` | no | Default `24`. Color-coding threshold only — every submitted-and-unbooked candidate is shown regardless of age. |
 | `REFRESH_INTERVAL_MINUTES` | no | How often the server re-pulls Ashby for the seven sections. Default `5`. The page itself polls the cached snapshot every 60s regardless. |
 | `DATA_DIR` | no | Where dismissals (`dismissals.json`) are persisted. Defaults to `./data`. On a cloud host, point at a mounted volume so dismissals aren't lost on redeploy. |
+| `SCHEDULE_LOOKBACK_DAYS` | no | Default `30`. How far back `interviewSchedule.list` is pulled for the schedule-driven sections. Tune per client's interview volume — see § Scope. |
+| `SOURCE_REFERRAL_KEYWORDS` / `SOURCE_AGENCY_KEYWORDS` | no | Defaults `referr` / `agenc`. Comma-separated, case-insensitive substrings matched against `source.sourceType.title` to classify Recently Sourced. **Every Ashby org names these differently** — run `scripts/check-ashby-compatibility.js` against a new client before trusting the defaults. Set to an empty value to disable a category. |
+| `ONSITE_STAGE_KEYWORDS` | no | Default `panel,final`. Comma-separated, case-insensitive substrings matched against interview stage titles to approximate "onsite" (Ashby has no real location signal — see § Onsite Interviews Today). **January's convention, not an Ashby default** — verify with `scripts/check-ashby-compatibility.js` before onboarding a new client. Empty value disables the section. |
+| `DASHBOARD_TITLE` | no | Default `Candidate Dashboard`. Shown in the browser tab and page header. |
+| `ACTIVE_REFERRALS_REPORT_URL` | no | Ashby saved-report URL for the "View Active Referrals report in Ashby" button. Every org's report URLs are its own — button is hidden entirely if unset. |
+| `RECRUITER_ROLE_NAME` / `COORDINATOR_ROLE_NAME` | no | Defaults `Recruiter` / `Recruiting Coordinator`. Exact `hiringTeamRole.list` values (not a substring match) used for the Recruiter/Coordinator filter. **This org's actual role names, not an Ashby standard** — verify with `scripts/check-ashby-compatibility.js` before onboarding a new client. |
+
+## Onboarding a new client
+
+This was originally built against one specific Ashby org (January) and some
+behavior is a best-effort approximation rather than something Ashby's API
+actually guarantees for every org:
+
+- **Source classification** (`SOURCE_REFERRAL_KEYWORDS`/`SOURCE_AGENCY_KEYWORDS`)
+  keyword-matches `source.sourceType.title` — every org names its source
+  types differently.
+- **Onsite Interviews Today** (`ONSITE_STAGE_KEYWORDS`) keyword-matches
+  interview stage titles, because Ashby has no structured onsite/location
+  field anywhere. "panel"/"final" is January's naming convention, not
+  anything Ashby-standard.
+- **Interviewer Weekly Limits** only shows anything if the client actually
+  uses Ashby's `weeklyLimit` interviewer-settings feature — some orgs never
+  configure it, in which case this section is correctly empty, not broken.
+- **Active Referrals report link** is a static URL to one specific Ashby
+  saved report — every org's report URLs are its own.
+- **Recruiter/Coordinator filter** (`RECRUITER_ROLE_NAME`/
+  `COORDINATOR_ROLE_NAME`) matches an exact `hiringTeamRole.list` value —
+  this org's roles happen to be "Recruiter"/"Recruiting Coordinator", but
+  that's this org's naming, not an Ashby default.
+
+Before turning this on for a new client, run:
+
+```bash
+node scripts/check-ashby-compatibility.js --api-key=<their Ashby API key>
+```
+
+It queries their Ashby org read-only (never creates/updates/deletes
+anything) and reports, section by section, whether it'll work out of the
+box, needs one of the keyword env vars above tuned to their naming, or will
+be empty because of an Ashby-side configuration choice outside this app's
+control — printing the actual source-type and stage titles it found so you
+can pick the right keywords rather than guessing. See the script's own
+header comment for all CLI options.
 
 ## Run
 

@@ -14,6 +14,15 @@ const thresholds = {
   availabilitySubmittedAlertHours: config.availabilitySubmittedAlertHours,
 };
 
+// Static, client-specific display config — never changes at runtime, so it's
+// set once here rather than recomputed on every refresh. The frontend reads
+// these to set the page title and the Active Referrals report link (hidden
+// if activeReferralsReportUrl is unset).
+const appConfig = {
+  dashboardTitle: config.dashboardTitle,
+  activeReferralsReportUrl: config.activeReferralsReportUrl,
+};
+
 let snapshot = {
   feedbackOverdue: [],
   needsScheduling: [],
@@ -24,6 +33,7 @@ let snapshot = {
   onsiteToday: [],
   departments: [],
   thresholds,
+  appConfig,
 };
 let lastUpdated = null;
 let lastError = null;
@@ -56,6 +66,7 @@ async function computeIssues() {
     onsiteToday,
     departments,
     thresholds,
+    appConfig,
   };
 }
 

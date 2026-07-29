@@ -430,6 +430,14 @@ button#refresh-btn.spinning {
   text-decoration: none;
 }
 
+/* Hidden by default (JS shows it once appConfig.activeReferralsReportUrl
+   confirms a client has one configured) — the unconditional `display: block`
+   above is an author rule, which beats the browser's [hidden] default even
+   though this selector is only as specific, so this override is required. */
+.ashby-report-link[hidden] {
+  display: none;
+}
+
 .ashby-report-link:hover {
   border-color: var(--ember);
   color: var(--ember);
@@ -746,11 +754,3 @@ button#refresh-btn.spinning {
   vertical-align: middle;
 }
 
-.page-footer {
-  margin-top: 24px;
-  padding: 16px 28px 24px;
-  border-top: 1px solid var(--gridline);
-  text-align: center;
-  font-size: 13px;
-  color: var(--text-muted);
-}

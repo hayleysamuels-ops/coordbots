@@ -19,6 +19,21 @@ function hours(name, fallback) {
 // Same generic parser as `hours`, aliased for non-hour numeric settings.
 const number = hours;
 
+// Comma-separated substrings, lowercased/trimmed — used for keyword-matching
+// against free-text Ashby fields (source type titles, interview stage
+// titles) that vary by org and aren't a fixed enum. `fallback` is an array
+// of already-lowercase keywords. Pass an explicitly empty env var
+// (`FOO=`) to disable a keyword-matched feature entirely, rather than
+// falling back to the default.
+function list(name, fallback) {
+  const raw = process.env[name];
+  if (raw == null) return fallback;
+  return raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 const config = {
   port: parseInt(process.env.PORT || "3000", 10),
 
@@ -56,6 +71,46 @@ const config = {
   // only, not filtering — every currently-submitted candidate is shown) for
   // how long a candidate's submitted availability has sat unbooked.
   availabilitySubmittedAlertHours: hours("AVAILABILITY_SUBMITTED_ALERT_HOURS", 24),
+
+  // How far back to pull interviewSchedule.list for the schedule-driven
+  // sections (Feedback Overdue, Needs Scheduling, Availability Submitted,
+  // Interviewer Weekly Limits, Onsite Interviews Today). Org-specific
+  // interview volume/velocity determines the right tradeoff between
+  // catching old stragglers and refresh-cycle speed — see README § Scope.
+  scheduleLookbackDays: number("SCHEDULE_LOOKBACK_DAYS", 30),
+
+  // "Recently Sourced" / source classification: which `source.sourceType.title`
+  // substrings count as a referral or an agency. Every Ashby org names these
+  // differently — verify against this client's actual source.list before
+  // relying on the defaults (see scripts/check-ashby-compatibility.js).
+  sourceReferralKeywords: list("SOURCE_REFERRAL_KEYWORDS", ["referr"]),
+  sourceAgencyKeywords: list("SOURCE_AGENCY_KEYWORDS", ["agenc"]),
+
+  // "Onsite Interviews Today": Ashby has no structured onsite/location field
+  // anywhere, so this matches on interview STAGE title substrings instead —
+  // entirely dependent on this client's own stage-naming convention. Empty
+  // list (`ONSITE_STAGE_KEYWORDS=`) disables the section rather than
+  // matching nothing silently. Verify against this client's real stage
+  // titles first (see scripts/check-ashby-compatibility.js) — "panel"/
+  // "final" was January's convention, not a real Ashby default.
+  onsiteStageKeywords: list("ONSITE_STAGE_KEYWORDS", ["panel", "final"]),
+
+  // Cosmetic, but client-specific: shown in the browser tab and page header.
+  dashboardTitle: process.env.DASHBOARD_TITLE || "Candidate Dashboard",
+
+  // Link target for the "View Active Referrals report in Ashby" button.
+  // Every Ashby org's saved reports have their own URLs — this is never
+  // portable between clients. Button is hidden entirely if unset.
+  activeReferralsReportUrl: process.env.ACTIVE_REFERRALS_REPORT_URL || "",
+
+  // Recruiter/Coordinator filter: exact hiringTeam[].role name to match
+  // (not a substring/keyword list like source/stage above — Ashby's
+  // hiringTeamRole.list is a small controlled per-org list, not free text,
+  // but still org-specific naming; this org's roles are "Hiring Manager",
+  // "Recruiter", "Recruiting Coordinator", "Sourcer"). Verify a new
+  // client's real hiringTeamRole.list before trusting the defaults.
+  recruiterRoleName: process.env.RECRUITER_ROLE_NAME || "Recruiter",
+  coordinatorRoleName: process.env.COORDINATOR_ROLE_NAME || "Recruiting Coordinator",
 };
 
 module.exports = config;

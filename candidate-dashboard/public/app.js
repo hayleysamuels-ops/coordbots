@@ -5,37 +5,16 @@
   // here so checking/unchecking an option, or switching which field to
   // filter by, re-renders instantly without a network round-trip. Applies
   // to every candidate-facing section; NOT Interviewer Weekly Limits, which
-  // has no department/job concept (an interviewer isn't tied to one
-  // job/department the way a candidate's application is).
+  // has no department/job/recruiter/coordinator concept (an interviewer
+  // isn't tied to one the way a candidate's application is).
   let lastData = null;
   let lastDepartments = [];
 
-  // Which field is currently live: "department" | "job". Only one filters
-  // at a time — switching modes doesn't combine department + job filtering,
-  // it replaces which one is active. Each mode remembers its own selection
-  // independently (switching back and forth doesn't lose either one).
-  let filterMode = "department";
-  // Empty set = "All departments"/"All jobs" (no filter), matching the old
-  // empty-string convention. Populated with IDs the user has checked.
-  let selectedDepartmentIds = new Set();
-  let selectedJobIds = new Set();
-
-  function activeSelection() {
-    return filterMode === "job"
-      ? { ids: selectedJobIds, key: "jobId", noun: "job", pluralNoun: "jobs" }
-      : { ids: selectedDepartmentIds, key: "departmentId", noun: "department", pluralNoun: "departments" };
-  }
-
-  function filterByEntity(items) {
-    const { ids, key } = activeSelection();
-    if (ids.size === 0) return items;
-    return items.filter((item) => ids.has(item[key]));
-  }
-
-  // Sections that carry job/department info on their items — used to derive
-  // the job filter's options client-side, since (unlike departments) there's
-  // no org-wide job list from the server; only jobs actually represented in
-  // the current candidate sections are worth offering as filter options.
+  // Sections that carry job/recruiter/coordinator info on their items —
+  // used to derive those filter modes' options client-side, since (unlike
+  // departments) there's no org-wide "list all jobs/recruiters/coordinators"
+  // call; only ones actually represented in the current candidate sections
+  // are worth offering as filter options.
   const CANDIDATE_SECTION_KEYS = [
     "feedbackOverdue",
     "needsScheduling",
@@ -45,12 +24,12 @@
     "onsiteToday",
   ];
 
-  function collectJobs(data) {
+  function collectDistinct(data, idKey, nameKey) {
     const byId = new Map();
     for (const key of CANDIDATE_SECTION_KEYS) {
-      for (const item of data[key] || []) {
-        if (item.jobId && !byId.has(item.jobId)) {
-          byId.set(item.jobId, item.jobTitle || "Unknown role");
+      for (const item of (data || {})[key] || []) {
+        if (item[idKey] && !byId.has(item[idKey])) {
+          byId.set(item[idKey], item[nameKey] || "Unknown");
         }
       }
     }
@@ -59,8 +38,59 @@
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  // Which field is currently live: one of FILTER_MODES' keys. Only one
+  // filters at a time — switching modes doesn't combine two fields
+  // together, it replaces which one is active. Each mode remembers its own
+  // selection independently (switching back and forth doesn't lose any of
+  // them). Department options come from the server (data.departments); the
+  // rest are derived client-side via collectDistinct above.
+  const FILTER_MODES = {
+    department: {
+      key: "departmentId",
+      noun: "department",
+      pluralNoun: "departments",
+      options: () => lastDepartments,
+    },
+    job: {
+      key: "jobId",
+      noun: "job",
+      pluralNoun: "jobs",
+      options: () => collectDistinct(lastData, "jobId", "jobTitle"),
+    },
+    recruiter: {
+      key: "recruiterId",
+      noun: "recruiter",
+      pluralNoun: "recruiters",
+      options: () => collectDistinct(lastData, "recruiterId", "recruiterName"),
+    },
+    coordinator: {
+      key: "coordinatorId",
+      noun: "coordinator",
+      pluralNoun: "coordinators",
+      options: () => collectDistinct(lastData, "coordinatorId", "coordinatorName"),
+    },
+  };
+
+  let filterMode = "department";
+  // Empty set = "All <plural>" (no filter), matching the old empty-string
+  // convention. Populated with IDs the user has checked. One Set per mode,
+  // built from FILTER_MODES so adding a mode above doesn't require touching
+  // this too.
+  const selectedIdsByMode = Object.fromEntries(Object.keys(FILTER_MODES).map((mode) => [mode, new Set()]));
+
+  function activeSelection() {
+    const mode = FILTER_MODES[filterMode];
+    return { ids: selectedIdsByMode[filterMode], key: mode.key, noun: mode.noun, pluralNoun: mode.pluralNoun };
+  }
+
+  function filterByEntity(items) {
+    const { ids, key } = activeSelection();
+    if (ids.size === 0) return items;
+    return items.filter((item) => ids.has(item[key]));
+  }
+
   function currentEntityOptions() {
-    return filterMode === "job" ? collectJobs(lastData || {}) : lastDepartments;
+    return FILTER_MODES[filterMode].options();
   }
 
   function entityButtonLabel() {
@@ -351,9 +381,28 @@
     el.classList.toggle("stale", Boolean(errorMessage));
   }
 
+  // Client-specific display config (page title, Active Referrals report
+  // link) — static for the life of the server, but applying it idempotently
+  // on every render is simpler than special-casing "only on first load."
+  function applyAppConfig(appConfig) {
+    if (!appConfig) return;
+    if (appConfig.dashboardTitle) {
+      document.title = appConfig.dashboardTitle;
+      document.getElementById("dashboard-title").textContent = appConfig.dashboardTitle;
+    }
+    const reportLink = document.getElementById("ashby-report-link");
+    if (appConfig.activeReferralsReportUrl) {
+      reportLink.href = appConfig.activeReferralsReportUrl;
+      reportLink.removeAttribute("hidden");
+    } else {
+      reportLink.setAttribute("hidden", "");
+    }
+  }
+
   function render(data) {
     lastData = data;
     lastDepartments = data.departments || [];
+    applyAppConfig(data.appConfig);
     populateEntityOptions();
 
     for (const col of columns) {

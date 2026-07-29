@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>January Coordination Dashboard</title>
+  <title>Candidate Dashboard</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header class="topbar">
     <div class="topbar-brand">
       <img src="assets/carrara-iso-grafite.svg" alt="" />
-      <h1>January Coordination Dashboard</h1>
+      <h1 id="dashboard-title">Candidate Dashboard</h1>
     </div>
     <div class="topbar-meta">
       <div class="topbar-meta-text">
@@ -36,6 +36,8 @@
     <div class="filter-mode-toggle" role="group" aria-label="Filter by">
       <button type="button" class="filter-mode-btn is-active" data-mode="department" aria-pressed="true">Department</button>
       <button type="button" class="filter-mode-btn" data-mode="job" aria-pressed="false">Job</button>
+      <button type="button" class="filter-mode-btn" data-mode="recruiter" aria-pressed="false">Recruiter</button>
+      <button type="button" class="filter-mode-btn" data-mode="coordinator" aria-pressed="false">Coordinator</button>
     </div>
     <div class="entity-filter">
       <button id="entity-filter-btn" type="button" aria-haspopup="true" aria-expanded="false">
@@ -119,13 +121,11 @@
       <div class="cards" id="cards-onsiteToday"></div>
     </section>
 
-    <a class="ashby-report-link" href="https://app.ashbyhq.com/reports/saved-v1/18e76bf4-d2ed-4f0b-abef-cf78ea7213a2" target="_blank" rel="noopener">
+    <a id="ashby-report-link" class="ashby-report-link" href="#" target="_blank" rel="noopener" hidden>
       View Active Referrals report in Ashby →
     </a>
   </aside>
   </div>
-
-  <footer class="page-footer">Created by Hayley</footer>
 
   <script src="app.js"></script>
 </body>

@@ -99,6 +99,17 @@ function isPreInterview(app) {
   return (app.currentInterviewStage || {}).type === "PreInterviewScreen";
 }
 
+// Finds the hiringTeam member with the given role (an exact match against
+// Ashby's hiringTeamRole.list values, e.g. "Recruiter"/"Recruiting
+// Coordinator") — already present on every application.list/info result, no
+// extra lookup needed. Returns null if no one holds that role on this
+// application (common — hiring teams aren't always fully staffed).
+function hiringTeamMember(app, roleName) {
+  const member = (app.hiringTeam || []).find((m) => m.role === roleName);
+  if (!member) return null;
+  return { id: member.userId, name: `${member.firstName || ""} ${member.lastName || ""}`.trim() || member.email };
+}
+
 /**
  * Looks up full application details (candidate, job, status, stage) only for
  * the given applicationIds — not a scan of every active application. Filters
@@ -119,6 +130,8 @@ async function fetchApplicationSummaries(applicationIds) {
   for (const app of fetched) {
     if (!app || app.status !== "Active" || isPreInterview(app)) continue;
     const candidate = app.candidate || {};
+    const recruiter = hiringTeamMember(app, config.recruiterRoleName);
+    const coordinator = hiringTeamMember(app, config.coordinatorRoleName);
     byId.set(app.id, {
       applicationId: app.id,
       candidateId: candidate.id,
@@ -127,17 +140,15 @@ async function fetchApplicationSummaries(applicationIds) {
       jobTitle: (app.job && app.job.title) || "Unknown role",
       jobId: (app.job && app.job.id) || null,
       departmentId: (app.job && app.job.departmentId) || null,
+      recruiterId: recruiter && recruiter.id,
+      recruiterName: recruiter && recruiter.name,
+      coordinatorId: coordinator && coordinator.id,
+      coordinatorName: coordinator && coordinator.name,
       ashbyProfileUrl: profileUrl(candidate.id, app.id),
     });
   }
   return byId;
 }
-
-// Interview schedules created more than this long ago and still unresolved
-// are treated as stale pipeline debris rather than live coordinator work.
-// Bound chosen to keep each refresh cycle fast on orgs with heavy interview
-// volume — see README for the tradeoff.
-const SCHEDULE_LOOKBACK_DAYS = 30;
 
 // Monday 00:00 UTC of the week containing `date`.
 function startOfWeekUTC(date) {
@@ -149,8 +160,8 @@ function startOfWeekUTC(date) {
  * Counts interviews per interviewer for the current calendar week (Mon–Sun
  * UTC), from the same `schedules` already fetched for listIssues() — no
  * extra Ashby call. Cancelled schedules don't count toward load. Note this
- * inherits the same SCHEDULE_LOOKBACK_DAYS bound: an interview booked more
- * than 30 days ago for a slot this week wouldn't be counted.
+ * inherits the same `config.scheduleLookbackDays` bound: an interview booked
+ * further back than that for a slot this week wouldn't be counted.
  */
 function countInterviewsThisWeek(schedules) {
   const now = new Date();
@@ -287,17 +298,24 @@ function keepMostRecentPerCandidate(taggedEntries) {
   return [...bestByCandidate.values(), ...passthrough];
 }
 // A recruiting coordinator's day-of prep list. Ashby has no per-interview
-// "onsite" flag anywhere in this org — checked interviewEvents,
-// interview.info, interviewStage.info, and all 38 org custom fields; none
-// carry a location/format signal, and no stage/interview title says
-// "onsite" either. Per explicit product decision, "onsite" is approximated
-// by interview STAGE title containing "panel" or "final" (case-insensitive)
-// — this org's actual onsite rounds, even though Ashby doesn't structurally
-// say so. "Today" is a UTC calendar day, the same tradeoff
-// countInterviewsThisWeek already makes for "this week" (see above) —
-// display times still render in the browser's local zone client-side, only
-// the day boundary is computed in UTC here.
-const ONSITE_STAGE_TITLE_PATTERN = /panel|final/i;
+// "onsite" flag anywhere — checked interviewEvents, interview.info,
+// interviewStage.info, and (on this org) all 38 org custom fields; none
+// carry a location/format signal in ANY Ashby org, structurally. "Onsite" is
+// therefore approximated per-client via config.onsiteStageKeywords, matched
+// against interview STAGE titles (case-insensitive substrings) — this only
+// works if verified against that client's actual stage-naming convention
+// first (see scripts/check-ashby-compatibility.js); "panel"/"final" is
+// January's convention, not a real Ashby default. An empty keyword list
+// disables the section entirely rather than silently matching nothing.
+// "Today" is a UTC calendar day, the same tradeoff countInterviewsThisWeek
+// already makes for "this week" (see above) — display times still render in
+// the browser's local zone client-side, only the day boundary is computed
+// in UTC here.
+function matchesOnsiteStage(title) {
+  if (!title) return false;
+  const lower = title.toLowerCase();
+  return config.onsiteStageKeywords.some((k) => lower.includes(k));
+}
 
 function isTodayUTC(dateStr) {
   const d = new Date(dateStr);
@@ -319,6 +337,8 @@ function isTodayUTC(dateStr) {
  * concurrency-limited, per-unique-stage-id lookup, not one per schedule.
  */
 async function listOnsiteToday(schedules, applications) {
+  if (!config.onsiteStageKeywords.length) return []; // section disabled for this client
+
   const candidates = schedules.filter(
     (s) =>
       applications.has(s.applicationId) &&
@@ -344,7 +364,7 @@ async function listOnsiteToday(schedules, applications) {
   const entries = [];
   for (const schedule of candidates) {
     const stageTitle = stageTitleById.get(schedule.interviewStageId);
-    if (!stageTitle || !ONSITE_STAGE_TITLE_PATTERN.test(stageTitle)) continue;
+    if (!matchesOnsiteStage(stageTitle)) continue;
 
     const app = applications.get(schedule.applicationId);
     for (const event of schedule.interviewEvents || []) {
@@ -369,7 +389,7 @@ async function listOnsiteToday(schedules, applications) {
 }
 
 async function listIssues() {
-  const createdAfter = Date.now() - SCHEDULE_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
+  const createdAfter = Date.now() - config.scheduleLookbackDays * 24 * 60 * 60 * 1000;
   const schedules = await fetchAllPages("interviewSchedule.list", { limit: 100, createdAfter });
 
   const applicationIds = [...new Set(schedules.map((s) => s.applicationId).filter(Boolean))];
@@ -479,16 +499,18 @@ async function listIssues() {
   return { feedbackOverdue, needsScheduling, staleCandidates, interviewerLimits, availabilitySubmitted, onsiteToday };
 }
 
-// Classify an application's source into "Referral" / "Agency", or null if it's
-// neither. Matches on the sourceType title rather than a hardcoded id, and
-// uses substrings so slightly different wording ("Agencies" vs "Agency")
-// still resolves. Source titles in this org: "Referral", "Agencies",
-// "Sourced", "Inbound", "Internal", "Prospecting", "Third-party boards".
+// Classify an application's source into "Referral" / "Agency", or null if
+// it's neither. Matches on the sourceType title rather than a hardcoded id,
+// via config.sourceReferralKeywords/sourceAgencyKeywords substrings — every
+// Ashby org names its source types differently (this org, for example, uses
+// "Referral", "Agencies", "Sourced", "Inbound", "Internal", "Prospecting",
+// "Third-party boards"); verify a new client's real source.list before
+// trusting the defaults (see scripts/check-ashby-compatibility.js).
 function classifySource(app) {
   const title = ((app.source || {}).sourceType || {}).title || "";
   const lower = title.toLowerCase();
-  if (lower.includes("referr")) return "Referral";
-  if (lower.includes("agenc")) return "Agency";
+  if (config.sourceReferralKeywords.some((k) => lower.includes(k))) return "Referral";
+  if (config.sourceAgencyKeywords.some((k) => lower.includes(k))) return "Agency";
   return null;
 }
 
@@ -513,6 +535,8 @@ async function listRecentSourced() {
     if (!sourceCategory) continue;
 
     const candidate = app.candidate || {};
+    const recruiter = hiringTeamMember(app, config.recruiterRoleName);
+    const coordinator = hiringTeamMember(app, config.coordinatorRoleName);
     results.push({
       applicationId: app.id,
       candidateId: candidate.id,
@@ -520,6 +544,10 @@ async function listRecentSourced() {
       jobTitle: (app.job && app.job.title) || "Unknown role",
       jobId: (app.job && app.job.id) || null,
       departmentId: (app.job && app.job.departmentId) || null,
+      recruiterId: recruiter && recruiter.id,
+      recruiterName: recruiter && recruiter.name,
+      coordinatorId: coordinator && coordinator.id,
+      coordinatorName: coordinator && coordinator.name,
       status: app.status,
       sourceCategory, // "Referral" | "Agency"
       sourceTitle: (app.source || {}).title, // e.g. "Candidate Labs", "Referral Link"
