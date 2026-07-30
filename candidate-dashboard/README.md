@@ -224,6 +224,12 @@ actually guarantees for every org:
   `COORDINATOR_ROLE_NAME`) matches an exact `hiringTeamRole.list` value —
   this org's roles happen to be "Recruiter"/"Recruiting Coordinator", but
   that's this org's naming, not an Ashby default.
+- **Interviewer Training** only shows anything if the client actually uses
+  Ashby's interviewer-pool training-path feature — some orgs never
+  configure it, in which case this section is correctly empty, not broken.
+  Unlike the naming-convention items above, this one uses real Ashby
+  `Shadow`/`ReverseShadow` enum values, so there's no keyword to tune —
+  it's purely a "does this org use this Ashby feature" question.
 
 Before turning this on for a new client, run:
 

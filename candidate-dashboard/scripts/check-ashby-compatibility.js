@@ -6,10 +6,11 @@
  * This dashboard makes several assumptions that hold for January's Ashby
  * configuration but are NOT guaranteed by Ashby's API for every org —
  * source-type naming ("Referral"/"Agency"), interview stage naming
- * ("Panel"/"Final" for onsite rounds), hiring-team role naming
+ * ("Final"/"Executive" for onsite rounds), hiring-team role naming
  * ("Recruiter"/"Recruiting Coordinator"), and whether interviewer weekly
- * limits are configured at all. Rather than silently showing empty
- * sections for a client whose Ashby doesn't match those conventions, run
+ * limits or training paths are configured at all. Rather than silently
+ * showing empty sections for a client whose Ashby doesn't match those
+ * conventions (or doesn't use those Ashby features at all), run
  * this against their API key first and read the report.
  *
  * Usage:
@@ -228,6 +229,34 @@ async function main() {
   );
   console.log(`  ${withLimit} of ${sampledInterviewerIds.length} sampled interviewers have a weeklyLimit configured in Ashby.`);
   verdict(withLimit > 0, "Interviewer Weekly Limits (needs at least some interviewers with weeklyLimit set in Ashby — this is an org configuration choice, not something this dashboard can detect further)");
+
+  // --- Interviewer Training ---
+  section("Interviewer Training");
+  let pools = [];
+  try {
+    pools = await fetchAllPages("interviewerPool.list", { limit: 100 }, 5);
+  } catch (err) {
+    console.log(`  Warning: interviewerPool.list failed: ${err.message}`);
+  }
+  const trainablePools = pools.filter((p) => p.trainingPath && p.trainingPath.enabled);
+  console.log(`  ${pools.length} interviewer pools found, ${trainablePools.length} with an enabled training path.`);
+  let totalTrainees = 0;
+  if (trainablePools.length) {
+    const poolDetails = (
+      await mapWithConcurrency(trainablePools.slice(0, 50), 8, (pool) =>
+        ashbyPost("interviewerPool.info", { interviewerPoolId: pool.id }).then((json) => json.results)
+      )
+    ).filter(Boolean);
+    totalTrainees = poolDetails.reduce((sum, p) => sum + (p.trainees || []).length, 0);
+    console.log(`  ${totalTrainees} total trainees currently enrolled across those pools.`);
+  }
+  console.log(
+    "  Note: this section uses real Ashby Shadow/ReverseShadow enum values, not a naming-convention guess — no keyword tuning needed here, unlike Onsite Interviews Today or Recently Sourced below."
+  );
+  verdict(
+    trainablePools.length > 0,
+    "Interviewer Training (needs at least one interviewer pool with an enabled training path — this is an org configuration choice, not something this dashboard can detect further)"
+  );
 
   // --- Onsite Interviews Today ---
   section("Onsite Interviews Today");
