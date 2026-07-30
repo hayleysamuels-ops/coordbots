@@ -108,7 +108,7 @@ const config = {
   onsiteStageKeywords: list("ONSITE_STAGE_KEYWORDS", ["final", "exec"]),
 
   // The client this deployment is for — single source of truth for the page
-  // header and browser tab title (client name first: "<name> Candidate
+  // header and browser tab title (client name first: "<name> Coordination
   // Dashboard"). Empty by default so an unbranded deployment falls back to
   // the plain generic title below.
   clientName: process.env.CLIENT_NAME || "",
@@ -116,10 +116,10 @@ const config = {
   // Cosmetic, but client-specific: shown in the browser tab and page header.
   // DASHBOARD_TITLE, if set, wins outright over the CLIENT_NAME-derived
   // title above — an escape hatch for a title that doesn't fit the
-  // "<name> Candidate Dashboard" shape.
+  // "<name> Coordination Dashboard" shape.
   dashboardTitle:
     process.env.DASHBOARD_TITLE ||
-    (process.env.CLIENT_NAME ? `${process.env.CLIENT_NAME} Candidate Dashboard` : "Candidate Dashboard"),
+    (process.env.CLIENT_NAME ? `${process.env.CLIENT_NAME} Coordination Dashboard` : "Candidate Dashboard"),
 
   // Overrides the header accent color (topbar border + title text, default
   // Carrara ember — see --header-accent in style.css) so each client

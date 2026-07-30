@@ -232,15 +232,17 @@ is normally still in Application Review and any status).
 - **`CLIENT_NAME` is the single source of truth for the title/header text;
   `DASHBOARD_TITLE` is a full-override escape hatch, not a separate
   concept.** `config.dashboardTitle` resolves `DASHBOARD_TITLE` first, then
-  falls back to `` `${CLIENT_NAME} Candidate Dashboard` `` (client name
-  first), then the plain generic default — computed once in `config.js`, not
-  duplicated client-side. This org's `.env` still sets `DASHBOARD_TITLE`
-  directly ("January Coordination Dashboard" — deliberately not the
-  `CLIENT_NAME`-derived shape), which is exactly the case the override
-  exists for; don't "clean it up" to `CLIENT_NAME` without checking the
-  exact wording is still wanted. `CLIENT_ACCENT_COLOR` is independent of
-  both — it only touches `--header-accent` (topbar border + title color),
-  defined once in `style.css`'s `:root` token block, default `var(--ember)`.
+  falls back to `` `${CLIENT_NAME} Coordination Dashboard` `` (client name
+  first), then the plain generic `"Candidate Dashboard"` default if neither
+  is set — computed once in `config.js`, not duplicated client-side.
+  `DASHBOARD_TITLE` isn't in `.env.example` (most deployments won't need
+  it) but is still fully supported in code for a title that doesn't fit the
+  `"<name> Coordination Dashboard"` shape. This org's `.env` sets
+  `CLIENT_NAME=January`, which derives exactly "January Coordination
+  Dashboard" — no `DASHBOARD_TITLE` override needed here anymore.
+  `CLIENT_ACCENT_COLOR` is independent of both — it only touches
+  `--header-accent` (topbar border + title color), defined once in
+  `style.css`'s `:root` token block, default `var(--ember)`.
 - **`interviewSchedule.status` is a real, granular state machine — treat it
   that way, not as a coarse 3-value enum.** Confirmed values in this org:
   `NeedsScheduling` → `WaitingOnCandidateAvailability` /
