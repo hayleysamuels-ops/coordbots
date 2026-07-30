@@ -27,12 +27,20 @@ async function findUserIdByEmail(email) {
   }
 }
 
+// The interview brief lives at the feedback link minus the trailing
+// "/feedback" (e.g. https://app.ashbyhq.com/interview-briefings/<id>). It shows
+// the candidate, the interview details, and the scorecard in one place.
+function briefUrlFrom(feedbackLink) {
+  if (!feedbackLink) return null;
+  const brief = feedbackLink.replace(/\/feedback\/?$/i, "");
+  return brief && brief !== feedbackLink ? brief : null;
+}
+
 function buildMessage({
   interviewerName,
   candidateName,
   jobTitle,
   feedbackLink,
-  candidateProfileUrl,
   reminderNumber = 1,
   totalReminders = 1,
   hoursSinceEnd = 0,
@@ -70,9 +78,9 @@ function buildMessage({
   } else {
     lines.push("\n:memo: You can submit it from the candidate's page in Ashby.");
   }
-  if (candidateProfileUrl) {
-    const label = candidateName ? `${candidateName}'s` : "the candidate's";
-    lines.push(`\n:bust_in_silhouette: <${candidateProfileUrl}|View ${label} Ashby profile>`);
+  const briefLink = briefUrlFrom(feedbackLink);
+  if (briefLink) {
+    lines.push(`\n:clipboard: <${briefLink}|Open the interview brief>`);
   }
   lines.push(
     "\n:speech_balloon: Prefer Slack? You can submit your feedback right from Slack with the *Ashby* app."
@@ -92,7 +100,6 @@ async function sendScorecardReminder(interviewer, context) {
     candidateName: context.candidateName,
     jobTitle: context.jobTitle,
     feedbackLink: interviewer.feedbackLink,
-    candidateProfileUrl: context.candidateProfileUrl,
     reminderNumber: context.reminderNumber,
     totalReminders: context.totalReminders,
     hoursSinceEnd: context.hoursSinceEnd,

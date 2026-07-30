@@ -305,7 +305,7 @@ Then trigger a test (Section 6, or the local `send-test`) to see the new copy.
 | `ASHBY_API_KEY` | recommended | Enables skip-if-submitted + candidate/role names (`candidatesRead`) |
 | `REMINDER_DELAY_MINUTES` | no | Baseline minutes after end time before the first reminder (default `0`) |
 | `REMINDER_SCHEDULE_HOURS` | no | Escalating reminder times in hours after end (default `0,24,48`) |
-| `EXCLUDE_INTERVIEW_NAME_PATTERNS` | no | Interview names to skip, e.g. debriefs (default `debrief`); also auto-skips events Ashby marks as not requiring feedback |
+| `EXCLUDE_INTERVIEW_NAME_PATTERNS` | no | Extra interview titles to skip (default `debrief`). Debriefs are already auto-detected via Ashby's `isDebrief` flag using the API key |
 | `FALLBACK_SLACK_CHANNEL` | no | Channel ID to flag interviewers with no Slack match |
 | `DEBUG_PAYLOADS` | no | `true` logs raw payloads (use during setup, off in prod) |
 | `DATA_DIR` | no | Where reminders persist; point at a mounted volume in prod |

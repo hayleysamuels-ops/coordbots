@@ -55,7 +55,9 @@ function createServer() {
         console.log(`[server] ${action}: no schedulable interview events found.`);
         return;
       }
-      reminders.applyWebhook(parsed);
+      reminders
+        .applyWebhook(parsed)
+        .catch((err) => console.error("[server] applyWebhook error:", err.message));
     } catch (err) {
       console.error("[server] Error handling webhook:", err.message);
     }

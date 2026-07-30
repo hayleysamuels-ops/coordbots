@@ -49,6 +49,9 @@ function getInterviewEvents(schedule) {
   return Array.isArray(events) ? events : [];
 }
 
+// Note: in Ashby's payload, `isFeedbackRequired` and `feedbackLink` live on each
+// interviewer, not on the event. We also drop interviewers explicitly marked as
+// not required to give feedback (e.g. shadowers) so they aren't nagged.
 function getInterviewers(event) {
   const list = event.interviewers || event.interviewerUsers || [];
   if (!Array.isArray(list)) return [];
@@ -59,35 +62,21 @@ function getInterviewers(event) {
       const last = pick(i, ["lastName", "last_name"]) || "";
       const name =
         pick(i, ["name", "fullName"]) || `${first} ${last}`.trim() || email;
-      // Ashby gives each interviewer a direct link to submit their scorecard.
       const feedbackLink = pick(i, [
         "feedbackLink",
         "feedbackFormUrl",
         "submitFeedbackLink",
       ]);
       const userId = pick(i, ["userId", "id", "interviewerId"]);
-      return { email, name, feedbackLink, userId };
+      const feedbackRequired = pick(i, ["isFeedbackRequired"]);
+      return { email, name, feedbackLink, userId, feedbackRequired };
     })
-    .filter((i) => i.email); // can't DM without an email to look up
+    .filter((i) => i.email && i.feedbackRequired !== false);
 }
 
 function isCancelled(event) {
   const status = (pick(event, ["status", "state"]) || "").toString().toLowerCase();
   return status.includes("cancel");
-}
-
-// Decide whether an interview event should be skipped for scorecard reminders.
-// Two signals: Ashby's isFeedbackRequired flag (skip when explicitly false), and
-// a configurable name match (default "debrief"). Returns a reason string, or
-// null if the event should get reminders.
-function exclusionReason(event, interviewName) {
-  if (pick(event, ["isFeedbackRequired"]) === false) {
-    return "no scorecard required";
-  }
-  const name = (interviewName || "").toLowerCase();
-  const hit = config.excludeInterviewPatterns.find((p) => name.includes(p));
-  if (hit) return `interview name matches "${hit}"`;
-  return null;
 }
 
 /**
@@ -112,19 +101,17 @@ function parseWebhook(payload) {
     const endTime = pick(event, ["endTime", "end_time", "scheduledEndTime"]);
     if (!eventId || !endTime) continue;
 
-    const interviewName =
-      pick(event, ["title", "name", "interviewTitle"]) || "your interview";
-    const excludeReason = exclusionReason(event, interviewName);
-
     reminders.push({
       interviewEventId: eventId,
+      // The interview's name and debrief status aren't in the webhook — only
+      // this reference. We look them up via interview.info when deciding
+      // whether to schedule (see interviewExclusionReason).
+      interviewId: pick(event, ["interviewId", "interview_id"]),
       scheduleId,
       applicationId,
       endTime, // ISO 8601 string
       cancelled: isCancelled(event),
-      excluded: Boolean(excludeReason),
-      excludeReason,
-      interviewName,
+      interviewName: "your interview", // filled from interview.info if available
       interviewers: getInterviewers(event),
     });
   }
@@ -155,15 +142,9 @@ async function enrichApplication(applicationId) {
     const results = json.results || {};
     const candidate = results.candidate || {};
     const job = results.job || {};
-    const candidateId = pick(candidate, ["id"]);
     return {
       candidateName: candidate.name,
       jobTitle: job.title,
-      // Deep link to the candidate's profile in the Ashby web app. Base URL is
-      // configurable (ASHBY_APP_BASE_URL) for orgs on a custom domain.
-      candidateProfileUrl: candidateId
-        ? `${config.ashbyAppBaseUrl}/candidates/${candidateId}`
-        : undefined,
     };
   } catch (err) {
     console.warn("[ashby] enrichment failed:", err.message);
@@ -226,4 +207,96 @@ async function listSubmittedFeedback(applicationId) {
   }
 }
 
-module.exports = { parseWebhook, enrichApplication, listSubmittedFeedback };
+// Cache interview.info lookups (interviews rarely change) so a schedule with
+// several events, or repeated webhooks, doesn't re-fetch the same interview.
+const interviewInfoCache = new Map();
+
+/**
+ * Fetch an interview's metadata by id. Returns
+ * { title, isDebrief, isFeedbackRequired } or null if we can't determine it
+ * (no API key, or the call failed). Requires the `interviewsRead` permission.
+ */
+async function getInterviewInfo(interviewId) {
+  if (!interviewId || !config.ashbyApiKey) return null;
+  if (interviewInfoCache.has(interviewId)) return interviewInfoCache.get(interviewId);
+  try {
+    const res = await fetch("https://api.ashbyhq.com/interview.info", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: ashbyAuthHeader(),
+      },
+      body: JSON.stringify({ id: interviewId }),
+    });
+    if (!res.ok) {
+      console.warn(`[ashby] interview.info -> HTTP ${res.status}`);
+      return null;
+    }
+    const json = await res.json();
+    if (json.success === false) return null;
+    const r = json.results || {};
+    const info = {
+      title: r.title,
+      isDebrief: r.isDebrief === true,
+      isFeedbackRequired: r.isFeedbackRequired,
+    };
+    interviewInfoCache.set(interviewId, info);
+    return info;
+  } catch (err) {
+    console.warn("[ashby] interview.info failed:", err.message);
+    return null;
+  }
+}
+
+/**
+ * Given interview.info, decide whether it should be skipped for scorecard
+ * reminders. Returns a reason string, or null to proceed. When info is null
+ * (couldn't look it up) we return null — better to remind than to silently drop.
+ */
+function interviewExclusionReason(info) {
+  if (!info) return null;
+  if (info.isDebrief) return "debrief";
+  if (info.isFeedbackRequired === false) return "no scorecard required";
+  const name = (info.title || "").toLowerCase();
+  const hit = config.excludeInterviewPatterns.find((p) => name.includes(p));
+  if (hit) return `interview name matches "${hit}"`;
+  return null;
+}
+
+/**
+ * Resolve the interviewId for a given event within a schedule — used to
+ * classify reminders persisted before we started recording interviewId.
+ * Returns the interviewId string or null.
+ */
+async function interviewIdForEvent(scheduleId, eventId) {
+  if (!scheduleId || !eventId || !config.ashbyApiKey) return null;
+  try {
+    const res = await fetch("https://api.ashbyhq.com/interviewEvent.list", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: ashbyAuthHeader(),
+      },
+      body: JSON.stringify({ interviewScheduleId: scheduleId }),
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    const events = json.results || [];
+    const match = events.find((e) => pick(e, ["id", "interviewEventId"]) === eventId);
+    return match ? pick(match, ["interviewId", "interview_id"]) : null;
+  } catch (err) {
+    console.warn("[ashby] interviewEvent.list failed:", err.message);
+    return null;
+  }
+}
+
+module.exports = {
+  parseWebhook,
+  enrichApplication,
+  listSubmittedFeedback,
+  getInterviewInfo,
+  interviewExclusionReason,
+  interviewIdForEvent,
+};

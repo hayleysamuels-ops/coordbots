@@ -3,7 +3,13 @@
 const fs = require("fs");
 const path = require("path");
 const config = require("./config");
-const { enrichApplication, listSubmittedFeedback } = require("./ashby");
+const {
+  enrichApplication,
+  listSubmittedFeedback,
+  getInterviewInfo,
+  interviewExclusionReason,
+  interviewIdForEvent,
+} = require("./ashby");
 const { sendScorecardReminder } = require("./slack");
 
 // Where to persist pending reminders. Override with DATA_DIR to point at a
@@ -30,7 +36,6 @@ function load() {
     if (fs.existsSync(STORE_PATH)) {
       reminders = JSON.parse(fs.readFileSync(STORE_PATH, "utf8")) || {};
       migrateLegacy();
-      pruneExcludedByName();
       console.log(`[reminders] Loaded ${Object.keys(reminders).length} from disk.`);
     }
   } catch (err) {
@@ -61,24 +66,32 @@ function migrateLegacy() {
   }
 }
 
-// Drop any already-queued reminders whose interview name matches an exclusion
-// pattern (e.g. debriefs scheduled before this rule existed). We only have the
-// name at load time, so this is name-based only.
-function pruneExcludedByName() {
-  const patterns = config.excludeInterviewPatterns;
-  if (!patterns.length) return;
+// Look up each queued reminder's interview and drop debriefs / non-scored
+// sessions that were scheduled before we could classify them. Resolves the
+// interviewId from the record, or via the schedule for older records that
+// predate interviewId tracking. Best-effort — needs an ASHBY_API_KEY.
+async function sweepExcluded() {
+  if (!config.ashbyApiKey) return;
   let removed = 0;
   for (const key of Object.keys(reminders)) {
-    const name = (reminders[key].interviewName || "").toLowerCase();
-    if (patterns.some((p) => name.includes(p))) {
+    const r = reminders[key];
+    let interviewId = r.interviewId;
+    if (!interviewId) {
+      interviewId = await interviewIdForEvent(r.scheduleId, key);
+      if (interviewId) r.interviewId = interviewId; // remember for next time
+    }
+    const info = await getInterviewInfo(interviewId);
+    const reason = interviewExclusionReason(info);
+    if (reason) {
       delete reminders[key];
       removed++;
+      console.log(`[reminders] Pruned queued reminder for event ${key} (${reason}).`);
+    } else if (info && info.title && r.interviewName === "your interview") {
+      r.interviewName = info.title; // backfill name for nicer logs
     }
   }
-  if (removed) {
-    console.log(`[reminders] Pruned ${removed} excluded reminder(s) (e.g. debriefs) on load.`);
-    save();
-  }
+  if (removed || Object.keys(reminders).length) save();
+  if (removed) console.log(`[reminders] Sweep removed ${removed} excluded reminder(s).`);
 }
 
 function save() {
@@ -110,8 +123,10 @@ const allStagesSent = (r) => r.stages.every((s) => s.sent);
 
 /**
  * Apply a parsed webhook: upsert or cancel reminders per interview event.
+ * Async because it looks up each event's interview to skip debriefs and
+ * non-scored sessions (their name/debrief status aren't in the webhook).
  */
-function applyWebhook(parsed) {
+async function applyWebhook(parsed) {
   for (const r of parsed.reminders) {
     const key = r.interviewEventId;
 
@@ -123,15 +138,24 @@ function applyWebhook(parsed) {
       continue;
     }
 
-    // Debriefs / events that don't need a scorecard: never remind, and drop
-    // any reminder we may have scheduled for this event before.
-    if (r.excluded) {
+    // Skip debriefs / events that don't need a scorecard, and drop any reminder
+    // we may have scheduled for this event before it was reclassified.
+    const info = await getInterviewInfo(r.interviewId);
+    const reason = interviewExclusionReason(info);
+    if (reason) {
       if (reminders[key]) {
         delete reminders[key];
-        console.log(`[reminders] Removed reminders for event ${key} (${r.excludeReason}).`);
+        console.log(`[reminders] Removed reminders for event ${key} (${reason}).`);
       } else {
-        console.log(`[reminders] Skipping event ${key} (${r.excludeReason}); no scorecard reminders.`);
+        console.log(`[reminders] Skipping event ${key} (${reason}); no scorecard reminders.`);
       }
+      continue;
+    }
+
+    // Nobody required to give feedback (e.g. all shadowers) — nothing to remind.
+    if (!r.interviewers.length) {
+      if (reminders[key]) delete reminders[key];
+      console.log(`[reminders] Skipping event ${key}; no interviewers require feedback.`);
       continue;
     }
 
@@ -142,15 +166,15 @@ function applyWebhook(parsed) {
     const stages = buildStages(r.endTime, existing);
     reminders[key] = {
       interviewEventId: key,
+      interviewId: r.interviewId,
       scheduleId: r.scheduleId,
       applicationId: r.applicationId,
-      interviewName: r.interviewName,
+      interviewName: (info && info.title) || r.interviewName,
       endTime: r.endTime,
       interviewers: r.interviewers,
       // carry over enrichment if we already had it
       candidateName: existing ? existing.candidateName : undefined,
       jobTitle: existing ? existing.jobTitle : undefined,
-      candidateProfileUrl: existing ? existing.candidateProfileUrl : undefined,
       stages,
       completedAt: null,
     };
@@ -217,12 +241,10 @@ async function filterAlreadySubmitted(reminder) {
 // Fire one stage of a reminder: DM everyone who still hasn't submitted.
 async function fireStage(reminder, stage, stageIndex) {
   // Best-effort enrichment for a nicer message.
-  if (!reminder.candidateName || !reminder.jobTitle || !reminder.candidateProfileUrl) {
+  if (!reminder.candidateName || !reminder.jobTitle) {
     const enriched = await enrichApplication(reminder.applicationId);
     reminder.candidateName = reminder.candidateName || enriched.candidateName;
     reminder.jobTitle = reminder.jobTitle || enriched.jobTitle;
-    reminder.candidateProfileUrl =
-      reminder.candidateProfileUrl || enriched.candidateProfileUrl;
   }
 
   const { recipients, verified } = await filterAlreadySubmitted(reminder);
@@ -254,7 +276,6 @@ async function fireStage(reminder, stage, stageIndex) {
   const context = {
     candidateName: reminder.candidateName,
     jobTitle: reminder.jobTitle,
-    candidateProfileUrl: reminder.candidateProfileUrl,
     reminderNumber: stageIndex + 1, // 1-based: 1 = at end, 2 = first follow-up, ...
     totalReminders: reminder.stages.length,
     hoursSinceEnd: stage.hours,
@@ -308,8 +329,15 @@ async function tick() {
   if (changed) save();
 }
 
-function start() {
+async function start() {
   load();
+  // Clear out any debriefs / non-scored sessions queued before we could
+  // classify them, BEFORE the first tick so they never fire.
+  try {
+    await sweepExcluded();
+  } catch (e) {
+    console.error("[reminders] sweep error:", e.message);
+  }
   // Run once on boot to catch anything already due, then on an interval.
   tick().catch((e) => console.error("[reminders] tick error:", e.message));
   setInterval(
@@ -322,4 +350,4 @@ function start() {
   );
 }
 
-module.exports = { start, applyWebhook, tick, load, _state: () => reminders };
+module.exports = { start, applyWebhook, tick, load, sweepExcluded, _state: () => reminders };

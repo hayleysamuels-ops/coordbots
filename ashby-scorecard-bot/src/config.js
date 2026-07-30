@@ -39,7 +39,6 @@ const config = {
   port: parseInt(process.env.PORT || "3000", 10),
   ashbyWebhookSecret: required("ASHBY_WEBHOOK_SECRET"),
   ashbyApiKey: process.env.ASHBY_API_KEY || "",
-  ashbyAppBaseUrl: (process.env.ASHBY_APP_BASE_URL || "https://app.ashbyhq.com").replace(/\/+$/, ""),
   slackBotToken: required("SLACK_BOT_TOKEN"),
   reminderDelayMinutes: parseInt(process.env.REMINDER_DELAY_MINUTES || "0", 10),
   // Hours after the interview end time to send each reminder. Default: at the

@@ -160,16 +160,21 @@ cadence by editing `REMINDER_SCHEDULE_HOURS` (e.g. `0,48` for just end + 48h).
 
 ## Which interviews get reminders
 
-The bot only reminds for sessions that actually need a scorecard. It skips an
-interview event when either:
+The bot only reminds for sessions that actually need a scorecard. Because the
+webhook doesn't include the interview's name or type, the bot looks up each
+interview via Ashby's `interview.info` (needs `ASHBY_API_KEY` with
+`interviewsRead`) and skips the event when:
 
-- Ashby marks it as **not requiring feedback** (`isFeedbackRequired = false`), or
-- its **name matches** `EXCLUDE_INTERVIEW_NAME_PATTERNS` (default `debrief`).
+- Ashby marks the interview as a **debrief** (`isDebrief = true`), or
+- the interview **doesn't require feedback** (`isFeedbackRequired = false`), or
+- the interview **title matches** `EXCLUDE_INTERVIEW_NAME_PATTERNS` (default
+  `debrief`) — a secondary safety net.
 
-So debriefs and other non-scored sessions never trigger reminders. Any debrief
-reminders that were queued before this rule existed are pruned automatically on
-the next restart. Adjust the patterns (e.g. `debrief,panel sync`) or set the
-variable to empty to disable name matching.
+It also drops individual interviewers Ashby marks as not required to give
+feedback (e.g. shadowers), so they aren't nagged. Any debriefs queued before
+this logic existed are cleared by a one-time sweep on the next restart. Without
+an API key the bot can't classify interviews and will remind for everything, so
+the key is required for debrief filtering to work.
 
 ## Notes & limitations
 
