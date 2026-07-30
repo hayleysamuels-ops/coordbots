@@ -451,14 +451,17 @@
     el.classList.toggle("stale", Boolean(errorMessage));
   }
 
-  // Client-specific display config (page title) — static for the life of
-  // the server, but applying it idempotently on every render is simpler
-  // than special-casing "only on first load."
+  // Client-specific display config (page title, header accent color) —
+  // static for the life of the server, but applying it idempotently on
+  // every render is simpler than special-casing "only on first load."
   function applyAppConfig(appConfig) {
     if (!appConfig) return;
     if (appConfig.dashboardTitle) {
       document.title = appConfig.dashboardTitle;
       document.getElementById("dashboard-title").textContent = appConfig.dashboardTitle;
+    }
+    if (appConfig.clientAccentColor) {
+      document.documentElement.style.setProperty("--header-accent", appConfig.clientAccentColor);
     }
   }
 

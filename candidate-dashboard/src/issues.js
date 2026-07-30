@@ -16,9 +16,10 @@ const thresholds = {
 
 // Static, client-specific display config — never changes at runtime, so it's
 // set once here rather than recomputed on every refresh. The frontend reads
-// this to set the page title.
+// this to set the page title and header accent color.
 const appConfig = {
   dashboardTitle: config.dashboardTitle,
+  clientAccentColor: config.clientAccentColor,
 };
 
 let snapshot = {

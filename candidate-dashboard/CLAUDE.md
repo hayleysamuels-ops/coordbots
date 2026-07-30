@@ -218,16 +218,29 @@ is normally still in Application Review and any status).
   every candidate record built in `fetchApplicationSummaries()` and
   `listRecentSourced()`; `listOnsiteToday()` inherits them for free since
   its entries spread `...app` from `fetchApplicationSummaries`'s output.
-- **Client-specific display config (`DASHBOARD_TITLE`) is injected
-  client-side via `/api/issues`'s `appConfig` field, not server-side
-  templating.** `public/index.html` is a static file served by
-  `express.static` — there's no templating step to bake env values into it
-  at request time. `issues.js` sets a static `appConfig` object once at
-  module load (see near `thresholds`); `app.js`'s `applyAppConfig()` sets
-  `document.title` / `#dashboard-title` text on every render (idempotent,
-  so no special-casing "only on first load" is needed). If you add another
+- **Client-specific display config (`CLIENT_NAME`/`DASHBOARD_TITLE`/
+  `CLIENT_ACCENT_COLOR`) is injected client-side via `/api/issues`'s
+  `appConfig` field, not server-side templating.** `public/index.html` is a
+  static file served by `express.static` — there's no templating step to
+  bake env values into it at request time. `issues.js` sets a static
+  `appConfig` object once at module load (see near `thresholds`); `app.js`'s
+  `applyAppConfig()` sets `document.title` / `#dashboard-title` text and the
+  `--header-accent` CSS custom property on every render (idempotent, so no
+  special-casing "only on first load" is needed). If you add another
   client-specific display value, follow the same path — don't reach for
   server-side HTML templating for a single value.
+- **`CLIENT_NAME` is the single source of truth for the title/header text;
+  `DASHBOARD_TITLE` is a full-override escape hatch, not a separate
+  concept.** `config.dashboardTitle` resolves `DASHBOARD_TITLE` first, then
+  falls back to `` `${CLIENT_NAME} Candidate Dashboard` `` (client name
+  first), then the plain generic default — computed once in `config.js`, not
+  duplicated client-side. This org's `.env` still sets `DASHBOARD_TITLE`
+  directly ("January Coordination Dashboard" — deliberately not the
+  `CLIENT_NAME`-derived shape), which is exactly the case the override
+  exists for; don't "clean it up" to `CLIENT_NAME` without checking the
+  exact wording is still wanted. `CLIENT_ACCENT_COLOR` is independent of
+  both — it only touches `--header-accent` (topbar border + title color),
+  defined once in `style.css`'s `:root` token block, default `var(--ember)`.
 - **`interviewSchedule.status` is a real, granular state machine — treat it
   that way, not as a coarse 3-value enum.** Confirmed values in this org:
   `NeedsScheduling` → `WaitingOnCandidateAvailability` /

@@ -107,8 +107,25 @@ const config = {
   // only.
   onsiteStageKeywords: list("ONSITE_STAGE_KEYWORDS", ["final", "exec"]),
 
+  // The client this deployment is for — single source of truth for the page
+  // header and browser tab title (client name first: "<name> Candidate
+  // Dashboard"). Empty by default so an unbranded deployment falls back to
+  // the plain generic title below.
+  clientName: process.env.CLIENT_NAME || "",
+
   // Cosmetic, but client-specific: shown in the browser tab and page header.
-  dashboardTitle: process.env.DASHBOARD_TITLE || "Candidate Dashboard",
+  // DASHBOARD_TITLE, if set, wins outright over the CLIENT_NAME-derived
+  // title above — an escape hatch for a title that doesn't fit the
+  // "<name> Candidate Dashboard" shape.
+  dashboardTitle:
+    process.env.DASHBOARD_TITLE ||
+    (process.env.CLIENT_NAME ? `${process.env.CLIENT_NAME} Candidate Dashboard` : "Candidate Dashboard"),
+
+  // Overrides the header accent color (topbar border + title text, default
+  // Carrara ember — see --header-accent in style.css) so each client
+  // deployment is visually distinguishable at a glance. Any valid CSS color
+  // value. Empty means "use the default token," not "no accent."
+  clientAccentColor: process.env.CLIENT_ACCENT_COLOR || "",
 
   // Recruiter/Coordinator filter: exact hiringTeam[].role name to match
   // (not a substring/keyword list like source/stage above — Ashby's

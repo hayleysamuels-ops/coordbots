@@ -56,6 +56,11 @@
   --border: var(--border-default);
   --gridline: var(--border-subtle);
 
+  /* Overridden per client deployment via CLIENT_ACCENT_COLOR (see
+     applyAppConfig() in app.js) — defaults to the brand ember so an
+     unconfigured deployment looks exactly as it always has. */
+  --header-accent: var(--ember);
+
   /* --- Severity, mapped onto Carrara's own palette rather than
      invented colors: an ascending "heat" ramp through the brand's
      ember ramp for warning → serious → critical, moss for good. --- */
@@ -109,7 +114,7 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 20px 28px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 3px solid var(--header-accent);
 }
 
 .topbar-brand {
@@ -130,6 +135,7 @@ body {
   font-weight: 700;
   letter-spacing: -0.01em;
   margin: 0;
+  color: var(--header-accent);
 }
 
 .topbar-meta {

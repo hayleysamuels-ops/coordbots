@@ -185,7 +185,9 @@ Fill in `.env`:
 | `SCHEDULE_LOOKBACK_DAYS` | no | Default `30`. How far back `interviewSchedule.list` is pulled for the schedule-driven sections. Tune per client's interview volume — see § Scope. |
 | `SOURCE_REFERRAL_KEYWORDS` / `SOURCE_AGENCY_KEYWORDS` | no | Defaults `referr` / `agenc`. Comma-separated, case-insensitive substrings matched against `source.sourceType.title` to classify Recently Sourced. **Every Ashby org names these differently** — run `scripts/check-ashby-compatibility.js` against a new client before trusting the defaults. Set to an empty value to disable a category. |
 | `ONSITE_STAGE_KEYWORDS` | no | Default `final,exec`. Comma-separated, case-insensitive substrings matched against interview stage titles to approximate "onsite" (Ashby has no real location signal — see § Onsite Interviews Today). **January's convention, not an Ashby default** — verify with `scripts/check-ashby-compatibility.js` before onboarding a new client. Empty value disables the section. |
-| `DASHBOARD_TITLE` | no | Default `Candidate Dashboard`. Shown in the browser tab and page header. |
+| `CLIENT_NAME` | no | Single source of truth for the client this deployment is for. Drives the browser tab title and page header: `"<CLIENT_NAME> Candidate Dashboard"`. Unset means a plain, unbranded `Candidate Dashboard`. |
+| `DASHBOARD_TITLE` | no | Full override for the title/header text above — wins outright over the `CLIENT_NAME`-derived title if set. Only needed when the title doesn't fit the `"<name> Candidate Dashboard"` shape. |
+| `CLIENT_ACCENT_COLOR` | no | Overrides the header accent color (topbar border + title text, default Carrara ember) so each client deployment is visually distinguishable at a glance. Any valid CSS color. |
 | `RECRUITER_ROLE_NAME` / `COORDINATOR_ROLE_NAME` | no | Defaults `Recruiter` / `Recruiting Coordinator`. Exact `hiringTeamRole.list` values (not a substring match) used for the Recruiter/Coordinator filter. **This org's actual role names, not an Ashby standard** — verify with `scripts/check-ashby-compatibility.js` before onboarding a new client. |
 
 ## Onboarding a new client
