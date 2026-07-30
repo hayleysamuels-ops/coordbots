@@ -102,6 +102,25 @@ is normally still in Application Review and any status).
 
 ## Key design facts (don't "fix" these — they're intentional)
 
+- **The page is two tabs (Dashboard / Interviewer Info), implemented as
+  plain DOM show/hide, not a router.** `index.html` has two sibling
+  `.tab-panel` divs (`#tab-dashboard`, `#tab-interviewers`) and two
+  `.tab-btn` buttons with a `data-tab` attribute; `app.js`'s click handler
+  is generic over the convention `id="tab-<data-tab value>"`, so a third
+  tab needs only a matching button+panel pair, no JS changes. Both panels'
+  cards render on **every** poll regardless of which is visible — the
+  `hidden` attribute is purely cosmetic, so switching tabs is instant and
+  never shows stale content. Interviewer Weekly Limits and Interviewer
+  Training live on the Interviewer Info tab specifically because neither is
+  tied to a candidate/department/job/recruiter/coordinator, so they were
+  moved out of the candidate-facing Dashboard tab to reduce clutter there —
+  don't move them back without re-checking whether that reasoning still
+  holds. `.tab-panel` has NO conflicting `display` rule of its own — if you
+  ever add one, remember `.tab-panel[hidden] { display: none; }` needs to
+  win the cascade over it (author rules beat the browser's `[hidden]`
+  default at equal specificity only if the `[hidden]` override is also an
+  author rule — this exact class of bug already happened once with
+  `.ashby-report-link`, see below).
 - **Interviewer Training (`listInterviewerTraining()` in `ashby.js`) uses
   real, structured Ashby fields (`Shadow`/`ReverseShadow` via
   `interviewerPool.list`'s `trainingPath.trainingStages[].interviewerRole`)

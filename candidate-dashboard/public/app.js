@@ -714,6 +714,26 @@
     hideCardDetails(card);
   });
 
+  // Top-level page tabs (Dashboard / Interviewer Info) — pure DOM show/hide
+  // via the `hidden` attribute, independent of render()/data refresh (both
+  // tab panels' cards get rendered on every poll regardless of which is
+  // visible — cheap, and means switching tabs never shows stale content).
+  // Generic over `.tab-panel` ids matching `tab-<data-tab value>`, so a
+  // future third tab needs no changes here.
+  document.querySelectorAll(".tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const target = btn.dataset.tab;
+      document.querySelectorAll(".tab-btn").forEach((b) => {
+        const isActive = b.dataset.tab === target;
+        b.classList.toggle("is-active", isActive);
+        b.setAttribute("aria-pressed", isActive ? "true" : "false");
+      });
+      document.querySelectorAll(".tab-panel").forEach((panel) => {
+        panel.toggleAttribute("hidden", panel.id !== `tab-${target}`);
+      });
+    });
+  });
+
   load();
   setInterval(load, REFRESH_MS);
 })();

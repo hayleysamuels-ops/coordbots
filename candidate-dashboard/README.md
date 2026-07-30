@@ -30,6 +30,24 @@ still outstanding, and a newer round scheduled for today), only their single
 most recent event is kept; the rest are dropped rather than shown twice or
 moved to Stale Candidates.
 
+## Pages
+
+The page is split into two tabs (`.tab-btn`/`.tab-panel` in `index.html` and
+`app.js` — plain DOM show/hide via the `hidden` attribute, no router):
+
+- **Dashboard** (default) — every candidate-facing section above plus
+  Rescheduled Interviews, the department/job/recruiter/coordinator filter,
+  and the Active Referrals report link.
+- **Interviewer Info** — Interviewer Weekly Limits and Interviewer
+  Training, which aren't tied to a candidate and aren't affected by the
+  filter, so they live on their own tab out of the way of the
+  candidate-facing sections.
+
+Both tabs' data refreshes on the same cycle and renders on every poll
+regardless of which tab is currently visible — switching tabs is instant
+and never shows stale content, since it's just toggling which already-
+rendered panel is hidden.
+
 ## Department / Job / Recruiter / Coordinator filter
 
 A multi-select menu at the top of the page filters every candidate-facing

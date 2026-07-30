@@ -183,6 +183,43 @@ button#refresh-btn.spinning {
   }
 }
 
+/* Top-level page tabs (Dashboard / Interviewer Info) — a bigger, more
+   prominent switch than .filter-mode-toggle since it changes the entire
+   page's content, not just a filter within one view. */
+.tab-switcher {
+  display: flex;
+  gap: 8px;
+  padding: 14px 28px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab-btn {
+  border: 2px solid var(--border-default);
+  background: var(--white);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.tab-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+.tab-btn.is-active {
+  background: var(--ember);
+  color: var(--white);
+  border-color: var(--ember);
+}
+
+.tab-panel[hidden] {
+  display: none;
+}
+
 .section-nav {
   display: flex;
   gap: 20px;

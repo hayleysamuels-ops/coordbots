@@ -21,135 +21,148 @@
     </div>
   </header>
 
-  <nav class="section-nav">
-    <a href="#feedbackOverdue">Feedback Overdue</a>
-    <a href="#needsScheduling">Needs Scheduling</a>
-    <a href="#availabilitySubmitted">Availability Submitted</a>
-    <a href="#rescheduledInterviews">Rescheduled Interviews</a>
-    <a href="#interviewerLimits">Interviewer Weekly Limits</a>
-    <a href="#interviewerTraining">Interviewer Training</a>
-    <a href="#recentSourced">Recently Sourced</a>
-    <a href="#staleCandidates">Stale Candidates</a>
-    <a href="#onsiteToday">Onsite Interviews Today</a>
+  <nav class="tab-switcher" role="tablist" aria-label="Page">
+    <button type="button" class="tab-btn is-active" data-tab="dashboard" aria-pressed="true">Dashboard</button>
+    <button type="button" class="tab-btn" data-tab="interviewers" aria-pressed="false">Interviewer Info</button>
   </nav>
 
-  <div class="filter-bar">
-    <span class="filter-bar-label">Filter by</span>
-    <div class="filter-mode-toggle" role="group" aria-label="Filter by">
-      <button type="button" class="filter-mode-btn is-active" data-mode="department" aria-pressed="true">Department</button>
-      <button type="button" class="filter-mode-btn" data-mode="job" aria-pressed="false">Job</button>
-      <button type="button" class="filter-mode-btn" data-mode="recruiter" aria-pressed="false">Recruiter</button>
-      <button type="button" class="filter-mode-btn" data-mode="coordinator" aria-pressed="false">Coordinator</button>
+  <div id="tab-dashboard" class="tab-panel">
+    <nav class="section-nav">
+      <a href="#feedbackOverdue">Feedback Overdue</a>
+      <a href="#needsScheduling">Needs Scheduling</a>
+      <a href="#availabilitySubmitted">Availability Submitted</a>
+      <a href="#rescheduledInterviews">Rescheduled Interviews</a>
+      <a href="#recentSourced">Recently Sourced</a>
+      <a href="#staleCandidates">Stale Candidates</a>
+      <a href="#onsiteToday">Onsite Interviews Today</a>
+    </nav>
+
+    <div class="filter-bar">
+      <span class="filter-bar-label">Filter by</span>
+      <div class="filter-mode-toggle" role="group" aria-label="Filter by">
+        <button type="button" class="filter-mode-btn is-active" data-mode="department" aria-pressed="true">Department</button>
+        <button type="button" class="filter-mode-btn" data-mode="job" aria-pressed="false">Job</button>
+        <button type="button" class="filter-mode-btn" data-mode="recruiter" aria-pressed="false">Recruiter</button>
+        <button type="button" class="filter-mode-btn" data-mode="coordinator" aria-pressed="false">Coordinator</button>
+      </div>
+      <div class="entity-filter">
+        <button id="entity-filter-btn" type="button" aria-haspopup="true" aria-expanded="false">
+          All departments
+        </button>
+        <div id="entity-filter-menu" class="entity-filter-menu" hidden></div>
+      </div>
     </div>
-    <div class="entity-filter">
-      <button id="entity-filter-btn" type="button" aria-haspopup="true" aria-expanded="false">
-        All departments
-      </button>
-      <div id="entity-filter-menu" class="entity-filter-menu" hidden></div>
+
+    <div class="page-with-margin">
+    <main class="page-stack">
+      <section id="feedbackOverdue" class="column wide-section" data-key="feedbackOverdue">
+        <h2><span class="dot dot-critical"></span>Feedback Overdue</h2>
+        <span class="section-updated muted" id="updated-feedbackOverdue"></span>
+        <p class="column-sub">Interview ended, scorecard still not submitted.</p>
+        <div class="cards" id="cards-feedbackOverdue"></div>
+      </section>
+
+      <div class="row-pair">
+        <section id="needsScheduling" class="column" data-key="needsScheduling">
+          <h2><span class="dot dot-warning"></span>Needs Scheduling</h2>
+          <span class="section-updated muted" id="updated-needsScheduling"></span>
+          <p class="column-sub">
+            Nothing has been sent to the candidate yet — no availability
+            request, no self-schedule link.
+          </p>
+          <div class="cards" id="cards-needsScheduling"></div>
+        </section>
+
+        <section id="availabilitySubmitted" class="column wide-section" data-key="availabilitySubmitted">
+          <h2><span class="dot dot-warning"></span>Availability Submitted</h2>
+          <span class="section-updated muted" id="updated-availabilitySubmitted"></span>
+          <p class="column-sub">
+            The candidate replied with their availability — waiting on someone to
+            actually book the interview.
+          </p>
+          <div class="cards" id="cards-availabilitySubmitted"></div>
+        </section>
+      </div>
+
+      <section id="rescheduledInterviews" class="column wide-section" data-key="rescheduledInterviews">
+        <h2><span class="dot dot-critical"></span>Rescheduled Interviews</h2>
+        <span class="section-updated muted" id="updated-rescheduledInterviews"></span>
+        <p class="column-sub">
+          Interview events rescheduled more than a couple times. Ashby has no
+          reschedule history of its own, so this only counts reschedules
+          this app has actually observed since it started tracking — it
+          can't see further back than that.
+        </p>
+        <div class="cards" id="cards-rescheduledInterviews"></div>
+      </section>
+
+      <section id="recentSourced" class="column wide-section" data-key="recentSourced">
+        <h2><span class="dot dot-good"></span>Recently Sourced</h2>
+        <span class="section-updated muted" id="updated-recentSourced"></span>
+        <p class="column-sub" id="recentSourced-sub">
+          Candidates referred or sourced by an agency in the last few days.
+        </p>
+        <div class="cards" id="cards-recentSourced"></div>
+      </section>
+
+      <section id="staleCandidates" class="column wide-section tint-critical" data-key="staleCandidates">
+        <h2><span class="dot dot-critical"></span>Stale Candidates</h2>
+        <span class="section-updated muted" id="updated-staleCandidates"></span>
+        <p class="column-sub">
+          Far enough past the normal thresholds that these have likely fallen
+          through the cracks, not just freshly overdue.
+        </p>
+        <div class="cards" id="cards-staleCandidates"></div>
+      </section>
+    </main>
+
+    <aside class="side-margin">
+      <section id="onsiteToday" class="column onsite-section" data-key="onsiteToday">
+        <h2><span class="dot dot-warning"></span>Onsite Interviews Today</h2>
+        <span class="section-updated muted" id="updated-onsiteToday"></span>
+        <p class="column-sub">
+          Today's final-round and executive interviews. Ashby has no
+          per-interview onsite flag in this org, so this is approximated by
+          interview stage name rather than a real location signal.
+        </p>
+        <div class="cards" id="cards-onsiteToday"></div>
+      </section>
+
+      <a id="ashby-report-link" class="ashby-report-link" href="#" target="_blank" rel="noopener" hidden>
+        View Active Referrals report in Ashby →
+      </a>
+    </aside>
     </div>
   </div>
 
-  <div class="page-with-margin">
-  <main class="page-stack">
-    <section id="feedbackOverdue" class="column wide-section" data-key="feedbackOverdue">
-      <h2><span class="dot dot-critical"></span>Feedback Overdue</h2>
-      <span class="section-updated muted" id="updated-feedbackOverdue"></span>
-      <p class="column-sub">Interview ended, scorecard still not submitted.</p>
-      <div class="cards" id="cards-feedbackOverdue"></div>
-    </section>
-
-    <div class="row-pair">
-      <section id="needsScheduling" class="column" data-key="needsScheduling">
-        <h2><span class="dot dot-warning"></span>Needs Scheduling</h2>
-        <span class="section-updated muted" id="updated-needsScheduling"></span>
+  <div id="tab-interviewers" class="tab-panel" hidden>
+    <div class="page-with-margin">
+    <main class="page-stack">
+      <section id="interviewerLimits" class="column wide-section" data-key="interviewerLimits">
+        <h2><span class="dot dot-warning"></span>Interviewer Weekly Limits</h2>
+        <span class="section-updated muted" id="updated-interviewerLimits"></span>
         <p class="column-sub">
-          Nothing has been sent to the candidate yet — no availability
-          request, no self-schedule link.
+          Interviewers at or nearing their Ashby-configured weekly interview
+          limit, for the current calendar week. Interviewers with no limit set
+          never appear here. Not affected by the department/job/recruiter/
+          coordinator filter — that's on the Dashboard tab and doesn't apply
+          here.
         </p>
-        <div class="cards" id="cards-needsScheduling"></div>
+        <div class="cards" id="cards-interviewerLimits"></div>
       </section>
 
-      <section id="availabilitySubmitted" class="column wide-section" data-key="availabilitySubmitted">
-        <h2><span class="dot dot-warning"></span>Availability Submitted</h2>
-        <span class="section-updated muted" id="updated-availabilitySubmitted"></span>
+      <section id="interviewerTraining" class="column wide-section" data-key="interviewerTraining">
+        <h2><span class="dot dot-good"></span>Interviewer Training</h2>
+        <span class="section-updated muted" id="updated-interviewerTraining"></span>
         <p class="column-sub">
-          The candidate replied with their availability — waiting on someone to
-          actually book the interview.
+          Interviewers currently in a pool's training path — shadow and
+          reverse-shadow stages, with progress toward each stage's required
+          interview count.
         </p>
-        <div class="cards" id="cards-availabilitySubmitted"></div>
+        <div class="cards" id="cards-interviewerTraining"></div>
       </section>
+    </main>
     </div>
-
-    <section id="rescheduledInterviews" class="column wide-section" data-key="rescheduledInterviews">
-      <h2><span class="dot dot-critical"></span>Rescheduled Interviews</h2>
-      <span class="section-updated muted" id="updated-rescheduledInterviews"></span>
-      <p class="column-sub">
-        Interview events rescheduled more than a couple times. Ashby has no
-        reschedule history of its own, so this only counts reschedules
-        this app has actually observed since it started tracking — it
-        can't see further back than that.
-      </p>
-      <div class="cards" id="cards-rescheduledInterviews"></div>
-    </section>
-
-    <section id="interviewerLimits" class="column wide-section" data-key="interviewerLimits">
-      <h2><span class="dot dot-warning"></span>Interviewer Weekly Limits</h2>
-      <span class="section-updated muted" id="updated-interviewerLimits"></span>
-      <p class="column-sub">
-        Interviewers at or nearing their Ashby-configured weekly interview
-        limit, for the current calendar week. Interviewers with no limit set
-        never appear here. Not affected by the filter above.
-      </p>
-      <div class="cards" id="cards-interviewerLimits"></div>
-    </section>
-
-    <section id="interviewerTraining" class="column wide-section" data-key="interviewerTraining">
-      <h2><span class="dot dot-good"></span>Interviewer Training</h2>
-      <span class="section-updated muted" id="updated-interviewerTraining"></span>
-      <p class="column-sub">
-        Interviewers currently in a pool's training path — shadow and
-        reverse-shadow stages, with progress toward each stage's required
-        interview count. Not affected by the filter above.
-      </p>
-      <div class="cards" id="cards-interviewerTraining"></div>
-    </section>
-
-    <section id="recentSourced" class="column wide-section" data-key="recentSourced">
-      <h2><span class="dot dot-good"></span>Recently Sourced</h2>
-      <span class="section-updated muted" id="updated-recentSourced"></span>
-      <p class="column-sub" id="recentSourced-sub">
-        Candidates referred or sourced by an agency in the last few days.
-      </p>
-      <div class="cards" id="cards-recentSourced"></div>
-    </section>
-
-    <section id="staleCandidates" class="column wide-section tint-critical" data-key="staleCandidates">
-      <h2><span class="dot dot-critical"></span>Stale Candidates</h2>
-      <span class="section-updated muted" id="updated-staleCandidates"></span>
-      <p class="column-sub">
-        Far enough past the normal thresholds that these have likely fallen
-        through the cracks, not just freshly overdue.
-      </p>
-      <div class="cards" id="cards-staleCandidates"></div>
-    </section>
-  </main>
-
-  <aside class="side-margin">
-    <section id="onsiteToday" class="column onsite-section" data-key="onsiteToday">
-      <h2><span class="dot dot-warning"></span>Onsite Interviews Today</h2>
-      <span class="section-updated muted" id="updated-onsiteToday"></span>
-      <p class="column-sub">
-        Today's final-round and executive interviews. Ashby has no
-        per-interview onsite flag in this org, so this is approximated by
-        interview stage name rather than a real location signal.
-      </p>
-      <div class="cards" id="cards-onsiteToday"></div>
-    </section>
-
-    <a id="ashby-report-link" class="ashby-report-link" href="#" target="_blank" rel="noopener" hidden>
-      View Active Referrals report in Ashby →
-    </a>
-  </aside>
   </div>
 
   <script src="app.js"></script>
