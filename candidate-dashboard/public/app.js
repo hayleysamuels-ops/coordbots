@@ -308,11 +308,17 @@
         const sev = item.isPaused ? "critical" : "good";
         const roleLabel = item.stageRole === "ReverseShadow" ? "Reverse shadow" : "Shadow";
         const progressLabel = `${item.interviewsCompleted} of ${item.interviewsRequired}`;
+        // pausedSince is this app's own tracking (Ashby has no such
+        // timestamp) — only reflects time observed paused since this
+        // feature started watching, see CLAUDE.md.
+        const pausedLabel = item.pausedSince
+          ? `Paused ${formatAge((Date.now() - new Date(item.pausedSince).getTime()) / (1000 * 60 * 60))}`
+          : "Paused";
         return `
           <div class="card sev-${sev}">
             <div class="card-top">
               <div class="card-name">${item.interviewerName || "Unknown interviewer"}</div>
-              ${cardTopRight(item.isPaused ? "Paused" : progressLabel, `sev-${sev}`, `interviewer:${item.userId}`)}
+              ${cardTopRight(item.isPaused ? pausedLabel : progressLabel, `sev-${sev}`, `interviewer:${item.userId}`)}
             </div>
             <div class="card-sub">${roleLabel} — ${item.poolTitle}</div>
             ${item.isPaused ? `<div class="card-detail">${progressLabel} completed</div>` : ""}
