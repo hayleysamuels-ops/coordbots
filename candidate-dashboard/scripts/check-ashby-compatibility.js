@@ -22,7 +22,7 @@
  *   --lookback-days=<n>          Schedule lookback window, default 30
  *   --referral-keywords=<a,b>    Comma-separated, default "referr"
  *   --agency-keywords=<a,b>      Comma-separated, default "agenc"
- *   --onsite-keywords=<a,b>      Comma-separated, default "panel,final"
+ *   --onsite-keywords=<a,b>      Comma-separated, default "final,exec"
  *   --recruiter-role=<name>      Exact hiringTeamRole.list value, default "Recruiter"
  *   --coordinator-role=<name>    Exact hiringTeamRole.list value, default "Recruiting Coordinator"
  *
@@ -56,7 +56,7 @@ const appBaseUrl = (args["app-base-url"] || process.env.ASHBY_APP_BASE_URL || "h
 const lookbackDays = parseInt(args["lookback-days"], 10) || 30;
 const referralKeywords = parseKeywordList(args["referral-keywords"], ["referr"]);
 const agencyKeywords = parseKeywordList(args["agency-keywords"], ["agenc"]);
-const onsiteKeywords = parseKeywordList(args["onsite-keywords"], ["panel", "final"]);
+const onsiteKeywords = parseKeywordList(args["onsite-keywords"], ["final", "exec"]);
 const recruiterRole = args["recruiter-role"] || "Recruiter";
 const coordinatorRole = args["coordinator-role"] || "Recruiting Coordinator";
 

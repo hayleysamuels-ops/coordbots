@@ -7,11 +7,13 @@ the architecture or conventions change.
 
 A dashboard for a recruiting coordinator flagging overdue interview feedback,
 interviews needing scheduling, candidates who've submitted availability but
-aren't booked yet, interviewers nearing their weekly interview limit,
-candidates recently sourced via referral/agency, and today's onsite (panel/
-final-round) interviews, plus a "Stale Candidates" section that pulls out
-whichever candidate-facing flags have gone far enough past the normal
-thresholds to look abandoned rather than just freshly overdue. A button
+aren't booked yet, interviewers nearing their weekly interview limit (and
+their training progress — shadow/reverse-shadow), candidates recently
+sourced via referral/agency, today's onsite (final-round/executive)
+interviews, and interviews rescheduled more than a couple times, plus a
+"Stale Candidates" section that pulls out whichever candidate-facing flags
+have gone far enough past the normal thresholds to look abandoned rather
+than just freshly overdue. A button
 below the Onsite Interviews Today section links out to Ashby's own Active
 Referrals report — that used to be computed in-app (a bounded full-scan-once
 + incremental-sync design in `src/referralCache.js`, since removed; see git
@@ -155,10 +157,13 @@ is normally still in Application Review and any status).
   custom fields — none carry a location/format field anywhere, in any Ashby
   org, structurally. `listOnsiteToday()` in `src/ashby.js` instead matches
   on the interview STAGE title against `config.onsiteStageKeywords`
-  (`ONSITE_STAGE_KEYWORDS` env var, default `panel,final` — January's
-  convention, confirmed live via a real "Panel Round" stage, NOT an Ashby
-  default). An empty keyword list disables the section outright rather than
-  silently matching nothing. Before onboarding a new client, run
+  (`ONSITE_STAGE_KEYWORDS` env var, default `final,exec` — January's
+  convention, confirmed live via real "Final Round"/"Final Round (series)"
+  and "Executive Interview" stages, NOT an Ashby default; previously also
+  matched "panel"/"Panel Round" until narrowed to final-round and
+  executive interviews only, per product decision). An empty keyword list
+  disables the section outright rather than silently matching nothing.
+  Before onboarding a new client, run
   `scripts/check-ashby-compatibility.js` against their org — it lists their
   actual stage titles so you can pick real keywords instead of guessing.
   "Today" is a UTC calendar day (`isTodayUTC`), the same tradeoff

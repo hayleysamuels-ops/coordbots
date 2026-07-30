@@ -99,9 +99,13 @@ const config = {
   // entirely dependent on this client's own stage-naming convention. Empty
   // list (`ONSITE_STAGE_KEYWORDS=`) disables the section rather than
   // matching nothing silently. Verify against this client's real stage
-  // titles first (see scripts/check-ashby-compatibility.js) — "panel"/
-  // "final" was January's convention, not a real Ashby default.
-  onsiteStageKeywords: list("ONSITE_STAGE_KEYWORDS", ["panel", "final"]),
+  // titles first (see scripts/check-ashby-compatibility.js) — "final"/
+  // "exec" (matching this org's real "Final Round"/"Final Round (series)"
+  // and "Executive Interview" stage titles) was January's convention, not
+  // a real Ashby default. Previously also matched "panel" ("Panel Round");
+  // narrowed per product decision to final-round and executive interviews
+  // only.
+  onsiteStageKeywords: list("ONSITE_STAGE_KEYWORDS", ["final", "exec"]),
 
   // Cosmetic, but client-specific: shown in the browser tab and page header.
   dashboardTitle: process.env.DASHBOARD_TITLE || "Candidate Dashboard",

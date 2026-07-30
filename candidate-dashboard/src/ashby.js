@@ -263,7 +263,7 @@ async function listInterviewerLimits(schedules) {
  *   listInterviewerLimits above. Independent of application status; an
  *   interviewer's load counts regardless of whether their candidates are
  *   Active, Hired, or Archived.
- * - onsiteToday: today's panel/final-round interview events — see
+ * - onsiteToday: today's final-round/executive interview events — see
  *   listOnsiteToday above for how "onsite" is approximated (Ashby has no
  *   real signal for it in this org).
  * - rescheduledInterviews: interview events whose tracked reschedule count
@@ -313,8 +313,10 @@ function keepMostRecentPerCandidate(taggedEntries) {
 // therefore approximated per-client via config.onsiteStageKeywords, matched
 // against interview STAGE titles (case-insensitive substrings) — this only
 // works if verified against that client's actual stage-naming convention
-// first (see scripts/check-ashby-compatibility.js); "panel"/"final" is
-// January's convention, not a real Ashby default. An empty keyword list
+// first (see scripts/check-ashby-compatibility.js); "final"/"exec" is
+// January's convention (final-round and executive interviews only — this
+// used to also match "panel" until narrowed per product decision), not a
+// real Ashby default. An empty keyword list
 // disables the section entirely rather than silently matching nothing.
 // "Today" is a UTC calendar day, the same tradeoff countInterviewsThisWeek
 // already makes for "this week" (see above) — display times still render in
@@ -337,7 +339,7 @@ function isTodayUTC(dateStr) {
 }
 
 /**
- * Today's panel/final-round interview events for still-Active candidates.
+ * Today's final-round/executive interview events for still-Active candidates.
  * Reuses the same `schedules`/`applications` listIssues() already computed
  * — no extra pagination call — except for resolving each involved
  * schedule's interviewStageId to a title, which interviewSchedule.list
