@@ -6,6 +6,18 @@ require("dotenv").config();
 // Falls back to [0, 24, 48] if unset, and to [0] if the value is unusable.
 // Default: nudge at interview end, follow up at 24h, final reminder at the 48h
 // SLA deadline. Anyone who has submitted is skipped at each stage.
+// Interview-name substrings that should NOT get scorecard reminders (e.g.
+// debriefs, which are discussions, not scored interviews). Matched
+// case-insensitively. Unset -> ["debrief"]. Set to "" -> [] (disable name
+// matching). Comma-separated, e.g. "debrief,panel sync".
+function parsePatterns(raw) {
+  if (raw === undefined) return ["debrief"];
+  return raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 function parseSchedule(raw) {
   const parsed = (raw || "0,24,48")
     .split(",")
@@ -34,6 +46,8 @@ const config = {
   // end, a follow-up at 24h, and a final reminder at the 48h SLA deadline.
   // Anyone who has submitted is skipped at each stage.
   reminderScheduleHours: parseSchedule(process.env.REMINDER_SCHEDULE_HOURS),
+  // Interview names to skip (no scorecard reminders). Default: debriefs.
+  excludeInterviewPatterns: parsePatterns(process.env.EXCLUDE_INTERVIEW_NAME_PATTERNS),
   fallbackSlackChannel: process.env.FALLBACK_SLACK_CHANNEL || "",
   debugPayloads: (process.env.DEBUG_PAYLOADS || "false").toLowerCase() === "true",
 };

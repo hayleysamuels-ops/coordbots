@@ -64,6 +64,7 @@ cp .env.example .env
 | `ASHBY_API_KEY` | recommended | Enables "skip if already submitted" + enriches the DM with candidate name/job title (`candidatesRead` permission) |
 | `REMINDER_DELAY_MINUTES` | no | Baseline minutes after end time before the first reminder (default `0`) |
 | `REMINDER_SCHEDULE_HOURS` | no | Escalating reminder times in hours after end (default `0,24,48`) |
+| `EXCLUDE_INTERVIEW_NAME_PATTERNS` | no | Interview names to skip, e.g. debriefs (default `debrief`) |
 | `FALLBACK_SLACK_CHANNEL` | no | Channel ID to notify when an interviewer has no Slack match |
 | `DEBUG_PAYLOADS` | no | `true` logs full raw payloads — leave on for first setup |
 
@@ -157,6 +158,19 @@ Every stage re-checks Ashby and only DMs people who still haven't submitted, so
 an interviewer stops getting pinged the moment their scorecard is in. Change the
 cadence by editing `REMINDER_SCHEDULE_HOURS` (e.g. `0,48` for just end + 48h).
 
+## Which interviews get reminders
+
+The bot only reminds for sessions that actually need a scorecard. It skips an
+interview event when either:
+
+- Ashby marks it as **not requiring feedback** (`isFeedbackRequired = false`), or
+- its **name matches** `EXCLUDE_INTERVIEW_NAME_PATTERNS` (default `debrief`).
+
+So debriefs and other non-scored sessions never trigger reminders. Any debrief
+reminders that were queued before this rule existed are pruned automatically on
+the next restart. Adjust the patterns (e.g. `debrief,panel sync`) or set the
+variable to empty to disable name matching.
+
 ## Notes & limitations
 
 - Reminders fire at the interview's **scheduled** end time (plus the offsets),
@@ -166,4 +180,3 @@ cadence by editing `REMINDER_SCHEDULE_HOURS` (e.g. `0,48` for just end + 48h).
   reminders move with it. If it's cancelled, they're dropped.
 - A stage that has already fired won't re-fire, even if Ashby sends another
   update.
-

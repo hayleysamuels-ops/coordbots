@@ -30,6 +30,7 @@ function load() {
     if (fs.existsSync(STORE_PATH)) {
       reminders = JSON.parse(fs.readFileSync(STORE_PATH, "utf8")) || {};
       migrateLegacy();
+      pruneExcludedByName();
       console.log(`[reminders] Loaded ${Object.keys(reminders).length} from disk.`);
     }
   } catch (err) {
@@ -57,6 +58,26 @@ function migrateLegacy() {
       delete r.fireAt;
       delete r.sentAt;
     }
+  }
+}
+
+// Drop any already-queued reminders whose interview name matches an exclusion
+// pattern (e.g. debriefs scheduled before this rule existed). We only have the
+// name at load time, so this is name-based only.
+function pruneExcludedByName() {
+  const patterns = config.excludeInterviewPatterns;
+  if (!patterns.length) return;
+  let removed = 0;
+  for (const key of Object.keys(reminders)) {
+    const name = (reminders[key].interviewName || "").toLowerCase();
+    if (patterns.some((p) => name.includes(p))) {
+      delete reminders[key];
+      removed++;
+    }
+  }
+  if (removed) {
+    console.log(`[reminders] Pruned ${removed} excluded reminder(s) (e.g. debriefs) on load.`);
+    save();
   }
 }
 
@@ -98,6 +119,18 @@ function applyWebhook(parsed) {
       if (reminders[key]) {
         delete reminders[key];
         console.log(`[reminders] Cancelled reminders for event ${key}.`);
+      }
+      continue;
+    }
+
+    // Debriefs / events that don't need a scorecard: never remind, and drop
+    // any reminder we may have scheduled for this event before.
+    if (r.excluded) {
+      if (reminders[key]) {
+        delete reminders[key];
+        console.log(`[reminders] Removed reminders for event ${key} (${r.excludeReason}).`);
+      } else {
+        console.log(`[reminders] Skipping event ${key} (${r.excludeReason}); no scorecard reminders.`);
       }
       continue;
     }

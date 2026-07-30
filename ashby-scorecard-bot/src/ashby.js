@@ -76,6 +76,20 @@ function isCancelled(event) {
   return status.includes("cancel");
 }
 
+// Decide whether an interview event should be skipped for scorecard reminders.
+// Two signals: Ashby's isFeedbackRequired flag (skip when explicitly false), and
+// a configurable name match (default "debrief"). Returns a reason string, or
+// null if the event should get reminders.
+function exclusionReason(event, interviewName) {
+  if (pick(event, ["isFeedbackRequired"]) === false) {
+    return "no scorecard required";
+  }
+  const name = (interviewName || "").toLowerCase();
+  const hit = config.excludeInterviewPatterns.find((p) => name.includes(p));
+  if (hit) return `interview name matches "${hit}"`;
+  return null;
+}
+
 /**
  * Turn a webhook payload into a flat list of per-interview-event reminders.
  * Returns { action, scheduleId, reminders: [...] }.
@@ -98,14 +112,19 @@ function parseWebhook(payload) {
     const endTime = pick(event, ["endTime", "end_time", "scheduledEndTime"]);
     if (!eventId || !endTime) continue;
 
+    const interviewName =
+      pick(event, ["title", "name", "interviewTitle"]) || "your interview";
+    const excludeReason = exclusionReason(event, interviewName);
+
     reminders.push({
       interviewEventId: eventId,
       scheduleId,
       applicationId,
       endTime, // ISO 8601 string
       cancelled: isCancelled(event),
-      interviewName:
-        pick(event, ["title", "name", "interviewTitle"]) || "your interview",
+      excluded: Boolean(excludeReason),
+      excludeReason,
+      interviewName,
       interviewers: getInterviewers(event),
     });
   }
