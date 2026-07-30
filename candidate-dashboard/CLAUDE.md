@@ -393,6 +393,15 @@ is normally still in Application Review and any status).
 - Keep secrets in `.env` only. **Never commit `.env`** — it's gitignored.
 - When adding config, add it to `src/config.js` *and* document it in
   `.env.example` and the README table.
+- When adding a new dashboard section, add a corresponding check to
+  `scripts/check-ashby-compatibility.js` in the same change, and note in
+  that check (and the commit) whether the section depends on structural
+  Ashby fields (real enum/schema values — safe for any client, e.g.
+  `interviewSchedule.status`, `interviewerRole` Shadow/ReverseShadow) or
+  org-configured naming (free-text titles a client sets themselves — e.g.
+  source names, stage titles, hiring-team role names — which needs
+  client-specific env-var tuning and verification via the compatibility
+  script before onboarding).
 - **`public/style.css` ports design tokens from the "Carrara Design
   System"** (colors, PT Serif/Manrope type, spacing/radii/shadows) —
   copied in as plain CSS custom properties rather than linked, since
