@@ -67,7 +67,14 @@ the Active-only / past-Application-Review filter (a freshly sourced candidate
 is normally still in Application Review and any status).
 
 - `src/index.js` — entry point; starts `issues.start()` and the HTTP server.
-- `src/config.js` — env parsing.
+  Logs the resolved `config.dataDir` on startup (`[server] Data directory:
+  ...`) so it's visible in deploy logs without needing to shell into the
+  host.
+- `src/config.js` — env parsing. `dataDir` resolves
+  `RAILWAY_VOLUME_MOUNT_PATH` (set automatically by Railway when a volume is
+  attached) before `DATA_DIR`, before the `./data` fallback — a Railway
+  deployment with a volume needs neither env var set manually. Don't reorder
+  this without checking Railway still injects that var the same way.
 - `src/concurrency.js` — `mapWithConcurrency`, bounds parallel
   `application.info` / `user.interviewerSettings` calls in `ashby.js`.
 - `src/dismissals.js` — persisted (`<DATA_DIR>/dismissals.json`) store of

@@ -6,6 +6,8 @@ const issues = require("./issues");
 
 const app = createServer();
 
+console.log(`[server] Data directory: ${config.dataDir}`);
+
 issues.start();
 
 app.listen(config.port, () => {

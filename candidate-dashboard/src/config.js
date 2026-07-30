@@ -37,9 +37,13 @@ function list(name, fallback) {
 const config = {
   port: parseInt(process.env.PORT || "3000", 10),
 
-  // Every persisted file lives under here. Point it at a mounted volume on
-  // a cloud host so dismissals survive redeploys.
-  dataDir: process.env.DATA_DIR || path.join(__dirname, "..", "data"),
+  // Every persisted file lives under here. Resolution order:
+  // RAILWAY_VOLUME_MOUNT_PATH (set automatically by Railway when a volume is
+  // attached — no manual config needed on that platform) -> DATA_DIR (for
+  // any other host with its own mounted-volume path) -> ./data (local dev).
+  // Point this at a mounted volume on any cloud host so dismissals and the
+  // self-tracked history files survive redeploys.
+  dataDir: process.env.RAILWAY_VOLUME_MOUNT_PATH || process.env.DATA_DIR || path.join(__dirname, "..", "data"),
 
   // HTTP Basic Auth, checked in front of every route (see src/auth.js).
   dashboardUser: required("DASHBOARD_USER"),
