@@ -562,6 +562,29 @@ button#refresh-btn.spinning {
   background: var(--good);
 }
 
+/* Empty when there's nothing paused to reveal — collapses to zero height
+   rather than reserving space for an absent button. */
+.section-toggle:empty {
+  margin: 0;
+}
+
+.show-paused-toggle {
+  display: block;
+  margin: 0 0 10px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.show-paused-toggle:hover {
+  color: var(--ember);
+}
+
 .cards {
   display: flex;
   flex-direction: column;

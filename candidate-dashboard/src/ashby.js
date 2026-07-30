@@ -3,7 +3,6 @@
 const config = require("./config");
 const { mapWithConcurrency } = require("./concurrency");
 const rescheduleTracking = require("./rescheduleTracking");
-const pauseTracking = require("./pauseTracking");
 
 function authHeader() {
   return `Basic ${Buffer.from(`${config.ashbyApiKey}:`).toString("base64")}`;
@@ -634,11 +633,6 @@ async function listDepartments() {
  * lookup needed — bounded, concurrency-limited, same shape as
  * listInterviewerLimits' per-user calls.
  *
- * `pausedSince` on a paused trainee is this app's own tracking (see
- * pauseTracking.js) — Ashby has no "paused since" timestamp of its own,
- * so this only reflects how long a pause has been observed since this
- * app started watching, not necessarily the true pause start if it began
- * earlier.
  */
 async function listInterviewerTraining() {
   const pools = await fetchAllPages("interviewerPool.list", { limit: 100 });
@@ -657,18 +651,6 @@ async function listInterviewerTraining() {
     })
   ).filter(Boolean);
 
-  // See pauseTracking.js: Ashby has no "paused since" timestamp anywhere,
-  // only the current isPaused boolean, so this app tracks it itself. Keyed
-  // by pool+trainee since the same person can be paused in one pool and
-  // active in another simultaneously.
-  const pauseTrackingInput = [];
-  for (const pool of poolDetails) {
-    for (const trainee of pool.trainees || []) {
-      pauseTrackingInput.push({ key: `${pool.id}:${trainee.id}`, isPaused: Boolean(trainee.isPaused) });
-    }
-  }
-  const pausedSinceByKey = pauseTracking.trackAndGetPausedSince(pauseTrackingInput);
-
   const entries = [];
   for (const pool of poolDetails) {
     const stagesById = new Map(((pool.trainingPath || {}).trainingStages || []).map((s) => [s.id, s]));
@@ -678,7 +660,6 @@ async function listInterviewerTraining() {
       const stage = stagesById.get(progress.trainingPathStageId);
       if (!stage) continue;
 
-      const isPaused = Boolean(trainee.isPaused);
       entries.push({
         userId: trainee.id,
         interviewerName: `${trainee.firstName || ""} ${trainee.lastName || ""}`.trim() || trainee.email,
@@ -686,20 +667,15 @@ async function listInterviewerTraining() {
         stageRole: stage.interviewerRole, // "Shadow" | "ReverseShadow"
         interviewsCompleted: progress.interviewsCompleted || 0,
         interviewsRequired: stage.interviewsRequired,
-        isPaused,
-        pausedSince: isPaused ? pausedSinceByKey.get(`${pool.id}:${trainee.id}`) || null : null,
+        isPaused: Boolean(trainee.isPaused),
       });
     }
   }
 
-  // Paused trainees (blocked, needs a nudge) surface first, longest-paused
-  // first within that group; otherwise alphabetical by name so the list
-  // doesn't reshuffle on every refresh.
+  // Paused trainees (blocked, needs a nudge) surface first; otherwise
+  // alphabetical by name so the list doesn't reshuffle on every refresh.
   entries.sort((a, b) => {
     if (a.isPaused !== b.isPaused) return a.isPaused ? -1 : 1;
-    if (a.isPaused && a.pausedSince && b.pausedSince && a.pausedSince !== b.pausedSince) {
-      return new Date(a.pausedSince).getTime() - new Date(b.pausedSince).getTime();
-    }
     return a.interviewerName.localeCompare(b.interviewerName);
   });
   return entries;

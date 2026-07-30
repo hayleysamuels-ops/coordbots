@@ -10,6 +10,11 @@
   let lastData = null;
   let lastDepartments = [];
 
+  // Interviewer Training hides paused trainees by default (they aren't
+  // actionable the way an active trainee's progress is) behind a toggle;
+  // client-side only, same re-render-from-cache pattern as the filter.
+  let showPausedTrainees = false;
+
   // Sections that carry job/recruiter/coordinator info on their items —
   // used to derive those filter modes' options client-side, since (unlike
   // departments) there's no org-wide "list all jobs/recruiters/coordinators"
@@ -299,26 +304,28 @@
 
   function renderInterviewerTraining(items) {
     const container = document.getElementById("cards-interviewerTraining");
-    if (!items.length) {
+    const toggleContainer = document.getElementById("interviewerTraining-toggle");
+    const pausedCount = items.filter((item) => item.isPaused).length;
+
+    toggleContainer.innerHTML = pausedCount
+      ? `<button type="button" class="show-paused-toggle">${showPausedTrainees ? "Hide" : "Show"} ${pausedCount} paused interview trainee${pausedCount === 1 ? "" : "s"}</button>`
+      : "";
+
+    const visible = showPausedTrainees ? items : items.filter((item) => !item.isPaused);
+    if (!visible.length) {
       container.innerHTML = `<div class="empty-state">Nothing flagged</div>`;
       return;
     }
-    container.innerHTML = items
+    container.innerHTML = visible
       .map((item) => {
         const sev = item.isPaused ? "critical" : "good";
         const roleLabel = item.stageRole === "ReverseShadow" ? "Reverse shadow" : "Shadow";
         const progressLabel = `${item.interviewsCompleted} of ${item.interviewsRequired}`;
-        // pausedSince is this app's own tracking (Ashby has no such
-        // timestamp) — only reflects time observed paused since this
-        // feature started watching, see CLAUDE.md.
-        const pausedLabel = item.pausedSince
-          ? `Paused ${formatAge((Date.now() - new Date(item.pausedSince).getTime()) / (1000 * 60 * 60))}`
-          : "Paused";
         return `
           <div class="card sev-${sev}">
             <div class="card-top">
               <div class="card-name">${item.interviewerName || "Unknown interviewer"}</div>
-              ${cardTopRight(item.isPaused ? pausedLabel : progressLabel, `sev-${sev}`, `interviewer:${item.userId}`)}
+              ${cardTopRight(item.isPaused ? "Paused" : progressLabel, `sev-${sev}`, `interviewer:${item.userId}`)}
             </div>
             <div class="card-sub">${roleLabel} — ${item.poolTitle}</div>
             ${item.isPaused ? `<div class="card-detail">${progressLabel} completed</div>` : ""}
@@ -600,6 +607,13 @@
         menu.style.right = `${window.innerWidth - rect.right}px`;
         menu.removeAttribute("hidden");
       }
+      return;
+    }
+
+    const pausedToggle = e.target.closest(".show-paused-toggle");
+    if (pausedToggle) {
+      showPausedTrainees = !showPausedTrainees;
+      if (lastData) render(lastData);
       return;
     }
 

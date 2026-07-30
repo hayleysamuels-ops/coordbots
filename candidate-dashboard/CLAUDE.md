@@ -86,10 +86,6 @@ is normally still in Application Review and any status).
 - `src/rescheduleTracking.js` — persisted (`<DATA_DIR>/reschedule-
   tracking.json`) reschedule counter per interview event id; see the key
   design fact below.
-- `src/pauseTracking.js` — persisted (`<DATA_DIR>/training-pause-
-  tracking.json`) "paused since" timestamp per pool+trainee key; same
-  self-tracking pattern as rescheduleTracking.js, see the key design fact
-  below.
 - `src/issues.js` — orchestrator + cache for the nine sections; applies
   dismissals at serve time (see below).
 - `public/` — plain HTML/CSS/JS dashboard, no framework.
@@ -136,28 +132,20 @@ is normally still in Application Review and any status).
   recruiter/coordinator) deliberately skips this section too, and it
   reuses the same `interviewer:<userId>` dismiss keyspace as Interviewer
   Weekly Limits (dismissing an interviewer hides them from both). Sorted
-  paused-first (blocked, needs a nudge), longest-paused first within that
-  group, then alphabetical — not by progress-remaining, so the list
-  doesn't reshuffle every refresh as trainees complete interviews.
-- **"How long paused" (`pausedSince`) is this app's own tracking, same
-  pattern as Rescheduled Interviews — Ashby has no such timestamp
-  either.** Checked the full trainee object shape live: only `isPaused`
-  (a boolean) and `updatedAt` (the user record's generic last-modified
-  time, changes for unrelated reasons — permission changes, settings
-  changes — not scoped to pause toggling) exist; nothing marks *when* a
-  pause started. `src/pauseTracking.js` persists `{ pausedSince }` keyed
-  by `${poolId}:${userId}` (not just `userId` — the same person can be
-  paused in one pool and active in another simultaneously) to
-  `<DATA_DIR>/training-pause-tracking.json`, recording the moment a pause
-  is first observed and clearing the entry the moment they're unpaused
-  (so a later pause gets a fresh timestamp, not the stale old one).
-  Verified with a synthetic multi-refresh test: timestamp holds steady
-  across repeated refreshes while still paused, clears on unpause, and a
-  subsequent pause gets a new timestamp — then confirmed live that a real
-  refresh cycle behaves the same way. **Counting starts at zero the first
-  time a given pause is ever observed** — same caveat as reschedule
-  tracking, don't present it as the pause's true start if it began before
-  this feature existed.
+  paused-first (blocked, needs a nudge), then alphabetical — not by
+  progress-remaining, so the list doesn't reshuffle every refresh as
+  trainees complete interviews. `isPaused` is a plain Ashby boolean, no
+  self-tracking involved — an earlier version also tracked and displayed
+  how long each trainee had been paused (`src/pauseTracking.js`), since
+  removed; see git history if it's ever worth reviving.
+- **Paused trainees are hidden by default, behind a "Show N paused
+  interview trainees" toggle in `app.js` (`showPausedTrainees`, same
+  render-from-cached-`lastData` pattern as the department/job/recruiter/
+  coordinator filter — no network round-trip on toggle).** A paused
+  trainee isn't actionable the way an active one's progress-toward-next-
+  stage is, so they're opt-in to view rather than cluttering the default
+  list. Toggling re-renders with the same backend-sorted order (paused
+  entries still come first among themselves once revealed).
 - **Rescheduled Interviews requires this app to track its own history —
   Ashby's API genuinely has none.** Checked `interviewSchedule`/
   `interviewEvent` fields, `application.listHistory` (stage transitions
