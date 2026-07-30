@@ -444,21 +444,14 @@
     el.classList.toggle("stale", Boolean(errorMessage));
   }
 
-  // Client-specific display config (page title, Active Referrals report
-  // link) — static for the life of the server, but applying it idempotently
-  // on every render is simpler than special-casing "only on first load."
+  // Client-specific display config (page title) — static for the life of
+  // the server, but applying it idempotently on every render is simpler
+  // than special-casing "only on first load."
   function applyAppConfig(appConfig) {
     if (!appConfig) return;
     if (appConfig.dashboardTitle) {
       document.title = appConfig.dashboardTitle;
       document.getElementById("dashboard-title").textContent = appConfig.dashboardTitle;
-    }
-    const reportLink = document.getElementById("ashby-report-link");
-    if (appConfig.activeReferralsReportUrl) {
-      reportLink.href = appConfig.activeReferralsReportUrl;
-      reportLink.removeAttribute("hidden");
-    } else {
-      reportLink.setAttribute("hidden", "");
     }
   }
 

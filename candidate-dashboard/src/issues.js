@@ -16,11 +16,9 @@ const thresholds = {
 
 // Static, client-specific display config — never changes at runtime, so it's
 // set once here rather than recomputed on every refresh. The frontend reads
-// these to set the page title and the Active Referrals report link (hidden
-// if activeReferralsReportUrl is unset).
+// this to set the page title.
 const appConfig = {
   dashboardTitle: config.dashboardTitle,
-  activeReferralsReportUrl: config.activeReferralsReportUrl,
 };
 
 let snapshot = {

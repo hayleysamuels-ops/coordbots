@@ -13,12 +13,7 @@ sourced via referral/agency, today's onsite (final-round/executive)
 interviews, and interviews rescheduled more than a couple times, plus a
 "Stale Candidates" section that pulls out whichever candidate-facing flags
 have gone far enough past the normal thresholds to look abandoned rather
-than just freshly overdue. A button
-below the Onsite Interviews Today section links out to Ashby's own Active
-Referrals report — that used to be computed in-app (a bounded full-scan-once
-+ incremental-sync design in `src/referralCache.js`, since removed; see git
-history if it's ever worth reviving), but there's no reason to re-derive in
-this app what Ashby already reports on natively. Full behaviour is in
+than just freshly overdue. Full behaviour is in
 `README.md`, including a correction to an earlier (wrong) claim that Ashby
 couldn't represent "availability submitted" at all — see § Correction there
 before touching scheduling-status logic. Two flags were scoped out —
@@ -123,8 +118,8 @@ is normally still in Application Review and any status).
   ever add one, remember `.tab-panel[hidden] { display: none; }` needs to
   win the cascade over it (author rules beat the browser's `[hidden]`
   default at equal specificity only if the `[hidden]` override is also an
-  author rule — this exact class of bug already happened once with
-  `.ashby-report-link`, see below).
+  author rule — this exact class of bug has bitten this codebase before,
+  on an unconditional `display: block` rule elsewhere).
 - **Interviewer Training (`listInterviewerTraining()` in `ashby.js`) uses
   real, structured Ashby fields (`Shadow`/`ReverseShadow` via
   `interviewerPool.list`'s `trainingPath.trainingStages[].interviewerRole`)
@@ -235,14 +230,13 @@ is normally still in Application Review and any status).
   every candidate record built in `fetchApplicationSummaries()` and
   `listRecentSourced()`; `listOnsiteToday()` inherits them for free since
   its entries spread `...app` from `fetchApplicationSummaries`'s output.
-- **Client-specific display config (`DASHBOARD_TITLE`,
-  `ACTIVE_REFERRALS_REPORT_URL`) is injected client-side via `/api/issues`'s
-  `appConfig` field, not server-side templating.** `public/index.html` is a
-  static file served by `express.static` — there's no templating step to
-  bake env values into it at request time. `issues.js` sets a static
-  `appConfig` object once at module load (see near `thresholds`);
-  `app.js`'s `applyAppConfig()` sets `document.title` / `#dashboard-title`
-  text and the report-link's `href`/`hidden` on every render (idempotent,
+- **Client-specific display config (`DASHBOARD_TITLE`) is injected
+  client-side via `/api/issues`'s `appConfig` field, not server-side
+  templating.** `public/index.html` is a static file served by
+  `express.static` — there's no templating step to bake env values into it
+  at request time. `issues.js` sets a static `appConfig` object once at
+  module load (see near `thresholds`); `app.js`'s `applyAppConfig()` sets
+  `document.title` / `#dashboard-title` text on every render (idempotent,
   so no special-casing "only on first load" is needed). If you add another
   client-specific display value, follow the same path — don't reach for
   server-side HTML templating for a single value.

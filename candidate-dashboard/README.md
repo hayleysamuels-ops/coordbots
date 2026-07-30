@@ -1,8 +1,7 @@
 # Candidate issues dashboard
 
 A small dashboard for a recruiting coordinator: at a glance, which candidates
-(and interviewers) need attention right now. Nine sections, plus a link out
-to Ashby's own Active Referrals report (see below):
+(and interviewers) need attention right now. Nine sections:
 
 | Section | What it flags | Source |
 | --- | --- | --- |
@@ -15,12 +14,6 @@ to Ashby's own Active Referrals report (see below):
 | **Onsite Interviews Today** | Today's final-round and executive interview events, shown in a persistent right-margin column with a deliberately heavier border than the rest of the page. "Onsite" is **approximated**: Ashby has no per-interview location/format field anywhere in this org (checked interview events, interview definitions, interview stages, and all 38 org custom fields), so this matches on the interview stage title containing "final" or "exec" instead, per explicit product decision. "Today" is a UTC calendar day; display times render in the browser's local zone. | Ashby `interviewSchedule.list` (the same fetch `listIssues()` already does — no extra pagination call) + `interviewStage.info` per unique stage id involved. |
 | **Interviewer Training** | Every interviewer currently enrolled in a pool's training path — real Ashby `Shadow`/`ReverseShadow` roles (not a naming-convention guess), with progress toward each stage's required interview count. Paused trainees surface first, longest-paused first within that group, showing how long each has been paused. **Ashby has no "paused since" timestamp anywhere** — only the current `isPaused` boolean — so this app tracks it itself the same way it tracks reschedule counts: records the moment a pause is first observed and keeps it until unpaused. Necessarily starts counting from whenever this app first saw a given pause, not any earlier. Not tied to any candidate/application. | Ashby `interviewerPool.list` + `interviewerPool.info` per pool with an enabled `trainingPath` (small, bounded — 22 pools on this org) + this app's own persisted `<DATA_DIR>/training-pause-tracking.json`. |
 | **Rescheduled Interviews** | Interview events whose reschedule count exceeds `RESCHEDULE_COUNT_THRESHOLD` (default 2, i.e. the 3rd reschedule onward). **Ashby has no reschedule history anywhere in its API** — checked schedule fields, event fields, `application.listHistory`, and `extraData` across a live sample of 131 events; only the event's *current* `startTime` exists. This app tracks it itself: each refresh, compares every event's `startTime` against what it last saw for that event id and increments a persisted counter when it changes. Counting starts at zero the first time a given event is ever seen — it can only catch reschedules from then on, not any that happened before. | Ashby `interviewSchedule.list` (the same fetch `listIssues()` already does) + this app's own persisted `<DATA_DIR>/reschedule-tracking.json`. |
-
-**Active Referrals** used to be computed in-app (a bounded full
-`application.list` scan + incremental `syncToken` sync — see git history if
-you need the old approach back). It's now just a link, below the Onsite
-Interviews Today card, out to Ashby's own Active Referrals report — no
-reason to re-derive in this app what Ashby already reports on natively.
 
 Every candidate appears in **at most one** of the five sections above
 (Feedback Overdue, Needs Scheduling, Availability Submitted, Onsite
@@ -36,8 +29,7 @@ The page is split into two tabs (`.tab-btn`/`.tab-panel` in `index.html` and
 `app.js` — plain DOM show/hide via the `hidden` attribute, no router):
 
 - **Dashboard** (default) — every candidate-facing section above plus
-  Rescheduled Interviews, the department/job/recruiter/coordinator filter,
-  and the Active Referrals report link.
+  Rescheduled Interviews and the department/job/recruiter/coordinator filter.
 - **Interviewer Info** — Interviewer Weekly Limits and Interviewer
   Training, which aren't tied to a candidate and aren't affected by the
   filter, so they live on their own tab out of the way of the
@@ -135,11 +127,6 @@ Active-only / past-Application-Review filter the other sections do: a
 candidate referred or agency-submitted 3 days ago is normally still in
 Application Review and may be any status.
 
-(This dashboard used to also run a bounded-then-incremental full
-active-application scan for an in-app **Active Referrals** section — see git
-history for that design if it's ever worth reviving. It's now just a link to
-Ashby's own Active Referrals report instead.)
-
 ## Correction: "Needs Scheduling" vs. "Availability Submitted"
 
 An earlier version of this README claimed Ashby's `interviewSchedule.status`
@@ -199,7 +186,6 @@ Fill in `.env`:
 | `SOURCE_REFERRAL_KEYWORDS` / `SOURCE_AGENCY_KEYWORDS` | no | Defaults `referr` / `agenc`. Comma-separated, case-insensitive substrings matched against `source.sourceType.title` to classify Recently Sourced. **Every Ashby org names these differently** — run `scripts/check-ashby-compatibility.js` against a new client before trusting the defaults. Set to an empty value to disable a category. |
 | `ONSITE_STAGE_KEYWORDS` | no | Default `final,exec`. Comma-separated, case-insensitive substrings matched against interview stage titles to approximate "onsite" (Ashby has no real location signal — see § Onsite Interviews Today). **January's convention, not an Ashby default** — verify with `scripts/check-ashby-compatibility.js` before onboarding a new client. Empty value disables the section. |
 | `DASHBOARD_TITLE` | no | Default `Candidate Dashboard`. Shown in the browser tab and page header. |
-| `ACTIVE_REFERRALS_REPORT_URL` | no | Ashby saved-report URL for the "View Active Referrals report in Ashby" button. Every org's report URLs are its own — button is hidden entirely if unset. |
 | `RECRUITER_ROLE_NAME` / `COORDINATOR_ROLE_NAME` | no | Defaults `Recruiter` / `Recruiting Coordinator`. Exact `hiringTeamRole.list` values (not a substring match) used for the Recruiter/Coordinator filter. **This org's actual role names, not an Ashby standard** — verify with `scripts/check-ashby-compatibility.js` before onboarding a new client. |
 
 ## Onboarding a new client
@@ -218,8 +204,6 @@ actually guarantees for every org:
 - **Interviewer Weekly Limits** only shows anything if the client actually
   uses Ashby's `weeklyLimit` interviewer-settings feature — some orgs never
   configure it, in which case this section is correctly empty, not broken.
-- **Active Referrals report link** is a static URL to one specific Ashby
-  saved report — every org's report URLs are its own.
 - **Recruiter/Coordinator filter** (`RECRUITER_ROLE_NAME`/
   `COORDINATOR_ROLE_NAME`) matches an exact `hiringTeamRole.list` value —
   this org's roles happen to be "Recruiter"/"Recruiting Coordinator", but

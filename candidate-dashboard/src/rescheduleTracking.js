@@ -26,10 +26,9 @@ function load() {
   }
 }
 
-// Same atomic write pattern established for referralCache.js's persisted
-// files — write to a temp file in the same directory, then rename over the
-// real path, so a crash/restart mid-write can't leave a truncated file
-// behind for the next process to read.
+// Write to a temp file in the same directory, then rename over the real
+// path, so a crash/restart mid-write can't leave a truncated file behind
+// for the next process to read.
 function atomicWriteFileSync(filePath, contents) {
   const tempPath = path.join(path.dirname(filePath), `.${path.basename(filePath)}.tmp-${process.pid}`);
   fs.writeFileSync(tempPath, contents);

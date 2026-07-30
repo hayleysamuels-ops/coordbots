@@ -334,12 +334,6 @@ async function main() {
   verdict(appsWithRecruiter > 0, "Recruiter filter (needs applications with a matching hiring-team role)");
   verdict(appsWithCoordinator > 0, "Coordinator filter (needs applications with a matching hiring-team role)");
 
-  // --- Active Referrals report link ---
-  section("Active Referrals report link");
-  console.log("  This is a static link to an Ashby saved report, not a query this app runs.");
-  console.log("  Have this client create (or share) a saved Active Referrals report in Ashby,");
-  console.log("  then set ACTIVE_REFERRALS_REPORT_URL to its URL. The button stays hidden until set.");
-
   section("Summary");
   console.log("Review any ✗ lines above before onboarding this client — each points at either");
   console.log("a config value to set (env vars printed above) or a section that will be");

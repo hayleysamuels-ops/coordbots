@@ -110,11 +110,6 @@ const config = {
   // Cosmetic, but client-specific: shown in the browser tab and page header.
   dashboardTitle: process.env.DASHBOARD_TITLE || "Candidate Dashboard",
 
-  // Link target for the "View Active Referrals report in Ashby" button.
-  // Every Ashby org's saved reports have their own URLs — this is never
-  // portable between clients. Button is hidden entirely if unset.
-  activeReferralsReportUrl: process.env.ACTIVE_REFERRALS_REPORT_URL || "",
-
   // Recruiter/Coordinator filter: exact hiringTeam[].role name to match
   // (not a substring/keyword list like source/stage above — Ashby's
   // hiringTeamRole.list is a small controlled per-org list, not free text,

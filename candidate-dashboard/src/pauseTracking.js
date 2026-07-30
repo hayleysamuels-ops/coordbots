@@ -28,7 +28,7 @@ function load() {
   }
 }
 
-// Same atomic write pattern as rescheduleTracking.js/referralCache.js.
+// Same atomic write pattern as rescheduleTracking.js.
 function atomicWriteFileSync(filePath, contents) {
   const tempPath = path.join(path.dirname(filePath), `.${path.basename(filePath)}.tmp-${process.pid}`);
   fs.writeFileSync(tempPath, contents);
