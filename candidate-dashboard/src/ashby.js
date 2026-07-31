@@ -236,6 +236,31 @@ async function listInterviewerLimits(schedules) {
 }
 
 /**
+ * A "debrief" is an internal wrap-up meeting among interviewers, not a
+ * candidate-facing round with a scorecard due back — it should never count
+ * toward Feedback Overdue. This is a real, structural Ashby field
+ * (`interview.list`'s `isDebrief` boolean, per interview *definition*, not
+ * per event — cross-referenced against each event's `interviewId`), not an
+ * org-configured naming convention, so it's safe for any client. Interview
+ * definitions are a small, org-wide, largely-static catalog (not
+ * per-candidate), same shape as listDepartments() — fetched once per
+ * refresh via the same fetchAllPages() pagination every other list endpoint
+ * uses. Falls back to an empty set (nothing excluded — the old behavior) if
+ * this fails for any reason, e.g. an API key without interviews:read, so a
+ * misconfigured or lower-permission client degrades gracefully instead of
+ * losing Feedback Overdue entirely.
+ */
+async function fetchDebriefInterviewIds() {
+  try {
+    const interviews = await fetchAllPages("interview.list", { limit: 100 });
+    return new Set(interviews.filter((i) => i.isDebrief).map((i) => i.id));
+  } catch (err) {
+    console.warn("[ashby] interview.list failed, debriefs won't be excluded from Feedback Overdue:", err.message);
+    return new Set();
+  }
+}
+
+/**
  * Everything is driven off recent interview schedules rather than a full
  * active-application scan (this org has 1,600+ active applications, almost
  * all sitting untouched in Application Review — paginating all of them took
@@ -243,7 +268,9 @@ async function listInterviewerLimits(schedules) {
  *
  * Returns:
  * - feedbackOverdue: interview events that ended > FEEDBACK_OVERDUE_HOURS ago
- *   with no submitted feedback.
+ *   with no submitted feedback. Debrief events (Ashby's real `isDebrief` flag
+ *   on the interview definition, see fetchDebriefInterviewIds()) are excluded
+ *   — a debrief has no scorecard due back, so it can never be "overdue."
  * - needsScheduling: schedules stuck in Ashby's "NeedsScheduling" status,
  *   aged past NEEDS_SCHEDULING_ALERT_HOURS — nothing has been sent to the
  *   candidate yet. Distinct from availabilitySubmitted below; see README.
@@ -410,9 +437,10 @@ async function listIssues() {
   const rescheduleCounts = rescheduleTracking.trackAndGetCounts(allEvents);
 
   const applicationIds = [...new Set(schedules.map((s) => s.applicationId).filter(Boolean))];
-  const [applications, interviewerLimits] = await Promise.all([
+  const [applications, interviewerLimits, debriefInterviewIds] = await Promise.all([
     fetchApplicationSummaries(applicationIds),
     listInterviewerLimits(schedules),
+    fetchDebriefInterviewIds(),
   ]);
   // Depends on `applications` (to know which schedules are for still-Active
   // candidates), so it can't join the Promise.all above.
@@ -468,6 +496,7 @@ async function listIssues() {
       }
 
       if (event.hasSubmittedFeedback || !event.endTime) continue;
+      if (debriefInterviewIds.has(event.interviewId)) continue; // debriefs have no scorecard due back
       const hoursOverdue = (now - new Date(event.endTime).getTime()) / (1000 * 60 * 60);
       if (hoursOverdue < config.feedbackOverdueHours) continue;
 

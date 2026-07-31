@@ -123,6 +123,30 @@ is normally still in Application Review and any status).
   default at equal specificity only if the `[hidden]` override is also an
   author rule — this exact class of bug has bitten this codebase before,
   on an unconditional `display: block` rule elsewhere).
+- **`DISABLED_SECTIONS` removes a section's DOM node entirely — it does NOT
+  just hide it.** `applyDisabledSections()` in `app.js` calls
+  `section.remove()` (not `hidden`), because `.page-stack > * + *`'s divider
+  and `.row-pair > .column:not(:first-child)`'s border are structural CSS
+  pseudo-classes (`:first-child`, adjacent-sibling `+`) that only recompute
+  correctly against the real remaining DOM — `display: none` would leave
+  the removed section's sibling still NOT `:first-child` structurally, so a
+  stray divider/border would survive at the visual top of the section
+  (verified this the hard way against the real cascade behavior, not just
+  reasoned about it). Also collapses `.row-pair`/`.side-margin` to nothing
+  if the disabled section was their only remaining `.column`, so e.g.
+  disabling `onsiteToday` removes the whole right-margin sidebar rather
+  than leaving an empty 300px gap. `render()` skips calling each disabled
+  section's `renderX()`/`renderSectionTimestamp()` entirely (checked via
+  `isSectionDisabled()`) rather than having every `renderX()` guard a
+  container that might not exist — one guard point, not eight. The backend
+  (`issues.js`/`ashby.js`) still computes every section's data regardless;
+  this is purely a display-layer toggle, by design (see `config.js`'s
+  `disabledSections` comment) — don't add server-side skip logic for it.
+  `config.js`'s `SECTION_KEYS` array is the validated source of truth: it
+  logs the full recognized list on startup and warns on any
+  `DISABLED_SECTIONS` entry that doesn't match one, specifically so a typo
+  (e.g. `interviewerWeeklyLimits` instead of `interviewerLimits`) is a loud
+  deploy-log warning instead of a silently-ignored no-op.
 - **Interviewer Training (`listInterviewerTraining()` in `ashby.js`) uses
   real, structured Ashby fields (`Shadow`/`ReverseShadow` via
   `interviewerPool.list`'s `trainingPath.trainingStages[].interviewerRole`)
@@ -275,6 +299,20 @@ is normally still in Application Review and any status).
   Feedback Overdue / Needs Scheduling / Availability Submitted (see
   `isPreInterview` in `ashby.js`) — no interview activity is expected at
   that stage.
+- **Debrief events are excluded from Feedback Overdue** (and therefore from
+  Stale Candidates' feedback-overdue reason too, since that list is derived
+  from `feedbackEntries`) **— a debrief is an internal wrap-up meeting with
+  no scorecard due back.** `fetchDebriefInterviewIds()` in `ashby.js` fetches
+  `interview.list` once per refresh and keeps the `id`s where `isDebrief` is
+  true, cross-referenced against each event's `interviewId` (a real
+  structural Ashby field on the interview *definition*, not an org-naming
+  convention — safe for any client, unlike Onsite Interviews Today's
+  keyword matching below). Only affects Feedback Overdue — Rescheduled
+  Interviews still tracks debrief events like any other, since a debrief
+  can legitimately get rescheduled too. Degrades to "exclude nothing" (the
+  pre-existing behavior) with a console warning if `interview.list` fails
+  for any reason (e.g. an API key without `interviews:read`), rather than
+  taking down the rest of `listIssues()`'s `Promise.all`.
 - **A candidate appears in at most ONE of feedbackOverdue/needsScheduling/
   availabilitySubmitted/onsiteToday/staleCandidates, globally, never
   several at once.** `keepMostRecentPerCandidate()` in `ashby.js`'s

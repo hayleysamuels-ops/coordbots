@@ -6,7 +6,7 @@ A small dashboard for a recruiting coordinator: at a glance, which candidates
 | Section | What it flags | Source |
 | --- | --- | --- |
 | **Stale Candidates** | Pulled out of the two candidate columns below once feedback is overdue past `STALE_FEEDBACK_HOURS` (default 350h) or a schedule has been pending past `STALE_SCHEDULING_HOURS` (default 168h / 7 days) — these have likely fallen through the cracks, not just freshly overdue. | Same sources as the two rows below. |
-| **Feedback Overdue** | An interview ended and the interviewer still hasn't submitted their scorecard, past `FEEDBACK_OVERDUE_HOURS` (default 24h). | Ashby `interviewSchedule.list` — `interviewEvents[].endTime` + `hasSubmittedFeedback`. |
+| **Feedback Overdue** | An interview ended and the interviewer still hasn't submitted their scorecard, past `FEEDBACK_OVERDUE_HOURS` (default 24h). Debrief events are excluded — a debrief is an internal wrap-up meeting with no scorecard due back, so it can never be "overdue." | Ashby `interviewSchedule.list` — `interviewEvents[].endTime` + `hasSubmittedFeedback`, cross-referenced against `interview.list`'s `isDebrief` (a real structural field, not org-configured naming — safe for any client). |
 | **Needs Scheduling** | Nothing has been sent to the candidate yet — no availability request, no self-schedule link — past `NEEDS_SCHEDULING_ALERT_HOURS` (default 48h). | Ashby `interviewSchedule.list` — `status: "NeedsScheduling"`. |
 | **Availability Submitted** | The candidate replied with their availability; waiting on someone to book it. Shown regardless of age (not threshold-gated); `AVAILABILITY_SUBMITTED_ALERT_HOURS` (default 24h) only drives the amber/red color-coding. | Ashby `interviewSchedule.list` — `status: "CandidateAvailabilitySubmitted"`. |
 | **Interviewer Weekly Limits** | An interviewer whose remaining weekly interview capacity has dropped to `INTERVIEWER_LIMIT_BUFFER` slots or fewer (default 1) — i.e. their Ashby-configured `weeklyLimit` minus interviews already on their calendar this week (Mon–Sun UTC). Interviewers with no `weeklyLimit` set never appear. | Ashby `user.interviewerSettings` (the limit) + `interviewSchedule.list` event data (the count). |
@@ -39,6 +39,49 @@ Both tabs' data refreshes on the same cycle and renders on every poll
 regardless of which tab is currently visible — switching tabs is instant
 and never shows stale content, since it's just toggling which already-
 rendered panel is hidden.
+
+## Section keys
+
+Every section has a stable key, used as its `<section data-key="...">`
+attribute in `index.html`, its field name in the `/api/issues` snapshot
+(`issues.js`/`ashby.js`), and its `DISABLED_SECTIONS` entry (see below):
+
+| Key | Section |
+| --- | --- |
+| `feedbackOverdue` | Feedback Overdue |
+| `needsScheduling` | Needs Scheduling |
+| `availabilitySubmitted` | Availability Submitted |
+| `staleCandidates` | Stale Candidates |
+| `interviewerLimits` | Interviewer Weekly Limits |
+| `recentSourced` | Recently Sourced |
+| `onsiteToday` | Onsite Interviews Today |
+| `rescheduledInterviews` | Rescheduled Interviews |
+| `interviewerTraining` | Interviewer Training |
+
+`config.js`'s `SECTION_KEYS` array is the single source of truth for this
+list — keep it, this table, and each section's `data-key` in sync if a
+section is ever added, renamed, or removed.
+
+### Disabling a section per client
+
+Set `DISABLED_SECTIONS` (comma-separated keys from the table above) to hide
+sections a client has no use for — e.g. a client that doesn't configure
+Ashby `weeklyLimit`s has no reason to show an always-empty Interviewer
+Weekly Limits. The frontend (`applyDisabledSections()` in `app.js`) removes
+the section's `<section>` element and its nav link entirely (not just
+`hidden`), and collapses the wrapper around it (`.row-pair`, `.side-margin`)
+if that was its only remaining child — so a disabled section never leaves a
+gap or an unbalanced column. The backend still computes every section's
+data regardless of `DISABLED_SECTIONS` (it's a display-only toggle); only
+rendering is skipped.
+
+Two safeguards against a silent typo: on startup, `config.js` logs the full
+list of recognized keys (`[config] Recognized section keys: ...`), and
+warns on any `DISABLED_SECTIONS` entry that doesn't match one of them
+(`[config] Warning: DISABLED_SECTIONS entry "..." doesn't match any known
+section key`) — both visible in deploy logs, so a typo (e.g.
+`interviewerWeeklyLimits` instead of `interviewerLimits`) is loud rather
+than just quietly leaving the section visible.
 
 ## Department / Job / Recruiter / Coordinator filter
 
@@ -189,6 +232,7 @@ Fill in `.env`:
 | `DASHBOARD_TITLE` | no | Full override for the title/header text above — wins outright over the `CLIENT_NAME`-derived title if set. Only needed when the title doesn't fit the `"<name> Coordination Dashboard"` shape; not part of `.env.example` since most deployments won't need it. |
 | `CLIENT_ACCENT_COLOR` | no | Overrides the header accent color (topbar border + title text, default Carrara ember) so each client deployment is visually distinguishable at a glance. Any valid CSS color. |
 | `RECRUITER_ROLE_NAME` / `COORDINATOR_ROLE_NAME` | no | Defaults `Recruiter` / `Recruiting Coordinator`. Exact `hiringTeamRole.list` values (not a substring match) used for the Recruiter/Coordinator filter. **This org's actual role names, not an Ashby standard** — verify with `scripts/check-ashby-compatibility.js` before onboarding a new client. |
+| `DISABLED_SECTIONS` | no | Comma-separated section keys (see § Section keys) to hide from this client's dashboard entirely. Empty by default (nothing hidden). An unrecognized key logs a startup warning rather than silently doing nothing. |
 
 ## Onboarding a new client
 
@@ -261,7 +305,7 @@ entry from `dismissals.json`.
 | File | What it does |
 | --- | --- |
 | `src/index.js` | Entry point — starts the server + background refresh loop. |
-| `src/config.js` | Reads and validates env vars. |
+| `src/config.js` | Reads and validates env vars. Also owns `SECTION_KEYS` (see § Section keys) and warns on startup about any unrecognized `DISABLED_SECTIONS` entry. |
 | `src/server.js` | Express app: serves the static dashboard, `GET /api/issues`, `POST /api/refresh`, `POST /api/dismiss`, `POST /api/undismiss`. |
 | `src/ashby.js` | Paginated Ashby client; computes Feedback Overdue, Needs Scheduling, Availability Submitted, Stale Candidates, Interviewer Weekly Limits, Recently Sourced, and Onsite Interviews Today. |
 | `src/concurrency.js` | `mapWithConcurrency` — bounds parallel `application.info` / `user.interviewerSettings` lookups. |

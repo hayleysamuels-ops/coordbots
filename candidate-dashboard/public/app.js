@@ -15,6 +15,16 @@
   // client-side only, same re-render-from-cache pattern as the filter.
   let showPausedTrainees = false;
 
+  // Sections this deployment has turned off (DISABLED_SECTIONS, see
+  // config.js) — populated from appConfig once, in applyDisabledSections().
+  // render() checks this instead of every renderX() guarding a possibly-
+  // removed container, so the removal logic lives in one place.
+  let disabledSectionKeys = new Set();
+
+  function isSectionDisabled(key) {
+    return disabledSectionKeys.has(key);
+  }
+
   // Sections that carry job/recruiter/coordinator info on their items —
   // used to derive those filter modes' options client-side, since (unlike
   // departments) there's no org-wide "list all jobs/recruiters/coordinators"
@@ -33,6 +43,7 @@
   function collectDistinct(data, idKey, nameKey) {
     const byId = new Map();
     for (const key of CANDIDATE_SECTION_KEYS) {
+      if (isSectionDisabled(key)) continue;
       for (const item of (data || {})[key] || []) {
         if (item[idKey] && !byId.has(item[idKey])) {
           byId.set(item[idKey], item[nameKey] || "Unknown");
@@ -451,9 +462,35 @@
     el.classList.toggle("stale", Boolean(errorMessage));
   }
 
-  // Client-specific display config (page title, header accent color) —
-  // static for the life of the server, but applying it idempotently on
-  // every render is simpler than special-casing "only on first load."
+  // Removes a disabled section's nav link and <section> entirely (not just
+  // `hidden`) so structural CSS — `.page-stack > * + *`'s divider,
+  // `.row-pair > .column:not(:first-child)`'s border — recomputes against
+  // the real remaining siblings instead of leaving a stray divider/border
+  // where the removed section used to be. Collapses now-empty wrapper
+  // containers (`.row-pair`, `.side-margin`) too, so an all-disabled pair or
+  // a disabled Onsite Interviews Today doesn't leave an empty gap.
+  function applyDisabledSections(disabledSections) {
+    disabledSectionKeys = new Set(disabledSections || []);
+    for (const key of disabledSectionKeys) {
+      const section = document.querySelector(`[data-key="${key}"]`);
+      if (!section) continue; // already removed on a previous render, or not a real section key
+
+      const navLink = document.querySelector(`.section-nav a[href="#${key}"]`);
+      if (navLink) navLink.remove();
+
+      const rowPair = section.closest(".row-pair");
+      const sideMargin = section.closest(".side-margin");
+      section.remove();
+
+      if (rowPair && !rowPair.querySelector(".column")) rowPair.remove();
+      if (sideMargin && !sideMargin.querySelector(".column")) sideMargin.remove();
+    }
+  }
+
+  // Client-specific display config (page title, header accent color,
+  // disabled sections) — static for the life of the server, but applying it
+  // idempotently on every render is simpler than special-casing "only on
+  // first load."
   function applyAppConfig(appConfig) {
     if (!appConfig) return;
     if (appConfig.dashboardTitle) {
@@ -463,6 +500,7 @@
     if (appConfig.clientAccentColor) {
       document.documentElement.style.setProperty("--header-accent", appConfig.clientAccentColor);
     }
+    applyDisabledSections(appConfig.disabledSections);
   }
 
   function render(data) {
@@ -471,18 +509,32 @@
     applyAppConfig(data.appConfig);
     populateEntityOptions();
 
+    // Sections in DISABLED_SECTIONS had their DOM removed by
+    // applyDisabledSections() above — skip rendering into them entirely
+    // rather than have each renderX() guard a container that no longer
+    // exists.
     for (const col of columns) {
+      if (isSectionDisabled(col.key)) continue;
       renderColumn(col, filterByEntity(data[col.key] || []), data.thresholds[col.thresholdKey]);
     }
-    renderStale(filterByEntity(data.staleCandidates || []));
-    renderInterviewerLimits(data.interviewerLimits || []); // no department/job filter — no job/department concept for an interviewer
-    renderInterviewerTraining(data.interviewerTraining || []); // same — not tied to a candidate
-    renderRecentSourced(filterByEntity(data.recentSourced || []));
-    renderOnsiteToday(filterByEntity(data.onsiteToday || []));
-    renderRescheduledInterviews(filterByEntity(data.rescheduledInterviews || []));
-    updateSourcedSubtitle(data.thresholds && data.thresholds.sourcedLookbackDays);
+    if (!isSectionDisabled("staleCandidates")) renderStale(filterByEntity(data.staleCandidates || []));
+    if (!isSectionDisabled("interviewerLimits")) {
+      renderInterviewerLimits(data.interviewerLimits || []); // no department/job filter — no job/department concept for an interviewer
+    }
+    if (!isSectionDisabled("interviewerTraining")) {
+      renderInterviewerTraining(data.interviewerTraining || []); // same — not tied to a candidate
+    }
+    if (!isSectionDisabled("recentSourced")) {
+      renderRecentSourced(filterByEntity(data.recentSourced || []));
+      updateSourcedSubtitle(data.thresholds && data.thresholds.sourcedLookbackDays);
+    }
+    if (!isSectionDisabled("onsiteToday")) renderOnsiteToday(filterByEntity(data.onsiteToday || []));
+    if (!isSectionDisabled("rescheduledInterviews")) {
+      renderRescheduledInterviews(filterByEntity(data.rescheduledInterviews || []));
+    }
 
     for (const key of SECTION_TIMESTAMP_KEYS) {
+      if (isSectionDisabled(key)) continue;
       renderSectionTimestamp(key, data.lastUpdated, data.lastError);
     }
 

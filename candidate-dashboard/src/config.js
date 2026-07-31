@@ -34,6 +34,34 @@ function list(name, fallback) {
     .filter(Boolean);
 }
 
+// Same shape as `list` above, but case-preserving — for comma-separated
+// values that are matched exactly (e.g. section keys, which are camelCase
+// JS property names) rather than lowercased free-text keyword matching.
+function exactList(name, fallback) {
+  const raw = process.env[name];
+  if (raw == null) return fallback;
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+// Single source of truth for valid DISABLED_SECTIONS entries — the same
+// keys each section's `data-key` attribute (index.html) and snapshot field
+// (issues.js/app.js) use. Keep in sync with both when a section is added,
+// renamed, or removed.
+const SECTION_KEYS = [
+  "feedbackOverdue",
+  "needsScheduling",
+  "availabilitySubmitted",
+  "staleCandidates",
+  "interviewerLimits",
+  "recentSourced",
+  "onsiteToday",
+  "rescheduledInterviews",
+  "interviewerTraining",
+];
+
 const config = {
   port: parseInt(process.env.PORT || "3000", 10),
 
@@ -139,6 +167,30 @@ const config = {
   // client's real hiringTeamRole.list before trusting the defaults.
   recruiterRoleName: process.env.RECRUITER_ROLE_NAME || "Recruiter",
   coordinatorRoleName: process.env.COORDINATOR_ROLE_NAME || "Recruiting Coordinator",
+
+  // Per-deployment section toggle: exact, case-sensitive section keys (see
+  // SECTION_KEYS above and README § Section keys) to hide from this client's
+  // dashboard entirely, e.g. a client that doesn't configure Ashby
+  // weeklyLimits has no use for Interviewer Weekly Limits. Generic on
+  // purpose — add a client-specific flag per section instead of extending
+  // this list.
+  disabledSections: exactList("DISABLED_SECTIONS", []),
+
+  knownSectionKeys: SECTION_KEYS,
 };
+
+console.log(`[config] Recognized section keys: ${SECTION_KEYS.join(", ")}`);
+
+// A typo in DISABLED_SECTIONS (e.g. "interviewerWeeklyLimits" instead of
+// "interviewerLimits") would otherwise silently do nothing — the section
+// stays visible and nothing indicates why the toggle "didn't work."
+for (const key of config.disabledSections) {
+  if (!SECTION_KEYS.includes(key)) {
+    console.warn(
+      `[config] Warning: DISABLED_SECTIONS entry "${key}" doesn't match any known section key. ` +
+        `Recognized keys: ${SECTION_KEYS.join(", ")}.`
+    );
+  }
+}
 
 module.exports = config;

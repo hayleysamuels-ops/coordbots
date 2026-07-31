@@ -20,6 +20,7 @@ const thresholds = {
 const appConfig = {
   dashboardTitle: config.dashboardTitle,
   clientAccentColor: config.clientAccentColor,
+  disabledSections: config.disabledSections,
 };
 
 let snapshot = {
