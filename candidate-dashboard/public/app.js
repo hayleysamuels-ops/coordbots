@@ -526,11 +526,20 @@
     }
     if (!isSectionDisabled("recentSourced")) {
       renderRecentSourced(filterByEntity(data.recentSourced || []));
-      updateSourcedSubtitle(data.thresholds && data.thresholds.sourcedLookbackDays);
+      const appConfig = data.appConfig || {};
+      updateSourcedSubtitle(
+        data.thresholds && data.thresholds.sourcedLookbackDays,
+        appConfig.sourceReferralKeywords,
+        appConfig.sourceAgencyKeywords
+      );
     }
-    if (!isSectionDisabled("onsiteToday")) renderOnsiteToday(filterByEntity(data.onsiteToday || []));
+    if (!isSectionDisabled("onsiteToday")) {
+      renderOnsiteToday(filterByEntity(data.onsiteToday || []));
+      updateOnsiteSubtitle(data.appConfig && data.appConfig.onsiteStageKeywords);
+    }
     if (!isSectionDisabled("rescheduledInterviews")) {
       renderRescheduledInterviews(filterByEntity(data.rescheduledInterviews || []));
+      updateRescheduledSubtitle(data.thresholds && data.thresholds.rescheduleCountThreshold);
     }
 
     for (const key of SECTION_TIMESTAMP_KEYS) {
@@ -547,11 +556,64 @@
     }
   }
 
-  function updateSourcedSubtitle(days) {
-    if (!days) return;
+  // "final and exec", "onsite", "a, b, and c" — never a fixed 2-item
+  // assumption, since a client's keyword list can be any length.
+  function joinWithAnd(items) {
+    if (items.length === 0) return "";
+    if (items.length === 1) return items[0];
+    if (items.length === 2) return `${items[0]} and ${items[1]}`;
+    return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+  }
+
+  // Onsite Interviews Today's description used to hardcode "final-round and
+  // executive interviews" — this org's ONSITE_STAGE_KEYWORDS, not a fact
+  // about Ashby. Describes the real keyword substrings instead, so it's
+  // accurate for any client's ONSITE_STAGE_KEYWORDS (e.g. Luminai's just
+  // "onsite").
+  function updateOnsiteSubtitle(keywords) {
+    const el = document.getElementById("onsiteToday-sub");
+    if (!el) return;
+    if (!keywords || !keywords.length) {
+      el.textContent = "Onsite Interviews Today isn't configured for this org (no ONSITE_STAGE_KEYWORDS set).";
+      return;
+    }
+    const quoted = joinWithAnd(keywords.map((k) => `"${k}"`));
+    el.textContent =
+      `Today's interviews whose stage title contains ${quoted}. Ashby has no per-interview onsite flag ` +
+      `in this org, so this is approximated by interview stage name rather than a real location signal.`;
+  }
+
+  // "More than a couple times" used to be a fixed phrase regardless of the
+  // actual RESCHEDULE_COUNT_THRESHOLD value.
+  function updateRescheduledSubtitle(threshold) {
+    const el = document.getElementById("rescheduledInterviews-sub");
+    if (!el || !threshold) return;
+    el.textContent =
+      `Interview events rescheduled more than ${threshold} time${threshold === 1 ? "" : "s"}. Ashby has no ` +
+      `reschedule history of its own, so this only counts reschedules this app has actually observed since ` +
+      `it started tracking — it can't see further back than that.`;
+  }
+
+  // Recently Sourced used to always say "referred or sourced by an agency"
+  // even if a client disabled one category (SOURCE_REFERRAL_KEYWORDS or
+  // SOURCE_AGENCY_KEYWORDS set to an empty value) — describes only the
+  // categories actually enabled.
+  function updateSourcedSubtitle(days, referralKeywords, agencyKeywords) {
+    const el = document.getElementById("recentSourced-sub");
+    if (!el || !days) return;
+    const hasReferral = Boolean(referralKeywords && referralKeywords.length);
+    const hasAgency = Boolean(agencyKeywords && agencyKeywords.length);
+    let categoryText;
+    if (hasReferral && hasAgency) categoryText = "referred or sourced by an agency";
+    else if (hasReferral) categoryText = "referred";
+    else if (hasAgency) categoryText = "sourced by an agency";
+
+    if (!categoryText) {
+      el.textContent = "Recently Sourced isn't configured for this org (no source keywords set).";
+      return;
+    }
     const label = days === 1 ? "day" : "days";
-    document.getElementById("recentSourced-sub").textContent =
-      `Candidates referred or sourced by an agency in the last ${days} ${label}.`;
+    el.textContent = `Candidates ${categoryText} in the last ${days} ${label}.`;
   }
 
   function markLoaded() {

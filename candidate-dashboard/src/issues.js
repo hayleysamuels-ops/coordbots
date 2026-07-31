@@ -12,15 +12,23 @@ const thresholds = {
   interviewerLimitBuffer: config.interviewerLimitBuffer,
   sourcedLookbackDays: config.sourcedLookbackDays,
   availabilitySubmittedAlertHours: config.availabilitySubmittedAlertHours,
+  rescheduleCountThreshold: config.rescheduleCountThreshold,
 };
 
 // Static, client-specific display config — never changes at runtime, so it's
 // set once here rather than recomputed on every refresh. The frontend reads
-// this to set the page title and header accent color.
+// this to set the page title, header accent color, and a few section
+// descriptions that would otherwise hardcode this client's specific
+// keyword/threshold choices (see § Section descriptions in README) instead
+// of deriving them from config, the way every other client-specific value
+// in this app already does.
 const appConfig = {
   dashboardTitle: config.dashboardTitle,
   clientAccentColor: config.clientAccentColor,
   disabledSections: config.disabledSections,
+  onsiteStageKeywords: config.onsiteStageKeywords,
+  sourceReferralKeywords: config.sourceReferralKeywords,
+  sourceAgencyKeywords: config.sourceAgencyKeywords,
 };
 
 let snapshot = {
