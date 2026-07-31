@@ -578,9 +578,7 @@
       return;
     }
     const quoted = joinWithAnd(keywords.map((k) => `"${k}"`));
-    el.textContent =
-      `Today's interviews whose stage title contains ${quoted}. Ashby has no per-interview onsite flag ` +
-      `in this org, so this is approximated by interview stage name rather than a real location signal.`;
+    el.textContent = `Today's interviews whose stage title contains ${quoted}.`;
   }
 
   // "More than a couple times" used to be a fixed phrase regardless of the
