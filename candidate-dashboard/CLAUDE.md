@@ -373,6 +373,16 @@ is normally still in Application Review and any status).
   `new Date(str)`, to avoid a local-zone off-by-one near midnight) —
   deliberately no salary shown, per product decision to keep compensation
   off the shared dashboard for now.
+  **Offers Awaiting Acceptance excludes candidates already `Hired` or
+  `Archived`** — `offerStatus` can lag the application's real outcome
+  (candidate hired/pulled out through some other update without the offer
+  object itself transitioning off `WaitingOnCandidateResponse`); confirmed
+  live both statuses actually showed up in this section before the
+  exclusion was added (dropped a real sample from 22 entries to 3). Neither
+  status is genuinely "awaiting" anything at that point. Applied only to
+  Offers Awaiting Acceptance, not Offers Not Yet Sent or Offers Signed —
+  not asked for there, and less obviously wrong for those (an offer stuck
+  pre-send or one already accepted isn't the same "stale state" shape).
   **Offer candidate names link via `candidateProfileUrl()`, not `profileUrl()`**
   — `fetchOfferApplications` overrides `buildApplicationRecord()`'s
   `ashbyProfileUrl` with it. `profileUrl()` is pipeline-view-scoped

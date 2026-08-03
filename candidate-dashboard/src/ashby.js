@@ -772,7 +772,17 @@ async function listOffers() {
   };
 
   const offersNotYetSent = notYetSentOffers.map(toEntry).filter(Boolean);
-  const offersAwaitingAcceptance = awaitingOffers.map(toEntry).filter(Boolean);
+  // Ashby's offerStatus can lag the application's real outcome — an offer
+  // can still read "WaitingOnCandidateResponse" after the application has
+  // already been marked Hired (candidate accepted some other way, e.g. a
+  // verbal/manual update) or Archived (candidate pulled out, offer
+  // rescinded, etc.) without the offer object itself ever being updated to
+  // match. Confirmed live: both statuses show up here in practice. Neither
+  // is actually "awaiting" anything at that point, so exclude them.
+  const offersAwaitingAcceptance = awaitingOffers
+    .map(toEntry)
+    .filter(Boolean)
+    .filter((e) => e.status !== "Hired" && e.status !== "Archived");
   const offersSigned = signedOffers.map(toEntry).filter(Boolean);
 
   // Oldest-first for the two pending buckets (longest-waiting is most
