@@ -767,6 +767,17 @@
   }
 
   async function dismiss(key, scope) {
+    // A record missing candidateId/userId (candidateKey()/cardTopRight()'s
+    // key argument) would otherwise produce "candidate:undefined" here —
+    // sending that would silently succeed server-side and then incorrectly
+    // group-dismiss every OTHER record that also happens to lack an id,
+    // rather than just the one card the user actually clicked. Refuse and
+    // log loudly instead of sending a request that looks successful but
+    // does the wrong thing.
+    if (!key || key.endsWith(":undefined")) {
+      console.error(`[dismiss] refusing to dismiss — invalid key "${key}" (scope: "${scope}"). The underlying record is missing its id.`);
+      return;
+    }
     closeAllMenus();
     try {
       const res = await fetch("/api/dismiss", {
@@ -777,7 +788,7 @@
       const data = await res.json();
       render(data);
     } catch (err) {
-      console.error(err);
+      console.error(`[dismiss] request failed for key "${key}" (scope: "${scope}"):`, err);
     }
   }
 
