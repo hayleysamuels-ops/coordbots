@@ -65,6 +65,7 @@ cp .env.example .env
 | `REMINDER_DELAY_MINUTES` | no | Baseline minutes after end time before the first reminder (default `0`) |
 | `REMINDER_SCHEDULE_HOURS` | no | Escalating reminder times in hours after end (default `0,24,48`) |
 | `EXCLUDE_INTERVIEW_NAME_PATTERNS` | no | Interview names to skip, e.g. debriefs (default `debrief`) |
+| `ASHBY_APP_BASE_URL` | no | Ashby web app base for the DM links (default `https://app.ashbyhq.com`) |
 | `FALLBACK_SLACK_CHANNEL` | no | Channel ID to notify when an interviewer has no Slack match |
 | `DEBUG_PAYLOADS` | no | `true` logs full raw payloads — leave on for first setup |
 

@@ -62,14 +62,9 @@ function getInterviewers(event) {
       const last = pick(i, ["lastName", "last_name"]) || "";
       const name =
         pick(i, ["name", "fullName"]) || `${first} ${last}`.trim() || email;
-      const feedbackLink = pick(i, [
-        "feedbackLink",
-        "feedbackFormUrl",
-        "submitFeedbackLink",
-      ]);
       const userId = pick(i, ["userId", "id", "interviewerId"]);
       const feedbackRequired = pick(i, ["isFeedbackRequired"]);
-      return { email, name, feedbackLink, userId, feedbackRequired };
+      return { email, name, userId, feedbackRequired };
     })
     .filter((i) => i.email && i.feedbackRequired !== false);
 }
@@ -111,6 +106,10 @@ function parseWebhook(payload) {
       applicationId,
       endTime, // ISO 8601 string
       cancelled: isCancelled(event),
+      // Event-level (not per-interviewer) link to submit feedback; used to build
+      // the scorecard + interview briefing links. May be absent — we can also
+      // build both from the event id (see interviewLinks).
+      feedbackLink: pick(event, ["feedbackLink", "feedbackFormUrl", "submitFeedbackLink"]),
       interviewName: "your interview", // filled from interview.info if available
       interviewers: getInterviewers(event),
     });
@@ -292,6 +291,29 @@ async function interviewIdForEvent(scheduleId, eventId) {
   }
 }
 
+/**
+ * Build the scorecard + interview briefing links for an event. Ashby's URL
+ * pattern is `<base>/interview-briefings/<eventId>` for the brief and
+ * `.../feedback` for the scorecard form. We prefer the real event feedbackLink
+ * when present (it carries the correct base, e.g. a custom domain), and
+ * otherwise construct both from the event id so they're ALWAYS present.
+ */
+function interviewLinks(eventId, eventFeedbackLink) {
+  let scorecardUrl = null;
+  let briefingUrl = null;
+  if (eventFeedbackLink) {
+    scorecardUrl = eventFeedbackLink;
+    const stripped = eventFeedbackLink.replace(/\/feedback\/?$/i, "");
+    if (stripped && stripped !== eventFeedbackLink) briefingUrl = stripped;
+  }
+  if (eventId) {
+    const base = `${config.ashbyAppBaseUrl}/interview-briefings/${eventId}`;
+    if (!briefingUrl) briefingUrl = base;
+    if (!scorecardUrl) scorecardUrl = `${base}/feedback`;
+  }
+  return { scorecardUrl, briefingUrl };
+}
+
 module.exports = {
   parseWebhook,
   enrichApplication,
@@ -299,4 +321,5 @@ module.exports = {
   getInterviewInfo,
   interviewExclusionReason,
   interviewIdForEvent,
+  interviewLinks,
 };

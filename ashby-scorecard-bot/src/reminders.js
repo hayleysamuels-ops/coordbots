@@ -9,6 +9,7 @@ const {
   getInterviewInfo,
   interviewExclusionReason,
   interviewIdForEvent,
+  interviewLinks,
 } = require("./ashby");
 const { sendScorecardReminder } = require("./slack");
 
@@ -171,6 +172,7 @@ async function applyWebhook(parsed) {
       applicationId: r.applicationId,
       interviewName: (info && info.title) || r.interviewName,
       endTime: r.endTime,
+      feedbackLink: r.feedbackLink,
       interviewers: r.interviewers,
       // carry over enrichment if we already had it
       candidateName: existing ? existing.candidateName : undefined,
@@ -273,9 +275,16 @@ async function fireStage(reminder, stage, stageIndex) {
     return;
   }
 
+  const { scorecardUrl, briefingUrl } = interviewLinks(
+    reminder.interviewEventId,
+    reminder.feedbackLink
+  );
+
   const context = {
     candidateName: reminder.candidateName,
     jobTitle: reminder.jobTitle,
+    scorecardUrl,
+    briefingUrl,
     reminderNumber: stageIndex + 1, // 1-based: 1 = at end, 2 = first follow-up, ...
     totalReminders: reminder.stages.length,
     hoursSinceEnd: stage.hours,
