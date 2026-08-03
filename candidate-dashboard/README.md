@@ -1,7 +1,7 @@
 # Candidate issues dashboard
 
 A small dashboard for a recruiting coordinator: at a glance, which candidates
-(and interviewers) need attention right now. Nine sections:
+(and interviewers) need attention right now. Twelve sections:
 
 | Section | What it flags | Source |
 | --- | --- | --- |
@@ -14,6 +14,9 @@ A small dashboard for a recruiting coordinator: at a glance, which candidates
 | **Onsite Interviews Today** | Today's final-round and executive interview events, shown in a persistent right-margin column with a deliberately heavier border than the rest of the page. "Onsite" is **approximated**: Ashby has no per-interview location/format field anywhere in this org (checked interview events, interview definitions, interview stages, and all 38 org custom fields), so this matches on the interview stage title containing "final" or "exec" instead, per explicit product decision. "Today" is a UTC calendar day; display times render in the browser's local zone. | Ashby `interviewSchedule.list` (the same fetch `listIssues()` already does — no extra pagination call) + `interviewStage.info` per unique stage id involved. |
 | **Interviewer Training** | Every interviewer currently enrolled in a pool's training path — real Ashby `Shadow`/`ReverseShadow` roles (not a naming-convention guess), with progress toward each stage's required interview count. Paused trainees are hidden by default behind a "Show N paused interview trainees" toggle, since a paused trainee isn't actionable the way an active one's progress is; toggling reveals them, sorted before active trainees. Not tied to any candidate/application. | Ashby `interviewerPool.list` + `interviewerPool.info` per pool with an enabled `trainingPath` (small, bounded — 22 pools on this org). |
 | **Rescheduled Interviews** | Interview events whose reschedule count exceeds `RESCHEDULE_COUNT_THRESHOLD` (default 2, i.e. the 3rd reschedule onward). **Ashby has no reschedule history anywhere in its API** — checked schedule fields, event fields, `application.listHistory`, and `extraData` across a live sample of 131 events; only the event's *current* `startTime` exists. This app tracks it itself: each refresh, compares every event's `startTime` against what it last saw for that event id and increments a persisted counter when it changes. Counting starts at zero the first time a given event is ever seen — it can only catch reschedules from then on, not any that happened before. | Ashby `interviewSchedule.list` (the same fetch `listIssues()` already does) + this app's own persisted `<DATA_DIR>/reschedule-tracking.json`. |
+| **Offers Awaiting Acceptance** | Offers actually extended to the candidate, waiting on their decision. | Ashby `offer.list` — `offerStatus: "WaitingOnCandidateResponse"`. |
+| **Offers Not Yet Sent** | The offer has been created but never reached the candidate — usually still working through this org's internal approval chain, if it uses one. **No field on the Offer object marks a "sent" event** (checked the full `offer.info` schema: Offer, OfferVersion, `versions[]`, `formDefinition` — no `sentAt`/`extendedAt`/`deliveredAt` anywhere), so this is inferred entirely from `offerStatus`. Confirmed no other `offerStatus` value can leak in here: `WaitingOnCandidateResponse`/`CandidateAccepted`/`CandidateRejected` all mean the candidate has been sent something; `OfferCancelled` is ambiguous but isn't included in this bucket at all. Kept separate from Offers Awaiting Acceptance per product decision: an offer a candidate has never seen isn't something they could be "awaiting acceptance" on. | Ashby `offer.list` — `offerStatus` one of `WaitingOnApprovalStart`/`WaitingOnOfferApproval`/`WaitingOnApprovalDefinition`. |
+| **Offers Signed** | Offers the candidate has accepted (Ashby's `CandidateAccepted` — the closest real signal to "signed"; there's no separate e-signature timestamp exposed) within `OFFERS_SIGNED_LOOKBACK_DAYS` (default 7) of `decidedAt`. | Ashby `offer.list` — `offerStatus: "CandidateAccepted"` + `decidedAt`. |
 
 Every candidate appears in **at most one** of the five sections above
 (Feedback Overdue, Needs Scheduling, Availability Submitted, Onsite
@@ -25,8 +28,8 @@ moved to Stale Candidates.
 
 ## Pages
 
-The page is split into two tabs (`.tab-btn`/`.tab-panel` in `index.html` and
-`app.js` — plain DOM show/hide via the `hidden` attribute, no router):
+The page is split into three tabs (`.tab-btn`/`.tab-panel` in `index.html`
+and `app.js` — plain DOM show/hide via the `hidden` attribute, no router):
 
 - **Dashboard** (default) — every candidate-facing section above plus
   Rescheduled Interviews and the department/job/recruiter/coordinator filter.
@@ -34,8 +37,14 @@ The page is split into two tabs (`.tab-btn`/`.tab-panel` in `index.html` and
   Training, which aren't tied to a candidate and aren't affected by the
   filter, so they live on their own tab out of the way of the
   candidate-facing sections.
+- **Offers** — Offers Awaiting Acceptance, Offers Not Yet Sent,
+  and Offers Signed. Candidate-linked like the Dashboard tab's sections, but
+  deliberately has **no** department/job/recruiter/coordinator filter bar —
+  that filter is a single instance keyed by page-wide DOM ids, and adding a
+  second one was out of scope for this addition; per-card dismiss still
+  works the same as everywhere else.
 
-Both tabs' data refreshes on the same cycle and renders on every poll
+All three tabs' data refreshes on the same cycle and renders on every poll
 regardless of which tab is currently visible — switching tabs is instant
 and never shows stale content, since it's just toggling which already-
 rendered panel is hidden.
@@ -57,6 +66,9 @@ attribute in `index.html`, its field name in the `/api/issues` snapshot
 | `onsiteToday` | Onsite Interviews Today |
 | `rescheduledInterviews` | Rescheduled Interviews |
 | `interviewerTraining` | Interviewer Training |
+| `offersNotYetSent` | Offers Not Yet Sent |
+| `offersAwaitingAcceptance` | Offers Awaiting Acceptance |
+| `offersSigned` | Offers Signed |
 
 `config.js`'s `SECTION_KEYS` array is the single source of truth for this
 list — keep it, this table, and each section's `data-key` in sync if a
@@ -224,6 +236,7 @@ Fill in `.env`:
 | `AVAILABILITY_SUBMITTED_ALERT_HOURS` | no | Default `24`. Color-coding threshold only — every submitted-and-unbooked candidate is shown regardless of age. |
 | `REFRESH_INTERVAL_MINUTES` | no | How often the server re-pulls Ashby for the nine sections. Default `5`. The page itself polls the cached snapshot every 60s regardless. |
 | `RESCHEDULE_COUNT_THRESHOLD` | no | Default `2`. Flags an interview event once its (self-tracked) reschedule count exceeds this. See § Rescheduled Interviews above. |
+| `OFFERS_SIGNED_LOOKBACK_DAYS` | no | Default `7`. Offers Signed shows offers accepted (`decidedAt`) within this many days. Real Ashby enum field, not org-configured naming — no compatibility-script verification needed, unlike the keyword-matched vars below. |
 | `DATA_DIR` | no | Where dismissals (`dismissals.json`) and self-tracked history (`reschedule-tracking.json`) are persisted. Resolution order: `RAILWAY_VOLUME_MOUNT_PATH` (set automatically by Railway when a volume is attached — no manual config needed there) → `DATA_DIR` → `./data`. On any other cloud host, set `DATA_DIR` to a mounted volume so this state survives redeploys; on Railway, just attach a volume and both env vars can be left unset. The resolved path is logged on startup (`[server] Data directory: ...`). |
 | `SCHEDULE_LOOKBACK_DAYS` | no | Default `30`. How far back `interviewSchedule.list` is pulled for the schedule-driven sections. Tune per client's interview volume — see § Scope. |
 | `SOURCE_REFERRAL_KEYWORDS` / `SOURCE_AGENCY_KEYWORDS` | no | Defaults `referr` / `agenc`. Comma-separated, case-insensitive substrings matched against `source.sourceType.title` to classify Recently Sourced. **Every Ashby org names these differently** — run `scripts/check-ashby-compatibility.js` against a new client before trusting the defaults. Set to an empty value to disable a category. |
@@ -260,6 +273,16 @@ actually guarantees for every org:
   Unlike the naming-convention items above, this one uses real Ashby
   `Shadow`/`ReverseShadow` enum values, so there's no keyword to tune —
   it's purely a "does this org use this Ashby feature" question.
+- **Offers** (Awaiting Acceptance / Not Yet Sent / Signed) uses
+  real Ashby `offerProcessStatus` enum values — same "no keyword to tune"
+  category as Interviewer Training above. Only shows anything if the client
+  actually uses Ashby's Offers feature (and, for Offers Not Yet Sent,
+  has an approval chain configured at all — `WaitingOnApprovalDefinition` is
+  what shows if it doesn't). Ashby has no org-wide "approvals enabled"
+  setting to check directly — `scripts/check-ashby-compatibility.js` samples
+  `latestVersion.approvalStatus` across the org's offers instead (null means
+  no approval process was ever configured for that offer) to tell "this
+  client doesn't use approvals" apart from "just nothing pending right now."
 
 Before turning this on for a new client, run:
 
@@ -307,10 +330,10 @@ entry from `dismissals.json`.
 | `src/index.js` | Entry point — starts the server + background refresh loop. |
 | `src/config.js` | Reads and validates env vars. Also owns `SECTION_KEYS` (see § Section keys) and warns on startup about any unrecognized `DISABLED_SECTIONS` entry. |
 | `src/server.js` | Express app: serves the static dashboard, `GET /api/issues`, `POST /api/refresh`, `POST /api/dismiss`, `POST /api/undismiss`. |
-| `src/ashby.js` | Paginated Ashby client; computes Feedback Overdue, Needs Scheduling, Availability Submitted, Stale Candidates, Interviewer Weekly Limits, Recently Sourced, and Onsite Interviews Today. |
+| `src/ashby.js` | Paginated Ashby client; computes Feedback Overdue, Needs Scheduling, Availability Submitted, Stale Candidates, Interviewer Weekly Limits, Recently Sourced, Onsite Interviews Today, and the three Offers sections. |
 | `src/concurrency.js` | `mapWithConcurrency` — bounds parallel `application.info` / `user.interviewerSettings` lookups. |
 | `src/dismissals.js` | Persisted store of dismissed cards (`dismissals.json`); handles "today" expiry and "forever". |
-| `src/issues.js` | Orchestrates the nine sections (schedule/application-driven, plus interviewer training pool data), guards against overlapping refreshes, filters out dismissed cards at serve time, holds the cached snapshot. |
+| `src/issues.js` | Orchestrates the twelve sections (schedule/application-driven, interviewer training pool data, and offer data), guards against overlapping refreshes, filters out dismissed cards at serve time, holds the cached snapshot. |
 | `src/rescheduleTracking.js` | Persisted (`<DATA_DIR>/reschedule-tracking.json`) reschedule counter per interview event id, since Ashby has none of its own — see § Rescheduled Interviews above. |
 | `public/` | The dashboard itself — plain HTML/CSS/JS, polls `/api/issues` every 60s. |
 

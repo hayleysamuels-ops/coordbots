@@ -13,7 +13,9 @@ sourced via referral/agency, today's onsite (final-round/executive)
 interviews, and interviews rescheduled more than a couple times, plus a
 "Stale Candidates" section that pulls out whichever candidate-facing flags
 have gone far enough past the normal thresholds to look abandoned rather
-than just freshly overdue. Full behaviour is in
+than just freshly overdue. A third tab, Offers, tracks offers awaiting the
+candidate's acceptance, offers stuck in internal approval (never sent to
+the candidate yet), and offers signed in the last week. Full behaviour is in
 `README.md`, including a correction to an earlier (wrong) claim that Ashby
 couldn't represent "availability submitted" at all — see § Correction there
 before touching scheduling-status logic. Two flags were scoped out —
@@ -36,13 +38,15 @@ No build step, no test framework, no linter. Node 18+, CommonJS (`require`).
 
 Background poll (not webhooks — a dashboard just needs current state), one
 refresh cycle: `issues.js` refreshes every `REFRESH_INTERVAL_MINUTES` by
-calling `ashby.listIssues()`, `ashby.listRecentSourced()`, and
-`ashby.listInterviewerTraining()` in parallel — the nine sections
-(Feedback Overdue, Needs Scheduling, Availability Submitted, Stale
-Candidates, Interviewer Weekly Limits, Recently Sourced, Onsite Interviews
-Today, Interviewer Training, Rescheduled Interviews). Rescheduled
-Interviews is computed inside `ashby.listIssues()` itself (it reuses that
-same `interviewSchedule.list` fetch), not a separate top-level call.
+calling `ashby.listIssues()`, `ashby.listRecentSourced()`,
+`ashby.listInterviewerTraining()`, and `ashby.listOffers()` in parallel —
+the twelve sections (Feedback Overdue, Needs Scheduling, Availability
+Submitted, Stale Candidates, Interviewer Weekly Limits, Recently Sourced,
+Onsite Interviews Today, Interviewer Training, Rescheduled Interviews,
+Offers Not Yet Sent, Offers Awaiting Acceptance, Offers
+Signed). Rescheduled Interviews is computed inside `ashby.listIssues()`
+itself (it reuses that same `interviewSchedule.list` fetch), not a separate
+top-level call.
 
 `issues.js`'s `getSnapshot()` serves this as one payload for
 `GET /api/issues` (see `server.js`), with `lastUpdated`/`lastError`. The
@@ -274,6 +278,101 @@ is normally still in Application Review and any status).
   `CLIENT_ACCENT_COLOR` is independent of both — it only touches
   `--header-accent` (topbar border + title color), defined once in
   `style.css`'s `:root` token block, default `var(--ember)`.
+- **The Offers tab (`offersNotYetSent`/`offersAwaitingAcceptance`/
+  `offersSigned`, all computed in `listOffers()` in `ashby.js`) is a third
+  `.tab-panel`, sharing the same generic tab mechanism as Dashboard/
+  Interviewer Info — no JS changes needed for the tab switch itself, per the
+  first bullet above. It deliberately has NO department/job/recruiter/
+  coordinator filter bar** (unlike the Dashboard tab's candidate sections) —
+  that filter is a single instance keyed by page-wide DOM ids
+  (`#entity-filter-btn`/`#entity-filter-menu`), and giving Offers its own
+  would mean either a second instance or reworking it to be filter-bar-aware
+  of which tab is active; out of scope for this addition, so `offerColumns`
+  in `app.js` render straight from the snapshot, not through
+  `filterByEntity()`, and the three keys are deliberately NOT in
+  `CANDIDATE_SECTION_KEYS`. Per-card dismiss still works normally (`cardHtml`
+  already keys every card on `candidate:<id>` regardless of section), and
+  all three keys are in `applyDismissals()`'s `keepCandidate` list.
+  **Ashby has no distinct "signed" concept** — `offerStatus` transitions
+  `WaitingOnApproval*` (created, candidate has never seen it) →
+  `WaitingOnCandidateResponse` (offer extended, waiting on the candidate) →
+  `CandidateAccepted`/`CandidateRejected`/`OfferCancelled`. "Signed" is
+  `CandidateAccepted` with `decidedAt` (the real field marking when that
+  decision landed) within `OFFERS_SIGNED_LOOKBACK_DAYS` (default 7) — there's
+  no separate e-signature timestamp; `latestVersion.fileHandles` is where a
+  signed PDF would appear, but it carries no date.
+  **No field on the Offer object marks a "sent"/"extended" event either** —
+  walked the full `offer.info` schema (Offer, OfferVersion, `versions[]`,
+  `formDefinition`) against a real live offer and confirmed via Ashby's own
+  API reference: no `sentAt`/`extendedAt`/`deliveredAt`/`notifiedAt` field
+  anywhere. So Offers Not Yet Sent (`OFFER_NOT_YET_SENT_STATUSES` =
+  `WaitingOnApprovalStart`/`WaitingOnOfferApproval`/
+  `WaitingOnApprovalDefinition`) is inferred purely from `offerStatus`, kept
+  as its own section rather than folded into Offers Awaiting Acceptance —
+  explicit product decision, since an offer the candidate has never seen
+  isn't something they could be "awaiting acceptance" on. Confirmed no other
+  `offerStatus` value can leak into this bucket: `WaitingOnCandidateResponse`/
+  `CandidateAccepted`/`CandidateRejected` all mean the candidate has been
+  sent something; `OfferCancelled` is genuinely ambiguous (could be pre- or
+  post-send) but isn't included in this bucket at all, so it can't leak in
+  either way. Also checked the revision-loop edge case live: an offer
+  observed mid-build going `WaitingOnApprovalDefinition` →
+  `WaitingOnOfferApproval` across a new version kept `acceptanceStatus:
+  "Created"` throughout (never `"Pending"`, which is what Ashby uses once a
+  candidate is actually awaiting a decision) — consistent with these three
+  states being strictly pre-send even across a revision, though Ashby's docs
+  don't explicitly rule a revert out. All of this is a real, structural
+  `offerProcessStatus` enum (confirmed via Ashby's API docs), not
+  org-configured naming — unlike source/onsite keywords, no per-client
+  keyword tuning is needed, only whether the client uses Ashby's Offers
+  feature (and has an approval chain configured) at all. **Ashby has no
+  org-wide "approvals enabled" setting to query** — the only real signal is
+  `latestVersion.approvalStatus` on an individual offer, null "when no
+  approval process has been configured for the offer version" (confirmed via
+  API docs) versus a real value (`Approved`/`WaitingOnApprovals`/`Declined`)
+  once one has. Verified live on this org: `approvalStatus` is null even on
+  its one real `WaitingOnApprovalDefinition` offer, and 0 of 288 offers ever
+  had a non-null value — January has never used this Ashby feature, so
+  Offers Not Yet Sent reading empty here is correct, not broken.
+  `scripts/check-ashby-compatibility.js`'s Offers section reports this count
+  so a new client's onboarding can tell the two cases apart.
+  **`offer.list` has no `createdAfter` filter**, so every refresh walks every
+  offer the org has ever created — verified live on this org: 287 total
+  offers (3 pages), 21 currently `WaitingOnCandidateResponse`, 0 currently in
+  a `WaitingOnApproval*` state, 1 `CandidateAccepted` with `decidedAt` in the
+  trailing 7 days as of 2026-07-31. This is safe unlike the equivalent full
+  scan would be for `application.list` (see § Scope below) — `offer.list`
+  itself is cheap (no per-item lookup), and the expensive part (one
+  `application.info` call per `applicationId`, via `fetchOfferApplications`)
+  only runs for the applicationIds in one of the three current buckets, not
+  every historical offer. `offer.list` DOES support a `syncToken` for
+  incremental sync (do a full paginated sync once, the last page returns a
+  token, then pass it back to fetch only offers changed since) — deliberately
+  NOT adopted here: the full scan is only 3 pages at this org's actual
+  volume, the expensive part is the per-bucket `application.info` calls
+  which `syncToken` wouldn't reduce, and adopting it would mean maintaining
+  a persisted local mirror of every offer (to merge in incremental deltas)
+  plus token-expiry/`incremental_sync_too_large`-overflow fallback logic.
+  Revisit only if a client's offer history grows large enough that the full
+  scan itself becomes slow. `fetchOfferApplications` mirrors
+  `fetchApplicationSummaries` but keeps every application status (a signed
+  offer's candidate is usually already `Hired`, not `Active` — the
+  Active-only filter would wrongly hide them); both now share
+  `buildApplicationRecord()`/`fetchApplicationsById()` rather than
+  duplicating the candidate/job/hiring-team shape-building logic.
+  Age on the two pending sections ("Sent"/"Created" respectively) uses a
+  field named `versionCreatedAt` (deliberately not `sentAt` — see above,
+  there's no such thing), which is `latestVersion.createdAt` (when that
+  offer version was authored). For Offers Awaiting Acceptance this is a
+  reasonable proxy for "roughly when it went out" (a version is normally
+  created right before being sent, but this is not a literal delivery
+  event); for Offers Not Yet Sent it's honestly just "created," which is the
+  whole point of that section. Cards show a start date
+  (`latestVersion.startDate`, a plain `YYYY-MM-DD` with no time/timezone —
+  `formatDateOnly()` in `app.js` parses it as UTC calendar-date parts, not
+  `new Date(str)`, to avoid a local-zone off-by-one near midnight) —
+  deliberately no salary shown, per product decision to keep compensation
+  off the shared dashboard for now.
 - **`interviewSchedule.status` is a real, granular state machine — treat it
   that way, not as a coarse 3-value enum.** Confirmed values in this org:
   `NeedsScheduling` → `WaitingOnCandidateAvailability` /

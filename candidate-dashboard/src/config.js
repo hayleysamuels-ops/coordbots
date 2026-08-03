@@ -60,6 +60,9 @@ const SECTION_KEYS = [
   "onsiteToday",
   "rescheduledInterviews",
   "interviewerTraining",
+  "offersNotYetSent",
+  "offersAwaitingAcceptance",
+  "offersSigned",
 ];
 
 const config = {
@@ -138,6 +141,12 @@ const config = {
   // narrowed per product decision to final-round and executive interviews
   // only.
   onsiteStageKeywords: list("ONSITE_STAGE_KEYWORDS", ["final", "exec"]),
+
+  // "Offers Signed" section: an offer counts as "signed" once its
+  // offerStatus is Ashby's real "CandidateAccepted" value (there's no
+  // separate e-signature timestamp exposed), shown if its decidedAt (when
+  // that acceptance decision landed) falls within this many days.
+  offersSignedLookbackDays: number("OFFERS_SIGNED_LOOKBACK_DAYS", 7),
 
   // The client this deployment is for — single source of truth for the page
   // header and browser tab title (client name first: "<name> Coordination

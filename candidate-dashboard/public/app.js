@@ -435,6 +435,78 @@
       .join("");
   }
 
+  // startDate is a plain "YYYY-MM-DD" date, no time/timezone component —
+  // parsed as UTC calendar-date parts (not `new Date(str)`, which the
+  // browser would interpret in local time and could shift the displayed
+  // day near midnight in negative-UTC-offset zones).
+  function formatDateOnly(dateStr) {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      timeZone: "UTC",
+    });
+  }
+
+  // Offers Awaiting Acceptance / Not Yet Sent / Signed share the same card
+  // shape (candidate, job title, start date, an age label off a different
+  // date field per column) — same table-driven pattern as `columns` above
+  // for feedbackOverdue/needsScheduling/availabilitySubmitted. Deliberately
+  // NOT run through filterByEntity() — the Offers tab has no department/
+  // job/recruiter/coordinator filter bar (see CLAUDE.md).
+  const offerColumns = [
+    {
+      key: "offersAwaitingAcceptance",
+      sev: "warning",
+      dateField: "versionCreatedAt",
+      ageLabel: (iso) => `Sent ${formatAgo(iso)}`,
+      emptyText: "Nothing awaiting acceptance",
+    },
+    {
+      key: "offersNotYetSent",
+      sev: "warning",
+      dateField: "versionCreatedAt",
+      ageLabel: (iso) => `Created ${formatAgo(iso)}`,
+      emptyText: "Nothing pending",
+    },
+    {
+      key: "offersSigned",
+      sev: "good",
+      dateField: "decidedAt",
+      ageLabel: (iso) => `Signed ${formatAgo(iso)}`,
+      emptyText: "Nothing signed recently",
+    },
+  ];
+
+  function renderOfferColumn(col, items) {
+    const container = document.getElementById(`cards-${col.key}`);
+    if (!items.length) {
+      container.innerHTML = `<div class="empty-state">${col.emptyText}</div>`;
+      return;
+    }
+    container.innerHTML = items
+      .map((item) =>
+        cardHtml(item, {
+          sev: col.sev,
+          ageLabel: col.ageLabel(item[col.dateField]),
+          ageClass: "muted",
+          detail: item.startDate ? `Start date: ${formatDateOnly(item.startDate)}` : "",
+        })
+      )
+      .join("");
+  }
+
+  // "Offers Signed" used to always say "the last 7 days" regardless of the
+  // real OFFERS_SIGNED_LOOKBACK_DAYS value — same pattern as
+  // updateSourcedSubtitle/updateRescheduledSubtitle above.
+  function updateOffersSignedSubtitle(days) {
+    const el = document.getElementById("offersSigned-sub");
+    if (!el || !days) return;
+    const label = days === 1 ? "day" : "days";
+    el.textContent = `Offers the candidate has accepted in the last ${days} ${label}.`;
+  }
+
   const SECTION_TIMESTAMP_KEYS = [
     "feedbackOverdue",
     "needsScheduling",
@@ -445,6 +517,9 @@
     "onsiteToday",
     "rescheduledInterviews",
     "interviewerTraining",
+    "offersNotYetSent",
+    "offersAwaitingAcceptance",
+    "offersSigned",
   ];
 
   function formatUpdatedAgo(iso) {
@@ -540,6 +615,13 @@
     if (!isSectionDisabled("rescheduledInterviews")) {
       renderRescheduledInterviews(filterByEntity(data.rescheduledInterviews || []));
       updateRescheduledSubtitle(data.thresholds && data.thresholds.rescheduleCountThreshold);
+    }
+    for (const col of offerColumns) {
+      if (isSectionDisabled(col.key)) continue;
+      renderOfferColumn(col, data[col.key] || []);
+    }
+    if (!isSectionDisabled("offersSigned")) {
+      updateOffersSignedSubtitle(data.thresholds && data.thresholds.offersSignedLookbackDays);
     }
 
     for (const key of SECTION_TIMESTAMP_KEYS) {

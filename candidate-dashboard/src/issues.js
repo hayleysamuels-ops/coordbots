@@ -13,6 +13,7 @@ const thresholds = {
   sourcedLookbackDays: config.sourcedLookbackDays,
   availabilitySubmittedAlertHours: config.availabilitySubmittedAlertHours,
   rescheduleCountThreshold: config.rescheduleCountThreshold,
+  offersSignedLookbackDays: config.offersSignedLookbackDays,
 };
 
 // Static, client-specific display config — never changes at runtime, so it's
@@ -41,6 +42,9 @@ let snapshot = {
   onsiteToday: [],
   rescheduledInterviews: [],
   interviewerTraining: [],
+  offersNotYetSent: [],
+  offersAwaitingAcceptance: [],
+  offersSigned: [],
   departments: [],
   thresholds,
   appConfig,
@@ -58,11 +62,12 @@ async function timed(label, promise) {
 }
 
 async function computeIssues() {
-  const [issues, recentSourced, departments, interviewerTraining] = await Promise.all([
+  const [issues, recentSourced, departments, interviewerTraining, offers] = await Promise.all([
     timed("listIssues", ashby.listIssues()),
     timed("listRecentSourced", ashby.listRecentSourced()),
     timed("listDepartments", ashby.listDepartments()),
     timed("listInterviewerTraining", ashby.listInterviewerTraining()),
+    timed("listOffers", ashby.listOffers()),
   ]);
 
   const {
@@ -74,6 +79,7 @@ async function computeIssues() {
     onsiteToday,
     rescheduledInterviews,
   } = issues;
+  const { offersNotYetSent, offersAwaitingAcceptance, offersSigned } = offers;
   return {
     feedbackOverdue,
     needsScheduling,
@@ -84,6 +90,9 @@ async function computeIssues() {
     onsiteToday,
     rescheduledInterviews,
     interviewerTraining,
+    offersNotYetSent,
+    offersAwaitingAcceptance,
+    offersSigned,
     departments,
     thresholds,
     appConfig,
@@ -115,7 +124,10 @@ async function refresh() {
           `${snapshot.availabilitySubmitted.length} availability submitted, ` +
           `${snapshot.onsiteToday.length} onsite today, ` +
           `${snapshot.rescheduledInterviews.length} rescheduled interviews, ` +
-          `${snapshot.interviewerTraining.length} interviewer training entries`
+          `${snapshot.interviewerTraining.length} interviewer training entries, ` +
+          `${snapshot.offersNotYetSent.length} offers not yet sent, ` +
+          `${snapshot.offersAwaitingAcceptance.length} offers awaiting acceptance, ` +
+          `${snapshot.offersSigned.length} offers signed`
       );
     } catch (err) {
       lastError = err.message;
@@ -150,6 +162,9 @@ function applyDismissals(snap) {
     rescheduledInterviews: snap.rescheduledInterviews.filter(keepCandidate),
     interviewerLimits: snap.interviewerLimits.filter(keepInterviewer),
     interviewerTraining: snap.interviewerTraining.filter(keepInterviewer),
+    offersNotYetSent: snap.offersNotYetSent.filter(keepCandidate),
+    offersAwaitingAcceptance: snap.offersAwaitingAcceptance.filter(keepCandidate),
+    offersSigned: snap.offersSigned.filter(keepCandidate),
   };
 }
 

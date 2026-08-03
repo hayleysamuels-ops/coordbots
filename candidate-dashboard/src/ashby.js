@@ -111,13 +111,11 @@ function hiringTeamMember(app, roleName) {
   return { id: member.userId, name: `${member.firstName || ""} ${member.lastName || ""}`.trim() || member.email };
 }
 
-/**
- * Looks up full application details (candidate, job, status, stage) only for
- * the given applicationIds — not a scan of every active application. Filters
- * out anything no longer Active or still sitting in Application Review.
- */
-async function fetchApplicationSummaries(applicationIds) {
-  const fetched = await mapWithConcurrency(applicationIds, 8, async (id) => {
+// Fetches application.info for each id, bounded concurrency, skipping (not
+// throwing on) any single lookup that fails — shared by fetchApplicationSummaries
+// and fetchOfferApplications below, which differ only in which apps they keep.
+async function fetchApplicationsById(applicationIds) {
+  return mapWithConcurrency(applicationIds, 8, async (id) => {
     try {
       const json = await ashbyPost("application.info", { applicationId: id });
       return json.results;
@@ -126,27 +124,61 @@ async function fetchApplicationSummaries(applicationIds) {
       return null;
     }
   });
+}
 
+// Shared candidate/job/hiring-team shape every candidate-linked section
+// builds from a raw application.info result. ashbyProfileUrl is only set for
+// Active applications — the profile URL hardcodes the "active" pipeline
+// segment, unverified for Hired/Archived/Lead (see profileUrl above).
+function buildApplicationRecord(app) {
+  const candidate = app.candidate || {};
+  const recruiter = hiringTeamMember(app, config.recruiterRoleName);
+  const coordinator = hiringTeamMember(app, config.coordinatorRoleName);
+  return {
+    applicationId: app.id,
+    candidateId: candidate.id,
+    candidateName: candidate.name,
+    candidateEmail: candidate.primaryEmailAddress && candidate.primaryEmailAddress.value,
+    jobTitle: (app.job && app.job.title) || "Unknown role",
+    jobId: (app.job && app.job.id) || null,
+    departmentId: (app.job && app.job.departmentId) || null,
+    recruiterId: recruiter && recruiter.id,
+    recruiterName: recruiter && recruiter.name,
+    coordinatorId: coordinator && coordinator.id,
+    coordinatorName: coordinator && coordinator.name,
+    status: app.status,
+    ashbyProfileUrl: app.status === "Active" ? profileUrl(candidate.id, app.id) : undefined,
+  };
+}
+
+/**
+ * Looks up full application details (candidate, job, status, stage) only for
+ * the given applicationIds — not a scan of every active application. Filters
+ * out anything no longer Active or still sitting in Application Review.
+ */
+async function fetchApplicationSummaries(applicationIds) {
+  const fetched = await fetchApplicationsById(applicationIds);
   const byId = new Map();
   for (const app of fetched) {
     if (!app || app.status !== "Active" || isPreInterview(app)) continue;
-    const candidate = app.candidate || {};
-    const recruiter = hiringTeamMember(app, config.recruiterRoleName);
-    const coordinator = hiringTeamMember(app, config.coordinatorRoleName);
-    byId.set(app.id, {
-      applicationId: app.id,
-      candidateId: candidate.id,
-      candidateName: candidate.name,
-      candidateEmail: candidate.primaryEmailAddress && candidate.primaryEmailAddress.value,
-      jobTitle: (app.job && app.job.title) || "Unknown role",
-      jobId: (app.job && app.job.id) || null,
-      departmentId: (app.job && app.job.departmentId) || null,
-      recruiterId: recruiter && recruiter.id,
-      recruiterName: recruiter && recruiter.name,
-      coordinatorId: coordinator && coordinator.id,
-      coordinatorName: coordinator && coordinator.name,
-      ashbyProfileUrl: profileUrl(candidate.id, app.id),
-    });
+    byId.set(app.id, buildApplicationRecord(app));
+  }
+  return byId;
+}
+
+/**
+ * Like fetchApplicationSummaries, but for Offers: keeps every application
+ * status, not just Active. A signed offer's candidate has usually already
+ * moved to "Hired" by the time this app sees it — the Active-only filter
+ * above would wrongly hide them. isPreInterview is irrelevant here too; an
+ * offer is never extended that early in the pipeline.
+ */
+async function fetchOfferApplications(applicationIds) {
+  const fetched = await fetchApplicationsById(applicationIds);
+  const byId = new Map();
+  for (const app of fetched) {
+    if (!app) continue;
+    byId.set(app.id, buildApplicationRecord(app));
   }
   return byId;
 }
@@ -634,6 +666,105 @@ async function listRecentSourced() {
   return results;
 }
 
+// Ashby's real offerProcessStatus enum (confirmed via API docs — a
+// structural field, not org-configured naming, so unlike source/onsite
+// keywords this needs no per-client tuning). The three "WaitingOnApproval*"
+// values all mean the offer has been CREATED but has never reached the
+// candidate — it's still working through this org's internal approval chain
+// (which may not even be configured, in which case WaitingOnApprovalDefinition
+// is the one that shows). Confirmed no other offerStatus value could leak
+// into this bucket: WaitingOnCandidateResponse/CandidateAccepted/
+// CandidateRejected all mean the candidate has been sent something, and
+// OfferCancelled (ambiguous — could be pre- or post-send) isn't included
+// here at all, so it can't leak in either way. Also checked live for the
+// revision-loop case (an offer edited/re-approved after already reaching the
+// candidate looping back into one of these three) — an offer observed
+// mid-build going WaitingOnApprovalDefinition -> WaitingOnOfferApproval
+// across a new version kept `acceptanceStatus: "Created"` throughout (never
+// "Pending", which is what Ashby uses once a candidate is actually awaiting
+// a decision), consistent with these three states being strictly pre-send.
+// Ashby's docs don't explicitly rule out a revert case, but there's no
+// evidence of one and each state's own description precludes it.
+// Kept as their own section (Offers Not Yet Sent) rather than folded into
+// "awaiting acceptance," per product decision: an offer a candidate has
+// never seen isn't something they could be "awaiting acceptance" on.
+const OFFER_NOT_YET_SENT_STATUSES = ["WaitingOnApprovalStart", "WaitingOnOfferApproval", "WaitingOnApprovalDefinition"];
+
+/**
+ * Three offer-pipeline sections:
+ * - offersNotYetSent: offerStatus is one of OFFER_NOT_YET_SENT_STATUSES
+ *   above — the offer has been created but never reached the candidate
+ *   (still working through internal approval, if this org uses that at all).
+ * - offersAwaitingAcceptance: offerStatus === "WaitingOnCandidateResponse" —
+ *   the offer has actually been extended; waiting on the candidate's decision.
+ * - offersSigned: offerStatus === "CandidateAccepted" (Ashby's closest real
+ *   signal to "signed" — there's no separate e-signature timestamp exposed;
+ *   `fileHandles` on the offer version is where a signed PDF would appear,
+ *   but carries no date of its own) with `decidedAt` (when that acceptance
+ *   decision landed) within `config.offersSignedLookbackDays` days.
+ *
+ * Unlike application.list/interviewSchedule.list, offer.list has no
+ * createdAfter filter, so every refresh walks every offer this org has ever
+ * created. That's fine here even though the equivalent full scan is exactly
+ * what was too slow for applications (see § Scope in README): offer.list
+ * itself is cheap (no per-item lookup, same shape as departments/interview
+ * definitions), and the expensive part — one application.info call per
+ * applicationId — only runs for the applicationIds actually in one of the
+ * three buckets above, which at any moment is a small, current-activity-sized
+ * set regardless of how many historical offers the org has accumulated.
+ */
+async function listOffers() {
+  const offers = await fetchAllPages("offer.list", { limit: 100 });
+
+  const now = Date.now();
+  const signedCutoffMs = now - config.offersSignedLookbackDays * 24 * 60 * 60 * 1000;
+
+  const notYetSentOffers = offers.filter((o) => OFFER_NOT_YET_SENT_STATUSES.includes(o.offerStatus));
+  const awaitingOffers = offers.filter((o) => o.offerStatus === "WaitingOnCandidateResponse");
+  const signedOffers = offers.filter(
+    (o) => o.offerStatus === "CandidateAccepted" && o.decidedAt && new Date(o.decidedAt).getTime() >= signedCutoffMs
+  );
+
+  const applicationIds = [
+    ...new Set([...notYetSentOffers, ...awaitingOffers, ...signedOffers].map((o) => o.applicationId).filter(Boolean)),
+  ];
+  const applications = await fetchOfferApplications(applicationIds);
+
+  const toEntry = (offer) => {
+    const app = applications.get(offer.applicationId);
+    if (!app) return null;
+    const version = offer.latestVersion || {};
+    return {
+      ...app,
+      offerId: offer.id,
+      startDate: version.startDate,
+      // Ashby has no sentAt/extendedAt/deliveredAt field anywhere on the
+      // offer or its versions (confirmed against the full offer.info schema)
+      // — this is purely when the current version was authored. For
+      // offersAwaitingAcceptance/offersSigned this is a reasonable proxy for
+      // "roughly when it went out" (versions are normally created right
+      // before being sent). For offersNotYetSent it's honestly just
+      // "created," not "sent" — nothing has gone out yet, which is the
+      // whole point of that section.
+      versionCreatedAt: version.createdAt,
+      decidedAt: offer.decidedAt,
+    };
+  };
+
+  const offersNotYetSent = notYetSentOffers.map(toEntry).filter(Boolean);
+  const offersAwaitingAcceptance = awaitingOffers.map(toEntry).filter(Boolean);
+  const offersSigned = signedOffers.map(toEntry).filter(Boolean);
+
+  // Oldest-first for the two pending buckets (longest-waiting is most
+  // urgent); most-recent-first for signed (a "recently signed" list reads
+  // naturally newest-on-top).
+  offersNotYetSent.sort((a, b) => new Date(a.versionCreatedAt).getTime() - new Date(b.versionCreatedAt).getTime());
+  offersAwaitingAcceptance.sort((a, b) => new Date(a.versionCreatedAt).getTime() - new Date(b.versionCreatedAt).getTime());
+  offersSigned.sort((a, b) => new Date(b.decidedAt).getTime() - new Date(a.decidedAt).getTime());
+
+  return { offersNotYetSent, offersAwaitingAcceptance, offersSigned };
+}
+
 /**
  * All departments (including archived ones) as { id, name } — used to build
  * the department filter dropdown and to resolve each candidate record's
@@ -715,4 +846,5 @@ module.exports = {
   listRecentSourced,
   listDepartments,
   listInterviewerTraining,
+  listOffers,
 };

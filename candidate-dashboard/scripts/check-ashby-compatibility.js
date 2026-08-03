@@ -334,6 +334,58 @@ async function main() {
   verdict(appsWithRecruiter > 0, "Recruiter filter (needs applications with a matching hiring-team role)");
   verdict(appsWithCoordinator > 0, "Coordinator filter (needs applications with a matching hiring-team role)");
 
+  // --- Offers (Awaiting Acceptance / Not Yet Sent / Signed) ---
+  section("Offers");
+  let offers = [];
+  try {
+    offers = await fetchAllPages("offer.list", { limit: 100 }, 50);
+  } catch (err) {
+    console.log(`  ✗ offer.list failed: ${err.message} — API key likely missing the offersRead permission.`);
+  }
+  const offerStatusCounts = new Map();
+  for (const o of offers) offerStatusCounts.set(o.offerStatus, (offerStatusCounts.get(o.offerStatus) || 0) + 1);
+  console.log(`  ${offers.length} total offers found.`);
+  console.log(`  Status breakdown: ${[...offerStatusCounts.entries()].map(([k, v]) => `${k} (${v})`).join(", ") || "none"}`);
+  console.log(
+    "  Note: offerStatus is a real Ashby enum, not org-configured naming — no keyword tuning needed here, unlike Recently Sourced/Onsite above. " +
+      "There's also no sentAt/extendedAt field anywhere on the Offer object — Offers Not Yet Sent (WaitingOnApprovalStart/WaitingOnOfferApproval/" +
+      "WaitingOnApprovalDefinition) is inferred purely from offerStatus, not a real 'sent' timestamp."
+  );
+
+  // Whether a currently-empty Offers Not Yet Sent is "correctly empty" or
+  // "this client just doesn't have anything in that state right now, but
+  // does use approvals" can't be answered from the current snapshot count
+  // alone (that count is transient — it can be legitimately 0 even for a
+  // client who uses approvals heavily, just not at this exact moment).
+  // Ashby has no org-wide "approvals enabled" setting to query directly —
+  // confirmed via API docs: latestVersion.approvalStatus is null "when no
+  // approval process has been configured for the offer version," which is
+  // the only real signal of whether this org has EVER used the feature, on
+  // any offer, historically. WaitingOnApprovalDefinition (a currently-pending
+  // offer with no approval definition set) is fully consistent with a null
+  // approvalStatus — verified live on this org's own real pending offer.
+  const approvalUsedCount = offers.filter((o) => (o.latestVersion || {}).approvalStatus != null).length;
+  console.log(
+    `  ${approvalUsedCount} of ${offers.length} offers have a non-null latestVersion.approvalStatus ` +
+      `(Ashby's only real signal that an approval process was ever configured for an offer — there's no ` +
+      `org-wide "approvals enabled" setting to query directly).`
+  );
+
+  verdict((offerStatusCounts.get("WaitingOnCandidateResponse") || 0) > 0, "Offers Awaiting Acceptance (needs an offer currently out for candidate response)");
+  if (approvalUsedCount > 0) {
+    verdict(
+      true,
+      `Offers Not Yet Sent (this org HAS used offer approvals — ${approvalUsedCount} offer${approvalUsedCount === 1 ? "" : "s"} with a configured approvalStatus found. The section will populate whenever an offer is actively going through that chain, which may be 0 at any given moment even so.)`
+    );
+  } else {
+    console.log(
+      `  ○ This org has NEVER used Ashby's offer-approval feature (0 of ${offers.length} sampled offers have a ` +
+        `configured approvalStatus) — Offers Not Yet Sent will likely always read empty for this client. ` +
+        `That's correct behavior, not something broken.`
+    );
+  }
+  verdict((offerStatusCounts.get("CandidateAccepted") || 0) > 0, "Offers Signed (needs at least one historically accepted offer — this client's real recent volume determines how often the section actually has anything in it)");
+
   section("Summary");
   console.log("Review any ✗ lines above before onboarding this client — each points at either");
   console.log("a config value to set (env vars printed above) or a section that will be");

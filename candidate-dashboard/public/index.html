@@ -24,6 +24,7 @@
   <nav class="tab-switcher" role="tablist" aria-label="Page">
     <button type="button" class="tab-btn is-active" data-tab="dashboard" aria-pressed="true">Dashboard</button>
     <button type="button" class="tab-btn" data-tab="interviewers" aria-pressed="false">Interviewer Info</button>
+    <button type="button" class="tab-btn" data-tab="offers" aria-pressed="false">Offers</button>
   </nav>
 
   <div id="tab-dashboard" class="tab-panel">
@@ -155,6 +156,40 @@
         </p>
         <div class="section-toggle" id="interviewerTraining-toggle"></div>
         <div class="cards" id="cards-interviewerTraining"></div>
+      </section>
+    </main>
+    </div>
+  </div>
+
+  <div id="tab-offers" class="tab-panel" hidden>
+    <div class="page-with-margin">
+    <main class="page-stack">
+      <section id="offersAwaitingAcceptance" class="column wide-section" data-key="offersAwaitingAcceptance">
+        <h2><span class="dot dot-warning"></span>Offers Awaiting Acceptance</h2>
+        <span class="section-updated muted" id="updated-offersAwaitingAcceptance"></span>
+        <p class="column-sub">
+          The offer has been extended to the candidate — waiting on their decision.
+        </p>
+        <div class="cards" id="cards-offersAwaitingAcceptance"></div>
+      </section>
+
+      <section id="offersNotYetSent" class="column wide-section" data-key="offersNotYetSent">
+        <h2><span class="dot dot-warning"></span>Offers Not Yet Sent</h2>
+        <span class="section-updated muted" id="updated-offersNotYetSent"></span>
+        <p class="column-sub">
+          The offer has been created but hasn't been sent to the candidate yet —
+          usually still working through this org's internal approval chain, if it uses one.
+        </p>
+        <div class="cards" id="cards-offersNotYetSent"></div>
+      </section>
+
+      <section id="offersSigned" class="column wide-section" data-key="offersSigned">
+        <h2><span class="dot dot-good"></span>Offers Signed</h2>
+        <span class="section-updated muted" id="updated-offersSigned"></span>
+        <p class="column-sub" id="offersSigned-sub">
+          Offers the candidate has accepted in the last 7 days.
+        </p>
+        <div class="cards" id="cards-offersSigned"></div>
       </section>
     </main>
     </div>
