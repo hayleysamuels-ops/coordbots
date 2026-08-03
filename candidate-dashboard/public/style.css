@@ -225,9 +225,9 @@ button#refresh-btn.spinning {
 }
 
 .tab-btn.is-active {
-  background: var(--ember);
+  background: var(--header-accent);
   color: var(--white);
-  border-color: var(--ember);
+  border-color: var(--header-accent);
 }
 
 .tab-panel[hidden] {
