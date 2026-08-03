@@ -373,6 +373,24 @@ is normally still in Application Review and any status).
   `new Date(str)`, to avoid a local-zone off-by-one near midnight) —
   deliberately no salary shown, per product decision to keep compensation
   off the shared dashboard for now.
+  **Offer candidate names link via `candidateProfileUrl()`, not `profileUrl()`**
+  — `fetchOfferApplications` overrides `buildApplicationRecord()`'s
+  `ashbyProfileUrl` with it. `profileUrl()` is pipeline-view-scoped
+  (`/candidates/pipeline/active/right-side/.../applications/<id>/feed`) and
+  explicitly verified Active-only; Offers candidates are frequently already
+  `Hired` or `Archived` by the time an offer shows up here, so that link
+  would silently come back `undefined` for most of them (confirmed: before
+  this fix, 0 of a live sample's Hired/Archived offer cards had a link).
+  `candidateProfileUrl()` instead uses `candidate.info`'s own real
+  `profileUrl` field — confirmed via live `candidate.info` calls against
+  both an Active and an Archived candidate that it resolves to the same
+  `/candidate-searches/new/right-side/candidates/<candidateId>` shape either
+  way (`"new"` is a literal path segment, not a per-search value) — so it's
+  constructed directly with no extra API call, and needs no `applicationId`.
+  This is a better, verified link for Offers specifically; the five
+  Active-only candidate sections still use `profileUrl()` unchanged (correct
+  for them, since they're already Active-filtered) — not touched here, out
+  of scope for this fix.
 - **`interviewSchedule.status` is a real, granular state machine — treat it
   that way, not as a coarse 3-value enum.** Confirmed values in this org:
   `NeedsScheduling` → `WaitingOnCandidateAvailability` /

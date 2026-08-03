@@ -91,6 +91,20 @@ function profileUrl(candidateId, applicationId) {
   );
 }
 
+// A candidate's own profile page — candidate.info's real `profileUrl` field,
+// confirmed status-independent via a live sample (both an Active and an
+// Archived candidate resolve the same `/candidate-searches/new/right-side/
+// candidates/<id>` shape; "new" is a literal path segment, not a per-search
+// value). Unlike profileUrl() above (pipeline-view-scoped, verified Active-
+// only), this needs no applicationId and isn't tied to any particular
+// pipeline stage, so it's safe for Offers — where a candidate is frequently
+// already Hired or Archived by the time this app sees them. Constructed
+// directly (no extra API call) since the path only depends on candidateId.
+function candidateProfileUrl(candidateId) {
+  if (!candidateId) return undefined;
+  return `${config.ashbyAppBaseUrl}/candidate-searches/new/right-side/candidates/${candidateId}`;
+}
+
 // Application-review-stage applications haven't been engaged with yet — no
 // interview has happened, no email back-and-forth is expected. Excluded per
 // product decision: this dashboard is for candidates actively moving through
@@ -171,14 +185,20 @@ async function fetchApplicationSummaries(applicationIds) {
  * status, not just Active. A signed offer's candidate has usually already
  * moved to "Hired" by the time this app sees it — the Active-only filter
  * above would wrongly hide them. isPreInterview is irrelevant here too; an
- * offer is never extended that early in the pipeline.
+ * offer is never extended that early in the pipeline. Also overrides
+ * ashbyProfileUrl with candidateProfileUrl() instead of
+ * buildApplicationRecord()'s Active-only pipeline link — Offers candidates
+ * are frequently Hired/Archived, exactly the statuses that link is
+ * unverified for.
  */
 async function fetchOfferApplications(applicationIds) {
   const fetched = await fetchApplicationsById(applicationIds);
   const byId = new Map();
   for (const app of fetched) {
     if (!app) continue;
-    byId.set(app.id, buildApplicationRecord(app));
+    const record = buildApplicationRecord(app);
+    record.ashbyProfileUrl = candidateProfileUrl(record.candidateId);
+    byId.set(app.id, record);
   }
   return byId;
 }
