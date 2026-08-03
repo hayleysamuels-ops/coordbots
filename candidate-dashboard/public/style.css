@@ -157,6 +157,14 @@ body {
   color: var(--text-muted);
 }
 
+.page-footer {
+  padding: 16px 28px 24px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
 button#refresh-btn {
   display: flex;
   align-items: center;
