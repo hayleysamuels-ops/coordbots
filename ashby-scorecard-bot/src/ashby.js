@@ -89,6 +89,13 @@ function parseWebhook(payload) {
     : undefined;
 
   const events = getInterviewEvents(schedule);
+  // Every event id present in this webhook (before filtering), plus whether the
+  // whole schedule is cancelled — used to reconcile/cancel queued reminders.
+  const presentEventIds = events
+    .map((e) => pick(e, ["id", "interviewEventId"]))
+    .filter(Boolean);
+  const scheduleStatus = schedule ? pick(schedule, ["status", "state"]) : undefined;
+  const scheduleCancelled = /cancel/i.test(String(scheduleStatus || ""));
   const reminders = [];
 
   for (const event of events) {
@@ -115,7 +122,15 @@ function parseWebhook(payload) {
     });
   }
 
-  return { action, scheduleId, applicationId, reminders };
+  return {
+    action,
+    scheduleId,
+    applicationId,
+    scheduleStatus,
+    scheduleCancelled,
+    presentEventIds,
+    reminders,
+  };
 }
 
 /**
@@ -263,13 +278,12 @@ function interviewExclusionReason(info) {
   return null;
 }
 
-/**
- * Resolve the interviewId for a given event within a schedule — used to
- * classify reminders persisted before we started recording interviewId.
- * Returns the interviewId string or null.
- */
-async function interviewIdForEvent(scheduleId, eventId) {
-  if (!scheduleId || !eventId || !config.ashbyApiKey) return null;
+// Cache a schedule's current interview events. A cancelled schedule returns an
+// empty list, which lets us detect that queued reminders were cancelled.
+const scheduleEventsCache = new Map();
+async function getScheduleEvents(scheduleId) {
+  if (!scheduleId || !config.ashbyApiKey) return null;
+  if (scheduleEventsCache.has(scheduleId)) return scheduleEventsCache.get(scheduleId);
   try {
     const res = await fetch("https://api.ashbyhq.com/interviewEvent.list", {
       method: "POST",
@@ -283,12 +297,34 @@ async function interviewIdForEvent(scheduleId, eventId) {
     if (!res.ok) return null;
     const json = await res.json();
     const events = json.results || [];
-    const match = events.find((e) => pick(e, ["id", "interviewEventId"]) === eventId);
-    return match ? pick(match, ["interviewId", "interview_id"]) : null;
+    scheduleEventsCache.set(scheduleId, events);
+    return events;
   } catch (err) {
     console.warn("[ashby] interviewEvent.list failed:", err.message);
     return null;
   }
+}
+
+/**
+ * Resolve the interviewId for a given event within a schedule — used to
+ * classify reminders persisted before we started recording interviewId.
+ * Returns the interviewId string or null.
+ */
+async function interviewIdForEvent(scheduleId, eventId) {
+  const events = await getScheduleEvents(scheduleId);
+  if (!events) return null;
+  const match = events.find((e) => pick(e, ["id", "interviewEventId"]) === eventId);
+  return match ? pick(match, ["interviewId", "interview_id"]) : null;
+}
+
+/**
+ * Current interview event ids for a schedule, or null if we couldn't look it up.
+ * An empty array means the schedule has no active events (e.g. cancelled).
+ */
+async function getScheduleEventIds(scheduleId) {
+  const events = await getScheduleEvents(scheduleId);
+  if (!events) return null;
+  return events.map((e) => pick(e, ["id", "interviewEventId"])).filter(Boolean);
 }
 
 /**
@@ -321,5 +357,6 @@ module.exports = {
   getInterviewInfo,
   interviewExclusionReason,
   interviewIdForEvent,
+  getScheduleEventIds,
   interviewLinks,
 };

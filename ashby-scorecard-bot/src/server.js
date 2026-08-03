@@ -51,8 +51,10 @@ function createServer() {
 
     try {
       const parsed = parseWebhook(payload);
-      if (parsed.reminders.length === 0) {
-        console.log(`[server] ${action}: no schedulable interview events found.`);
+      // Note: a cancelled schedule arrives with zero events — we must still run
+      // applyWebhook so it can cancel any queued reminders for that schedule.
+      if (parsed.reminders.length === 0 && !parsed.scheduleId) {
+        console.log(`[server] ${action}: nothing to process.`);
         return;
       }
       reminders

@@ -183,6 +183,9 @@ the key is required for debrief filtering to work.
   not the actual end. If an interview runs long or ends early, timing is based
   on the Ashby calendar.
 - If an interview is rescheduled, Ashby sends an update and any not-yet-sent
-  reminders move with it. If it's cancelled, they're dropped.
+  reminders move with it. If an interview (or its whole schedule) is
+  **cancelled**, its reminders are dropped — the bot reconciles against the
+  event set in each webhook (a cancelled schedule arrives with no events) and
+  also clears any cancelled interviews left in the queue on restart.
 - A stage that has already fired won't re-fire, even if Ashby sends another
   update.

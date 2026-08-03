@@ -9,6 +9,7 @@ const {
   getInterviewInfo,
   interviewExclusionReason,
   interviewIdForEvent,
+  getScheduleEventIds,
   interviewLinks,
 } = require("./ashby");
 const { sendScorecardReminder } = require("./slack");
@@ -76,6 +77,18 @@ async function sweepExcluded() {
   let removed = 0;
   for (const key of Object.keys(reminders)) {
     const r = reminders[key];
+
+    // Drop reminders whose event no longer exists on its schedule (the
+    // interview was cancelled or the event was removed). An empty/known event
+    // list that omits this event is the signal; a failed lookup (null) is not.
+    const eventIds = await getScheduleEventIds(r.scheduleId);
+    if (eventIds && !eventIds.includes(key)) {
+      delete reminders[key];
+      removed++;
+      console.log(`[reminders] Pruned queued reminder for event ${key} (interview cancelled/removed).`);
+      continue;
+    }
+
     let interviewId = r.interviewId;
     if (!interviewId) {
       interviewId = await interviewIdForEvent(r.scheduleId, key);
@@ -189,6 +202,24 @@ async function applyWebhook(parsed) {
       `[reminders] Scheduled ${r.interviewers.length} interviewer(s) for event ${key}; pending stages: ${pending || "none"}.`
     );
   }
+
+  // Reconcile cancellations: Ashby sends the schedule's full current event set
+  // on each update, and a cancelled schedule arrives with NO events. So any
+  // queued reminder for this schedule whose event is no longer present was
+  // cancelled/removed — drop it (this is what stops reminders for interviews
+  // that were cancelled before they happened).
+  if (parsed.scheduleId) {
+    const present = new Set(parsed.presentEventIds || []);
+    for (const key of Object.keys(reminders)) {
+      if (reminders[key].scheduleId === parsed.scheduleId && !present.has(key)) {
+        delete reminders[key];
+        console.log(
+          `[reminders] Cancelled reminders for event ${key} — no longer on schedule ${parsed.scheduleId}.`
+        );
+      }
+    }
+  }
+
   save();
 }
 
