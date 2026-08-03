@@ -21,6 +21,16 @@
   // removed container, so the removal logic lives in one place.
   let disabledSectionKeys = new Set();
 
+  // Real IANA time zone (DISPLAY_TIMEZONE, see config.js) every ABSOLUTE
+  // time in the UI is formatted in — set once in applyAppConfig(). Default
+  // here only matters before the first snapshot arrives; the server always
+  // sends a resolved value. Deliberately NOT used for pure elapsed-duration
+  // labels (formatAge/formatAgo/formatUpdatedAgo — "3h ago" means the same
+  // thing regardless of time zone) or for formatDateOnly (a plain calendar
+  // date with no time-of-day component — see its own comment for why it
+  // stays pinned to UTC instead).
+  let displayTimeZone = "America/New_York";
+
   function isSectionDisabled(key) {
     return disabledSectionKeys.has(key);
   }
@@ -352,19 +362,20 @@
     return `${formatAge(hours)} ago`;
   }
 
-  // Rendered in the browser's own local timezone — the "is this today"
-  // filtering happens server-side on a UTC calendar day (see
-  // listOnsiteToday in ashby.js), so this is display-only.
+  // Rendered in displayTimeZone (DISPLAY_TIMEZONE, see config.js) — the
+  // same zone the server's "is this today" day boundary uses (see isToday
+  // in ashby.js), so a card's displayed time and which day it counts as
+  // "today" always agree, regardless of the viewer's own browser locale.
   function formatEventTime(iso) {
-    return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone: displayTimeZone });
   }
 
   // Unlike formatEventTime above (today's onsite events, time-only), a
   // rescheduled interview's current slot could be any date, so this
-  // includes the date too.
+  // includes the date too. Same displayTimeZone as formatEventTime.
   function formatEventDateTime(iso) {
     if (!iso) return "not yet scheduled";
-    return new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    return new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: displayTimeZone });
   }
 
   function renderRecentSourced(items) {
@@ -438,7 +449,14 @@
   // startDate is a plain "YYYY-MM-DD" date, no time/timezone component —
   // parsed as UTC calendar-date parts (not `new Date(str)`, which the
   // browser would interpret in local time and could shift the displayed
-  // day near midnight in negative-UTC-offset zones).
+  // day near midnight in negative-UTC-offset zones). Deliberately still
+  // pinned to "UTC" here, NOT displayTimeZone: the value was constructed via
+  // Date.UTC(y, m-1, d), i.e. midnight UTC on that day — formatting that
+  // instant in, say, America/New_York would render it as the PREVIOUS day
+  // (roughly 7-8pm the day before), an off-by-one. There's no time-of-day to
+  // convert in the first place, so there's nothing for displayTimeZone to do
+  // here — this is a different concern from formatEventTime/
+  // formatEventDateTime above, which DO have a real instant to convert.
   function formatDateOnly(dateStr) {
     const [y, m, d] = dateStr.split("-").map(Number);
     return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString(undefined, {
@@ -575,6 +593,9 @@
     if (appConfig.clientAccentColor) {
       document.documentElement.style.setProperty("--header-accent", appConfig.clientAccentColor);
     }
+    if (appConfig.displayTimeZone) {
+      displayTimeZone = appConfig.displayTimeZone;
+    }
     applyDisabledSections(appConfig.disabledSections);
   }
 
@@ -631,7 +652,7 @@
 
     const lastUpdatedEl = document.getElementById("last-updated");
     if (data.lastUpdated) {
-      lastUpdatedEl.textContent = `Updated ${new Date(data.lastUpdated).toLocaleTimeString()}`;
+      lastUpdatedEl.textContent = `Updated ${new Date(data.lastUpdated).toLocaleTimeString([], { timeZone: displayTimeZone })}`;
     }
     if (data.lastError) {
       lastUpdatedEl.textContent += ` — last refresh failed: ${data.lastError}`;
@@ -698,7 +719,7 @@
 
   function markLoaded() {
     document.getElementById("last-loaded").textContent =
-      `Last loaded ${new Date().toLocaleTimeString()}`;
+      `Last loaded ${new Date().toLocaleTimeString([], { timeZone: displayTimeZone })}`;
   }
 
   async function load() {

@@ -226,9 +226,16 @@ is normally still in Application Review and any status).
   Before onboarding a new client, run
   `scripts/check-ashby-compatibility.js` against their org — it lists their
   actual stage titles so you can pick real keywords instead of guessing.
-  "Today" is a UTC calendar day (`isTodayUTC`), the same tradeoff
-  `countInterviewsThisWeek` already makes for weekly limits — display times
-  still render in the browser's local zone client-side.
+  "Today" is a calendar day in `config.displayTimeZone` (`isToday`/
+  `calendarDateInTimeZone`, replacing the old `isTodayUTC`) — NOT the server
+  container's UTC day, and NOT `countInterviewsThisWeek`'s
+  Monday-Sunday UTC week boundary above (same class of issue, out of scope,
+  untouched). The old UTC boundary rolled over at 8pm Eastern during EDT (UTC
+  midnight), so an evening onsite interview could silently drop off this
+  section hours before the day actually changed for anyone in the org —
+  confirmed the exact failure live: a 9:30pm-America/New_York event
+  (`2026-08-04T01:30:00.000Z`) resolves to calendar day `2026-08-04` in UTC
+  but correctly `2026-08-03` in `America/New_York`.
 - **Source classification (Recently Sourced) is also client-specific
   keyword matching, not a fixed Ashby taxonomy.** `classifySource()` in
   `ashby.js` matches `source.sourceType.title` against
@@ -278,6 +285,33 @@ is normally still in Application Review and any status).
   `CLIENT_ACCENT_COLOR` is independent of both — it only touches
   `--header-accent` (topbar border + title color), defined once in
   `style.css`'s `:root` token block, default `var(--ember)`.
+- **`DISPLAY_TIMEZONE` (`config.displayTimeZone`, default `America/New_York`)
+  reaches two genuinely different places, not one** — this is worth
+  understanding before touching either: (1) `public/app.js` formats every
+  ABSOLUTE time in the UI (`formatEventTime`, `formatEventDateTime`, the
+  "Updated"/"Last loaded" timestamps) in this zone client-side, via
+  `appConfig.displayTimeZone` (same threading path as `clientAccentColor`
+  above) — set once in `applyAppConfig()` into a module-level
+  `displayTimeZone` variable; (2) `src/ashby.js` reads `config.displayTimeZone`
+  directly (no threading needed, it's already server-side) for the Onsite
+  Interviews Today day boundary (`isToday`, see above). Deliberately NOT
+  applied to `formatAge`/`formatAgo`/`formatUpdatedAgo` (pure elapsed
+  durations — "3h ago" doesn't change meaning by time zone) or to
+  `formatDateOnly` (Offers' plain `YYYY-MM-DD` start date, which has no
+  time-of-day component to convert at all — stays pinned to `"UTC"` since
+  that's what its `Date.UTC(...)` construction actually is; passing
+  `displayTimeZone` there would shift it to the previous day). **Must be a
+  real IANA name, not a fixed abbreviation** — confirmed live:
+  `Intl.DateTimeFormat` does NOT reject `"EST"`, it silently resolves to the
+  fixed `America/Panama` zone (no daylight saving), which reads identically
+  to real US Eastern time in January (`7:00 AM EST` either way) but is an
+  hour off in July (`America/New_York` correctly shows `8:00 AM EDT`; `EST`
+  still shows `7:00 AM EST`) — wrong for roughly eight months of the year,
+  not an edge case. `validateTimeZone()` in `config.js` warns (doesn't
+  silently rewrite) on this specific trap via a `"/"`-in-the-name heuristic
+  (the one legitimate exception is bare `"UTC"`), and separately falls back
+  to the default with a warning for a genuinely invalid zone name (one
+  `Intl.DateTimeFormat` actually throws constructing).
 - **The Offers tab (`offersNotYetSent`/`offersAwaitingAcceptance`/
   `offersSigned`, all computed in `listOffers()` in `ashby.js`) is a third
   `.tab-panel`, sharing the same generic tab mechanism as Dashboard/

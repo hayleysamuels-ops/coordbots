@@ -30,6 +30,7 @@ const appConfig = {
   onsiteStageKeywords: config.onsiteStageKeywords,
   sourceReferralKeywords: config.sourceReferralKeywords,
   sourceAgencyKeywords: config.sourceAgencyKeywords,
+  displayTimeZone: config.displayTimeZone,
 };
 
 let snapshot = {

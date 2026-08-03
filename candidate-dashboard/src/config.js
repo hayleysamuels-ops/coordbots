@@ -46,6 +46,39 @@ function exactList(name, fallback) {
     .filter(Boolean);
 }
 
+// Validates DISPLAY_TIMEZONE is a real IANA name, warning (not throwing) and
+// falling back otherwise — same "loud warning, not silent no-op" philosophy
+// as the DISABLED_SECTIONS check below. Two distinct failure modes:
+// 1. Genuinely invalid (e.g. "Not/AZone") — Intl.DateTimeFormat throws a
+//    RangeError constructing it, caught here.
+// 2. A fixed abbreviation like "EST"/"PST"/"CST" instead of an IANA name —
+//    Intl does NOT throw for these; it silently resolves "EST" to
+//    "America/Panama" (a fixed UTC-5 zone that never observes daylight
+//    saving), which reads correctly in winter but is wrong by an hour
+//    against real US Eastern time for roughly eight months of the year
+//    (confirmed live: EST shows "7:00 AM EST" in both January AND July,
+//    while America/New_York correctly shows "8:00 AM EDT" in July). Real
+//    IANA names always contain a "/" (the one bare exception is "UTC"
+//    itself), so that's the heuristic used to catch this specific mistake.
+function validateTimeZone(value, fallback) {
+  const tz = value || fallback;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+  } catch (err) {
+    console.warn(`[config] Warning: DISPLAY_TIMEZONE "${tz}" is not a valid IANA time zone name (${err.message}). Falling back to "${fallback}".`);
+    return fallback;
+  }
+  if (tz !== "UTC" && !tz.includes("/")) {
+    console.warn(
+      `[config] Warning: DISPLAY_TIMEZONE "${tz}" looks like a fixed abbreviation (e.g. EST/PST/CST), not an IANA time ` +
+        `zone name — these silently ignore daylight saving (Node resolves "EST" to the fixed America/Panama, not real ` +
+        `US Eastern time) and will be off by an hour for roughly half the year. Use an IANA name instead, e.g. ` +
+        `"America/New_York".`
+    );
+  }
+  return tz;
+}
+
 // Single source of truth for valid DISABLED_SECTIONS entries — the same
 // keys each section's `data-key` attribute (index.html) and snapshot field
 // (issues.js/app.js) use. Keep in sync with both when a section is added,
@@ -147,6 +180,15 @@ const config = {
   // separate e-signature timestamp exposed), shown if its decidedAt (when
   // that acceptance decision landed) falls within this many days.
   offersSignedLookbackDays: number("OFFERS_SIGNED_LOOKBACK_DAYS", 7),
+
+  // Real IANA time zone name (e.g. "America/New_York", "Europe/London") —
+  // the single source of truth for both (1) formatting every absolute time
+  // shown in the UI (public/app.js reads this via appConfig) and (2)
+  // computing the "is this today" day boundary for Onsite Interviews Today
+  // (ashby.js reads it directly) instead of the server container's UTC day.
+  // Must be an IANA name, not a fixed abbreviation — see validateTimeZone
+  // above for why "EST" specifically is a trap, not just a style nitpick.
+  displayTimeZone: validateTimeZone(process.env.DISPLAY_TIMEZONE, "America/New_York"),
 
   // The client this deployment is for — single source of truth for the page
   // header and browser tab title (client name first: "<name> Coordination

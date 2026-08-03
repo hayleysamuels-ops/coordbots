@@ -397,24 +397,31 @@ function keepMostRecentPerCandidate(taggedEntries) {
 // used to also match "panel" until narrowed per product decision), not a
 // real Ashby default. An empty keyword list
 // disables the section entirely rather than silently matching nothing.
-// "Today" is a UTC calendar day, the same tradeoff countInterviewsThisWeek
-// already makes for "this week" (see above) — display times still render in
-// the browser's local zone client-side, only the day boundary is computed
-// in UTC here.
+// "Today" is a calendar day in config.displayTimeZone (default
+// America/New_York), NOT the server container's UTC day — display times
+// also render in that same zone client-side (see appConfig.displayTimeZone
+// in app.js), so both agree on what "today" means. This used to be a raw
+// UTC day, which rolls over at 8pm Eastern during EDT (4am UTC) rather than
+// local midnight — an evening onsite interview would silently drop off this
+// section hours before the day actually changed for anyone in the org.
+// countInterviewsThisWeek's Monday-Sunday week boundary (above) has the
+// same class of UTC-vs-local issue but wasn't in scope for this fix.
 function matchesOnsiteStage(title) {
   if (!title) return false;
   const lower = title.toLowerCase();
   return config.onsiteStageKeywords.some((k) => lower.includes(k));
 }
 
-function isTodayUTC(dateStr) {
-  const d = new Date(dateStr);
-  const now = new Date();
-  return (
-    d.getUTCFullYear() === now.getUTCFullYear() &&
-    d.getUTCMonth() === now.getUTCMonth() &&
-    d.getUTCDate() === now.getUTCDate()
-  );
+// YYYY-MM-DD for `date` as seen in `timeZone` — en-CA locale formats dates
+// this way natively, giving a directly comparable string for same-day
+// checks without a date-math library.
+function calendarDateInTimeZone(date, timeZone) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+}
+
+function isToday(dateStr) {
+  if (!dateStr) return false;
+  return calendarDateInTimeZone(new Date(dateStr), config.displayTimeZone) === calendarDateInTimeZone(new Date(), config.displayTimeZone);
 }
 
 /**
@@ -432,7 +439,7 @@ async function listOnsiteToday(schedules, applications) {
   const candidates = schedules.filter(
     (s) =>
       applications.has(s.applicationId) &&
-      (s.interviewEvents || []).some((e) => e.startTime && isTodayUTC(e.startTime))
+      (s.interviewEvents || []).some((e) => e.startTime && isToday(e.startTime))
   );
   if (!candidates.length) return [];
 
@@ -458,7 +465,7 @@ async function listOnsiteToday(schedules, applications) {
 
     const app = applications.get(schedule.applicationId);
     for (const event of schedule.interviewEvents || []) {
-      if (!event.startTime || !isTodayUTC(event.startTime)) continue;
+      if (!event.startTime || !isToday(event.startTime)) continue;
       entries.push({
         ...app,
         scheduleId: schedule.id,
