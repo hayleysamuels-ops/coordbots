@@ -478,6 +478,53 @@ async function listOnsiteToday(schedules, applications) {
   return entries;
 }
 
+// Groups every interview event in the lookback window by applicationId,
+// across ALL schedules regardless of that schedule's own status — no extra
+// Ashby call, since `schedules` already covers this window. Used to detect
+// when a feedback-overdue event has been superseded by later activity on
+// the same application (see isSupersededByLaterActivity below).
+function groupEventsByApplicationId(schedules) {
+  const byApplicationId = new Map();
+  for (const schedule of schedules) {
+    if (!schedule.applicationId) continue;
+    const list = byApplicationId.get(schedule.applicationId) || [];
+    for (const event of schedule.interviewEvents || []) {
+      list.push({ id: event.id, endTime: event.endTime, hasSubmittedFeedback: event.hasSubmittedFeedback });
+    }
+    byApplicationId.set(schedule.applicationId, list);
+  }
+  return byApplicationId;
+}
+
+/**
+ * A candidate can have multiple schedules over the life of one application
+ * (one per interview stage/round) — an earlier round's missing feedback can
+ * keep showing as overdue long after the candidate has moved on to (or even
+ * finished) a later round, even though that later round's schedule itself is
+ * perfectly healthy (often "Complete"). Confirmed live: 17 of a 50-event
+ * sample were events on an otherwise-legitimate "Complete" schedule whose
+ * candidate already had a chronologically later event on the SAME
+ * application that had already occurred.
+ *
+ * "Already occurred" is deliberately narrower than "a later schedule
+ * exists" — a later round merely being booked doesn't retire the earlier
+ * gap; someone still owes that scorecard until the later round has actually
+ * happened (past its endTime) or someone has already acted on it
+ * (hasSubmittedFeedback). Otherwise a coordinator who books an optimistic
+ * next round would silently lose visibility into a real, still-open gap.
+ */
+function isSupersededByLaterActivity(event, applicationId, eventsByApplicationId) {
+  const eventEndMs = new Date(event.endTime).getTime();
+  const now = Date.now();
+  const siblings = eventsByApplicationId.get(applicationId) || [];
+  return siblings.some((other) => {
+    if (other.id === event.id || !other.endTime) return false;
+    const otherEndMs = new Date(other.endTime).getTime();
+    if (otherEndMs <= eventEndMs) return false; // not later
+    return other.hasSubmittedFeedback || otherEndMs <= now; // already occurred
+  });
+}
+
 async function listIssues() {
   const createdAfter = Date.now() - config.scheduleLookbackDays * 24 * 60 * 60 * 1000;
   const schedules = await fetchAllPages("interviewSchedule.list", { limit: 100, createdAfter });
@@ -487,6 +534,7 @@ async function listIssues() {
   // of application status, before the Active-only filtering below.
   const allEvents = schedules.flatMap((s) => (s.interviewEvents || []).map((e) => ({ id: e.id, startTime: e.startTime })));
   const rescheduleCounts = rescheduleTracking.trackAndGetCounts(allEvents);
+  const eventsByApplicationId = groupEventsByApplicationId(schedules);
 
   const applicationIds = [...new Set(schedules.map((s) => s.applicationId).filter(Boolean))];
   const [applications, interviewerLimits, debriefInterviewIds] = await Promise.all([
@@ -549,6 +597,7 @@ async function listIssues() {
 
       if (event.hasSubmittedFeedback || !event.endTime) continue;
       if (debriefInterviewIds.has(event.interviewId)) continue; // debriefs have no scorecard due back
+      if (isSupersededByLaterActivity(event, schedule.applicationId, eventsByApplicationId)) continue;
       const hoursOverdue = (now - new Date(event.endTime).getTime()) / (1000 * 60 * 60);
       if (hoursOverdue < config.feedbackOverdueHours) continue;
 
