@@ -65,6 +65,70 @@
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  // Department options used to be the full org-wide `lastDepartments` list
+  // (every department Ashby has, including archived ones with zero current
+  // candidates) — unlike job/recruiter/coordinator, which only ever offer
+  // values actually represented among the candidates on screen. That made
+  // the Department dropdown both noisier (dead entries that return nothing)
+  // and prone to duplicate-looking rows whenever an org has an archived
+  // department sharing a name with a live one. This mirrors collectDistinct
+  // above but resolves names via the `lastDepartments` id->name lookup
+  // (candidate items only carry `departmentId`, not a name) instead of a
+  // per-item nameKey.
+  function collectDistinctDepartments(data) {
+    const byId = new Map(lastDepartments.map((d) => [d.id, d]));
+    const ids = new Set();
+    for (const key of CANDIDATE_SECTION_KEYS) {
+      if (isSectionDisabled(key)) continue;
+      for (const item of (data || {})[key] || []) {
+        if (item.departmentId) ids.add(item.departmentId);
+      }
+    }
+    const options = [...ids].map((id) => {
+      const dep = byId.get(id);
+      return { id, name: (dep && dep.name) || "Unknown", isArchived: Boolean(dep && dep.isArchived), createdAt: dep && dep.createdAt };
+    });
+    return disambiguateDepartmentNames(options).sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  // Filtering to only departments with current candidates (above) resolves
+  // most name collisions on its own, since one half of a same-named pair is
+  // usually the archived department with nothing currently pointing at it.
+  // But two ACTIVE departments can legitimately share a name — those are
+  // still distinct records and must never be silently merged into one
+  // dropdown row (checking it would only filter by whichever id survived).
+  // So any remaining collision gets its label disambiguated instead:
+  // archived copies are labeled first; if that's not enough to separate a
+  // group (e.g. two active same-named departments), they're numbered
+  // oldest-first by `createdAt` so the numbering stays stable across
+  // refreshes.
+  function disambiguateDepartmentNames(options) {
+    const groups = new Map();
+    for (const o of options) {
+      if (!groups.has(o.name)) groups.set(o.name, []);
+      groups.get(o.name).push(o);
+    }
+    const result = [];
+    for (const group of groups.values()) {
+      if (group.length === 1) {
+        result.push(group[0]);
+        continue;
+      }
+      const labeled = group.map((o) => (o.isArchived ? { ...o, name: `${o.name} (archived)` } : o));
+      const counts = new Map();
+      for (const o of labeled) counts.set(o.name, (counts.get(o.name) || 0) + 1);
+      const stillColliding = labeled.filter((o) => counts.get(o.name) > 1);
+      if (!stillColliding.length) {
+        result.push(...labeled);
+        continue;
+      }
+      stillColliding.sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+      const numbered = new Map(stillColliding.map((o, i) => [o.id, i + 1]));
+      result.push(...labeled.map((o) => (numbered.has(o.id) ? { ...o, name: `${o.name} (${numbered.get(o.id)})` } : o)));
+    }
+    return result;
+  }
+
   // Which field is currently live: one of FILTER_MODES' keys. Only one
   // filters at a time — switching modes doesn't combine two fields
   // together, it replaces which one is active. Each mode remembers its own
@@ -76,7 +140,7 @@
       key: "departmentId",
       noun: "department",
       pluralNoun: "departments",
-      options: () => lastDepartments,
+      options: () => collectDistinctDepartments(lastData),
     },
     job: {
       key: "jobId",

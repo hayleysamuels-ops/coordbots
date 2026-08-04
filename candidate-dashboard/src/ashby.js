@@ -852,16 +852,29 @@ async function listOffers() {
 }
 
 /**
- * All departments (including archived ones) as { id, name } — used to build
- * the department filter dropdown and to resolve each candidate record's
- * `departmentId` to a human name. Small, cheap, no pagination: this org has
- * 12 total (10 active + 2 archived). `includeArchived: true` matters —
- * without it, a job whose department was later archived would resolve to
- * nothing and show as blank in the filter.
+ * All departments (including archived ones) as { id, name, isArchived,
+ * createdAt } — used as the id-to-name lookup for the department filter
+ * (see collectDistinctDepartments() in public/app.js, which decides which
+ * of these are actually offered as options) and to resolve each candidate
+ * record's `departmentId` to a human name. Small, cheap, no pagination:
+ * this org has 12 total (10 active + 2 archived). `includeArchived: true`
+ * matters — without it, a job whose department was later archived would
+ * resolve to nothing and show as blank in the filter.
+ *
+ * `isArchived`/`createdAt` exist because Ashby orgs can end up with two
+ * departments sharing the same `name` (e.g. one archived and recreated, or
+ * two genuinely distinct active departments that happen to be named the
+ * same) — the frontend needs both fields to tell those apart in the
+ * dropdown instead of silently merging distinct department IDs.
  */
 async function listDepartments() {
   const json = await ashbyPost("department.list", { includeArchived: true });
-  return (json.results || []).map((d) => ({ id: d.id, name: d.name }));
+  return (json.results || []).map((d) => ({
+    id: d.id,
+    name: d.name,
+    isArchived: Boolean(d.isArchived),
+    createdAt: d.createdAt,
+  }));
 }
 
 /**

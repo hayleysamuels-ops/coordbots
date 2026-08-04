@@ -109,23 +109,39 @@ any mode — an interviewer isn't tied to one department/job/recruiter/
 coordinator the way a candidate's application is, so there's no natural
 mapping to filter by.
 
-- **Department options** come from Ashby's `department.list` (12 total on
-  this org, including 2 archived — fetched with `includeArchived: true` so a
-  job whose department was later archived still resolves to a real name
-  instead of a blank).
-- **Job/Recruiter/Coordinator options** are all derived client-side from
-  whichever ones are actually represented among the candidates currently
-  shown across all sections — there's no separate org-wide list call for
-  any of them. This is deliberate: a full `job.list` would include every
-  closed/archived job in the org (dozens to hundreds), making for a
-  mostly-irrelevant dropdown; deriving from the candidates already on
-  screen keeps every option meaningful. Recruiter/Coordinator come from
+- **Department/Job/Recruiter/Coordinator options are all derived
+  client-side** from whichever ones are actually represented among the
+  candidates currently shown across all sections — there's no separate
+  org-wide list call used to populate the dropdown for any of them. This is
+  deliberate: a full `department.list`/`job.list` would include every
+  archived/closed department or job in the org, making for a dropdown full
+  of dead options that return nothing when checked. Ashby's `department.list`
+  (`includeArchived: true`, still fetched as an id-to-name lookup — see
+  `ashby.listDepartments()`) is only used to resolve each candidate's
+  `departmentId` to a name and `isArchived` flag; the options actually
+  offered are the intersection of that lookup with the department IDs
+  present among current candidates, exactly mirroring how Job/Recruiter/
+  Coordinator options already worked. Recruiter/Coordinator come from
   each application's `hiringTeam[]` (already present on every
   `application.list`/`application.info` result — no extra lookup),
   matched by exact role name (`RECRUITER_ROLE_NAME`/`COORDINATOR_ROLE_NAME`,
   defaults `Recruiter`/`Recruiting Coordinator` — **this org's actual
   `hiringTeamRole.list` values, not an Ashby-wide standard**; verify with
   `scripts/check-ashby-compatibility.js` before onboarding a new client).
+- **Duplicate department names are disambiguated, never deduped.** Some
+  orgs have two departments sharing a `name` — most often an archived one
+  and its active replacement, but occasionally two genuinely distinct
+  active departments. Since dropping archived-with-no-current-candidates
+  departments (above) resolves the common case on its own, any name
+  collision that survives is between records that are still both live and
+  meaningful, so `collectDistinctDepartments()`
+  (`public/app.js`) labels them instead of merging them: an archived member
+  of a colliding pair gets " (archived)" appended; if a collision remains
+  after that (e.g. two active departments with the same name), each gets
+  " (1)"/" (2)"/etc., numbered oldest-created-first for stability across
+  refreshes. Two distinct department IDs are never collapsed into one
+  dropdown row — that would make checking the surviving option silently
+  filter by only one of the two records.
 
 The button opens a checkbox dropdown (mirroring the existing per-card
 dismiss-menu's fixed-position/anchor-to-button pattern); any number of
@@ -298,6 +314,38 @@ be empty because of an Ashby-side configuration choice outside this app's
 control — printing the actual source-type and stage titles it found so you
 can pick the right keywords rather than guessing. See the script's own
 header comment for all CLI options.
+
+## Running locally against a different client
+
+This repo's `.env` is the full local dev config (Basic Auth creds, thresholds,
+etc.) for whichever client it's currently checked out for. Alongside it,
+`.env.<client>` files (e.g. `.env.january`, `.env.luminai`, `.env.poetic`,
+`.env.profound`) hold just that client's `ASHBY_API_KEY`, each starting with
+a comment naming the client and its Railway project — e.g.:
+
+```
+# Client: Profound — Railway project "dashboard-profound"
+ASHBY_API_KEY=...
+```
+
+`.gitignore` covers `.env` and `.env.*` (with an explicit exception for
+`.env.example`), so none of these are ever committed.
+
+To run the dashboard against one of these clients' real Ashby data instead of
+whatever's in `.env`, override just `ASHBY_API_KEY` for that one run — **strip
+the comment line first**, since `env`'s argument-list syntax can't parse it
+(a bare `#` word gets treated as the command to run, failing with `env: #: No
+such file or directory`):
+
+```bash
+env $(grep -v '^#' .env.profound) npm start
+```
+
+Everything else (`DASHBOARD_USER`, thresholds, `CLIENT_NAME`, etc.) still
+comes from `.env` — this only swaps which Ashby org's data populates the
+dashboard, and does not rebrand the header/title to match. `env $(cat
+.env.profound) ...)` (no `grep`) will fail the same way on any of these files
+now that they carry the identifying comment.
 
 ## Run
 

@@ -34,6 +34,21 @@ npm run dev             # same, with --watch
 
 No build step, no test framework, no linter. Node 18+, CommonJS (`require`).
 
+**Multi-client env files.** `.env` is the full local dev config for whichever
+client this checkout currently targets. `.env.<client>` files (`.env.january`,
+`.env.luminai`, `.env.poetic`, `.env.profound`) each hold just that client's
+`ASHBY_API_KEY`, prefixed with a `# Client: <Name> — Railway project
+"dashboard-<name>"` comment so no file is ambiguous — see README § Running
+locally against a different client. All covered by `.gitignore`'s `.env`/
+`.env.*` (except `.env.example`). To point a local run at one of these
+without touching `.env`, strip the comment before handing it to `env`'s
+argument-list syntax (a bare `#` word otherwise gets executed as a command):
+`env $(grep -v '^#' .env.profound) npm start`. Don't assume a filename's
+client is correct without checking — it can be wrong (confirmed live: an
+earlier `.env.client` was assumed to be Profound and was actually Luminai).
+Verify via Ashby's `user.list` email domains and/or Railway's `CLIENT_NAME`
+var for that project, not the filename alone.
+
 ## Architecture
 
 Background poll (not webhooks — a dashboard just needs current state), one
@@ -553,14 +568,30 @@ is normally still in Application Review and any status).
   pattern, but deliberately does NOT close on selection (unlike
   dismiss-menu) since picking several options requires staying open — it
   closes only on the reset button, outside-click, or scroll.
-  **Department options come from the server** (`data.departments`, Ashby's
-  `department.list`). **Job/recruiter/coordinator options are all derived
-  client-side** via the shared `collectDistinct(data, idKey, nameKey)` from
-  whichever ones are actually represented across `CANDIDATE_SECTION_KEYS`'
-  items in `lastData` — deliberately NOT a separate `job.list`/etc. call,
-  since e.g. `job.list` would include every closed/archived job org-wide
-  (dozens to hundreds) rather than just the ones with candidates currently
-  on screen. `filterByEntity()` is applied to the seven candidate sections'
+  **Department/job/recruiter/coordinator options are all derived
+  client-side**, from whichever ones are actually represented across
+  `CANDIDATE_SECTION_KEYS`' items in `lastData` — deliberately NOT a
+  separate org-wide list call for any of them, since e.g. `job.list` (or
+  `department.list` without this filtering) would include every
+  closed/archived job or department org-wide (dozens to hundreds) rather
+  than just the ones with candidates currently on screen. Job/recruiter/
+  coordinator use the shared `collectDistinct(data, idKey, nameKey)`, which
+  reads the name straight off each item. Department is `collectDistinctDepartments(data)`
+  instead, because candidate items only carry `departmentId`, not a name:
+  it collects the same way, then resolves each id's name/`isArchived`/
+  `createdAt` via the `lastDepartments` lookup (still populated from the
+  server's `data.departments`, Ashby's `department.list` with
+  `includeArchived: true` — see `ashby.listDepartments()`), then runs
+  `disambiguateDepartmentNames()` before the final alphabetical sort.
+  Some orgs have two departments sharing a `name` (most commonly an
+  archived one and its active replacement, occasionally two distinct
+  active ones); rather than merge them into one dropdown row — which
+  would make checking it silently filter by only one of the two department
+  IDs — collisions are labeled: an archived member of a colliding pair gets
+  `" (archived)"` appended, and if a collision remains after that (two
+  active departments, same name) each gets `" (1)"`/`" (2)"`/etc., numbered
+  oldest-created-first so the numbering doesn't reshuffle across refreshes.
+  `filterByEntity()` is applied to the seven candidate sections'
   arrays before each is rendered (`renderColumn`/`renderStale`/
   `renderRecentSourced`/`renderOnsiteToday`/`renderRescheduledInterviews`) —
   Interviewer Weekly Limits and Interviewer Training deliberately skip it,
