@@ -714,10 +714,16 @@
       renderSectionTimestamp(key, data.lastUpdated, data.lastError);
     }
 
+    // Always reassigns (never appends) before optionally appending the error
+    // below — `data.lastUpdated` stays null forever if every refresh since
+    // startup has failed, which used to mean the `if (data.lastUpdated)`
+    // branch never ran to reset textContent first; with `+=` as the only
+    // write, each failed poll (every 60s) appended another copy of the same
+    // error onto whatever was already there instead of replacing it.
     const lastUpdatedEl = document.getElementById("last-updated");
-    if (data.lastUpdated) {
-      lastUpdatedEl.textContent = `Updated ${new Date(data.lastUpdated).toLocaleTimeString([], { timeZone: displayTimeZone })}`;
-    }
+    lastUpdatedEl.textContent = data.lastUpdated
+      ? `Updated ${new Date(data.lastUpdated).toLocaleTimeString([], { timeZone: displayTimeZone })}`
+      : "Never updated";
     if (data.lastError) {
       lastUpdatedEl.textContent += ` — last refresh failed: ${data.lastError}`;
     }

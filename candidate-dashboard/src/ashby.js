@@ -8,19 +8,26 @@ function authHeader() {
   return `Basic ${Buffer.from(`${config.ashbyApiKey}:`).toString("base64")}`;
 }
 
-// A single rate-limited request (whether it's one page of a multi-page
+// A single retryable request (whether it's one page of a multi-page
 // pagination walk, or a one-off lookup like user.interviewerSettings)
 // retries with exponential backoff instead of throwing immediately — without
-// this, a 429 mid-pagination would abort the entire fetchAllPages() walk
-// (and therefore the whole refresh cycle) rather than just slowing down.
-// Honors a Retry-After header when Ashby sends one; otherwise doubles the
-// delay each attempt. Gives up once *cumulative* waiting would exceed
-// RATE_LIMIT_MAX_TOTAL_BACKOFF_MS, at which point it throws like before and
-// the caller's own error handling takes over (fetchApplicationSummaries/
-// listInterviewerLimits already skip a single failed item; fetchAllPages
-// still propagates, same as a non-429 failure always has).
-const RATE_LIMIT_MAX_TOTAL_BACKOFF_MS = 4 * 60 * 1000;
-const RATE_LIMIT_INITIAL_DELAY_MS = 1000;
+// this, a 429/502/503/504 mid-pagination would abort the entire
+// fetchAllPages() walk (and therefore the whole refresh cycle) rather than
+// just slowing down. 502/503/504 are Ashby-side upstream/gateway errors,
+// same as a 429 in that they're transient and unrelated to the request
+// itself — a request that fails with one now almost always succeeds a
+// moment later, so treating them as fatal killed the whole refresh over
+// what's usually a blip. Honors a Retry-After header when Ashby sends one
+// (rare for 5xx, but checked regardless in case it's present); otherwise
+// doubles the delay each attempt. Gives up once *cumulative* waiting would
+// exceed RETRYABLE_MAX_TOTAL_BACKOFF_MS, at which point it throws like
+// before and the caller's own error handling takes over
+// (fetchApplicationSummaries/listInterviewerLimits already skip a single
+// failed item; fetchAllPages still propagates, same as a non-retryable
+// failure always has).
+const RETRYABLE_STATUS_CODES = new Set([429, 502, 503, 504]);
+const RETRYABLE_MAX_TOTAL_BACKOFF_MS = 4 * 60 * 1000;
+const RETRYABLE_INITIAL_DELAY_MS = 1000;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -37,20 +44,21 @@ async function ashbyPost(endpoint, body) {
       body: JSON.stringify(body),
     });
 
-    if (res.status === 429) {
+    if (RETRYABLE_STATUS_CODES.has(res.status)) {
       const retryAfterSeconds = parseInt(res.headers.get("retry-after"), 10);
       const backoffMs =
         !Number.isNaN(retryAfterSeconds) && retryAfterSeconds >= 0
           ? Math.max(retryAfterSeconds * 1000, 250)
-          : RATE_LIMIT_INITIAL_DELAY_MS * 2 ** attempt;
+          : RETRYABLE_INITIAL_DELAY_MS * 2 ** attempt;
 
-      if (totalWaitedMs + backoffMs > RATE_LIMIT_MAX_TOTAL_BACKOFF_MS) {
-        throw new Error(`${endpoint} -> HTTP 429 (gave up after ${Math.round(totalWaitedMs / 1000)}s of retries)`);
+      if (totalWaitedMs + backoffMs > RETRYABLE_MAX_TOTAL_BACKOFF_MS) {
+        throw new Error(`${endpoint} -> HTTP ${res.status} (gave up after ${Math.round(totalWaitedMs / 1000)}s of retries)`);
       }
 
       attempt += 1;
       totalWaitedMs += backoffMs;
-      console.warn(`[ashby] ${endpoint} rate-limited (429), waiting ${Math.round(backoffMs / 1000)}s before retry ${attempt}`);
+      const reason = res.status === 429 ? "rate-limited (429)" : `upstream error (${res.status})`;
+      console.warn(`[ashby] ${endpoint} ${reason}, waiting ${Math.round(backoffMs / 1000)}s before retry ${attempt}`);
       await sleep(backoffMs);
       continue;
     }
