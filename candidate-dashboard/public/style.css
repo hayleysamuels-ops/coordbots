@@ -684,7 +684,7 @@ button#refresh-btn.spinning {
   border-color: var(--text-muted);
 }
 
-/* "Hide" (indefinite) reads heavier than "Today" even at rest — an
+/* "Hide" (indefinite) reads heavier than "Snooze" even at rest — an
    ember-tinted chip rather than a neutral one — so the more consequential
    action never looks like the lighter one just because both start out
    subtle. Rest-state opacity (0.85) only matters while neither :hover nor

@@ -288,7 +288,7 @@
   function dismissHtml(key) {
     return `
       <div class="dismiss">
-        <button class="dismiss-btn" data-key="${key}" data-scope="today" aria-label="Hide until tomorrow" title="Hide until tomorrow">Today</button>
+        <button class="dismiss-btn" data-key="${key}" data-scope="today" aria-label="Hide until tomorrow" title="Hide until tomorrow">Snooze</button>
         <button class="dismiss-btn dismiss-forever" data-key="${key}" data-scope="forever" aria-label="Hide indefinitely" title="Hide indefinitely">Hide</button>
       </div>`;
   }

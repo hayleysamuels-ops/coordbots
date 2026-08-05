@@ -362,8 +362,8 @@ there's also a "Refresh now" button on the page for an on-demand pull.
 Every card has two always-visible buttons in its top-right corner (no
 click-to-open menu — see § Correction below):
 
-- **1d** — hide until tomorrow; the card reappears at the next local midnight.
-- **×** — hide indefinitely; the card stays hidden until manually un-dismissed.
+- **Snooze** — hide until tomorrow; the card reappears at the next local midnight.
+- **Hide** — hide indefinitely; the card stays hidden until manually un-dismissed.
 
 Either one fires immediately, no confirmation step, and a small toast at the
 bottom of the page offers **Undo** for 12 seconds afterward.
