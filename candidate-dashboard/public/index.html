@@ -28,16 +28,6 @@
   </nav>
 
   <div id="tab-dashboard" class="tab-panel">
-    <nav class="section-nav">
-      <a href="#feedbackOverdue">Feedback Overdue</a>
-      <a href="#needsScheduling">Needs Scheduling</a>
-      <a href="#availabilitySubmitted">Availability Submitted</a>
-      <a href="#rescheduledInterviews">Rescheduled Interviews</a>
-      <a href="#recentSourced">Recently Sourced</a>
-      <a href="#staleCandidates">Stale Candidates</a>
-      <a href="#onsiteToday">Onsite Interviews Today</a>
-    </nav>
-
     <div class="filter-bar">
       <span class="filter-bar-label">Filter by</span>
       <div class="filter-mode-toggle" role="group" aria-label="Filter by">
@@ -55,46 +45,36 @@
     </div>
 
     <div class="page-with-margin">
-    <main class="page-stack">
-      <section id="feedbackOverdue" class="column wide-section" data-key="feedbackOverdue">
-        <h2><span class="dot dot-critical"></span>Feedback Overdue</h2>
-        <span class="section-updated muted" id="updated-feedbackOverdue"></span>
-        <p class="column-sub">Interview ended, scorecard still not submitted.</p>
-        <div class="cards" id="cards-feedbackOverdue"></div>
-      </section>
-
-      <div class="row-pair">
-        <section id="needsScheduling" class="column" data-key="needsScheduling">
-          <h2><span class="dot dot-warning"></span>Needs Scheduling</h2>
-          <span class="section-updated muted" id="updated-needsScheduling"></span>
-          <p class="column-sub">
-            Nothing has been sent to the candidate yet — no availability
-            request, no self-schedule link.
-          </p>
-          <div class="cards" id="cards-needsScheduling"></div>
-        </section>
-
-        <section id="availabilitySubmitted" class="column wide-section" data-key="availabilitySubmitted">
-          <h2><span class="dot dot-warning"></span>Availability Submitted</h2>
-          <span class="section-updated muted" id="updated-availabilitySubmitted"></span>
-          <p class="column-sub">
-            The candidate replied with their availability — waiting on someone to
-            actually book the interview.
-          </p>
-          <div class="cards" id="cards-availabilitySubmitted"></div>
-        </section>
+    <aside class="queue-sidebar">
+      <div class="queue-group">
+        <h3 class="queue-group-title">Triage queues</h3>
+        <nav class="queue-nav" id="triage-queue-nav"></nav>
       </div>
+      <div class="queue-group">
+        <h3 class="queue-group-title">Watchlist</h3>
+        <nav class="queue-nav" id="watchlist-queue-nav"></nav>
+      </div>
+    </aside>
 
-      <section id="rescheduledInterviews" class="column wide-section" data-key="rescheduledInterviews">
-        <h2><span class="dot dot-critical"></span>Rescheduled Interviews</h2>
-        <span class="section-updated muted" id="updated-rescheduledInterviews"></span>
-        <p class="column-sub" id="rescheduledInterviews-sub">
-          Interview events rescheduled more than a couple times. Ashby has no
-          reschedule history of its own, so this only counts reschedules
-          this app has actually observed since it started tracking — it
-          can't see further back than that.
-        </p>
-        <div class="cards" id="cards-rescheduledInterviews"></div>
+    <main class="page-stack">
+      <section id="actionQueue" class="column action-queue-section">
+        <h2>Action queue</h2>
+        <span class="section-updated muted" id="updated-actionQueue"></span>
+        <p class="column-sub" id="actionQueue-sub"></p>
+        <div class="signal-chip-row" id="signal-chip-row"></div>
+        <table class="action-queue-table">
+          <thead>
+            <tr>
+              <th>Candidate</th>
+              <th>Stage &amp; role</th>
+              <th>Signal</th>
+              <th>Waiting</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="action-queue-body"></tbody>
+        </table>
+        <p class="column-sub aq-footnote" id="actionQueue-footnote"></p>
       </section>
 
       <section id="recentSourced" class="column wide-section" data-key="recentSourced">
@@ -124,7 +104,7 @@
         <p class="column-sub" id="onsiteToday-sub">
           Today's final-round and executive interviews.
         </p>
-        <div class="cards" id="cards-onsiteToday"></div>
+        <div class="onsite-timeline" id="cards-onsiteToday"></div>
       </section>
     </aside>
     </div>

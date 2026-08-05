@@ -237,26 +237,6 @@ button#refresh-btn.spinning {
   display: none;
 }
 
-.section-nav {
-  display: flex;
-  gap: 20px;
-  padding: 10px 28px;
-  border-bottom: 1px solid var(--border);
-  font-size: 14px;
-  font-weight: 600;
-  overflow-x: auto;
-}
-
-.section-nav a {
-  color: var(--text-secondary);
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.section-nav a:hover {
-  color: var(--ember);
-}
-
 .filter-bar {
   display: flex;
   align-items: center;
@@ -411,11 +391,10 @@ button#refresh-btn.spinning {
   accent-color: var(--ember);
 }
 
-/* Every section is its own full-width horizontal band, stacked vertically —
-   except Needs Scheduling and Availability Submitted, paired side by side
-   in a .row-pair (see below). */
-/* Outer wrapper: the main section stack on the left, a persistent
-   right-margin column alongside it on the right. */
+/* Outer wrapper: a left nav sidebar (Triage queues/Watchlist), the main
+   section stack (the merged Action queue table, then Recently Sourced and
+   Stale Candidates), and a persistent right-margin column (Onsite
+   Interviews Today) alongside it. */
 .page-with-margin {
   display: flex;
   align-items: flex-start;
@@ -423,6 +402,69 @@ button#refresh-btn.spinning {
   max-width: 1620px;
   margin: 0 auto;
   padding: 24px 28px;
+}
+
+.queue-sidebar {
+  flex: 0 0 220px;
+  position: sticky;
+  top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.queue-group-title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.queue-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.queue-nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.queue-nav-item:hover {
+  background: var(--surface-sunken);
+  color: var(--text-primary);
+}
+
+.queue-nav-item.is-active {
+  background: var(--grafite);
+  color: var(--white);
+}
+
+.queue-nav-item .queue-count {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.queue-nav-item.is-active .queue-count {
+  color: var(--white);
 }
 
 .page-stack {
@@ -444,6 +486,7 @@ button#refresh-btn.spinning {
     flex-direction: column;
   }
 
+  .queue-sidebar,
   .side-margin {
     flex-basis: auto;
     width: 100%;
@@ -466,40 +509,10 @@ button#refresh-btn.spinning {
 }
 
 /* Very light dividers between sections — subtle, not a hard rule. Only
-   between siblings (first child never gets one), so nothing doubles up with
-   the border the section-nav already has. */
+   between siblings (first child never gets one). */
 .page-stack > * + * {
   border-top: 1px solid var(--gridline);
   padding-top: 24px;
-}
-
-.row-pair {
-  display: flex;
-  align-items: flex-start;
-  gap: 20px;
-}
-
-.row-pair > .column {
-  flex: 1;
-  min-width: 0; /* let children shrink/wrap instead of overflowing the flex item */
-}
-
-.row-pair > .column:not(:first-child) {
-  border-left: 1px solid var(--gridline);
-  padding-left: 20px;
-}
-
-@media (max-width: 700px) {
-  .row-pair {
-    flex-direction: column;
-  }
-
-  .row-pair > .column:not(:first-child) {
-    border-left: none;
-    padding-left: 0;
-    border-top: 1px solid var(--gridline);
-    padding-top: 20px;
-  }
 }
 
 .wide-section .cards {
@@ -555,6 +568,211 @@ button#refresh-btn.spinning {
 
 .section-updated.stale {
   color: var(--warning);
+}
+
+.aq-footnote {
+  margin: 14px 0 0;
+  font-size: 12px;
+}
+
+/* Single-select pills mirroring the sidebar's Triage queues group — same
+   `activeSignal` state, just a second surface for it (see the delegated
+   click listener's shared `[data-signal]` handling in app.js). */
+.signal-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.signal-chip {
+  border: 1px solid var(--border-default);
+  background: var(--white);
+  color: var(--text-secondary);
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.signal-chip:hover {
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+}
+
+.signal-chip.is-active {
+  background: var(--grafite);
+  border-color: var(--grafite);
+  color: var(--white);
+}
+
+.action-queue-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.action-queue-table th {
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 2px solid var(--border-default);
+}
+
+.action-queue-table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--gridline);
+  vertical-align: middle;
+}
+
+.action-queue-table tbody tr:hover {
+  background: var(--surface-sunken);
+}
+
+.aq-candidate {
+  font-weight: 700;
+}
+
+.aq-candidate a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.aq-candidate a:hover {
+  color: var(--ember);
+  text-decoration: underline;
+}
+
+.aq-stage-role .aq-stage {
+  font-weight: 600;
+}
+
+.aq-stage-role .aq-role {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+/* Fixed per queue category (which signal this is) — a different concern
+   from .aq-waiting's severity color below (how urgent THIS row is within
+   its own category). Deliberately NOT the good/warning/serious/critical
+   "heat ramp" used for grading one thing's escalating severity (warning/
+   serious/critical are all the same ember hue, just darker per step —
+   confirmed too similar at a glance once real data was on screen): this
+   needs four categories to actually read as different colors, not shades
+   of the same one, so it spans critical/warning/good instead (skipping
+   serious) plus a neutral gray for Rescheduled, which doesn't fit the
+   ramp's severity semantics at all. */
+.signal-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.signal-tag.signal-critical {
+  color: var(--critical);
+  background: var(--critical-wash);
+}
+.signal-tag.signal-warning {
+  color: var(--warning);
+  background: var(--warning-wash);
+}
+.signal-tag.signal-good {
+  color: var(--good);
+  background: var(--good-wash);
+}
+.signal-tag.signal-neutral {
+  color: var(--text-secondary);
+  background: var(--surface-sunken);
+}
+
+.aq-waiting {
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.aq-waiting.sev-warning {
+  color: var(--warning);
+}
+.aq-waiting.sev-serious {
+  color: var(--serious);
+}
+.aq-waiting.sev-critical {
+  color: var(--critical);
+}
+
+.aq-dismiss {
+  text-align: right;
+}
+
+/* Right-rail timeline for Onsite Interviews Today — time-first, one row per
+   onsite, replacing the card format every other section still uses (see
+   renderOnsiteToday() in app.js). */
+.onsite-timeline {
+  display: flex;
+  flex-direction: column;
+  max-height: 480px;
+  overflow-y: auto;
+}
+
+.onsite-timeline-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--gridline);
+}
+
+.onsite-timeline-item:last-child {
+  border-bottom: none;
+}
+
+.onsite-timeline-time {
+  flex: 0 0 56px;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.onsite-timeline-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.onsite-timeline-name {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.onsite-timeline-name a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.onsite-timeline-name a:hover {
+  color: var(--ember);
+  text-decoration: underline;
+}
+
+.onsite-timeline-sub {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.onsite-timeline-dismiss {
+  flex: none;
 }
 
 /* Small chamfered squares instead of circles — a quiet nod to Carrara's

@@ -15,6 +15,13 @@
   // client-side only, same re-render-from-cache pattern as the filter.
   let showPausedTrainees = false;
 
+  // Which Action queue signal is currently narrowing the merged table —
+  // "all" or one of TRIAGE_QUEUES' keys. Drives both the sidebar's Triage
+  // queues group and the chip row above the table; same re-render-from-cache
+  // pattern as the department/job/recruiter/coordinator filter and the
+  // paused-trainees toggle above.
+  let activeSignal = "all";
+
   // Sections this deployment has turned off (DISABLED_SECTIONS, see
   // config.js) — populated from appConfig once, in applyDisabledSections().
   // render() checks this instead of every renderX() guarding a possibly-
@@ -226,30 +233,73 @@
     updateEntityButtonLabel();
   }
 
-  const columns = [
+  // The four sections that used to be their own stacked columns are now
+  // merged into one "Action queue" table (see renderActionQueue() below) —
+  // this table drives that merge instead of one renderColumn() per key.
+  // `signalClass` picks the Signal tag's color (see .signal-tag in
+  // style.css); `waitingHours`/`waitingLabel` compute and format the
+  // "how long has this been sitting" value each row is sorted and
+  // color-graded by.
+  const TRIAGE_QUEUES = [
     {
       key: "feedbackOverdue",
-      hoursField: "hoursOverdue",
+      label: "Feedback overdue",
       thresholdKey: "feedbackOverdueHours",
+      signalClass: "signal-critical",
+      waitingHours: (item) => item.hoursOverdue,
+      waitingLabel: (hours) => `${formatAge(hours)} overdue`,
       renderDetail: (item) =>
         item.interviewers && item.interviewers.length
           ? `Waiting on: ${item.interviewers.map((i) => i.name).join(", ")}`
           : "",
-      ageLabel: (hours) => `${formatAge(hours)} overdue`,
     },
     {
       key: "needsScheduling",
-      hoursField: "hoursPending",
+      label: "Needs scheduling",
       thresholdKey: "needsSchedulingAlertHours",
+      // Not signal-serious: that's the same ember hue as feedbackOverdue's
+      // signal-critical, just a lighter tint — Carrara's warning/serious/
+      // critical trio is a deliberately monochrome "heat ramp" for grading
+      // ONE thing's escalating severity, not for telling apart unrelated
+      // categories. A Signal tag needs actual hue variety to scan at a
+      // glance, so this reaches outside that ramp instead.
+      signalClass: "signal-warning",
+      waitingHours: (item) => item.hoursPending,
+      waitingLabel: (hours) => `${formatAge(hours)} pending`,
       renderDetail: () => "",
-      ageLabel: (hours) => `${formatAge(hours)} pending`,
     },
     {
       key: "availabilitySubmitted",
-      hoursField: "hoursWaiting",
+      label: "Availability submitted",
       thresholdKey: "availabilitySubmittedAlertHours",
+      // moss/"good", not another ember shade — the candidate has already
+      // responded here (distinct from the other three, which are all
+      // still waiting on someone internally), and it doubles as real hue
+      // separation from feedbackOverdue/needsScheduling's tags.
+      signalClass: "signal-good",
+      waitingHours: (item) => item.hoursWaiting,
+      waitingLabel: (hours) => `${formatAge(hours)} waiting`,
       renderDetail: () => "",
-      ageLabel: (hours) => `${formatAge(hours)} waiting`,
+    },
+    {
+      key: "rescheduledInterviews",
+      label: "Rescheduled 3+ times",
+      thresholdKey: null,
+      signalClass: "signal-neutral",
+      // Unlike the other three, this record shape has no native "waiting
+      // since X" hours field (see listIssues() in ashby.js — only
+      // rescheduleCount and the current startTime exist). Derived from
+      // startTime instead, an existing field: hours since the
+      // (already-rescheduled) slot was supposed to happen. A startTime
+      // still in the future reads as "Upcoming" rather than a negative
+      // duration — it hasn't actually been missed (yet).
+      waitingHours: (item) => (Date.now() - new Date(item.startTime).getTime()) / (1000 * 60 * 60),
+      waitingLabel: (hours) => (hours >= 0 ? `${formatAge(hours)} since rescheduled` : "Upcoming"),
+      renderDetail: (item) =>
+        `Currently scheduled: ${formatEventDateTime(item.startTime)}` +
+        (item.interviewers && item.interviewers.length
+          ? ` — Interviewers: ${item.interviewers.map((i) => i.name).join(", ")}`
+          : ""),
     },
   ];
 
@@ -335,22 +385,147 @@
     `;
   }
 
-  function renderColumn(col, items, threshold) {
-    const container = document.getElementById(`cards-${col.key}`);
-    if (!items.length) {
-      container.innerHTML = `<div class="empty-state">Nothing flagged</div>`;
+  // One row per candidate across all non-disabled TRIAGE_QUEUES, tagged
+  // with which queue it came from — `filterByEntity` (department/job/
+  // recruiter/coordinator) is applied per source exactly as it was when
+  // these were separate sections, before merging. Sorted longest-waiting
+  // first, across all four sources at once.
+  function buildActionQueueRows(data) {
+    const rows = [];
+    for (const queue of TRIAGE_QUEUES) {
+      if (isSectionDisabled(queue.key)) continue;
+      for (const item of filterByEntity(data[queue.key] || [])) {
+        rows.push({ item, queue, hours: queue.waitingHours(item) });
+      }
+    }
+    rows.sort((a, b) => b.hours - a.hours);
+    return rows;
+  }
+
+  function actionQueueRowHtml({ item, queue, hours }, thresholds) {
+    const nameHtml = item.ashbyProfileUrl
+      ? `<a href="${item.ashbyProfileUrl}" target="_blank" rel="noopener">${item.candidateName || "Unknown candidate"}</a>`
+      : item.candidateName || "Unknown candidate";
+    const detail = queue.renderDetail(item);
+    // Signal tag color is fixed per queue (which category this is); the
+    // Waiting cell's color is the existing ratio-to-threshold severity()
+    // instead (how urgent THIS row specifically is within its category) —
+    // same computation renderColumn() used to feed into a card's left
+    // border, just displayed as text color here. Rescheduled rows have no
+    // threshold concept, so they get neither treatment.
+    const sevClass = queue.thresholdKey && thresholds ? `sev-${severity(hours, thresholds[queue.thresholdKey])}` : "";
+    return `
+      <tr class="action-queue-row">
+        <td class="aq-candidate">${nameHtml}</td>
+        <td class="aq-stage-role">
+          <div class="aq-stage">${queue.label}</div>
+          <div class="aq-role">${item.jobTitle || ""}</div>
+        </td>
+        <td><span class="signal-tag ${queue.signalClass}">${queue.label}</span></td>
+        <td class="aq-waiting ${sevClass}"${detail ? ` title="${detail}"` : ""}>${queue.waitingLabel(hours)}</td>
+        <td class="aq-dismiss">${dismissHtml(candidateKey(item))}</td>
+      </tr>`;
+  }
+
+  // Sidebar's Triage queues group and the chip row above the table are two
+  // views of the same `activeSignal` state — clicking either narrows the
+  // same merged table the same way (see the delegated click listener's
+  // `[data-signal]` handling below). Counts reflect the entity filter and
+  // disabled sections but NOT the current activeSignal selection, so every
+  // option's true size stays visible regardless of which one is picked.
+  function renderQueueNav(countsByQueue, totalCount, data) {
+    const triageNav = document.getElementById("triage-queue-nav");
+    if (triageNav) {
+      const rows = [
+        `<button type="button" class="queue-nav-item${activeSignal === "all" ? " is-active" : ""}" data-signal="all">
+          <span>All action items</span><span class="queue-count">${totalCount}</span>
+        </button>`,
+      ];
+      for (const queue of TRIAGE_QUEUES) {
+        if (isSectionDisabled(queue.key)) continue;
+        rows.push(`
+          <button type="button" class="queue-nav-item${activeSignal === queue.key ? " is-active" : ""}" data-signal="${queue.key}">
+            <span>${queue.label}</span><span class="queue-count">${countsByQueue[queue.key]}</span>
+          </button>`);
+      }
+      triageNav.innerHTML = rows.join("");
+    }
+
+    const watchlistNav = document.getElementById("watchlist-queue-nav");
+    if (watchlistNav) {
+      const rows = [];
+      if (!isSectionDisabled("recentSourced")) {
+        rows.push(`
+          <a class="queue-nav-item" href="#recentSourced">
+            <span>Recently sourced</span><span class="queue-count">${filterByEntity(data.recentSourced || []).length}</span>
+          </a>`);
+      }
+      if (!isSectionDisabled("staleCandidates")) {
+        rows.push(`
+          <a class="queue-nav-item" href="#staleCandidates">
+            <span>Stale candidates</span><span class="queue-count">${filterByEntity(data.staleCandidates || []).length}</span>
+          </a>`);
+      }
+      watchlistNav.innerHTML = rows.join("");
+    }
+  }
+
+  function renderSignalChips(countsByQueue, totalCount) {
+    const container = document.getElementById("signal-chip-row");
+    if (!container) return;
+    const chips = [
+      `<button type="button" class="signal-chip${activeSignal === "all" ? " is-active" : ""}" data-signal="all">All ${totalCount}</button>`,
+    ];
+    for (const queue of TRIAGE_QUEUES) {
+      if (isSectionDisabled(queue.key)) continue;
+      chips.push(
+        `<button type="button" class="signal-chip${activeSignal === queue.key ? " is-active" : ""}" data-signal="${queue.key}">${queue.label} ${countsByQueue[queue.key]}</button>`
+      );
+    }
+    container.innerHTML = chips.join("");
+  }
+
+  // Reschedule-count caveat used to live on the Rescheduled Interviews
+  // section's own subtitle (updateRescheduledSubtitle) — folded in here
+  // since that section no longer exists on its own, merged into this table.
+  function updateActionQueueFootnote(threshold) {
+    const el = document.getElementById("actionQueue-footnote");
+    if (!el) return;
+    if (isSectionDisabled("rescheduledInterviews") || !threshold) {
+      el.textContent = "";
       return;
     }
-    container.innerHTML = items
-      .map((item) => {
-        const hours = item[col.hoursField];
-        return cardHtml(item, {
-          sev: severity(hours, threshold),
-          ageLabel: col.ageLabel(hours),
-          detail: col.renderDetail(item),
-        });
-      })
-      .join("");
+    el.textContent =
+      `"Rescheduled 3+ times" only counts reschedules more than ${threshold} time${threshold === 1 ? "" : "s"} that this ` +
+      `app has actually observed since it started tracking — Ashby has no reschedule history of its own, so it can't see ` +
+      `further back than that.`;
+  }
+
+  function renderActionQueue(data) {
+    const allRows = buildActionQueueRows(data);
+    const countsByQueue = {};
+    for (const queue of TRIAGE_QUEUES) {
+      countsByQueue[queue.key] = isSectionDisabled(queue.key) ? 0 : filterByEntity(data[queue.key] || []).length;
+    }
+    const totalCount = allRows.length;
+
+    renderQueueNav(countsByQueue, totalCount, data);
+    renderSignalChips(countsByQueue, totalCount);
+    updateActionQueueFootnote(data.thresholds && data.thresholds.rescheduleCountThreshold);
+
+    const sub = document.getElementById("actionQueue-sub");
+    if (sub) {
+      sub.textContent = totalCount
+        ? `${totalCount} candidate${totalCount === 1 ? "" : "s"} blocked on a coordinator action, ordered by how long each has been waiting.`
+        : "Nothing blocked on a coordinator action right now.";
+    }
+
+    const visibleRows = activeSignal === "all" ? allRows : allRows.filter((r) => r.queue.key === activeSignal);
+    const tbody = document.getElementById("action-queue-body");
+    if (!tbody) return;
+    tbody.innerHTML = visibleRows.length
+      ? visibleRows.map((row) => actionQueueRowHtml(row, data.thresholds)).join("")
+      : `<tr><td colspan="5"><div class="empty-state">Nothing flagged</div></td></tr>`;
   }
 
   function renderStale(items) {
@@ -478,6 +653,12 @@
       .join("");
   }
 
+  // Right-rail timeline, not cards — one row per onsite, time-first (the
+  // thing that actually orders a coordinator's day), matching this
+  // section's persistent-margin placement. Same underlying fields as
+  // before (startTime, stageTitle, jobTitle, interviewers, candidateName,
+  // ashbyProfileUrl); dismiss still uses candidateKey()/dismissHtml() same
+  // as every other section.
   function renderOnsiteToday(items) {
     const container = document.getElementById("cards-onsiteToday");
     if (!items.length) {
@@ -485,39 +666,24 @@
       return;
     }
     container.innerHTML = items
-      .map((item) =>
-        cardHtml(item, {
-          sev: "warning",
-          ageLabel: formatEventTime(item.startTime),
-          ageClass: "muted",
-          reasonBadge: item.stageTitle,
-          detail:
-            item.interviewers && item.interviewers.length
-              ? `Interviewers: ${item.interviewers.map((i) => i.name).join(", ")}`
-              : "",
-        })
-      )
-      .join("");
-  }
-
-  function renderRescheduledInterviews(items) {
-    const container = document.getElementById("cards-rescheduledInterviews");
-    if (!items.length) {
-      container.innerHTML = `<div class="empty-state">Nothing flagged</div>`;
-      return;
-    }
-    container.innerHTML = items
-      .map((item) =>
-        cardHtml(item, {
-          sev: "critical",
-          ageLabel: `${item.rescheduleCount} reschedules`,
-          detail:
-            `Currently scheduled: ${formatEventDateTime(item.startTime)}` +
-            (item.interviewers && item.interviewers.length
-              ? ` — Interviewers: ${item.interviewers.map((i) => i.name).join(", ")}`
-              : ""),
-        })
-      )
+      .map((item) => {
+        const nameHtml = item.ashbyProfileUrl
+          ? `<a href="${item.ashbyProfileUrl}" target="_blank" rel="noopener">${item.candidateName || "Unknown candidate"}</a>`
+          : item.candidateName || "Unknown candidate";
+        const subParts = [item.stageTitle, item.jobTitle].filter(Boolean);
+        const interviewerText =
+          item.interviewers && item.interviewers.length ? `Interviewers: ${item.interviewers.map((i) => i.name).join(", ")}` : "";
+        return `
+          <div class="onsite-timeline-item">
+            <div class="onsite-timeline-time">${formatEventTime(item.startTime)}</div>
+            <div class="onsite-timeline-body">
+              <div class="onsite-timeline-name">${nameHtml}</div>
+              ${subParts.length ? `<div class="onsite-timeline-sub">${subParts.join(" · ")}</div>` : ""}
+              ${interviewerText ? `<div class="onsite-timeline-sub">${interviewerText}</div>` : ""}
+            </div>
+            <div class="onsite-timeline-dismiss">${dismissHtml(candidateKey(item))}</div>
+          </div>`;
+      })
       .join("");
   }
 
@@ -544,10 +710,9 @@
 
   // Offers Awaiting Acceptance / Not Yet Sent / Signed share the same card
   // shape (candidate, job title, start date, an age label off a different
-  // date field per column) — same table-driven pattern as `columns` above
-  // for feedbackOverdue/needsScheduling/availabilitySubmitted. Deliberately
-  // NOT run through filterByEntity() — the Offers tab has no department/
-  // job/recruiter/coordinator filter bar (see CLAUDE.md).
+  // date field per column) — same table-driven pattern as `TRIAGE_QUEUES`
+  // above. Deliberately NOT run through filterByEntity() — the Offers tab
+  // has no department/job/recruiter/coordinator filter bar (see CLAUDE.md).
   const offerColumns = [
     {
       key: "offersAwaitingAcceptance",
@@ -592,7 +757,7 @@
 
   // "Offers Signed" used to always say "the last 7 days" regardless of the
   // real OFFERS_SIGNED_LOOKBACK_DAYS value — same pattern as
-  // updateSourcedSubtitle/updateRescheduledSubtitle above.
+  // updateSourcedSubtitle/updateActionQueueFootnote above.
   function updateOffersSignedSubtitle(days) {
     const el = document.getElementById("offersSigned-sub");
     if (!el || !days) return;
@@ -600,15 +765,17 @@
     el.textContent = `Offers the candidate has accepted in the last ${days} ${label}.`;
   }
 
+  // feedbackOverdue/needsScheduling/availabilitySubmitted/rescheduledInterviews
+  // used to each have their own "Updated Xm ago" here — merged into one
+  // "actionQueue" timestamp now (see render()'s direct
+  // renderSectionTimestamp("actionQueue", ...) call), since they're one
+  // table, not four sections, each disableable independently via
+  // TRIAGE_QUEUES rather than this list.
   const SECTION_TIMESTAMP_KEYS = [
-    "feedbackOverdue",
-    "needsScheduling",
-    "availabilitySubmitted",
     "interviewerLimits",
     "recentSourced",
     "staleCandidates",
     "onsiteToday",
-    "rescheduledInterviews",
     "interviewerTraining",
     "offersNotYetSent",
     "offersAwaitingAcceptance",
@@ -630,27 +797,26 @@
     el.classList.toggle("stale", Boolean(errorMessage));
   }
 
-  // Removes a disabled section's nav link and <section> entirely (not just
-  // `hidden`) so structural CSS — `.page-stack > * + *`'s divider,
-  // `.row-pair > .column:not(:first-child)`'s border — recomputes against
-  // the real remaining siblings instead of leaving a stray divider/border
-  // where the removed section used to be. Collapses now-empty wrapper
-  // containers (`.row-pair`, `.side-margin`) too, so an all-disabled pair or
-  // a disabled Onsite Interviews Today doesn't leave an empty gap.
+  // Removes a disabled section's <section> entirely (not just `hidden`) so
+  // structural CSS — `.page-stack > * + *`'s divider — recomputes against
+  // the real remaining siblings instead of leaving a stray divider where the
+  // removed section used to be. Collapses a now-empty `.side-margin` too, so
+  // a disabled Onsite Interviews Today doesn't leave an empty gap. Only
+  // covers keys that still have their own static `[data-key]` section —
+  // recentSourced/staleCandidates/onsiteToday. The four TRIAGE_QUEUES keys
+  // don't (they're merged rows in one table now, not separate sections);
+  // renderActionQueue()'s own per-queue isSectionDisabled() checks handle
+  // those, same idea, different mechanism since there's no longer a whole
+  // section to remove for just one of the four.
   function applyDisabledSections(disabledSections) {
     disabledSectionKeys = new Set(disabledSections || []);
     for (const key of disabledSectionKeys) {
       const section = document.querySelector(`[data-key="${key}"]`);
-      if (!section) continue; // already removed on a previous render, or not a real section key
+      if (!section) continue; // already removed on a previous render, or not a static-section key
 
-      const navLink = document.querySelector(`.section-nav a[href="#${key}"]`);
-      if (navLink) navLink.remove();
-
-      const rowPair = section.closest(".row-pair");
       const sideMargin = section.closest(".side-margin");
       section.remove();
 
-      if (rowPair && !rowPair.querySelector(".column")) rowPair.remove();
       if (sideMargin && !sideMargin.querySelector(".column")) sideMargin.remove();
     }
   }
@@ -683,11 +849,12 @@
     // Sections in DISABLED_SECTIONS had their DOM removed by
     // applyDisabledSections() above — skip rendering into them entirely
     // rather than have each renderX() guard a container that no longer
-    // exists.
-    for (const col of columns) {
-      if (isSectionDisabled(col.key)) continue;
-      renderColumn(col, filterByEntity(data[col.key] || []), data.thresholds[col.thresholdKey]);
-    }
+    // exists. renderActionQueue() checks each of TRIAGE_QUEUES' own
+    // isSectionDisabled() itself (there's no longer a per-key DOM section
+    // to remove — they're merged rows in one table), same as the loop this
+    // replaced used to.
+    renderActionQueue(data);
+    renderSectionTimestamp("actionQueue", data.lastUpdated, data.lastError);
     if (!isSectionDisabled("staleCandidates")) renderStale(filterByEntity(data.staleCandidates || []));
     if (!isSectionDisabled("interviewerLimits")) {
       renderInterviewerLimits(data.interviewerLimits || []); // no department/job filter — no job/department concept for an interviewer
@@ -707,10 +874,6 @@
     if (!isSectionDisabled("onsiteToday")) {
       renderOnsiteToday(filterByEntity(data.onsiteToday || []));
       updateOnsiteSubtitle(data.appConfig && data.appConfig.onsiteStageKeywords);
-    }
-    if (!isSectionDisabled("rescheduledInterviews")) {
-      renderRescheduledInterviews(filterByEntity(data.rescheduledInterviews || []));
-      updateRescheduledSubtitle(data.thresholds && data.thresholds.rescheduleCountThreshold);
     }
     for (const col of offerColumns) {
       if (isSectionDisabled(col.key)) continue;
@@ -763,17 +926,6 @@
     }
     const quoted = joinWithAnd(keywords.map((k) => `"${k}"`));
     el.textContent = `Today's interviews whose stage title contains ${quoted}.`;
-  }
-
-  // "More than a couple times" used to be a fixed phrase regardless of the
-  // actual RESCHEDULE_COUNT_THRESHOLD value.
-  function updateRescheduledSubtitle(threshold) {
-    const el = document.getElementById("rescheduledInterviews-sub");
-    if (!el || !threshold) return;
-    el.textContent =
-      `Interview events rescheduled more than ${threshold} time${threshold === 1 ? "" : "s"}. Ashby has no ` +
-      `reschedule history of its own, so this only counts reschedules this app has actually observed since ` +
-      `it started tracking — it can't see further back than that.`;
   }
 
   // Recently Sourced used to always say "referred or sourced by an agency"
@@ -986,6 +1138,19 @@
     const pausedToggle = e.target.closest(".show-paused-toggle");
     if (pausedToggle) {
       showPausedTrainees = !showPausedTrainees;
+      if (lastData) render(lastData);
+      return;
+    }
+
+    // Sidebar's Triage queues group and the chip row above the Action queue
+    // table are two surfaces for the same `activeSignal` state — this
+    // selector only matches elements that actually carry `data-signal`
+    // (both `.signal-chip` and the sidebar's Triage `.queue-nav-item`
+    // buttons), so the Watchlist group's plain anchor links (no
+    // `data-signal`) fall through untouched, navigating normally.
+    const signalControl = e.target.closest("[data-signal]");
+    if (signalControl) {
+      activeSignal = signalControl.dataset.signal;
       if (lastData) render(lastData);
       return;
     }

@@ -31,8 +31,14 @@ moved to Stale Candidates.
 The page is split into three tabs (`.tab-btn`/`.tab-panel` in `index.html`
 and `app.js` — plain DOM show/hide via the `hidden` attribute, no router):
 
-- **Dashboard** (default) — every candidate-facing section above plus
-  Rescheduled Interviews and the department/job/recruiter/coordinator filter.
+- **Dashboard** (default) — a left sidebar (Triage queues: Feedback
+  Overdue/Needs Scheduling/Availability Submitted/Rescheduled Interviews,
+  each with a count; Watchlist: Recently Sourced/Stale Candidates, likewise),
+  one merged, sortable **Action queue** table for the four Triage queues
+  (see § Action queue below), Recently Sourced and Stale Candidates as their
+  own sections below it, Onsite Interviews Today as a timeline in the
+  persistent right margin, and the department/job/recruiter/coordinator
+  filter bar above all of it.
 - **Interviewer Info** — Interviewer Weekly Limits and Interviewer
   Training, which aren't tied to a candidate and aren't affected by the
   filter, so they live on their own tab out of the way of the
@@ -49,11 +55,54 @@ regardless of which tab is currently visible — switching tabs is instant
 and never shows stale content, since it's just toggling which already-
 rendered panel is hidden.
 
+## Action queue
+
+Feedback Overdue, Needs Scheduling, Availability Submitted, and Rescheduled
+Interviews used to each be their own stacked section. They're now one
+table — no new data, purely a client-side reshaping of the same four
+`/api/issues` arrays (`TRIAGE_QUEUES`/`buildActionQueueRows()` in `app.js`):
+
+- **One row per candidate across all four**, sorted longest-waiting-first.
+  Each row carries a colored **Signal** tag naming which of the four it
+  came from, a **Stage & role** cell, and a **Waiting** duration.
+- **Sidebar (Triage queues group) and the chip row above the table are two
+  surfaces for the same filter** — clicking either narrows the table to
+  just that one signal; clicking "All"/the sidebar's "All action items"
+  clears it. Counts on both reflect the department/job/recruiter/
+  coordinator filter and any disabled queues, but not the current signal
+  selection, so every option's true size is always visible.
+- **Signal tag colors are NOT the good/warning/serious/critical severity
+  ramp used elsewhere** (warning/serious/critical are the same ember hue at
+  different darkness — a ramp for one thing's escalating severity, not for
+  telling four unrelated categories apart at a glance). They span critical/
+  warning/good instead, plus a neutral gray for Rescheduled. The Waiting
+  cell's color is separate: the same ratio-to-threshold severity this app
+  always used, just shown as text color instead of a card's left border —
+  how urgent this specific row is within its own category.
+- **Rescheduled Interviews has no native "waiting since X" field** — only a
+  reschedule count and the interview's current (already-rescheduled) time.
+  Its Waiting value is derived from that existing time instead: hours since
+  it was supposed to happen. Still in the future reads "Upcoming," not a
+  negative duration.
+- **"Stage" reuses the Signal tag's own label**, not a real interview-stage
+  title — none of these four record shapes carry one without an additional
+  Ashby lookup per schedule, which would be new data-fetching. It reads as
+  redundant with the Signal tag next to it; that's a known, deliberate
+  simplification, not a bug.
+- **Dismiss (Snooze/Hide) works exactly as it does everywhere else** — same
+  `candidateKey()`/`dismissHtml()` as every other section, just inside a
+  table cell instead of a card.
+
 ## Section keys
 
-Every section has a stable key, used as its `<section data-key="...">`
-attribute in `index.html`, its field name in the `/api/issues` snapshot
-(`issues.js`/`ashby.js`), and its `DISABLED_SECTIONS` entry (see below):
+Every section has a stable key — its field name in the `/api/issues`
+snapshot (`issues.js`/`ashby.js`) and its `DISABLED_SECTIONS` entry (see
+below). `staleCandidates`/`recentSourced`/`onsiteToday`/`interviewerLimits`/
+`interviewerTraining`/the three Offers keys also use it as their
+`<section data-key="...">` attribute in `index.html`; `feedbackOverdue`/
+`needsScheduling`/`availabilitySubmitted`/`rescheduledInterviews` don't —
+those four are merged into one Action queue table (see § Action queue
+below) instead of each having their own section:
 
 | Key | Section |
 | --- | --- |
@@ -79,13 +128,19 @@ section is ever added, renamed, or removed.
 Set `DISABLED_SECTIONS` (comma-separated keys from the table above) to hide
 sections a client has no use for — e.g. a client that doesn't configure
 Ashby `weeklyLimit`s has no reason to show an always-empty Interviewer
-Weekly Limits. The frontend (`applyDisabledSections()` in `app.js`) removes
-the section's `<section>` element and its nav link entirely (not just
-`hidden`), and collapses the wrapper around it (`.row-pair`, `.side-margin`)
-if that was its only remaining child — so a disabled section never leaves a
-gap or an unbalanced column. The backend still computes every section's
-data regardless of `DISABLED_SECTIONS` (it's a display-only toggle); only
-rendering is skipped.
+Weekly Limits. For the eight keys that still have their own
+`<section data-key="...">`, the frontend (`applyDisabledSections()` in
+`app.js`) removes that element entirely (not just `hidden`), and collapses
+`.side-margin` around it if that was its only remaining child — so a
+disabled section never leaves a gap. The four Action queue keys
+(feedbackOverdue/needsScheduling/availabilitySubmitted/
+rescheduledInterviews) have no section of their own to remove — disabling
+one just drops its rows from the merged table and its entry from the
+sidebar/chip row (`TRIAGE_QUEUES`-driven, checked via `isSectionDisabled()`
+inside `buildActionQueueRows()`/`renderQueueNav()`/`renderSignalChips()`).
+Either way, the backend still computes every section's data regardless of
+`DISABLED_SECTIONS` (it's a display-only toggle); only rendering is
+skipped.
 
 Two safeguards against a silent typo: on startup, `config.js` logs the full
 list of recognized keys (`[config] Recognized section keys: ...`), and
@@ -359,8 +414,9 @@ there's also a "Refresh now" button on the page for an on-demand pull.
 
 ## Dismissing cards
 
-Every card has two always-visible buttons in its top-right corner (no
-click-to-open menu — see § Correction below):
+Every card, Action queue table row, and Onsite Interviews Today timeline
+entry has the same two always-visible buttons (no click-to-open menu — see
+§ Correction below):
 
 - **Snooze** — hide until tomorrow; the card reappears at the next local midnight.
 - **Hide** — hide indefinitely; the card stays hidden until manually un-dismissed.

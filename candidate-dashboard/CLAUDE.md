@@ -123,49 +123,95 @@ is normally still in Application Review and any status).
 
 ## Key design facts (don't "fix" these — they're intentional)
 
-- **The page is two tabs (Dashboard / Interviewer Info), implemented as
-  plain DOM show/hide, not a router.** `index.html` has two sibling
-  `.tab-panel` divs (`#tab-dashboard`, `#tab-interviewers`) and two
-  `.tab-btn` buttons with a `data-tab` attribute; `app.js`'s click handler
-  is generic over the convention `id="tab-<data-tab value>"`, so a third
-  tab needs only a matching button+panel pair, no JS changes. Both panels'
-  cards render on **every** poll regardless of which is visible — the
-  `hidden` attribute is purely cosmetic, so switching tabs is instant and
-  never shows stale content. Interviewer Weekly Limits and Interviewer
-  Training live on the Interviewer Info tab specifically because neither is
-  tied to a candidate/department/job/recruiter/coordinator, so they were
-  moved out of the candidate-facing Dashboard tab to reduce clutter there —
-  don't move them back without re-checking whether that reasoning still
-  holds. `.tab-panel` has NO conflicting `display` rule of its own — if you
-  ever add one, remember `.tab-panel[hidden] { display: none; }` needs to
-  win the cascade over it (author rules beat the browser's `[hidden]`
-  default at equal specificity only if the `[hidden]` override is also an
-  author rule — this exact class of bug has bitten this codebase before,
-  on an unconditional `display: block` rule elsewhere).
-- **`DISABLED_SECTIONS` removes a section's DOM node entirely — it does NOT
-  just hide it.** `applyDisabledSections()` in `app.js` calls
-  `section.remove()` (not `hidden`), because `.page-stack > * + *`'s divider
-  and `.row-pair > .column:not(:first-child)`'s border are structural CSS
-  pseudo-classes (`:first-child`, adjacent-sibling `+`) that only recompute
-  correctly against the real remaining DOM — `display: none` would leave
-  the removed section's sibling still NOT `:first-child` structurally, so a
-  stray divider/border would survive at the visual top of the section
-  (verified this the hard way against the real cascade behavior, not just
-  reasoned about it). Also collapses `.row-pair`/`.side-margin` to nothing
-  if the disabled section was their only remaining `.column`, so e.g.
-  disabling `onsiteToday` removes the whole right-margin sidebar rather
-  than leaving an empty 300px gap. `render()` skips calling each disabled
-  section's `renderX()`/`renderSectionTimestamp()` entirely (checked via
-  `isSectionDisabled()`) rather than having every `renderX()` guard a
-  container that might not exist — one guard point, not eight. The backend
-  (`issues.js`/`ashby.js`) still computes every section's data regardless;
-  this is purely a display-layer toggle, by design (see `config.js`'s
+- **The page is three tabs (Dashboard / Interviewer Info / Offers),
+  implemented as plain DOM show/hide, not a router.** `index.html` has
+  three sibling `.tab-panel` divs (`#tab-dashboard`, `#tab-interviewers`,
+  `#tab-offers`) and three `.tab-btn` buttons with a `data-tab` attribute;
+  `app.js`'s click handler is generic over the convention
+  `id="tab-<data-tab value>"`, so a fourth tab needs only a matching
+  button+panel pair, no JS changes. All three panels' content renders on
+  **every** poll regardless of which is visible — the `hidden` attribute is
+  purely cosmetic, so switching tabs is instant and never shows stale
+  content. Interviewer Weekly Limits and Interviewer Training live on the
+  Interviewer Info tab specifically because neither is tied to a
+  candidate/department/job/recruiter/coordinator, so they were moved out of
+  the candidate-facing Dashboard tab to reduce clutter there — don't move
+  them back without re-checking whether that reasoning still holds.
+  `.tab-panel` has NO conflicting `display` rule of its own — if you ever
+  add one, remember `.tab-panel[hidden] { display: none; }` needs to win
+  the cascade over it (author rules beat the browser's `[hidden]` default
+  at equal specificity only if the `[hidden]` override is also an author
+  rule — this exact class of bug has bitten this codebase before, on an
+  unconditional `display: block` rule elsewhere).
+- **Action queue merges four sections into one table; DISABLED_SECTIONS
+  hides a queue from it two different ways depending on whether that
+  section still has its own static DOM.** Feedback Overdue/Needs
+  Scheduling/Availability Submitted/Rescheduled Interviews used to each be
+  their own `<section data-key="...">` — now `TRIAGE_QUEUES` (`app.js`)
+  drives one merged, sortable table instead (see § Action queue below for
+  the full design). None of those four keys has a section to
+  `document.querySelector('[data-key="..."]')` and remove anymore, so
+  disabling one is handled entirely inside `buildActionQueueRows()`/
+  `renderQueueNav()`/`renderSignalChips()`, each looping `TRIAGE_QUEUES` and
+  skipping `isSectionDisabled(queue.key)` — the same idea `render()`'s old
+  per-column loop already used, just now inside the merge instead of at
+  render()'s top level. `recentSourced`/`staleCandidates`/`onsiteToday`
+  keep their own static sections, so `applyDisabledSections()` still
+  removes their DOM node directly (`section.remove()`, not `hidden` —
+  `.page-stack > * + *`'s divider is a structural CSS pseudo-class
+  (adjacent-sibling `+`) that only recomputes correctly against the real
+  remaining DOM; `display: none` would leave a stray divider at the top of
+  the next section — verified this the hard way against the real cascade
+  behavior, not just reasoned about it). Also collapses `.side-margin` to
+  nothing if `onsiteToday` was its only remaining `.column`, rather than
+  leaving an empty 300px gap. The backend (`issues.js`/`ashby.js`) still
+  computes every section's data regardless of `DISABLED_SECTIONS` — this is
+  purely a display-layer toggle, by design (see `config.js`'s
   `disabledSections` comment) — don't add server-side skip logic for it.
   `config.js`'s `SECTION_KEYS` array is the validated source of truth: it
   logs the full recognized list on startup and warns on any
   `DISABLED_SECTIONS` entry that doesn't match one, specifically so a typo
   (e.g. `interviewerWeeklyLimits` instead of `interviewerLimits`) is a loud
   deploy-log warning instead of a silently-ignored no-op.
+- **Action queue (`app.js`): `TRIAGE_QUEUES` is a 4-entry table
+  (feedbackOverdue/needsScheduling/availabilitySubmitted/
+  rescheduledInterviews) that `buildActionQueueRows()` merges into one
+  array, sorted by each entry's own `waitingHours(item)` descending — no
+  new Ashby data, purely a client-side reshaping of the same four arrays
+  `data.feedbackOverdue`/etc. already were.** `filterByEntity()` still
+  applies per-source before merging, same as always. `activeSignal`
+  ("all" or one of `TRIAGE_QUEUES[].key`) narrows which rows show; two
+  surfaces write it — the sidebar's Triage queues group
+  (`#triage-queue-nav`) and the chip row above the table
+  (`#signal-chip-row`) — via one delegated `[data-signal]` click handler,
+  so they can never drift out of sync with each other. Sidebar/chip counts
+  are computed BEFORE `activeSignal` narrows anything, so every option's
+  true size stays visible regardless of which one is currently picked.
+  `queue.signalClass` (the Signal tag's fixed color) is deliberately NOT
+  Carrara's `good`/`warning`/`serious`/`critical` severity ramp applied
+  1:1 — `warning`/`serious`/`critical` are the same ember hue at different
+  darkness (a ramp for grading one thing's escalating severity), which
+  reads as near-identical tags once real data was actually on screen
+  (confirmed live). The four signal classes instead span `critical`/
+  `warning`/`good`/a custom `neutral` (gray, for Rescheduled, which
+  doesn't fit the good/bad severity framing at all) for real hue
+  separation. `.aq-waiting`'s color is a SEPARATE, ratio-to-threshold
+  `severity()` call (same function `renderColumn()` used to feed a card's
+  left border) — how urgent THIS row is within its own category, not
+  which category it is. Rescheduled Interviews has no native "waiting
+  since X" field (only `rescheduleCount` + the current `startTime` — see
+  `listIssues()` in `ashby.js`); its `waitingHours` is derived from
+  `startTime` instead (hours since the already-rescheduled slot was
+  supposed to happen; a future `startTime` reads "Upcoming", not a
+  negative duration) — an existing field used differently, not a new
+  data source. The "Stage" half of the Stage & Role column reuses each
+  row's own `queue.label` (there's no interview-stage-title field on
+  these four record shapes without an additional `interviewStage.info`
+  call per schedule, which would be new data-fetching — out of scope when
+  this was built) — it's honestly redundant with the Signal tag next to
+  it; don't be surprised the two columns say the same thing per row, and
+  don't try to "fix" that without first deciding whether a real stage
+  lookup (new API calls) is worth adding.
 - **Interviewer Training (`listInterviewerTraining()` in `ashby.js`) uses
   real, structured Ashby fields (`Shadow`/`ReverseShadow` via
   `interviewerPool.list`'s `trainingPath.trainingStages[].interviewerRole`)
@@ -592,13 +638,14 @@ is normally still in Application Review and any status).
   `" (archived)"` appended, and if a collision remains after that (two
   active departments, same name) each gets `" (1)"`/`" (2)"`/etc., numbered
   oldest-created-first so the numbering doesn't reshuffle across refreshes.
-  `filterByEntity()` is applied to the seven candidate sections'
-  arrays before each is rendered (`renderColumn`/`renderStale`/
-  `renderRecentSourced`/`renderOnsiteToday`/`renderRescheduledInterviews`) —
-  Interviewer Weekly Limits and Interviewer Training deliberately skip it,
-  since an interviewer isn't tied to one department/job/recruiter/
-  coordinator. If you add a new candidate-facing section,
-  wrap its render call with `filterByEntity(...)` too, add its key to
+  `filterByEntity()` is applied to the seven candidate sections' arrays
+  before each is used — `renderStale`/`renderRecentSourced`/
+  `renderOnsiteToday` directly, and `buildActionQueueRows()` per-queue for
+  the four TRIAGE_QUEUES sections it merges into the Action queue table
+  (see § Action queue below). Interviewer Weekly Limits and Interviewer
+  Training deliberately skip it, since an interviewer isn't tied to one
+  department/job/recruiter/coordinator. If you add a new candidate-facing
+  section, run it through `filterByEntity(...)` too, add its key to
   `CANDIDATE_SECTION_KEYS` (so it's included when deriving job/recruiter/
   coordinator options), and make sure `ashby.js` actually populates
   `departmentId`/`jobId`/`recruiterId`/`coordinatorId` on its records —
