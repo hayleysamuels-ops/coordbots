@@ -17,7 +17,10 @@
   --ember-press: #b93a0c;
   --ember-wash: #fce7df;
   --grafite: #2d2a2a;
-  --nuvola: #9a938e;
+  /* Darkened from #9a938e — that was only ~3:1 contrast on white, too light
+     for the 10–11px meta text (section timestamps, card ages, dismiss
+     buttons) that uses --text-muted below. #7C776D gets to ~4.45:1. */
+  --nuvola: #7C776D;
   --ardesia: #59534f;
   --marmol: #edebea;
   --border-subtle: #e2dfdd;
