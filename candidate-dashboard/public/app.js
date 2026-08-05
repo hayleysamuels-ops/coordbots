@@ -523,15 +523,19 @@
     const visibleRows = activeSignal === "all" ? allRows : allRows.filter((r) => r.queue.key === activeSignal);
     const tbody = document.getElementById("action-queue-body");
     if (!tbody) return;
+    // All four TRIAGE_QUEUES keys are one fetch group server-side (see
+    // issues.js's SECTION_GROUPS) and so always share one status — any one
+    // of them stands in for "the whole merged table."
+    const hasError = sectionHasError(data, "feedbackOverdue");
     tbody.innerHTML = visibleRows.length
       ? visibleRows.map((row) => actionQueueRowHtml(row, data.thresholds)).join("")
-      : `<tr><td colspan="5"><div class="empty-state">Nothing flagged</div></td></tr>`;
+      : `<tr><td colspan="5">${emptyStateHtml(hasError, "Nothing flagged")}</td></tr>`;
   }
 
-  function renderStale(items) {
+  function renderStale(items, hasError) {
     const container = document.getElementById("cards-staleCandidates");
     if (!items.length) {
-      container.innerHTML = `<div class="empty-state">Nothing flagged</div>`;
+      container.innerHTML = emptyStateHtml(hasError, "Nothing flagged");
       return;
     }
     container.innerHTML = items
@@ -549,10 +553,10 @@
       .join("");
   }
 
-  function renderInterviewerLimits(items) {
+  function renderInterviewerLimits(items, hasError) {
     const container = document.getElementById("cards-interviewerLimits");
     if (!items.length) {
-      container.innerHTML = `<div class="empty-state">Nothing flagged</div>`;
+      container.innerHTML = emptyStateHtml(hasError, "Nothing flagged");
       return;
     }
     container.innerHTML = items
@@ -573,7 +577,7 @@
       .join("");
   }
 
-  function renderInterviewerTraining(items) {
+  function renderInterviewerTraining(items, hasError) {
     const container = document.getElementById("cards-interviewerTraining");
     const toggleContainer = document.getElementById("interviewerTraining-toggle");
     const pausedCount = items.filter((item) => item.isPaused).length;
@@ -584,7 +588,7 @@
 
     const visible = showPausedTrainees ? items : items.filter((item) => !item.isPaused);
     if (!visible.length) {
-      container.innerHTML = `<div class="empty-state">Nothing flagged</div>`;
+      container.innerHTML = emptyStateHtml(hasError, "Nothing flagged");
       return;
     }
     container.innerHTML = visible
@@ -628,10 +632,10 @@
     return new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: displayTimeZone });
   }
 
-  function renderRecentSourced(items) {
+  function renderRecentSourced(items, hasError) {
     const container = document.getElementById("cards-recentSourced");
     if (!items.length) {
-      container.innerHTML = `<div class="empty-state">Nothing flagged</div>`;
+      container.innerHTML = emptyStateHtml(hasError, "Nothing flagged");
       return;
     }
     container.innerHTML = items
@@ -659,10 +663,10 @@
   // before (startTime, stageTitle, jobTitle, interviewers, candidateName,
   // ashbyProfileUrl); dismiss still uses candidateKey()/dismissHtml() same
   // as every other section.
-  function renderOnsiteToday(items) {
+  function renderOnsiteToday(items, hasError) {
     const container = document.getElementById("cards-onsiteToday");
     if (!items.length) {
-      container.innerHTML = `<div class="empty-state">Nothing scheduled today</div>`;
+      container.innerHTML = emptyStateHtml(hasError, "Nothing scheduled today");
       return;
     }
     container.innerHTML = items
@@ -737,10 +741,10 @@
     },
   ];
 
-  function renderOfferColumn(col, items) {
+  function renderOfferColumn(col, items, hasError) {
     const container = document.getElementById(`cards-${col.key}`);
     if (!items.length) {
-      container.innerHTML = `<div class="empty-state">${col.emptyText}</div>`;
+      container.innerHTML = emptyStateHtml(hasError, col.emptyText);
       return;
     }
     container.innerHTML = items
@@ -781,6 +785,33 @@
     "offersAwaitingAcceptance",
     "offersSigned",
   ];
+
+  // `data.sectionStatus` is per-key ({ lastUpdated, lastError }) — each
+  // section fails and refreshes independently server-side now (see
+  // issues.js's SECTION_GROUPS), so a stale/failed section shows its OWN
+  // last-known-good timestamp and error rather than one global pair
+  // blanking every section whenever any single one fails. Falls back to
+  // nulls for a key sectionStatus doesn't have an entry for (shouldn't
+  // happen for a real section key, but keeps callers null-safe regardless).
+  function getSectionStatus(data, key) {
+    return (data.sectionStatus && data.sectionStatus[key]) || { lastUpdated: null, lastError: null };
+  }
+
+  function sectionHasError(data, key) {
+    return Boolean(getSectionStatus(data, key).lastError);
+  }
+
+  // A section with zero items reads very differently depending on whether
+  // its last refresh actually succeeded. "Nothing flagged" is a confident
+  // all-clear; showing that exact text when the fetch that would confirm
+  // it just failed is actively misleading — it reads as "verified: nothing
+  // to do" when the truth is "don't know." hasError swaps in language that
+  // says so instead of silently reusing the normal empty copy.
+  function emptyStateHtml(hasError, normalText) {
+    return hasError
+      ? `<div class="empty-state empty-state-error">Refresh failed — can't confirm this is empty.</div>`
+      : `<div class="empty-state">${normalText}</div>`;
+  }
 
   function formatUpdatedAgo(iso) {
     if (!iso) return "Never updated";
@@ -853,17 +884,30 @@
     // isSectionDisabled() itself (there's no longer a per-key DOM section
     // to remove — they're merged rows in one table), same as the loop this
     // replaced used to.
+    //
+    // Each section's timestamp/error now comes from its OWN
+    // data.sectionStatus[key] (see getSectionStatus() above), not the one
+    // global data.lastUpdated/data.lastError — every section fails and
+    // refreshes independently server-side (issues.js's SECTION_GROUPS), so
+    // e.g. Onsite Interviews Today (part of the listIssues() group) no
+    // longer shows "refresh failed" just because an unrelated
+    // listRecentSourced() call failed this cycle.
     renderActionQueue(data);
-    renderSectionTimestamp("actionQueue", data.lastUpdated, data.lastError);
-    if (!isSectionDisabled("staleCandidates")) renderStale(filterByEntity(data.staleCandidates || []));
+    const actionQueueStatus = getSectionStatus(data, "feedbackOverdue");
+    renderSectionTimestamp("actionQueue", actionQueueStatus.lastUpdated, actionQueueStatus.lastError);
+    if (!isSectionDisabled("staleCandidates")) {
+      renderStale(filterByEntity(data.staleCandidates || []), sectionHasError(data, "staleCandidates"));
+    }
     if (!isSectionDisabled("interviewerLimits")) {
-      renderInterviewerLimits(data.interviewerLimits || []); // no department/job filter — no job/department concept for an interviewer
+      // no department/job filter — no job/department concept for an interviewer
+      renderInterviewerLimits(data.interviewerLimits || [], sectionHasError(data, "interviewerLimits"));
     }
     if (!isSectionDisabled("interviewerTraining")) {
-      renderInterviewerTraining(data.interviewerTraining || []); // same — not tied to a candidate
+      // same — not tied to a candidate
+      renderInterviewerTraining(data.interviewerTraining || [], sectionHasError(data, "interviewerTraining"));
     }
     if (!isSectionDisabled("recentSourced")) {
-      renderRecentSourced(filterByEntity(data.recentSourced || []));
+      renderRecentSourced(filterByEntity(data.recentSourced || []), sectionHasError(data, "recentSourced"));
       const appConfig = data.appConfig || {};
       updateSourcedSubtitle(
         data.thresholds && data.thresholds.sourcedLookbackDays,
@@ -872,12 +916,12 @@
       );
     }
     if (!isSectionDisabled("onsiteToday")) {
-      renderOnsiteToday(filterByEntity(data.onsiteToday || []));
+      renderOnsiteToday(filterByEntity(data.onsiteToday || []), sectionHasError(data, "onsiteToday"));
       updateOnsiteSubtitle(data.appConfig && data.appConfig.onsiteStageKeywords);
     }
     for (const col of offerColumns) {
       if (isSectionDisabled(col.key)) continue;
-      renderOfferColumn(col, data[col.key] || []);
+      renderOfferColumn(col, data[col.key] || [], sectionHasError(data, col.key));
     }
     if (!isSectionDisabled("offersSigned")) {
       updateOffersSignedSubtitle(data.thresholds && data.thresholds.offersSignedLookbackDays);
@@ -885,21 +929,25 @@
 
     for (const key of SECTION_TIMESTAMP_KEYS) {
       if (isSectionDisabled(key)) continue;
-      renderSectionTimestamp(key, data.lastUpdated, data.lastError);
+      const status = getSectionStatus(data, key);
+      renderSectionTimestamp(key, status.lastUpdated, status.lastError);
     }
 
-    // Always reassigns (never appends) before optionally appending the error
-    // below — `data.lastUpdated` stays null forever if every refresh since
-    // startup has failed, which used to mean the `if (data.lastUpdated)`
-    // branch never ran to reset textContent first; with `+=` as the only
-    // write, each failed poll (every 60s) appended another copy of the same
-    // error onto whatever was already there instead of replacing it.
+    // The header stays a coarse whole-refresh summary (see issues.js's
+    // lastUpdated/lastError comment) — per-section state above is what
+    // actually reflects which sections are current. Always reassigns
+    // (never appends) before optionally appending the error below —
+    // `data.lastUpdated` stays null forever if every refresh since startup
+    // has failed, which used to mean the `if (data.lastUpdated)` branch
+    // never ran to reset textContent first; with `+=` as the only write,
+    // each failed poll (every 60s) appended another copy of the same error
+    // onto whatever was already there instead of replacing it.
     const lastUpdatedEl = document.getElementById("last-updated");
     lastUpdatedEl.textContent = data.lastUpdated
       ? `Updated ${new Date(data.lastUpdated).toLocaleTimeString([], { timeZone: displayTimeZone })}`
       : "Never updated";
     if (data.lastError) {
-      lastUpdatedEl.textContent += ` — last refresh failed: ${data.lastError}`;
+      lastUpdatedEl.textContent += ` — ${data.lastError}`;
     }
   }
 

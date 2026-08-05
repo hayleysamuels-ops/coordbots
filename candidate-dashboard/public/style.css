@@ -1002,6 +1002,17 @@ button#refresh-btn.spinning {
   border-radius: var(--radius-md);
 }
 
+/* "We don't know" (a failed refresh, zero items to show either way), not
+   "nothing to do" (the default .empty-state above) — same warning color
+   `.section-updated.stale` uses for the matching timestamp, so the two
+   read as one signal rather than a plain empty-state that happens to sit
+   under a red timestamp. */
+.empty-state-error {
+  color: var(--warning);
+  border-color: var(--warning);
+  border-style: solid;
+}
+
 .status-badge {
   display: inline-flex;
   align-items: center;

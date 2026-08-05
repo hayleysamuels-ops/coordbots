@@ -11,21 +11,23 @@ function authHeader() {
 // A single retryable request (whether it's one page of a multi-page
 // pagination walk, or a one-off lookup like user.interviewerSettings)
 // retries with exponential backoff instead of throwing immediately — without
-// this, a 429/502/503/504 mid-pagination would abort the entire
+// this, a 429/500/502/503/504 mid-pagination would abort the entire
 // fetchAllPages() walk (and therefore the whole refresh cycle) rather than
-// just slowing down. 502/503/504 are Ashby-side upstream/gateway errors,
+// just slowing down. 500/502/503/504 are Ashby-side upstream/gateway errors,
 // same as a 429 in that they're transient and unrelated to the request
 // itself — a request that fails with one now almost always succeeds a
 // moment later, so treating them as fatal killed the whole refresh over
-// what's usually a blip. Honors a Retry-After header when Ashby sends one
-// (rare for 5xx, but checked regardless in case it's present); otherwise
-// doubles the delay each attempt. Gives up once *cumulative* waiting would
-// exceed RETRYABLE_MAX_TOTAL_BACKOFF_MS, at which point it throws like
-// before and the caller's own error handling takes over
-// (fetchApplicationSummaries/listInterviewerLimits already skip a single
-// failed item; fetchAllPages still propagates, same as a non-retryable
-// failure always has).
-const RETRYABLE_STATUS_CODES = new Set([429, 502, 503, 504]);
+// what's usually a blip (confirmed live against a real org: repeated bare
+// 500s from application.list mid-pagination, alongside 502/503/504 — 500
+// was originally left out of this set and needed adding). Honors a
+// Retry-After header when Ashby sends one (rare for 5xx, but checked
+// regardless in case it's present); otherwise doubles the delay each
+// attempt. Gives up once *cumulative* waiting would exceed
+// RETRYABLE_MAX_TOTAL_BACKOFF_MS, at which point it throws like before and
+// the caller's own error handling takes over (fetchApplicationSummaries/
+// listInterviewerLimits already skip a single failed item; fetchAllPages
+// still propagates, same as a non-retryable failure always has).
+const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 const RETRYABLE_MAX_TOTAL_BACKOFF_MS = 4 * 60 * 1000;
 const RETRYABLE_INITIAL_DELAY_MS = 1000;
 
