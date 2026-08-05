@@ -127,9 +127,50 @@ for (const group of SECTION_GROUPS) {
   for (const key of group.keys) sectionStatus[key] = { lastUpdated: null, lastError: null };
 }
 
+// Item counts per key, for the "committed" log line below — group.keys'
+// values are always arrays (every SECTION_GROUPS entry's assign() writes
+// arrays into snapshot), so this is safe without per-key type checking.
+function describeCounts(group) {
+  return group.keys.map((key) => `${key}=${(snapshot[key] || []).length}`).join(", ");
+}
+
+// Commits ONE group's result the instant it settles, independent of how
+// long any other group takes — this is the actual point of per-group
+// failure isolation. An earlier version awaited Promise.allSettled() over
+// all five fetches and only committed results in one batch afterward,
+// which meant a single slow group (confirmed live: listIssues taking 523s
+// against Profound while listDepartments/listRecentSourced/listOffers had
+// all finished in under 90s) silently held back every OTHER group's
+// already-finished data too — /api/issues kept serving all-empty,
+// lastUpdated: null snapshots for that entire 523s despite deploy logs
+// showing those faster groups had long since completed. Each group now
+// writes its own data/sectionStatus (and logs it) the moment ITS OWN fetch
+// resolves or rejects, with no dependency on its siblings.
+async function refreshOneGroup(group) {
+  try {
+    const result = await group.fetch();
+    group.assign(snapshot, result);
+    const now = new Date();
+    for (const key of group.keys) sectionStatus[key] = { lastUpdated: now, lastError: null };
+    console.log(`[issues] ${group.label} committed (${describeCounts(group)})`);
+    return { group, ok: true };
+  } catch (err) {
+    const message = (err && err.message) || String(err);
+    console.warn(`[issues] ${group.label} refresh failed, serving stale data:`, message);
+    for (const key of group.keys) {
+      sectionStatus[key] = { lastUpdated: sectionStatus[key].lastUpdated, lastError: message };
+    }
+    return { group, ok: false, message };
+  }
+}
+
 // Guards against overlapping refreshes — a refresh triggered while one is
 // already in flight (interval tick, or the manual "Refresh now" button)
 // just attaches to the one already running instead of starting a duplicate.
+// Cleared in a `finally` so it can never wedge open even if something
+// inside refreshOneGroup throws somewhere unexpected outside its own
+// try/catch (it shouldn't — every group's own errors are already caught
+// there — but this is the backstop, not the primary mechanism).
 let refreshPromise = null;
 
 async function refresh() {
@@ -140,42 +181,20 @@ async function refresh() {
 
   refreshPromise = (async () => {
     try {
-      const now = new Date();
-      const results = await Promise.allSettled(SECTION_GROUPS.map((group) => group.fetch()));
+      const results = await Promise.all(SECTION_GROUPS.map(refreshOneGroup));
 
-      const succeeded = [];
-      const failed = [];
-      results.forEach((result, i) => {
-        const group = SECTION_GROUPS[i];
-        if (result.status === "fulfilled") {
-          group.assign(snapshot, result.value);
-          for (const key of group.keys) sectionStatus[key] = { lastUpdated: now, lastError: null };
-          succeeded.push(group.label);
-        } else {
-          const message = (result.reason && result.reason.message) || String(result.reason);
-          console.warn(`[issues] ${group.label} refresh failed, serving stale data:`, message);
-          for (const key of group.keys) {
-            sectionStatus[key] = { lastUpdated: sectionStatus[key].lastUpdated, lastError: message };
-          }
-          failed.push(group.label);
-        }
-      });
-
-      // Top-level lastUpdated/lastError are a coarse, whole-refresh summary
-      // for the header only — per-section freshness/errors live in
-      // sectionStatus above and are what actually drives each section's own
-      // timestamp display. Any partial success still advances the header's
-      // "Updated" time (a full-blackout refresh is the only case that
-      // doesn't); lastError names which groups failed (by their short
-      // `label`, not the full `keys` list — the listIssues group alone
-      // covers seven section keys, too long for a one-line header) rather
-      // than repeating one message, since more than one can fail
-      // independently now.
-      if (succeeded.length) lastUpdated = now;
+      // Top-level lastUpdated/lastError are a coarse, whole-refresh-cycle
+      // summary for the header only, computed after every group has
+      // individually settled — per-section freshness/errors (committed
+      // above, as each group finishes, not here) are what actually drive
+      // each section's own timestamp display and are never blocked on this.
+      const succeeded = results.filter((r) => r.ok).map((r) => r.group.label);
+      const failed = results.filter((r) => !r.ok).map((r) => r.group.label);
+      if (succeeded.length) lastUpdated = new Date();
       lastError = failed.length ? `${failed.length} of ${SECTION_GROUPS.length} refresh group(s) failed: ${failed.join(", ")}` : null;
 
       console.log(
-        `[issues] refreshed: ${snapshot.feedbackOverdue.length} feedback overdue, ` +
+        `[issues] refresh cycle complete: ${snapshot.feedbackOverdue.length} feedback overdue, ` +
           `${snapshot.needsScheduling.length} needs scheduling, ` +
           `${snapshot.staleCandidates.length} stale, ` +
           `${snapshot.interviewerLimits.length} nearing interview limit, ` +
@@ -230,7 +249,21 @@ function getSnapshot() {
     ...applyDismissals(snapshot),
     lastUpdated,
     lastError,
-    sectionStatus,
+    // Shallow-copied, unlike snapshot's own fields above — those get
+    // replaced wholesale by group.assign() (a new array/object reassigned
+    // to snapshot.<key>, never mutated in place), so a caller's earlier
+    // getSnapshot() result is naturally immune to a later refresh. sectionStatus
+    // is mutated in place instead (`sectionStatus[key] = {...}` on the same
+    // object), so without this copy, any caller holding onto a snapshot
+    // across an await would see a LATER refresh's values silently bleed
+    // into what should have been a frozen-in-time result (confirmed via a
+    // test harness that captured a mid-refresh snapshot, then awaited the
+    // rest of the cycle before asserting on it — the earlier capture had
+    // already changed underneath it). No route in server.js currently has
+    // an await between calling this and serializing the response, so this
+    // isn't reachable today, but it's a correctness footgun waiting for the
+    // first one that does.
+    sectionStatus: { ...sectionStatus },
   };
 }
 

@@ -173,6 +173,35 @@ is normally still in Application Review and any status).
   `DISABLED_SECTIONS` entry that doesn't match one, specifically so a typo
   (e.g. `interviewerWeeklyLimits` instead of `interviewerLimits`) is a loud
   deploy-log warning instead of a silently-ignored no-op.
+- **Each refresh cycle's five Ashby fetch groups (`SECTION_GROUPS` in
+  `issues.js`) commit independently AND immediately, not in one batch at
+  the end.** `refreshOneGroup(group)` is `await`ed individually per group
+  inside `Promise.all(SECTION_GROUPS.map(refreshOneGroup))` — each one
+  writes its own `snapshot`/`sectionStatus` entries (and logs `"<label>
+  committed (<key>=<count>, ...)"`) the instant ITS OWN `group.fetch()`
+  settles, success or failure, with no dependency on its siblings. This
+  replaced an earlier version that used `Promise.allSettled()` over all
+  five fetches and only committed results in one `.forEach()` pass
+  afterward — which reintroduced the exact all-or-nothing problem this
+  design exists to fix: confirmed live against Profound, `listIssues`
+  taking 523s while `listDepartments`/`listRecentSourced`/`listOffers` had
+  all finished in under 90s meant `/api/issues` kept serving an all-empty,
+  every-`lastUpdated`-null snapshot for that entire 523s despite deploy
+  logs showing those faster groups long done — the batched commit was
+  silently gated on the slowest group finishing too. Don't reintroduce a
+  single `await Promise.allSettled(...)` (or `Promise.all`) over all the
+  fetches followed by one shared commit step — that's precisely this bug.
+  Also: `getSnapshot()` returns a **shallow copy** of `sectionStatus`
+  (`{ ...sectionStatus }`), not the live object — `sectionStatus[key] = ...`
+  mutates that object in place per-group as each settles, unlike
+  `snapshot`'s own fields (`departments`, etc.), which `group.assign()`
+  replaces wholesale (a fresh reference, never mutated), so an earlier
+  `getSnapshot()` result's fields are naturally frozen against a later
+  refresh — `sectionStatus` needed an explicit copy to get the same
+  guarantee. No current `server.js` route has an `await` between calling
+  `getSnapshot()` and serializing the response, so this isn't reachable
+  today, but keep the copy — it's a one-line defense against the first
+  route that does.
 - **Action queue (`app.js`): `TRIAGE_QUEUES` is a 4-entry table
   (feedbackOverdue/needsScheduling/availabilitySubmitted/
   rescheduledInterviews) that `buildActionQueueRows()` merges into one
