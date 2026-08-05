@@ -563,11 +563,12 @@ is normally still in Application Review and any status).
   `filterByEntity()` does `items.filter(i => ids.has(i[key]))`, an OR across
   selections. `lastData` caches the last render's payload; checking/
   unchecking a checkbox in `#entity-filter-menu`, or clicking a
-  `.filter-mode-btn`, just calls `render(lastData)` again. The menu mirrors
-  the existing per-card dismiss-menu's fixed-position/anchor-to-button
-  pattern, but deliberately does NOT close on selection (unlike
-  dismiss-menu) since picking several options requires staying open — it
-  closes only on the reset button, outside-click, or scroll.
+  `.filter-mode-btn`, just calls `render(lastData)` again. The menu is fixed,
+  not absolute, positioned from JS via the button's real viewport rect (same
+  `.card-details`/`#entity-filter-menu` anchoring pattern used elsewhere) so
+  it's never clipped by a scrollable ancestor; deliberately does NOT close on
+  selection, since picking several options requires staying open — it closes
+  only on the reset button, outside-click, or scroll.
   **Department/job/recruiter/coordinator options are all derived
   client-side**, from whichever ones are actually represented across
   `CANDIDATE_SECTION_KEYS`' items in `lastData` — deliberately NOT a
@@ -614,11 +615,31 @@ is normally still in Application Review and any status).
   `refresh()`; that would delay dismissals by up to `REFRESH_INTERVAL_MINUTES`.
 - **Dismiss keys are entity-scoped, not row-scoped.** `candidate:<id>` hides a
   person from all seven candidate sections at once;
-  `interviewer:<id>` hides an interviewer from the limits section. There's an
-  `/api/undismiss` endpoint but no UI button for it yet (documented in
-  README). If you add a new candidate-facing section, add it to the
-  `keepCandidate` filter list in `issues.js`'s `applyDismissals()` — it's not
-  automatic.
+  `interviewer:<id>` hides an interviewer from the limits section. `/api/undismiss`
+  is called by the Undo toast's button (`.dismiss-toast-undo` in app.js),
+  shown for 12 seconds after every dismiss — there's no other UI for
+  bringing a card back early. If you add a new candidate-facing section, add
+  it to the `keepCandidate` filter list in `issues.js`'s `applyDismissals()`
+  — it's not automatic.
+- **The dismiss control is two always-visible buttons, not a "×" that opens a
+  menu — deliberately, after a live report of dismiss silently not working.**
+  Root cause: a browser extension's own `position: fixed` overlay sat above
+  the old popup menu and swallowed its second click (confirmed by
+  reproducing in a normal profile, gone in incognito) — nothing wrong with
+  `dismissals.json` or `applyDismissals()`, both of which already covered
+  every section correctly. See README § Correction for the full story.
+  `dismissHtml()` (app.js) now renders both actions inline in the card's
+  normal layout instead of a dynamically-positioned floating menu — nothing
+  for an overlay to cover that isn't also covering the whole card. Both
+  fire on `pointerdown` as well as `click` (`activateDismissControl()`,
+  same file) as further defense against click-swallowing; a module-level
+  `lastPointerActivation` (element reference + timestamp) stops the
+  following `click` from re-firing the same action, without breaking
+  keyboard activation (Enter/Space produces a `click` with no preceding
+  `pointerdown`, so it's still handled there). No confirmation step in front
+  of a dismiss anymore — the old menu's second click doubled as one — so the
+  Undo toast (`showUndoToast()`/`#dismiss-toast`) is the replacement safety
+  net, shown after every dismiss regardless of scope.
 
 ## Conventions
 

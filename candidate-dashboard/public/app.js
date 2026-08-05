@@ -269,16 +269,27 @@
     return "warning";
   }
 
-  // The per-card dismiss control: a "×" that toggles a small menu offering the
-  // two durations. `key` is "candidate:<id>" or "interviewer:<id>".
+  // The per-card dismiss control: two always-visible buttons for the two
+  // durations, not a "×" that opens a floating menu. A popup menu used to
+  // sit here — dropped because a browser extension injecting its own
+  // fixed-position overlay (confirmed live: reproduced in a normal profile,
+  // gone in incognito) could sit above it and swallow the second click,
+  // silently eating the dismiss with no error a coordinator would ever see.
+  // Both actions now live inline in the card's normal layout (same place
+  // the "×" toggle always lived, which was never the fragile part) instead
+  // of in a dynamically-positioned `position: fixed` element — nothing here
+  // for an overlay to cover that isn't also covering the whole card.
+  // `key` is "candidate:<id>" or "interviewer:<id>".
+  // Visible text, not bare glyphs — "1d"/"×" tested unclear (× especially,
+  // since it conventionally reads as "close" rather than "hide
+  // indefinitely"). title/aria-label still carry the fuller phrasing for
+  // anyone hovering or on a screen reader; the on-card text is the short
+  // form of the same two phrases, not a different, vaguer label.
   function dismissHtml(key) {
     return `
       <div class="dismiss">
-        <button class="dismiss-btn" data-key="${key}" aria-label="Dismiss" title="Dismiss">×</button>
-        <div class="dismiss-menu" hidden>
-          <button data-key="${key}" data-scope="today">Hide until tomorrow</button>
-          <button data-key="${key}" data-scope="forever">Hide indefinitely</button>
-        </div>
+        <button class="dismiss-btn" data-key="${key}" data-scope="today" aria-label="Hide until tomorrow" title="Hide until tomorrow">Today</button>
+        <button class="dismiss-btn dismiss-forever" data-key="${key}" data-scope="forever" aria-label="Hide indefinitely" title="Hide indefinitely">Hide</button>
       </div>`;
   }
 
@@ -821,16 +832,15 @@
   });
 
   function closeAllMenus() {
-    document.querySelectorAll(".dismiss-menu").forEach((m) => m.setAttribute("hidden", ""));
     document.getElementById("entity-filter-menu").setAttribute("hidden", "");
     document.getElementById("entity-filter-btn").setAttribute("aria-expanded", "false");
     document.querySelectorAll(".card-details.open").forEach((d) => d.classList.remove("open"));
   }
 
   // Positions a card's floating `.card-details` popup from its card's real
-  // viewport rect, same anchoring approach as .dismiss-menu/.entity-filter-menu.
-  // Prefers below the card; flips above if there isn't room. At most one
-  // popup is open at a time.
+  // viewport rect, same anchoring approach as .entity-filter-menu. Prefers
+  // below the card; flips above if there isn't room. At most one popup is
+  // open at a time.
   function showCardDetails(card) {
     const details = card.querySelector(".card-details");
     if (!details) return;
@@ -857,6 +867,31 @@
     if (details) details.classList.remove("open");
   }
 
+  // No confirmation step before a dismiss fires (the old floating menu's
+  // second click doubled as one) — recoverability now comes from this toast
+  // instead, shown after every dismiss regardless of scope. One toast at a
+  // time; a new dismiss replaces whatever's showing rather than stacking.
+  let dismissToastTimer = null;
+
+  function showUndoToast(key, scope) {
+    const toast = document.getElementById("dismiss-toast");
+    const text = document.getElementById("dismiss-toast-text");
+    if (!toast || !text) return;
+    text.textContent = scope === "forever" ? "Hidden indefinitely." : "Hidden until tomorrow.";
+    toast.dataset.key = key;
+    toast.hidden = false;
+    clearTimeout(dismissToastTimer);
+    dismissToastTimer = setTimeout(() => {
+      toast.hidden = true;
+    }, 12000);
+  }
+
+  function hideUndoToast() {
+    clearTimeout(dismissToastTimer);
+    const toast = document.getElementById("dismiss-toast");
+    if (toast) toast.hidden = true;
+  }
+
   async function dismiss(key, scope) {
     // A record missing candidateId/userId (candidateKey()/cardTopRight()'s
     // key argument) would otherwise produce "candidate:undefined" here —
@@ -878,34 +913,73 @@
       });
       const data = await res.json();
       render(data);
+      showUndoToast(key, scope);
     } catch (err) {
       console.error(`[dismiss] request failed for key "${key}" (scope: "${scope}"):`, err);
     }
   }
 
-  // One delegated listener handles every card's dismiss control, since cards
-  // are re-rendered on each poll. Order matters: menu-item click before the
-  // toggle, and a click anywhere else closes any open menu.
-  document.addEventListener("click", (e) => {
-    const menuItem = e.target.closest(".dismiss-menu button");
-    if (menuItem) {
-      dismiss(menuItem.dataset.key, menuItem.dataset.scope);
-      return;
+  async function undoDismiss() {
+    const toast = document.getElementById("dismiss-toast");
+    const key = toast && toast.dataset.key;
+    hideUndoToast();
+    if (!key) return;
+    try {
+      const res = await fetch("/api/undismiss", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key }),
+      });
+      const data = await res.json();
+      render(data);
+    } catch (err) {
+      console.error(`[undo] request failed for key "${key}":`, err);
     }
-    const toggle = e.target.closest(".dismiss-btn");
-    if (toggle) {
-      const menu = toggle.parentElement.querySelector(".dismiss-menu");
-      const wasHidden = menu.hasAttribute("hidden");
-      closeAllMenus();
-      if (wasHidden) {
-        // Anchor the fixed-position menu to the button's real viewport
-        // position (not CSS relative-positioning) so it can't be clipped by
-        // the scrollable .cards container it lives inside.
-        const rect = toggle.getBoundingClientRect();
-        menu.style.top = `${rect.bottom + 4}px`;
-        menu.style.right = `${window.innerWidth - rect.right}px`;
-        menu.removeAttribute("hidden");
-      }
+  }
+
+  // Runs the dismiss/undo button under `target`, if any. Shared by both the
+  // pointerdown and click listeners below so the two can't drift apart.
+  function activateDismissControl(target) {
+    const dismissBtn = target.closest(".dismiss-btn");
+    if (dismissBtn) {
+      dismiss(dismissBtn.dataset.key, dismissBtn.dataset.scope);
+      return true;
+    }
+    const undoBtn = target.closest(".dismiss-toast-undo");
+    if (undoBtn) {
+      undoDismiss();
+      return true;
+    }
+    return false;
+  }
+
+  // Dismiss/undo fire on pointerdown, not just click — click alone is what a
+  // page-covering extension overlay (password manager, ad blocker, etc.)
+  // most commonly intercepts, since that's the event most sites listen for.
+  // pointerdown fires earlier in the same interaction and is far less
+  // commonly swallowed. `lastPointerActivation` records which exact element
+  // handled it so the click that normally follows doesn't re-fire the same
+  // action a second time — this only compares by element reference within a
+  // short window, so it never suppresses a genuine second click (e.g. a
+  // keyboard-triggered click, which has no preceding pointerdown at all and
+  // so is handled here same as before).
+  let lastPointerActivation = null;
+
+  document.addEventListener("pointerdown", (e) => {
+    const control = e.target.closest(".dismiss-btn, .dismiss-toast-undo");
+    if (!control) return;
+    lastPointerActivation = { el: control, time: Date.now() };
+    activateDismissControl(e.target);
+  });
+
+  // One delegated listener handles every card's dismiss control, since cards
+  // are re-rendered on each poll.
+  document.addEventListener("click", (e) => {
+    const control = e.target.closest(".dismiss-btn, .dismiss-toast-undo");
+    if (control) {
+      const alreadyHandled =
+        lastPointerActivation && lastPointerActivation.el === control && Date.now() - lastPointerActivation.time < 1000;
+      if (!alreadyHandled) activateDismissControl(e.target);
       return;
     }
 
@@ -946,7 +1020,9 @@
       const wasHidden = menu.hasAttribute("hidden");
       closeAllMenus();
       if (wasHidden) {
-        // Anchored the same way as .dismiss-menu — see rationale above.
+        // Fixed position, anchored to the toggle's real viewport rect (not
+        // CSS relative-positioning) so it can't be clipped by a scrollable
+        // ancestor — same reasoning `.card-details` uses above.
         const rect = entityToggle.getBoundingClientRect();
         menu.style.top = `${rect.bottom + 4}px`;
         menu.style.right = `${window.innerWidth - rect.right}px`;

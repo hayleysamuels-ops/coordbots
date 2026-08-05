@@ -344,10 +344,8 @@ button#refresh-btn.spinning {
 }
 
 .entity-filter-menu {
-  /* Fixed, not absolute — same reasoning as .dismiss-menu: positioned from JS
-     via the button's real viewport rect so it's never clipped by a scrollable
-     ancestor. This menu isn't inside a .cards container, but staying
-     consistent avoids a second positioning strategy in the codebase. */
+  /* Fixed, not absolute — positioned from JS via the button's real viewport
+     rect so it's never clipped by a scrollable ancestor. */
   position: fixed;
   z-index: 1000;
   display: flex;
@@ -644,22 +642,34 @@ button#refresh-btn.spinning {
   flex: none;
 }
 
-/* Sits on the always-visible card row (not the hover popup), but stays very
-   subtle at rest — it's a secondary action, not something that should
-   compete with the candidate name. Fades in on card hover/button
-   hover/keyboard focus rather than disappearing entirely, so it's never
-   truly hidden (still reachable via Tab). */
+/* Two always-visible buttons, not a "×" that opens a floating menu — see
+   dismissHtml() in app.js for why. Both stay very subtle at rest (a
+   secondary action, not something that should compete with the candidate
+   name), fading in further on card hover/button hover/keyboard focus rather
+   than starting fully hidden, so neither is ever truly invisible (still
+   reachable via Tab). Text, not bare glyphs (an earlier "1d"/"×" version
+   tested unclear — see dismissHtml() in app.js) — both read as small
+   outlined chips so they look clickable even before hover. */
+.dismiss {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
 .dismiss-btn {
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
+  border: 1px solid var(--border-default);
+  background: var(--white);
+  color: var(--text-secondary);
   cursor: pointer;
-  font-size: 1.05rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
   line-height: 1;
-  padding: 0 2px;
+  padding: 3px 7px;
   border-radius: var(--radius-sm);
-  opacity: 0.3;
-  transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
+  opacity: 0.55;
+  transition: opacity 120ms ease, color 120ms ease, background 120ms ease, border-color 120ms ease;
 }
 
 .card:hover .dismiss-btn,
@@ -669,43 +679,31 @@ button#refresh-btn.spinning {
 }
 
 .dismiss-btn:hover {
-  color: var(--ember);
-  background: var(--ember-wash);
-}
-
-.dismiss-menu {
-  /* Fixed (not absolute) so it isn't clipped by the scrollable .cards
-     container it lives inside — position is set from JS via top/right on
-     open, anchored to the toggle button's actual viewport position. */
-  position: fixed;
-  z-index: 1000;
-  display: flex;
-  flex-direction: column;
-  min-width: 160px;
-  background: var(--white);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  box-shadow: 0 6px 18px rgba(45, 42, 42, 0.18);
-  overflow: hidden;
-}
-
-.dismiss-menu[hidden] {
-  display: none;
-}
-
-.dismiss-menu button {
-  border: none;
-  background: transparent;
   color: var(--text-primary);
-  text-align: left;
-  padding: 8px 12px;
-  font-size: 14px;
-  cursor: pointer;
-  white-space: nowrap;
+  background: var(--surface-sunken);
+  border-color: var(--text-muted);
 }
 
-.dismiss-menu button:hover {
-  background: var(--surface-sunken);
+/* "Hide" (indefinite) reads heavier than "Today" even at rest — an
+   ember-tinted chip rather than a neutral one — so the more consequential
+   action never looks like the lighter one just because both start out
+   subtle. Rest-state opacity (0.85) only matters while neither :hover nor
+   :focus-visible applies — those states have their own explicit opacity: 1
+   below (same selector specificity as this block's, so without an explicit
+   override, hovering/focusing this button would still show 0.85, not 1). */
+.dismiss-btn.dismiss-forever {
+  color: var(--ember);
+  border-color: var(--ember-wash);
+  background: var(--ember-wash);
+  opacity: 0.85;
+}
+
+.dismiss-btn.dismiss-forever:hover,
+.dismiss-btn.dismiss-forever:focus-visible {
+  color: var(--white);
+  background: var(--ember);
+  border-color: var(--ember);
+  opacity: 1;
 }
 
 .card-name {
@@ -723,13 +721,12 @@ button#refresh-btn.spinning {
   text-decoration: underline;
 }
 
-/* Candidate cards show only the name at rest; everything else (age,
-   dismiss, job title, badges, detail) appears in a floating popup on
-   hover, positioned from JS (see showCardDetails() in app.js) exactly like
-   .dismiss-menu/.entity-filter-menu — fixed, not in-flow, so it never
+/* Candidate cards show only the name and the dismiss buttons at rest;
+   everything else (age, job title, badges, detail) appears in a floating
+   popup on hover, positioned from JS (see showCardDetails() in app.js)
+   the same way .entity-filter-menu is — fixed, not in-flow, so it never
    pushes surrounding cards around. JS also shows it on focusin so tabbing
-   to the name link (and then the dismiss button inside) still works for
-   keyboard users. */
+   to the name link still works for keyboard users. */
 .card-details {
   display: none;
   position: fixed;
@@ -796,5 +793,51 @@ button#refresh-btn.spinning {
   letter-spacing: 0.02em;
   color: var(--text-secondary);
   vertical-align: middle;
+}
+
+/* Recoverability for the dismiss buttons above, now that there's no
+   confirmation step in front of them (the old floating menu's second click
+   doubled as one). Deliberately dark/inverted from the page in both light
+   and dark mode — a toast reads better as its own layer than blending into
+   whichever theme is active, same convention as most snackbar patterns.
+   Fixed + a comfortably raised z-index (not an arms-race z-index — see
+   dismissHtml() in app.js for why that fight isn't the point here): this
+   is a recovery affordance, not the action itself, so the action already
+   works even on the rare occasion something else covers this. */
+.dismiss-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 1500;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  background: var(--grafite);
+  color: var(--white);
+  border-radius: var(--radius-md);
+  box-shadow: 0 6px 18px rgba(45, 42, 42, 0.28);
+  font-size: 14px;
+}
+
+.dismiss-toast[hidden] {
+  display: none;
+}
+
+.dismiss-toast-undo {
+  border: none;
+  background: transparent;
+  color: var(--ember);
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+}
+
+.dismiss-toast-undo:hover,
+.dismiss-toast-undo:focus-visible {
+  text-decoration: underline;
 }
 

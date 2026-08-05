@@ -143,9 +143,9 @@ mapping to filter by.
   dropdown row — that would make checking the surviving option silently
   filter by only one of the two records.
 
-The button opens a checkbox dropdown (mirroring the existing per-card
-dismiss-menu's fixed-position/anchor-to-button pattern); any number of
-options can be checked at once, and a candidate is shown if their
+The button opens a checkbox dropdown, positioned from JS via the button's
+real viewport rect (fixed, not absolute, so it's never clipped by a
+scrollable ancestor); any number of options can be checked at once, and a candidate is shown if their
 department/job/recruiter/coordinator is any of the checked ones (an OR, not
 an AND). No selection means no filter ("All departments", etc). The button
 label reflects the current selection: "All departments", a single option's
@@ -359,18 +359,41 @@ there's also a "Refresh now" button on the page for an on-demand pull.
 
 ## Dismissing cards
 
-Every card has a **×** in its top-right corner. Clicking it offers two options:
+Every card has two always-visible buttons in its top-right corner (no
+click-to-open menu — see § Correction below):
 
-- **Hide until tomorrow** — the card reappears at the next local midnight.
-- **Hide indefinitely** — the card stays hidden until manually un-dismissed.
+- **1d** — hide until tomorrow; the card reappears at the next local midnight.
+- **×** — hide indefinitely; the card stays hidden until manually un-dismissed.
+
+Either one fires immediately, no confirmation step, and a small toast at the
+bottom of the page offers **Undo** for 12 seconds afterward.
 
 Dismissals are per-candidate (they hide that person from *all* candidate
 sections at once) or per-interviewer (for the Interviewer Weekly Limits
 section), and are persisted to `<DATA_DIR>/dismissals.json` so "indefinitely"
-survives restarts. There's no un-dismiss button in the UI yet; to bring a
-card back, either wait for its "until tomorrow" window to lapse, `POST
-/api/undismiss` with `{ "key": "candidate:<id>" }`, or delete the relevant
-entry from `dismissals.json`.
+survives restarts. Beyond the Undo toast, a card can also be brought back by
+waiting for its "until tomorrow" window to lapse, `POST /api/undismiss` with
+`{ "key": "candidate:<id>" }`, or deleting the relevant entry from
+`dismissals.json`.
+
+### Correction: the dismiss control used to be a floating menu
+
+Originally a single **×** toggled a `position: fixed` popup menu offering
+the two durations as a second click. Dropped after a live report of dismiss
+"not working": a browser extension's own fixed-position overlay sat above
+the popup and silently swallowed that second click (confirmed by
+reproducing it in a normal profile and it going away in incognito — nothing
+wrong with `dismissals.json` or the filtering logic, both of which already
+covered every section correctly). Rather than chase that with a
+higher z-index (a losing arms race — extensions commonly use
+`z-index: 2147483647`, the maximum a 32-bit signed value allows), both
+actions moved inline into the card's normal layout, where the "×" toggle
+always lived and was never the fragile part. Clicks are handled on
+`pointerdown` as well as `click` (see `activateDismissControl()` in
+`app.js`) as further defense — `pointerdown` fires earlier in the same
+interaction and is far less commonly intercepted than `click`. The Undo
+toast replaces the old menu's second click as the safety net against an
+accidental dismiss.
 
 ## Files
 
