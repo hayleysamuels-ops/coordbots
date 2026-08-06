@@ -622,25 +622,29 @@ button#refresh-btn.spinning {
    cells both commonly wrap to two lines) — not a pixel-exact guarantee of
    exactly 10, same as the "Showing 10 of N" label's numerator is a fixed
    constant (ACTION_QUEUE_VISIBLE_ROWS in app.js), not read back from this
-   value. */
+   value. The header scrolls away with the rows rather than staying
+   pinned — position: sticky on <th> was tried and reverted: confirmed live
+   (screenshot) that rows scrolling underneath painted THROUGH the sticky
+   header instead of being hidden behind it, a known cross-browser quirk
+   with sticky table cells that border-collapse: separate (still applied
+   below regardless) didn't fix either. Not worth chasing further for a
+   nicety that was never actually requested — a header that scrolls with
+   its rows is a correct, bug-free tradeoff. */
 .action-queue-scroll {
   max-height: 560px;
   overflow-y: auto;
 }
 
-/* Sticky, not just a plain <thead> — without an opaque background here,
-   rows scrolling underneath would show through the header text. var(--surface),
-   not --white, so this still matches the section's background in dark mode. */
-.action-queue-table thead th {
-  position: sticky;
-  top: 0;
-  background: var(--surface);
-  z-index: 1;
-}
-
 .action-queue-table {
   width: 100%;
-  border-collapse: collapse;
+  /* separate + zero spacing, not collapse — border-collapse: collapse
+     breaks position: sticky's paint/clip on <th> in some browsers (a
+     documented cross-browser quirk, confirmed live: rows scrolling
+     underneath the sticky thead bled through it instead of being fully
+     hidden). Looks identical to collapse here since every border is
+     already a per-cell border-bottom, not a shared collapsed one. */
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 14px;
 }
 
