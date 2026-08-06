@@ -62,18 +62,21 @@
         <span class="section-updated muted" id="updated-actionQueue"></span>
         <p class="column-sub" id="actionQueue-sub"></p>
         <div class="signal-chip-row" id="signal-chip-row"></div>
-        <table class="action-queue-table">
-          <thead>
-            <tr>
-              <th>Candidate</th>
-              <th>Stage &amp; role</th>
-              <th>Signal</th>
-              <th>Waiting</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="action-queue-body"></tbody>
-        </table>
+        <p class="aq-shown-count" id="actionQueue-shown-count"></p>
+        <div class="action-queue-scroll">
+          <table class="action-queue-table">
+            <thead>
+              <tr>
+                <th>Candidate</th>
+                <th>Stage &amp; role</th>
+                <th>Signal</th>
+                <th>Waiting</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="action-queue-body"></tbody>
+          </table>
+        </div>
         <p class="column-sub aq-footnote" id="actionQueue-footnote"></p>
       </section>
 

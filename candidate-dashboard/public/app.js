@@ -233,6 +233,15 @@
     updateEntityButtonLabel();
   }
 
+  // Rows beyond this stay in the DOM (all of visibleRows renders — see
+  // renderActionQueue()) but out of view until the user scrolls
+  // .action-queue-scroll; CSS (max-height there) is what actually enforces
+  // this, so this constant only drives the "Showing 10 of 26" label's
+  // numerator, not the cap itself. Kept in sync manually with that CSS
+  // value — there's no clean way to read a max-height back out in "rows"
+  // rather than pixels.
+  const ACTION_QUEUE_VISIBLE_ROWS = 10;
+
   // The four sections that used to be their own stacked columns are now
   // merged into one "Action queue" table (see renderActionQueue() below) —
   // this table drives that merge instead of one renderColumn() per key.
@@ -248,10 +257,13 @@
       signalClass: "signal-critical",
       waitingHours: (item) => item.hoursOverdue,
       waitingLabel: (hours) => `${formatAge(hours)} overdue`,
-      renderDetail: (item) =>
-        item.interviewers && item.interviewers.length
-          ? `Waiting on: ${item.interviewers.map((i) => i.name).join(", ")}`
-          : "",
+      renderDetail: (item) => interviewerList(item.interviewers),
+      // Only feedbackOverdue defines this — the other three queues have no
+      // per-row interviewer-panel concept, so their signalDetail is a
+      // no-op. See interviewerSummary() above for the "Tom Reyes +2"
+      // truncation and why this can never name a single person as "the"
+      // one who hasn't submitted.
+      signalDetail: (item) => interviewerSummary(item.interviewers),
     },
     {
       key: "needsScheduling",
@@ -267,6 +279,7 @@
       waitingHours: (item) => item.hoursPending,
       waitingLabel: (hours) => `${formatAge(hours)} pending`,
       renderDetail: () => "",
+      signalDetail: () => "",
     },
     {
       key: "availabilitySubmitted",
@@ -280,6 +293,7 @@
       waitingHours: (item) => item.hoursWaiting,
       waitingLabel: (hours) => `${formatAge(hours)} waiting`,
       renderDetail: () => "",
+      signalDetail: () => "",
     },
     {
       key: "rescheduledInterviews",
@@ -295,13 +309,33 @@
       // duration — it hasn't actually been missed (yet).
       waitingHours: (item) => (Date.now() - new Date(item.startTime).getTime()) / (1000 * 60 * 60),
       waitingLabel: (hours) => (hours >= 0 ? `${formatAge(hours)} since rescheduled` : "Upcoming"),
-      renderDetail: (item) =>
-        `Currently scheduled: ${formatEventDateTime(item.startTime)}` +
-        (item.interviewers && item.interviewers.length
-          ? ` — Interviewers: ${item.interviewers.map((i) => i.name).join(", ")}`
-          : ""),
+      renderDetail: (item) => `Currently scheduled: ${formatEventDateTime(item.startTime)}` + (interviewerList(item.interviewers) ? ` — ${interviewerList(item.interviewers)}` : ""),
+      signalDetail: () => "",
     },
   ];
+
+  // Ashby's hasSubmittedFeedback is one boolean per interview EVENT, not
+  // resolved per interviewer (confirmed against a live interviewSchedule.list
+  // result — see the comment on feedbackEntries.push() in ashby.js) — for a
+  // multi-interviewer panel there's no way to know WHICH required
+  // panelist(s) still owe a scorecard, only that at least one does. Both
+  // helpers below are neutral on that basis: they name who's on the panel,
+  // never singling anyone out as "the one who hasn't submitted."
+  //
+  // Full list, comma-separated — used as a tooltip/hover-detail where space
+  // isn't constrained.
+  function interviewerList(interviewers) {
+    return interviewers && interviewers.length ? `Interviewers: ${interviewers.map((i) => i.name).join(", ")}` : "";
+  }
+
+  // First name plus a count of the rest — "Tom Reyes +2" — for the Action
+  // queue's Signal cell, where a full comma-separated list would break row
+  // height on a 3+ person panel. No "+N" at all for a single interviewer.
+  function interviewerSummary(interviewers) {
+    if (!interviewers || !interviewers.length) return "";
+    const [first, ...rest] = interviewers;
+    return rest.length ? `${first.name} +${rest.length}` : first.name;
+  }
 
   // Under 24h shows whole hours; 24h and up shows days (one decimal place)
   // instead of whole/floored days. The underlying data is still
@@ -421,7 +455,10 @@
           <div class="aq-stage">${queue.label}</div>
           <div class="aq-role">${item.jobTitle || ""}</div>
         </td>
-        <td><span class="signal-tag ${queue.signalClass}">${queue.label}</span></td>
+        <td>
+          <span class="signal-tag ${queue.signalClass}">${queue.label}</span>
+          ${queue.signalDetail(item) ? `<div class="aq-signal-sub">${queue.signalDetail(item)}</div>` : ""}
+        </td>
         <td class="aq-waiting ${sevClass}"${detail ? ` title="${detail}"` : ""}>${queue.waitingLabel(hours)}</td>
         <td class="aq-dismiss">${dismissHtml(candidateKey(item))}</td>
       </tr>`;
@@ -521,15 +558,39 @@
     }
 
     const visibleRows = activeSignal === "all" ? allRows : allRows.filter((r) => r.queue.key === activeSignal);
+
+    // "Showing 10 of 26" reflects visibleRows — whatever the active signal
+    // chip has already narrowed to, not allRows' unfiltered total — since
+    // that's the count the cap below actually applies against. All
+    // visibleRows still render into the DOM (the cap is a CSS max-height +
+    // overflow-y:auto on .action-queue-scroll, not a JS slice), so nothing
+    // here needs to change when the container scrolls; this is purely the
+    // label.
+    const shownCountEl = document.getElementById("actionQueue-shown-count");
+    if (shownCountEl) {
+      shownCountEl.textContent =
+        visibleRows.length > ACTION_QUEUE_VISIBLE_ROWS ? `Showing ${ACTION_QUEUE_VISIBLE_ROWS} of ${visibleRows.length}` : "";
+    }
+
     const tbody = document.getElementById("action-queue-body");
     if (!tbody) return;
     // All four TRIAGE_QUEUES keys are one fetch group server-side (see
     // issues.js's SECTION_GROUPS) and so always share one status — any one
     // of them stands in for "the whole merged table."
     const hasError = sectionHasError(data, "feedbackOverdue");
+
+    // Explicitly saved/restored around the innerHTML replacement (rather
+    // than relying on the browser to leave a persistent ancestor's
+    // scrollTop alone on its own, which it normally does, but isn't
+    // guaranteed) — dismissing a row re-renders the whole tbody on every
+    // poll and after every dismiss; without this, triaging down a long,
+    // scrolled queue would keep tape-measuring back to row 1.
+    const scrollContainer = document.querySelector(".action-queue-scroll");
+    const previousScrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     tbody.innerHTML = visibleRows.length
       ? visibleRows.map((row) => actionQueueRowHtml(row, data.thresholds)).join("")
       : `<tr><td colspan="5">${emptyStateHtml(hasError, "Nothing flagged")}</td></tr>`;
+    if (scrollContainer) scrollContainer.scrollTop = previousScrollTop;
   }
 
   function renderStale(items, hasError) {
@@ -544,10 +605,7 @@
           sev: "critical",
           ageLabel: `${formatAge(item.hoursStale)} stale`,
           reasonBadge: item.reasonLabel,
-          detail:
-            item.interviewers && item.interviewers.length
-              ? `Waiting on: ${item.interviewers.map((i) => i.name).join(", ")}`
-              : "",
+          detail: interviewerList(item.interviewers),
         })
       )
       .join("");
@@ -663,6 +721,15 @@
   // before (startTime, stageTitle, jobTitle, interviewers, candidateName,
   // ashbyProfileUrl); dismiss still uses candidateKey()/dismissHtml() same
   // as every other section.
+  //
+  // Only time + name + dismiss are always visible now — stage/role/
+  // interviewers moved into a `.card-details` hover/focus popup, the same
+  // mechanism cardHtml()'s candidate cards already use (see
+  // showCardDetails() and the mouseover/mouseout/focusin/focusout listeners
+  // below, whose selector now also matches `.onsite-timeline-item`). Time
+  // stays always-visible unlike the rest of the detail — unlike stage/role/
+  // interviewers, it's the whole point of a *schedule*, not supplementary
+  // detail; hiding it would make the timeline useless to scan at a glance.
   function renderOnsiteToday(items, hasError) {
     const container = document.getElementById("cards-onsiteToday");
     if (!items.length) {
@@ -680,8 +747,8 @@
         return `
           <div class="onsite-timeline-item">
             <div class="onsite-timeline-time">${formatEventTime(item.startTime)}</div>
-            <div class="onsite-timeline-body">
-              <div class="onsite-timeline-name">${nameHtml}</div>
+            <div class="onsite-timeline-name">${nameHtml}</div>
+            <div class="card-details">
               ${subParts.length ? `<div class="onsite-timeline-sub">${subParts.join(" · ")}</div>` : ""}
               ${interviewerText ? `<div class="onsite-timeline-sub">${interviewerText}</div>` : ""}
             </div>
@@ -1286,33 +1353,50 @@
     true
   );
 
-  // Hover/focus delegation for the candidate-card detail popup. mouseover/
-  // mouseout (rather than mouseenter/mouseleave) so a single listener on
-  // document can handle every card even as they're re-rendered on each
-  // poll; the relatedTarget check treats moving between a card's own
-  // children (e.g. name -> the popup itself, since it's a DOM descendant of
-  // .card even though it renders fixed-position) as staying "inside" the
-  // card, so it doesn't flicker closed. focusin/focusout mirror the same
-  // logic for keyboard users tabbing to the name link and then the dismiss
-  // button inside the now-visible popup.
+  // Hover/focus delegation for the candidate-card detail popup — shared by
+  // candidate cards (cardHtml()) and the Onsite Interviews Today timeline
+  // (renderOnsiteToday()), the two places a `.card-details` popup shows up.
+  // mouseover/mouseout (rather than mouseenter/mouseleave) so a single
+  // listener on document can handle every card/row even as they're
+  // re-rendered on each poll; the relatedTarget check treats moving between
+  // an item's own children (e.g. name -> the popup itself, since it's a DOM
+  // descendant of the item even though it renders fixed-position) as
+  // staying "inside," so it doesn't flicker closed. focusin/focusout mirror
+  // the same logic for keyboard users tabbing to the name link and then the
+  // dismiss button inside the now-visible popup.
+  const HOVER_DETAIL_SELECTOR = ".card, .onsite-timeline-item";
   document.addEventListener("mouseover", (e) => {
-    const card = e.target.closest(".card");
-    if (!card || (e.relatedTarget && card.contains(e.relatedTarget))) return;
-    showCardDetails(card);
+    const item = e.target.closest(HOVER_DETAIL_SELECTOR);
+    if (!item || (e.relatedTarget && item.contains(e.relatedTarget))) return;
+    showCardDetails(item);
   });
   document.addEventListener("mouseout", (e) => {
-    const card = e.target.closest(".card");
-    if (!card || (e.relatedTarget && card.contains(e.relatedTarget))) return;
-    hideCardDetails(card);
+    const item = e.target.closest(HOVER_DETAIL_SELECTOR);
+    if (!item || (e.relatedTarget && item.contains(e.relatedTarget))) return;
+    hideCardDetails(item);
   });
   document.addEventListener("focusin", (e) => {
-    const card = e.target.closest(".card");
-    if (card) showCardDetails(card);
+    const item = e.target.closest(HOVER_DETAIL_SELECTOR);
+    if (item) showCardDetails(item);
   });
   document.addEventListener("focusout", (e) => {
-    const card = e.target.closest(".card");
-    if (!card || (e.relatedTarget && card.contains(e.relatedTarget))) return;
-    hideCardDetails(card);
+    const item = e.target.closest(HOVER_DETAIL_SELECTOR);
+    if (!item || (e.relatedTarget && item.contains(e.relatedTarget))) return;
+    hideCardDetails(item);
+  });
+
+  // Touch has no hover state to reveal the popup with, and no reliable
+  // "moved away" signal to close it either — a tap anywhere on the
+  // item (except its dismiss buttons or its name link, both of which
+  // already do something on tap) toggles the popup instead, so it's
+  // reachable at all on a touchscreen. Harmless on desktop too: clicking
+  // an already hover-opened popup just closes it, a reasonable "tap away"
+  // gesture rather than a conflict.
+  document.addEventListener("click", (e) => {
+    const item = e.target.closest(HOVER_DETAIL_SELECTOR);
+    if (!item || e.target.closest(".dismiss, a[href]")) return;
+    const details = item.querySelector(".card-details");
+    if (details) details.classList.toggle("open");
   });
 
   // Top-level page tabs (Dashboard / Interviewer Info) — pure DOM show/hide

@@ -608,6 +608,36 @@ button#refresh-btn.spinning {
   color: var(--white);
 }
 
+.aq-shown-count {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 0 0 8px;
+}
+
+/* Caps the table at roughly 10 rows without extending the page — scroll
+   happens inside this box instead (see the scrollTop save/restore around
+   renderActionQueue()'s tbody.innerHTML replacement in app.js, so
+   dismissing a row mid-scroll doesn't jump back to the top). max-height is
+   an approximation tuned for typical row content (Stage & role and Signal
+   cells both commonly wrap to two lines) — not a pixel-exact guarantee of
+   exactly 10, same as the "Showing 10 of N" label's numerator is a fixed
+   constant (ACTION_QUEUE_VISIBLE_ROWS in app.js), not read back from this
+   value. */
+.action-queue-scroll {
+  max-height: 560px;
+  overflow-y: auto;
+}
+
+/* Sticky, not just a plain <thead> — without an opaque background here,
+   rows scrolling underneath would show through the header text. var(--surface),
+   not --white, so this still matches the section's background in dark mode. */
+.action-queue-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 1;
+}
+
 .action-queue-table {
   width: 100%;
   border-collapse: collapse;
@@ -697,6 +727,18 @@ button#refresh-btn.spinning {
   background: var(--surface-sunken);
 }
 
+/* Only feedbackOverdue rows populate this (queue.signalDetail — see
+   TRIAGE_QUEUES in app.js); a dedicated column would sit blank on the
+   other three queues' rows most of the time. "Tom Reyes +2" style
+   truncation (interviewerSummary() in app.js) keeps a 3+ person panel from
+   wrapping the row taller than its neighbors. */
+.aq-signal-sub {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 3px;
+  white-space: nowrap;
+}
+
 .aq-waiting {
   white-space: nowrap;
   font-weight: 700;
@@ -717,8 +759,10 @@ button#refresh-btn.spinning {
 }
 
 /* Right-rail timeline for Onsite Interviews Today — time-first, one row per
-   onsite, replacing the card format every other section still uses (see
-   renderOnsiteToday() in app.js). */
+   onsite, a different at-rest layout than the card format every other
+   card-style section still uses (see renderOnsiteToday() in app.js), but
+   sharing that same `.card-details` hover/focus/tap-reveal popup for
+   everything past time + name. */
 .onsite-timeline {
   display: flex;
   flex-direction: column;
@@ -745,12 +789,14 @@ button#refresh-btn.spinning {
   color: var(--text-secondary);
 }
 
-.onsite-timeline-body {
+/* Only time + name are always visible now — stage/role/interviewers moved
+   into the same `.card-details` hover/focus popup cardHtml()'s candidate
+   cards use (see the shared HOVER_DETAIL_SELECTOR listeners in app.js).
+   flex:1 so the name still takes the row's remaining space now that it's
+   no longer wrapped in a flex child of its own (.onsite-timeline-body). */
+.onsite-timeline-name {
   flex: 1;
   min-width: 0;
-}
-
-.onsite-timeline-name {
   font-weight: 700;
   font-size: 14px;
 }
