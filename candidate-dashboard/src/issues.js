@@ -181,7 +181,14 @@ async function refresh() {
 
   refreshPromise = (async () => {
     try {
+      const callCountBefore = ashby.getApiCallCount();
+      const byEndpointBefore = ashby.getApiCallCountByEndpoint();
       const results = await Promise.all(SECTION_GROUPS.map(refreshOneGroup));
+      const callCountThisCycle = ashby.getApiCallCount() - callCountBefore;
+      const byEndpointAfter = ashby.getApiCallCountByEndpoint();
+      const byEndpointThisCycle = Object.keys(byEndpointAfter)
+        .map((endpoint) => [endpoint, byEndpointAfter[endpoint] - (byEndpointBefore[endpoint] || 0)])
+        .filter(([, count]) => count > 0);
 
       // Top-level lastUpdated/lastError are a coarse, whole-refresh-cycle
       // summary for the header only, computed after every group has
@@ -207,6 +214,11 @@ async function refresh() {
           `${snapshot.offersAwaitingAcceptance.length} offers awaiting acceptance, ` +
           `${snapshot.offersSigned.length} offers signed` +
           (failed.length ? ` (failed: ${failed.join(", ")})` : "")
+      );
+      console.log(
+        `[issues] refresh cycle used ${callCountThisCycle} Ashby API calls (` +
+          byEndpointThisCycle.map(([endpoint, count]) => `${endpoint}=${count}`).join(", ") +
+          `)`
       );
     } finally {
       refreshPromise = null;

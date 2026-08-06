@@ -3,9 +3,30 @@
 const config = require("./config");
 const { mapWithConcurrency } = require("./concurrency");
 const rescheduleTracking = require("./rescheduleTracking");
+const interviewerSettingsCache = require("./interviewerSettingsCache");
+const applicationInfoCache = require("./applicationInfoCache");
 
 function authHeader() {
   return `Basic ${Buffer.from(`${config.ashbyApiKey}:`).toString("base64")}`;
+}
+
+// Counts every actual HTTP request made to Ashby, including retries (each
+// one is a real request Ashby saw, so it counts) — issues.js logs the delta
+// across one refresh cycle so the interviewer-settings/application-info
+// caches' effect on total call volume is directly visible in deploy logs,
+// not just inferred from wall-clock time. Broken down by endpoint too, not
+// just a total — a raw total conflates retry noise from a flaky org (a
+// spell of transient failures inflates every endpoint's count, cache or no
+// cache) with the actual per-endpoint call volume the caches are meant to
+// reduce, and application.info/user.interviewerSettings are what those two
+// caches specifically target.
+let apiCallCount = 0;
+const apiCallCountByEndpoint = {};
+function getApiCallCount() {
+  return apiCallCount;
+}
+function getApiCallCountByEndpoint() {
+  return { ...apiCallCountByEndpoint };
 }
 
 // A single retryable request (whether it's one page of a multi-page
@@ -40,6 +61,8 @@ async function ashbyPost(endpoint, body) {
   let totalWaitedMs = 0;
 
   for (;;) {
+    apiCallCount += 1;
+    apiCallCountByEndpoint[endpoint] = (apiCallCountByEndpoint[endpoint] || 0) + 1;
     const res = await fetch(`https://api.ashbyhq.com/${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: authHeader() },
@@ -138,16 +161,32 @@ function hiringTeamMember(app, roleName) {
 // Fetches application.info for each id, bounded concurrency, skipping (not
 // throwing on) any single lookup that fails — shared by fetchApplicationSummaries
 // and fetchOfferApplications below, which differ only in which apps they keep.
-async function fetchApplicationsById(applicationIds) {
-  return mapWithConcurrency(applicationIds, 8, async (id) => {
+//
+// `signatures` (Map<applicationId, string>) is the caller's best FREE signal
+// for "has anything changed here since last time" — a schedule's own
+// updatedAt for the schedule-driven caller, an offer's own
+// status/version/decidedAt for the offer-driven one (see applicationInfoCache.js
+// for why there's no cheaper way to check an application specifically).
+// application.info is by far the most expensive part of a refresh — one
+// call per unique id, and this org alone confirmed live at 523s for the
+// whole schedule-driven batch — so a cache hit here (signature unchanged,
+// still within MAX_AGE_MS) skips the network call entirely.
+async function fetchApplicationsById(applicationIds, signatures) {
+  const results = await mapWithConcurrency(applicationIds, 8, async (id) => {
+    const signature = signatures.get(id) || "";
+    const cached = applicationInfoCache.get(id, signature);
+    if (cached) return cached;
     try {
       const json = await ashbyPost("application.info", { applicationId: id });
+      applicationInfoCache.set(id, signature, json.results);
       return json.results;
     } catch (err) {
       console.warn(`[ashby] application.info failed for ${id}:`, err.message);
       return null;
     }
   });
+  applicationInfoCache.flush();
+  return results;
 }
 
 // Shared candidate/job/hiring-team shape every candidate-linked section
@@ -180,8 +219,8 @@ function buildApplicationRecord(app) {
  * the given applicationIds — not a scan of every active application. Filters
  * out anything no longer Active or still sitting in Application Review.
  */
-async function fetchApplicationSummaries(applicationIds) {
-  const fetched = await fetchApplicationsById(applicationIds);
+async function fetchApplicationSummaries(applicationIds, signatures) {
+  const fetched = await fetchApplicationsById(applicationIds, signatures);
   const byId = new Map();
   for (const app of fetched) {
     if (!app || app.status !== "Active" || isPreInterview(app)) continue;
@@ -201,8 +240,8 @@ async function fetchApplicationSummaries(applicationIds) {
  * are frequently Hired/Archived, exactly the statuses that link is
  * unverified for.
  */
-async function fetchOfferApplications(applicationIds) {
-  const fetched = await fetchApplicationsById(applicationIds);
+async function fetchOfferApplications(applicationIds, signatures) {
+  const fetched = await fetchApplicationsById(applicationIds, signatures);
   const byId = new Map();
   for (const app of fetched) {
     if (!app) continue;
@@ -268,11 +307,18 @@ async function listInterviewerLimits(schedules) {
   const counts = countInterviewsThisWeek(schedules);
   if (!counts.size) return [];
 
+  // weeklyLimit almost never changes, so this is cached (interviewerSettingsCache.js,
+  // refreshed at most daily) rather than re-fetched for every interviewer on
+  // every refresh — one call per unique interviewer in this week's
+  // schedules, previously, every single cycle.
   const settingsById = new Map(
     (
       await mapWithConcurrency([...counts.keys()], 8, async (userId) => {
+        const cached = interviewerSettingsCache.get(userId);
+        if (cached) return [userId, cached];
         try {
           const json = await ashbyPost("user.interviewerSettings", { userId });
+          interviewerSettingsCache.set(userId, json.results);
           return [userId, json.results];
         } catch (err) {
           console.warn(`[ashby] user.interviewerSettings failed for ${userId}:`, err.message);
@@ -281,6 +327,7 @@ async function listInterviewerLimits(schedules) {
       })
     ).filter(Boolean)
   );
+  interviewerSettingsCache.flush();
 
   const nearingLimit = [];
   for (const [userId, info] of counts) {
@@ -554,8 +601,23 @@ async function listIssues() {
   const eventsByApplicationId = groupEventsByApplicationId(schedules);
 
   const applicationIds = [...new Set(schedules.map((s) => s.applicationId).filter(Boolean))];
+  // A schedule's own updatedAt as the change signal for application-info
+  // caching below — the most recent one seen, if an applicationId has more
+  // than one schedule (multiple interview rounds) in the lookback window.
+  // See applicationInfoCache.js for why this (not the application's own
+  // updatedAt, which Ashby doesn't expose anywhere cheaper than
+  // application.info itself) is the signal used.
+  const scheduleUpdatedAtByApplication = new Map();
+  for (const s of schedules) {
+    if (!s.applicationId) continue;
+    const existing = scheduleUpdatedAtByApplication.get(s.applicationId);
+    if (!existing || new Date(s.updatedAt) > new Date(existing)) {
+      scheduleUpdatedAtByApplication.set(s.applicationId, s.updatedAt);
+    }
+  }
+
   const [applications, interviewerLimits, debriefInterviewIds] = await Promise.all([
-    fetchApplicationSummaries(applicationIds),
+    fetchApplicationSummaries(applicationIds, scheduleUpdatedAtByApplication),
     listInterviewerLimits(schedules),
     fetchDebriefInterviewIds(),
   ]);
@@ -618,16 +680,32 @@ async function listIssues() {
       const hoursOverdue = (now - new Date(event.endTime).getTime()) / (1000 * 60 * 60);
       if (hoursOverdue < config.feedbackOverdueHours) continue;
 
+      // hasSubmittedFeedback is a single boolean on the EVENT, not resolved
+      // per interviewer — confirmed against a live interviewSchedule.list
+      // result: `interviewers[]` carries each panelist's own
+      // `isFeedbackRequired`, but there's no per-interviewer submitted flag
+      // anywhere, only this one event-level aggregate. So which specific
+      // required interviewer(s) still owe a scorecard is NOT knowable from
+      // this API for a multi-interviewer panel — only that at least one
+      // does. Filtered to isFeedbackRequired !== false (keeping it on a
+      // missing/undefined value, not just true, so an org where this field
+      // is ever absent doesn't silently drop a real panelist) so the list
+      // shown is "who could plausibly still owe this," not literally
+      // everyone who sat in, e.g. excluding a non-required shadowing
+      // trainee — see candidateKey()'s callers in app.js for how this
+      // renders as a neutral panel list rather than naming an individual.
       feedbackEntries.push({
         ...app,
         scheduleId: schedule.id,
         interviewEventId: event.id,
         endTime: event.endTime,
         hoursOverdue: Math.round(hoursOverdue),
-        interviewers: (event.interviewers || []).map((i) => ({
-          name: `${i.firstName || ""} ${i.lastName || ""}`.trim() || i.email,
-          email: i.email,
-        })),
+        interviewers: (event.interviewers || [])
+          .filter((i) => i.isFeedbackRequired !== false)
+          .map((i) => ({
+            name: `${i.firstName || ""} ${i.lastName || ""}`.trim() || i.email,
+            email: i.email,
+          })),
         isStale: hoursOverdue >= config.staleFeedbackHours,
       });
     }
@@ -811,10 +889,21 @@ async function listOffers() {
     (o) => o.offerStatus === "CandidateAccepted" && o.decidedAt && new Date(o.decidedAt).getTime() >= signedCutoffMs
   );
 
-  const applicationIds = [
-    ...new Set([...notYetSentOffers, ...awaitingOffers, ...signedOffers].map((o) => o.applicationId).filter(Boolean)),
-  ];
-  const applications = await fetchOfferApplications(applicationIds);
+  const relevantOffers = [...notYetSentOffers, ...awaitingOffers, ...signedOffers];
+  const applicationIds = [...new Set(relevantOffers.map((o) => o.applicationId).filter(Boolean))];
+  // Change signal for application-info caching (see applicationInfoCache.js)
+  // — offers have no updatedAt of their own, so this composes the fields
+  // that actually change over an offer's life (status, latest version's
+  // creation, and when/if it was decided). If more than one relevant offer
+  // somehow references the same applicationId, the last one wins; vanishingly
+  // rare and harmless either way (worst case: one extra application.info call).
+  const offerSignatureByApplication = new Map();
+  for (const o of relevantOffers) {
+    if (!o.applicationId) continue;
+    const version = o.latestVersion || {};
+    offerSignatureByApplication.set(o.applicationId, `${o.offerStatus}|${version.createdAt || ""}|${o.decidedAt || ""}`);
+  }
+  const applications = await fetchOfferApplications(applicationIds, offerSignatureByApplication);
 
   const toEntry = (offer) => {
     const app = applications.get(offer.applicationId);
@@ -956,4 +1045,6 @@ module.exports = {
   listDepartments,
   listInterviewerTraining,
   listOffers,
+  getApiCallCount,
+  getApiCallCountByEndpoint,
 };
