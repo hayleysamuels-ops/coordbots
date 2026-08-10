@@ -189,6 +189,21 @@ async function fetchApplicationsById(applicationIds, signatures) {
   return results;
 }
 
+// application.info embeds applicationHistory[] for free (same data as the
+// separate application.listHistory endpoint) — one entry per stage the
+// application has occupied, each with enteredStageAt/leftStageAt. The
+// currently active stage is the one entry with no leftStageAt yet; that
+// entry's enteredStageAt is when the application entered ITS CURRENT stage.
+// Confirmed structural (not org-configured naming) against both Profound and
+// January live samples. Falls back to the last entry if every entry somehow
+// has a leftStageAt (shouldn't happen for an Active application, but the
+// array could in principle be empty or all-closed on bad data).
+function currentStageEnteredAt(app) {
+  const history = app.applicationHistory || [];
+  const current = history.find((h) => !h.leftStageAt) || history[history.length - 1];
+  return current ? current.enteredStageAt : null;
+}
+
 // Shared candidate/job/hiring-team shape every candidate-linked section
 // builds from a raw application.info result. ashbyProfileUrl is only set for
 // Active applications — the profile URL hardcodes the "active" pipeline
@@ -210,6 +225,8 @@ function buildApplicationRecord(app) {
     coordinatorId: coordinator && coordinator.id,
     coordinatorName: coordinator && coordinator.name,
     status: app.status,
+    currentStageId: (app.currentInterviewStage && app.currentInterviewStage.id) || null,
+    currentStageEnteredAt: currentStageEnteredAt(app),
     ashbyProfileUrl: app.status === "Active" ? profileUrl(candidate.id, app.id) : undefined,
   };
 }
@@ -677,6 +694,25 @@ async function listIssues() {
       if (event.hasSubmittedFeedback || !event.endTime) continue;
       if (debriefInterviewIds.has(event.interviewId)) continue; // debriefs have no scorecard due back
       if (isSupersededByLaterActivity(event, schedule.applicationId, eventsByApplicationId)) continue;
+      // The application has already moved on to its current stage since this
+      // interview ended — the scorecard gap is moot even though no later
+      // interview EVENT has necessarily occurred yet (isSupersededByLaterActivity
+      // above only catches that narrower case). Confirmed live: Profound's Tom
+      // Gallagher had an outstanding Deep Dive (Jul 27) scorecard but entered
+      // Onsite/Case Study on 2026-08-07, well after that event ended.
+      // Guarded to schedule.interviewStageId !== app.currentStageId: an event
+      // belonging to the application's CURRENT stage must never be suppressed
+      // by this rule, even if currentStageEnteredAt is after the event's
+      // endTime — otherwise a coordinator advancing the stage soon after an
+      // interview (before its own feedback is in) would instantly hide that
+      // interview's still-outstanding scorecard.
+      if (
+        schedule.interviewStageId !== app.currentStageId &&
+        app.currentStageEnteredAt &&
+        new Date(app.currentStageEnteredAt).getTime() > new Date(event.endTime).getTime()
+      ) {
+        continue;
+      }
       const hoursOverdue = (now - new Date(event.endTime).getTime()) / (1000 * 60 * 60);
       if (hoursOverdue < config.feedbackOverdueHours) continue;
 
