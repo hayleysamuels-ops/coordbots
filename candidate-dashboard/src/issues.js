@@ -3,6 +3,7 @@
 const config = require("./config");
 const ashby = require("./ashby");
 const dismissals = require("./dismissals");
+const notes = require("./notes");
 
 const thresholds = {
   feedbackOverdueHours: config.feedbackOverdueHours,
@@ -256,9 +257,44 @@ function applyDismissals(snap) {
   };
 }
 
+// Every candidate-keyed section key applyDismissals' keepCandidate filter
+// above applies to — reused here so a note is attached to a candidate
+// wherever they appear. Interviewer Weekly Limits/Training are keyed by
+// userId, not candidateId, and have no note concept, so neither is in this
+// list.
+const CANDIDATE_NOTE_KEYS = [
+  "feedbackOverdue",
+  "needsScheduling",
+  "staleCandidates",
+  "recentSourced",
+  "availabilitySubmitted",
+  "onsiteToday",
+  "rescheduledInterviews",
+  "offersNotYetSent",
+  "offersAwaitingAcceptance",
+  "offersSigned",
+];
+
+// Attaches each candidate's locally-stored note (see notes.js) at serve
+// time, same as applyDismissals above, so a saved/deleted note takes effect
+// on the very next poll. Deliberately runs independently of
+// applyDismissals — it doesn't consult dismissals.isDismissed at all — so a
+// note's presence is never gated on, or cleared by, dismiss/undismiss/a
+// snooze expiring. Run AFTER applyDismissals (on whatever survives that
+// filter) purely so there's less to map over, not because ordering affects
+// the result either way.
+function applyNotes(snap) {
+  const withNote = (x) => ({ ...x, note: notes.get(x.candidateId) });
+  const result = { ...snap };
+  for (const key of CANDIDATE_NOTE_KEYS) {
+    result[key] = (snap[key] || []).map(withNote);
+  }
+  return result;
+}
+
 function getSnapshot() {
   return {
-    ...applyDismissals(snapshot),
+    ...applyNotes(applyDismissals(snapshot)),
     lastUpdated,
     lastError,
     // Shallow-copied, unlike snapshot's own fields above — those get

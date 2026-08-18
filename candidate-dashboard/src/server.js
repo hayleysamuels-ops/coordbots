@@ -4,6 +4,7 @@ const path = require("path");
 const express = require("express");
 const issues = require("./issues");
 const dismissals = require("./dismissals");
+const notes = require("./notes");
 const { basicAuth } = require("./auth");
 
 function createServer() {
@@ -41,6 +42,24 @@ function createServer() {
     const { key } = req.body || {};
     if (!key) return res.status(400).json({ error: "key required" });
     dismissals.remove(key);
+    res.json(issues.getSnapshot());
+  });
+
+  // Save/update a candidate's local note (never written to Ashby — see
+  // notes.js). Deliberately a separate store from dismissals, with its own
+  // endpoints, so a note's lifecycle never rides along with a dismiss/
+  // undismiss request.
+  app.post("/api/notes", (req, res) => {
+    const { candidateId, text } = req.body || {};
+    if (!candidateId) return res.status(400).json({ error: "candidateId required" });
+    notes.set(candidateId, text);
+    res.json(issues.getSnapshot());
+  });
+
+  app.post("/api/notes/delete", (req, res) => {
+    const { candidateId } = req.body || {};
+    if (!candidateId) return res.status(400).json({ error: "candidateId required" });
+    notes.remove(candidateId);
     res.json(issues.getSnapshot());
   });
 

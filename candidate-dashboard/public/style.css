@@ -762,6 +762,111 @@ button#refresh-btn.spinning {
   text-align: right;
 }
 
+/* A coordinator's own free-text note on a candidate (src/notes.js, never
+   written to Ashby) — shared by candidate cards (.card-top's sibling, see
+   cardHtml() in app.js) and Action queue rows (inside .aq-candidate, see
+   actionQueueRowHtml()). .note-block-compact is the latter's variant: same
+   idea, trimmed down so it doesn't crowd the Snooze/Hide buttons in the
+   same row. Deliberately plain block layout, not a floating popup —
+   Add/Edit/Delete/Save/Cancel all render in place. */
+.note-block {
+  margin-top: 6px;
+}
+
+.note-text {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.note-block-compact .note-text {
+  font-size: 11px;
+}
+
+.note-view-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.note-add-btn,
+.note-edit-btn,
+.note-delete-btn,
+.note-save-btn,
+.note-cancel-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: color 120ms ease, text-decoration-color 120ms ease;
+}
+
+.note-add-btn:hover,
+.note-add-btn:focus-visible,
+.note-edit-btn:hover,
+.note-edit-btn:focus-visible,
+.note-save-btn:hover,
+.note-save-btn:focus-visible {
+  color: var(--text-primary);
+  text-decoration-color: var(--text-muted);
+}
+
+/* Reads as the more consequential of the two view-state actions, same
+   ember-on-hover treatment dismissHtml()'s "Hide" (forever) uses for the
+   same reason. */
+.note-delete-btn:hover,
+.note-delete-btn:focus-visible {
+  color: var(--critical);
+  text-decoration-color: var(--critical);
+}
+
+.note-cancel-btn:hover,
+.note-cancel-btn:focus-visible {
+  color: var(--text-secondary);
+  text-decoration-color: var(--text-muted);
+}
+
+.note-block-compact .note-add-btn,
+.note-block-compact .note-edit-btn,
+.note-block-compact .note-delete-btn,
+.note-block-compact .note-save-btn,
+.note-block-compact .note-cancel-btn {
+  font-size: 10px;
+}
+
+.note-input {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  box-sizing: border-box;
+  resize: vertical;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+}
+
+.note-block-compact .note-input {
+  max-width: 220px;
+  font-size: 11px;
+}
+
+.note-editor-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 /* Right-rail timeline for Onsite Interviews Today — time-first, one row per
    onsite, a different at-rest layout than the card format every other
    card-style section still uses (see renderOnsiteToday() in app.js), but

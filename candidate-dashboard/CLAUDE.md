@@ -716,6 +716,47 @@ is normally still in Application Review and any status).
   of a dismiss anymore — the old menu's second click doubled as one — so the
   Undo toast (`showUndoToast()`/`#dismiss-toast`) is the replacement safety
   net, shown after every dismiss regardless of scope.
+- **Candidate notes (`src/notes.js`) are a coordinator's own free-text
+  scratchpad on a candidate — local to this dashboard, never written to
+  Ashby, and deliberately independent of the dismiss lifecycle.** Persisted
+  to `<DATA_DIR>/notes.json`, keyed by `candidateId`, in its OWN file next to
+  (not inside) `dismissals.json` — a note must survive snoozing, unsnoozing,
+  or a snooze simply expiring, none of which touch `notes.json` at all.
+  `issues.js`'s `applyNotes()` attaches each item's `.note` at serve time,
+  same as `applyDismissals()`, over the same `CANDIDATE_NOTE_KEYS` list
+  (kept as its own explicit array rather than reusing `applyDismissals()`'s
+  internal filter list, matching this file's existing convention of that
+  list being a manual per-section opt-in, not derived); it runs AFTER
+  `applyDismissals()` purely so there's less to map over, not because
+  either depends on the other — `applyNotes()` never calls
+  `dismissals.isDismissed()`. `POST /api/notes` (save/update) and
+  `POST /api/notes/delete` are separate endpoints from `/api/dismiss`/
+  `/api/undismiss`, each returning a fresh `getSnapshot()` the same way.
+  **This dashboard sits behind one shared basic-auth login (see
+  `auth.js`)** — there is no per-coordinator identity, so a note has no
+  author and no attribution; whoever saves last simply overwrites it, like
+  a shared doc. Rendered inline in place — never a floating popup — by
+  `noteBlockHtml()` in `app.js`, shared by candidate cards (`cardHtml()`,
+  rendered as a sibling of `.card-details` so it stays visible even when
+  that hover popup is collapsed) and Action queue rows (inside
+  `.aq-candidate`, same "secondary text under the primary cell content"
+  pattern `.aq-signal-sub` already uses under Signal — no new queue column,
+  since one would sit blank on most rows). `.note-block-compact` is the
+  queue's trimmed-down variant so the control doesn't crowd Snooze/Hide in
+  the same row. `openNoteEditors` (a module-level `Map` of `candidateId` ->
+  draft text) is what makes an open inline editor survive the 60s poll's
+  `render()` call without losing whatever a coordinator has half-typed —
+  every render checks it before falling back to the server's `.note` value.
+  Opening/closing a queue row's editor goes through the exact same
+  `render()` -> `renderActionQueue()` path dismissing a row already does, so
+  the scroll-position preservation around that function's `tbody.innerHTML`
+  replacement (see its own comment) covers a row growing/shrinking from an
+  editor opening for free — nothing extra was needed for that. Not wired up
+  for Onsite Interviews Today: that section doesn't use `cardHtml()` (it's a
+  timeline, not cards — `renderOnsiteToday()` builds its own markup), and
+  adding a fourth rendering site was out of scope here; `.note` is still
+  attached to its items server-side for consistency with the other
+  candidate-keyed sections, it's just unused client-side for now.
 
 ## Conventions
 

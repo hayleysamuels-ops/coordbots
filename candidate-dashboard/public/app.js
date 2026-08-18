@@ -42,6 +42,53 @@
     return disabledSectionKeys.has(key);
   }
 
+  // candidateId -> draft text, for whichever note editors are currently
+  // open (new or editing an existing note) — inline in place, never a
+  // floating popup. render() runs on every 60s poll same as everything
+  // else; without this, that poll would blow away whatever a coordinator
+  // had half-typed before they hit Save. Presence of a key means that
+  // candidate's editor is open; the value is kept current by the
+  // `.note-input` input listener below.
+  const openNoteEditors = new Map();
+
+  // Section keys that carry a `.note` field (see applyNotes() in
+  // issues.js) AND actually render it — the four merged into the Action
+  // queue table plus the five candidate-card sections. Onsite Interviews
+  // Today also gets a `.note` from the server but renders as a timeline,
+  // not a card, and was left out of scope for showing notes there. Used by
+  // findCandidateNote() below to seed an "Edit" click with the note's
+  // current text without a network round-trip.
+  const NOTE_SOURCE_KEYS = [
+    "feedbackOverdue",
+    "needsScheduling",
+    "availabilitySubmitted",
+    "rescheduledInterviews",
+    "staleCandidates",
+    "recentSourced",
+    "offersNotYetSent",
+    "offersAwaitingAcceptance",
+    "offersSigned",
+  ];
+
+  function findCandidateNote(candidateId) {
+    if (!lastData) return "";
+    for (const key of NOTE_SOURCE_KEYS) {
+      for (const item of lastData[key] || []) {
+        if (item.candidateId === candidateId) return item.note || "";
+      }
+    }
+    return "";
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   // Sections that carry job/recruiter/coordinator info on their items —
   // used to derive those filter modes' options client-side, since (unlike
   // departments) there's no org-wide "list all jobs/recruiters/coordinators"
@@ -390,6 +437,55 @@
     return `candidate:${item.candidateId}`;
   }
 
+  // A coordinator's own free-text note on a candidate — entirely local to
+  // this dashboard (see src/notes.js) and never written to Ashby. Shared by
+  // candidate cards (cardHtml()) and Action queue rows
+  // (actionQueueRowHtml()); `compact` trims padding/font-size for the
+  // latter so the control doesn't crowd the Snooze/Hide buttons in the same
+  // row. Independent of the dismiss/snooze lifecycle — see notes.js — and
+  // shared across every coordinator behind this dashboard's one basic-auth
+  // login, with no per-author attribution (also noted in notes.js).
+  //
+  // Three states, all inline in place (never a floating popup): no note
+  // yet -> a small "+ Add note" control; a saved note -> its text (styled
+  // smaller/muted than the candidate name, same treatment as
+  // .aq-signal-sub's missing-interviewer text) plus Edit/Delete; editing ->
+  // an inline textarea plus Save/Cancel. openNoteEditors (see above) is
+  // checked first so an open editor survives a background re-render.
+  function noteBlockHtml(item, { compact }) {
+    const candidateId = item.candidateId;
+    if (!candidateId) return "";
+    const wrapClass = compact ? "note-block note-block-compact" : "note-block";
+
+    if (openNoteEditors.has(candidateId)) {
+      const draft = openNoteEditors.get(candidateId);
+      return `
+        <div class="${wrapClass} note-editing" data-candidate-id="${candidateId}">
+          <textarea class="note-input" data-candidate-id="${candidateId}" rows="2" placeholder="Note for this candidate…">${escapeHtml(draft)}</textarea>
+          <div class="note-editor-actions">
+            <button type="button" class="note-save-btn" data-candidate-id="${candidateId}">Save</button>
+            <button type="button" class="note-cancel-btn" data-candidate-id="${candidateId}">Cancel</button>
+          </div>
+        </div>`;
+    }
+
+    if (item.note) {
+      return `
+        <div class="${wrapClass}" data-candidate-id="${candidateId}">
+          <div class="note-text">${escapeHtml(item.note)}</div>
+          <div class="note-view-actions">
+            <button type="button" class="note-edit-btn" data-candidate-id="${candidateId}">Edit</button>
+            <button type="button" class="note-delete-btn" data-candidate-id="${candidateId}">Delete</button>
+          </div>
+        </div>`;
+    }
+
+    return `
+      <div class="${wrapClass}" data-candidate-id="${candidateId}">
+        <button type="button" class="note-add-btn" data-candidate-id="${candidateId}">+ Add note</button>
+      </div>`;
+  }
+
   // Candidate cards show only the name by default — everything else
   // (age/severity, job title, dismiss control, badges, detail line) lives in
   // `.card-details`, shown as a floating popup on hover/focus (positioned by
@@ -403,12 +499,16 @@
     // default — see .dismiss-btn in style.css), not in the hover popup, so
     // it doesn't require hovering just to hide a card. Age/job title/badges/
     // detail stay in `.card-details`, the floating popup.
+    // The note block is a sibling of `.card-details`, not nested inside
+    // it — it must stay visible even when the hover popup is collapsed
+    // (see noteBlockHtml() above), unlike everything else past the name.
     return `
       <div class="card sev-${sev}">
         <div class="card-top">
           <div class="card-name">${nameHtml}</div>
           ${dismissHtml(candidateKey(item))}
         </div>
+        ${noteBlockHtml(item, { compact: false })}
         <div class="card-details">
           <div class="card-age ${ageClass || `sev-${sev}`}">${ageLabel}</div>
           <div class="card-sub">${item.jobTitle || ""}</div>
@@ -450,7 +550,7 @@
     const sevClass = queue.thresholdKey && thresholds ? `sev-${severity(hours, thresholds[queue.thresholdKey])}` : "";
     return `
       <tr class="action-queue-row">
-        <td class="aq-candidate">${nameHtml}</td>
+        <td class="aq-candidate">${nameHtml}${noteBlockHtml(item, { compact: true })}</td>
         <td class="aq-stage-role">
           <div class="aq-stage">${queue.label}</div>
           <div class="aq-role">${item.jobTitle || ""}</div>
@@ -584,7 +684,13 @@
     // scrollTop alone on its own, which it normally does, but isn't
     // guaranteed) — dismissing a row re-renders the whole tbody on every
     // poll and after every dismiss; without this, triaging down a long,
-    // scrolled queue would keep tape-measuring back to row 1.
+    // scrolled queue would keep tape-measuring back to row 1. This also
+    // covers opening/closing a row's inline note editor (see noteBlockHtml()
+    // above) — that goes through this same render() -> renderActionQueue()
+    // path and changes that row's height, but by pixel-value scrollTop
+    // preservation rather than row-index, so it doesn't matter that the
+    // cause this time is a row growing/shrinking in place rather than one
+    // disappearing.
     const scrollContainer = document.querySelector(".action-queue-scroll");
     const previousScrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     tbody.innerHTML = visibleRows.length
@@ -1204,6 +1310,50 @@
     }
   }
 
+  // Focuses the just-opened note editor for `candidateId`, cursor at the
+  // end — called right after render() has synchronously rebuilt the DOM, so
+  // the new textarea already exists. If the same candidate happens to
+  // appear in more than one place (e.g. an Action queue row and a card),
+  // this focuses whichever instance querySelector finds first; only one is
+  // realistically being edited at a time.
+  function focusNoteInput(candidateId) {
+    const el = document.querySelector(`.note-input[data-candidate-id="${CSS.escape(candidateId)}"]`);
+    if (el) {
+      el.focus();
+      el.selectionStart = el.selectionEnd = el.value.length;
+    }
+  }
+
+  async function saveNote(candidateId, text) {
+    try {
+      const res = await fetch("/api/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ candidateId, text }),
+      });
+      const data = await res.json();
+      openNoteEditors.delete(candidateId);
+      render(data);
+    } catch (err) {
+      console.error(`[notes] save failed for candidate "${candidateId}":`, err);
+    }
+  }
+
+  async function deleteNote(candidateId) {
+    try {
+      const res = await fetch("/api/notes/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ candidateId }),
+      });
+      const data = await res.json();
+      openNoteEditors.delete(candidateId);
+      render(data);
+    } catch (err) {
+      console.error(`[notes] delete failed for candidate "${candidateId}":`, err);
+    }
+  }
+
   // Runs the dismiss/undo button under `target`, if any. Shared by both the
   // pointerdown and click listeners below so the two can't drift apart.
   function activateDismissControl(target) {
@@ -1247,6 +1397,46 @@
       const alreadyHandled =
         lastPointerActivation && lastPointerActivation.el === control && Date.now() - lastPointerActivation.time < 1000;
       if (!alreadyHandled) activateDismissControl(e.target);
+      return;
+    }
+
+    const noteAddBtn = e.target.closest(".note-add-btn");
+    if (noteAddBtn) {
+      const candidateId = noteAddBtn.dataset.candidateId;
+      openNoteEditors.set(candidateId, "");
+      if (lastData) render(lastData);
+      focusNoteInput(candidateId);
+      return;
+    }
+
+    const noteEditBtn = e.target.closest(".note-edit-btn");
+    if (noteEditBtn) {
+      const candidateId = noteEditBtn.dataset.candidateId;
+      openNoteEditors.set(candidateId, findCandidateNote(candidateId));
+      if (lastData) render(lastData);
+      focusNoteInput(candidateId);
+      return;
+    }
+
+    const noteCancelBtn = e.target.closest(".note-cancel-btn");
+    if (noteCancelBtn) {
+      openNoteEditors.delete(noteCancelBtn.dataset.candidateId);
+      if (lastData) render(lastData);
+      return;
+    }
+
+    const noteDeleteBtn = e.target.closest(".note-delete-btn");
+    if (noteDeleteBtn) {
+      deleteNote(noteDeleteBtn.dataset.candidateId);
+      return;
+    }
+
+    const noteSaveBtn = e.target.closest(".note-save-btn");
+    if (noteSaveBtn) {
+      const candidateId = noteSaveBtn.dataset.candidateId;
+      const editor = noteSaveBtn.closest(".note-block");
+      const textarea = editor ? editor.querySelector(".note-input") : null;
+      saveNote(candidateId, textarea ? textarea.value : "");
       return;
     }
 
@@ -1339,6 +1529,18 @@
     if (lastData) render(lastData);
   });
 
+  // Keeps openNoteEditors' draft current as a coordinator types — doesn't
+  // itself re-render (that would fight the cursor position); it just makes
+  // sure that when render() DOES run again (the next 60s poll, most
+  // commonly), noteBlockHtml() repopulates the textarea with what they've
+  // typed so far instead of reverting to the last-saved note.
+  document.addEventListener("input", (e) => {
+    const textarea = e.target.closest(".note-input");
+    if (!textarea) return;
+    const candidateId = textarea.dataset.candidateId;
+    if (candidateId) openNoteEditors.set(candidateId, textarea.value);
+  });
+
   // A menu positioned from a stale rect (post-scroll) would float away from
   // its button, so any scroll — page or a .cards container — closes it.
   // Exception: the entity menu's own internal scroll (it's overflow-y: auto
@@ -1394,7 +1596,10 @@
   // gesture rather than a conflict.
   document.addEventListener("click", (e) => {
     const item = e.target.closest(HOVER_DETAIL_SELECTOR);
-    if (!item || e.target.closest(".dismiss, a[href]")) return;
+    // .note-block is excluded same as .dismiss/a[href] — a tap on the
+    // note's Add/Edit/Delete/Save/Cancel controls (or into its textarea)
+    // shouldn't also toggle the unrelated .card-details popup open/closed.
+    if (!item || e.target.closest(".dismiss, a[href], .note-block")) return;
     const details = item.querySelector(".card-details");
     if (details) details.classList.toggle("open");
   });
