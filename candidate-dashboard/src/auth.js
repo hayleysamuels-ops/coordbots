@@ -24,6 +24,20 @@ function timingSafeEqualString(a, b) {
 // request will simply fail auth (safer default than leaving the dashboard
 // open).
 function basicAuth(req, res, next) {
+  // An explicit coordinator login is scoped to connection requests. It does
+  // not replace the browser's cached shared dashboard Basic Auth credentials.
+  const connectionLogin = req.headers["x-coordinator-authorization"];
+  if (connectionLogin !== undefined && req.method === "POST" && req.path.startsWith("/api/ashby-connection/")) {
+    res.set("Cache-Control", "no-store");
+    const match = typeof connectionLogin === "string" && /^Basic ([A-Za-z0-9+/=]+)$/.exec(connectionLogin);
+    const decoded = match ? Buffer.from(match[1], "base64").toString("utf8") : "";
+    const split = decoded.indexOf(":");
+    const user = decoded.slice(0, split), pass = decoded.slice(split + 1);
+    const approver = split > 0 && config.schedulingApprovers.find(a => timingSafeEqualString(user, a.username) && timingSafeEqualString(pass, a.password));
+    if (!approver) return res.status(403).json({ error: "Coordinator username or password is incorrect." });
+    req.schedulingUser = { id: approver.username, canApprove: true };
+    return next();
+  }
   const header = req.headers.authorization || "";
   const [scheme, encoded] = header.split(" ");
 

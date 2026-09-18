@@ -3,7 +3,15 @@ body{font:16px system-ui,sans-serif;color:#222820;background:#f6f5f0;max-width:1
 </style></head><body><a href="/">← Dashboard</a><h1>Connect Ashby</h1>
 <p>This opens a separate browser on Railway. Sign in as the account and organization shown below. Your saved session is encrypted. This page is for signing in; do not schedule interviews inside it.</p>
 <p>Only the coordinator who opens this window can control it. It closes after 15 minutes. Saving a session does not enable automatic bookings.</p>
-<p>Expected account: <strong id="identity">Not configured</strong></p><p id="message" role="status" aria-live="polite">Checking worker…</p>
+<p>Ashby account: <strong id="identity">Sign in below to check</strong></p><p id="message" role="status" aria-live="polite">Checking worker…</p>
+<form id="coordinator-login">
+<h2>Sign in as a coordinator</h2>
+<p>Use your dashboard coordinator login here, not your Ashby password.</p>
+<label>Coordinator username <input id="coordinator-name" autocomplete="username" required></label>
+<label>Coordinator password <input id="coordinator-password" type="password" autocomplete="current-password" required></label>
+<button id="coordinator-submit" type="submit">Sign in to manage Ashby</button>
+<p>Your login is kept only while this page is open. Refreshing the page may require signing in again.</p>
+</form>
 <button id="start" disabled>Open worker sign-in</button>
 <div id="viewer" hidden><p>Click inside the browser image, then type normally. Tab and Enter work. You can paste using the text field below. Complete verification prompts yourself.</p>
 <p>Worker browser site: <strong id="address">Loading…</strong></p>
@@ -13,8 +21,8 @@ body{font:16px system-ui,sans-serif;color:#222820;background:#f6f5f0;max-width:1
 <div class="controls"><button id="tab">Tab</button><button id="enter">Enter</button><button id="refresh">Refresh image</button><button id="finish">Save signed-in session</button><button id="cancel">Close without saving</button></div></div>
 <script>
 "use strict";
-const el=id=>document.getElementById(id);let session=null,poll=null,queue=Promise.resolve(),sending=false;
-async function api(action,extra={}){const response=await fetch("/api/ashby-connection/"+action,{method:"POST",headers:{"Content-Type":"application/json","X-Scheduling-Request":"1"},body:JSON.stringify({id:session&&session.id,...extra})});if(response.status===401)throw new Error("Sign in with your individual coordinator account and reload this page.");const data=await response.json();if(!response.ok)throw new Error(data.error||"Connection failed");return data;}
+const el=id=>document.getElementById(id);let session=null,poll=null,queue=Promise.resolve(),sending=false,coordinatorAuth=null;
+async function api(action,extra={}){const response=await fetch("/api/ashby-connection/"+action,{method:"POST",headers:{"Content-Type":"application/json","X-Scheduling-Request":"1",...(coordinatorAuth?{"X-Coordinator-Authorization":coordinatorAuth}:{})},body:JSON.stringify({id:session&&session.id,...extra})});if(response.status===401)throw new Error("Sign in with your individual coordinator account and reload this page.");const data=await response.json();if(!response.ok){const error=new Error(data.error||"Connection failed");error.status=response.status;throw error;}return data;}
 const message=text=>{el("message").textContent=text;};
 async function frame(){if(!session||document.hidden)return;const data=await api("frame");el("address").textContent=data.origin;el("screen").src="data:image/jpeg;base64,"+data.image;}
 function input(value){queue=queue.then(async()=>{if(!session)return;await api("input",{input:value});await frame();}).catch(error=>message(error.message));}
@@ -28,5 +36,26 @@ el("openMagicLink").onclick=()=>{const url=el("magicLink").value;el("magicLink")
 el("tab").onclick=()=>input({type:"key",key:"Tab"});el("enter").onclick=()=>input({type:"key",key:"Enter"});el("refresh").onclick=()=>frame().catch(error=>message(error.message));
 el("finish").onclick=async()=>{el("finish").disabled=true;try{await queue;const result=await api("finish");clear();message(result.message);}catch(error){message(error.message);}finally{el("finish").disabled=false;}};
 el("cancel").onclick=async()=>{try{await queue;await api("cancel");clear();message("Sign-in window closed. No new session was saved.");}catch(error){message(error.message);}};
-api("status").then(status=>{el("identity").textContent=status.expectedIdentity;el("start").disabled=status.signInOpen;message(status.sessionSaved?"An encrypted session is saved. Its current validity and the booking connection still need verification.":"No saved Ashby session. Open the worker browser to sign in.");}).catch(error=>message(error.message));
+async function checkStatus(){
+ const status=await api("status");
+ el("identity").textContent=status.expectedIdentity;
+ el("coordinator-login").hidden=true;
+ el("start").disabled=status.signInOpen;
+ message(status.signInOpen?"A sign-in window is already open. Return to that window, or wait for its 15-minute session to expire.":status.sessionSaved?"An encrypted session is saved. Its current validity and the booking connection still need verification.":"Ready. Open the worker sign-in below, then sign into Ashby with the expected account.");
+}
+el("coordinator-login").onsubmit=async event=>{
+ event.preventDefault();el("coordinator-submit").disabled=true;el("start").disabled=true;
+ const username=el("coordinator-name").value.trim(),password=el("coordinator-password").value;
+ const bytes=new TextEncoder().encode(username+":"+password);
+ coordinatorAuth="Basic "+btoa(Array.from(bytes,b=>String.fromCharCode(b)).join(""));
+ el("coordinator-password").value="";
+ try{await checkStatus();}catch(error){
+  coordinatorAuth=null;el("identity").textContent="Not checked";
+  message(error.status===403?"That coordinator login was not accepted. Check the username and password in your private login file.":error.message);
+ }finally{el("coordinator-submit").disabled=false;}
+};
+checkStatus().catch(error=>{
+ el("coordinator-login").hidden=false;
+ message(error.status===403?"You are viewing this page with the shared dashboard login. Sign in below with your coordinator account to continue.":error.message);
+});
 </script></body></html>
