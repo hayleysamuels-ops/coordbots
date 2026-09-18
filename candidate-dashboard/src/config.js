@@ -109,6 +109,9 @@ if (!schedulingCandidateChannels || Array.isArray(schedulingCandidateChannels) |
 if (process.env.SCHEDULING_SLACK_ROUTING && !["candidate", "client"].includes(process.env.SCHEDULING_SLACK_ROUTING)) throw new Error("Scheduling Slack routing must be candidate or client");
 const config = {
   schedulingApprovers,
+  ashbyWorkerUrl: process.env.ASHBY_WORKER_URL || "",
+  ashbyWorkerSecret: process.env.ASHBY_WORKER_SECRET || "",
+  ashbyExpectedIdentity: process.env.ASHBY_EXPECTED_IDENTITY || "",
   schedulingClientId: process.env.SCHEDULING_CLIENT_ID || "",
   schedulingRouting: process.env.SCHEDULING_SLACK_ROUTING || "candidate",
   schedulingChannelId: process.env.SCHEDULING_SLACK_CHANNEL_ID || "",

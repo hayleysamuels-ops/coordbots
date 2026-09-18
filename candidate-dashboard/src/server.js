@@ -20,6 +20,11 @@ function createServer() {
     return Object.values(snapshot).filter(Array.isArray).flat().filter(c => c && c.applicationId);
   });
   app.use("/api/scheduling-review", require("./scheduling/routes").routes(scheduling));
+  const connectionConfig = require("./config");
+  app.use("/api/ashby-connection", require("./scheduling/connection-routes").connectionRoutes({
+    url: connectionConfig.ashbyWorkerUrl, secret: connectionConfig.ashbyWorkerSecret,
+    clientId: connectionConfig.schedulingClientId, expectedIdentity: connectionConfig.ashbyExpectedIdentity,
+  }));
   app.use(express.static(path.join(__dirname, "..", "public")));
 
   app.get("/api/issues", (req, res) => {
