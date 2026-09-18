@@ -33,9 +33,12 @@ function basicAuth(req, res, next) {
     if (sepIndex !== -1) {
       const user = decoded.slice(0, sepIndex);
       const pass = decoded.slice(sepIndex + 1);
+      // Shared dashboard access never grants approval permission.
+      const approver = config.schedulingApprovers.find(a => timingSafeEqualString(user, a.username) && timingSafeEqualString(pass, a.password));
+      if (approver) { req.schedulingUser = { id: approver.username, canApprove: true }; return next(); }
       const userOk = timingSafeEqualString(user, config.dashboardUser);
       const passOk = timingSafeEqualString(pass, config.dashboardPassword);
-      if (userOk && passOk) return next();
+      if (config.dashboardUser && config.dashboardPassword && userOk && passOk) return next();
     }
   }
 

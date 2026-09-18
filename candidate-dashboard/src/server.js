@@ -15,6 +15,11 @@ function createServer() {
   app.use(basicAuth);
 
   app.use(express.json());
+  const scheduling = require("./scheduling/setup").setup(require("./config"), async () => {
+    const snapshot = issues.getSnapshot();
+    return Object.values(snapshot).filter(Array.isArray).flat().filter(c => c && c.applicationId);
+  });
+  app.use("/api/scheduling-review", require("./scheduling/routes").routes(scheduling));
   app.use(express.static(path.join(__dirname, "..", "public")));
 
   app.get("/api/issues", (req, res) => {
