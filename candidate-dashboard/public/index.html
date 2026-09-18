@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Candidate Dashboard</title>
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="scheduling-review.css" />
 </head>
 <body>
   <header class="topbar">
@@ -25,6 +26,7 @@
     <button type="button" class="tab-btn is-active" data-tab="dashboard" aria-pressed="true">Dashboard</button>
     <button type="button" class="tab-btn" data-tab="interviewers" aria-pressed="false">Interviewer Info</button>
     <button type="button" class="tab-btn" data-tab="offers" aria-pressed="false">Offers</button>
+    <button type="button" class="tab-btn" data-tab="scheduling" aria-pressed="false">Scheduling</button>
   </nav>
 
   <div id="tab-dashboard" class="tab-panel">
@@ -178,6 +180,8 @@
     </div>
   </div>
 
+  <div id="tab-scheduling" class="tab-panel" hidden><main id="scheduling-review"></main></div>
+
   <footer class="page-footer">Created by Hayley・Carrara</footer>
 
   <div id="dismiss-toast" class="dismiss-toast" hidden role="status" aria-live="polite">
@@ -186,5 +190,6 @@
   </div>
 
   <script src="app.js"></script>
+  <script src="scheduling-review.js"></script>
 </body>
 </html>

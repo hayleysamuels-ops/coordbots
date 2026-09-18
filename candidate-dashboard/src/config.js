@@ -98,7 +98,24 @@ const SECTION_KEYS = [
   "offersSigned",
 ];
 
+function schedulingJson(name, fallback) {
+  try { return process.env[name] ? JSON.parse(process.env[name]) : fallback; }
+  catch (_) { throw new Error(name + " must contain valid JSON"); }
+}
+const schedulingApprovers = schedulingJson("SCHEDULING_APPROVERS_JSON", []);
+if (!Array.isArray(schedulingApprovers) || schedulingApprovers.some(a => !a || typeof a.username !== "string" || !a.username || typeof a.password !== "string" || a.password.length < 16)) throw new Error("Scheduling approvers need a username and password of at least 16 characters");
+const schedulingCandidateChannels = schedulingJson("SCHEDULING_CANDIDATE_CHANNELS_JSON", {});
+if (!schedulingCandidateChannels || Array.isArray(schedulingCandidateChannels) || typeof schedulingCandidateChannels !== "object") throw new Error("Candidate channel routing must be a JSON object");
+if (process.env.SCHEDULING_SLACK_ROUTING && !["candidate", "client"].includes(process.env.SCHEDULING_SLACK_ROUTING)) throw new Error("Scheduling Slack routing must be candidate or client");
 const config = {
+  schedulingApprovers,
+  schedulingClientId: process.env.SCHEDULING_CLIENT_ID || "",
+  schedulingRouting: process.env.SCHEDULING_SLACK_ROUTING || "candidate",
+  schedulingChannelId: process.env.SCHEDULING_SLACK_CHANNEL_ID || "",
+  schedulingChannelName: process.env.SCHEDULING_SLACK_CHANNEL_NAME || "",
+  schedulingCandidateChannels,
+  schedulingSlackToken: process.env.SCHEDULING_SLACK_BOT_TOKEN || "",
+
   port: parseInt(process.env.PORT || "3000", 10),
 
   // Every persisted file lives under here. Resolution order:

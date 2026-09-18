@@ -490,3 +490,15 @@ accidental dismiss.
   (interval tick, or clicking "Refresh now"), the new one is skipped rather
   than run concurrently — you'll see `refresh already in progress, skipping
   duplicate trigger` in the server log.
+
+## Scheduling review (pilot, not yet deployed)
+
+A fourth **Scheduling** tab supports coordinator-authored onsite drafts, current
+Ashby interview-plan lookup, and approval before posting to a configured Slack
+channel. Candidate-specific channels are the default; each client may explicitly
+choose a shared channel. Approval for discussion never authorizes booking.
+
+**Automatic booking is not connected.** Luminai is the first planned pilot using
+Anna's Ashby login, pending sign-in and verification of the booking workflow.
+See [the pilot guide](docs/scheduling-pilot.md) for configuration, remaining work,
+storage/recovery limits, and testing instructions.
