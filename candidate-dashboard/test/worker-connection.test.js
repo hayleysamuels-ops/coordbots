@@ -43,7 +43,7 @@ test("deployed image starts the connection server after dropping root privileges
  const calls=[];
  vm.runInNewContext(fs.readFileSync(path.join(root,"bootstrap.js"),"utf8"),{
   process:{getuid:()=>0,setgroups:()=>calls.push("groups"),setgid:()=>calls.push("gid"),setuid:()=>calls.push("uid")},
-  require:name=>{if(name==="fs")return {mkdirSync:()=>{},chownSync:()=>{}};assert.equal(name,"./server");return {start:()=>calls.push("server")};}
+  require:name=>{if(name==="fs")return {mkdirSync:()=>{},chownSync:()=>{}};assert.equal(name,"./server");return {start:async()=>calls.push("server")};}
  });
  assert.deepEqual(calls,["groups","gid","uid","server"]);
 });
@@ -89,4 +89,11 @@ test("only deployment configuration selects isolation; booking runtime is absent
  const source=fs.readFileSync(path.join(__dirname,"../worker/server.js"),"utf8");
  assert.match(source,/process.env.ASHBY_BROWSER_ISOLATION\|\|"sandbox"/);
  assert.doesNotMatch(source,/data\.chromiumSandbox|data\.isolation|createAshbyExecutor/);
+});
+
+test("runtime probe verifies launch and shutdown without opening a page",async()=>{
+ const {checkRuntime}=require("../worker/runtime-check");let options,closed=false;
+ await checkRuntime({launch:async value=>{options=value;return {close:async()=>{closed=true;}};}},false);
+ assert.deepEqual(options,{headless:true,chromiumSandbox:false});assert.equal(closed,true);
+ await assert.rejects(checkRuntime({launch:async()=>{throw new Error("launch failed");}},true),/launch failed/);
 });

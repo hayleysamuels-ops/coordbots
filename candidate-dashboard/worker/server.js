@@ -29,15 +29,18 @@ function createWorkerApp({connection,secret,clientId,expectedIdentity}) {
   });
   return app;
 }
-function start(){
+async function start(){
   const clientId=process.env.SCHEDULING_CLIENT_ID;
   if(!process.env.ASHBY_SESSION_FILE)throw new Error("Persistent session volume required");
   const isolation=process.env.ASHBY_BROWSER_ISOLATION||"sandbox";
   if(!["sandbox","container"].includes(isolation))throw new Error("Unknown browser isolation configuration");
   // Container mode is an operator-only choice requiring explicit owner approval.
   // The dashboard cannot choose or change browser isolation.
+  const chromium=require("playwright").chromium;
+  await require("./runtime-check").checkRuntime(chromium,isolation==="sandbox");
+  console.log("[connection] browser launch verified; isolation="+isolation+"; booking disabled");
   const connection=createConnection({clientId,expectedIdentity:process.env.ASHBY_EXPECTED_IDENTITY,
-    chromium:require("playwright").chromium,chromiumSandbox:isolation==="sandbox",
+    chromium,chromiumSandbox:isolation==="sandbox",
     vault:createVault(process.env.ASHBY_SESSION_FILE,process.env.ASHBY_SESSION_KEY)});
   const app=createWorkerApp({connection,clientId,expectedIdentity:process.env.ASHBY_EXPECTED_IDENTITY,secret:process.env.ASHBY_WORKER_SECRET});
   const server=app.listen(process.env.PORT||3001,"::");

@@ -18,7 +18,8 @@ either use hosting that supports sandboxed Chromium, or obtain explicit owner
 approval for `ASHBY_BROWSER_ISOLATION=container`. That server-only setting removes
 Chromium's additional sandbox; the unprivileged private container, signed requests,
 coordinator access checks, and encrypted storage remain. It reduces defense if a
-browser page is compromised. It is NOT configured or enabled by this change.
+browser page is compromised. The Luminai owner explicitly approved container mode on 18 September 2026,
+and it is configured on Luminai’s dedicated worker. Other clients retain the default.
 A dashboard request cannot select isolation mode.
 
 Configure on BOTH dashboard and worker:
@@ -55,5 +56,6 @@ Connection HTTP/authentication and browser lifecycle tests use fictional account
 They verify cross-client rejection, owner spoofing, replay, expiry, wrong identity,
 wrong encryption key, popup handling, and disabled booking. They do not establish
 live browser launch or invitation delivery. No live session has been stored by this
-implementation. Hosted launch, coordinator account provisioning, interactive login,
+implementation. Startup now probes browser launch and shutdown before serving requests,
+without opening a webpage or using credentials. Coordinator account provisioning, interactive login,
 availability provider, and verified booking/reconciliation executor remain pending.

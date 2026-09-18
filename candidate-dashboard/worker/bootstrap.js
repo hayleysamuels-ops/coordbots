@@ -7,4 +7,4 @@ if(process.getuid && process.getuid()===0){
   fs.chownSync("/data/ashby",1000,1000);
   process.setgroups([]);process.setgid(1000);process.setuid(1000);
 }
-require("./server").start();
+require("./server").start().catch(()=>{console.error("[connection] startup failed; check browser runtime and configuration");process.exit(1);});
