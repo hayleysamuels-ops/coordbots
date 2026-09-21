@@ -27,7 +27,10 @@ The planner is tested but not yet connected to live calendar input. A manual tes
 Chrome is not evidence that unattended hosted-worker automation works. Do not flip
 readiness or enable sends based on that test. The worker booking endpoint currently
 supports status only; it cannot execute bookings. The read-only draft inspector and review page are deployed to Luminai. Live
-end-to-end inspection still needs verification through the coordinator session.
+inspection through the coordinator session has returned both calendar invitations
+and the saved confirmation body. The current preview is a visible-page excerpt;
+structured sender/recipient extraction and exclusion of Ashby help banners still
+need work before this can be used for an exact sending approval.
 
 Before rollout, implement and validate the adapter against an unsent test draft,
 including exact account/application binding, complete calendar coverage and working
