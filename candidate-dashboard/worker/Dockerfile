@@ -5,5 +5,6 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN npm ci --omit=dev && npx playwright install --with-deps chromium && chmod -R a+rX /ms-playwright
 COPY worker ./worker
 COPY src/scheduling/worker-auth.js ./src/scheduling/worker-auth.js
+COPY src/scheduling/booking-planner.js ./src/scheduling/booking-planner.js
 ENV NODE_ENV=production HOME=/home/node
 CMD ["node", "worker/bootstrap.js"]
