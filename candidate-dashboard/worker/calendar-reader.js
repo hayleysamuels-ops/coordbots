@@ -7,7 +7,8 @@ function parseCalendar({date,timezone,interviewer,blocks,draftBlocks}){
   const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
   const day=`${match[3]}-${String(months.indexOf(match[1])+1).padStart(2,'0')}-${match[2].padStart(2,'0')}`;
   try{new Intl.DateTimeFormat('en-US',{timeZone:timezone}).format();}catch(_){fail('The interviewer timezone could not be verified.');}
-  if(!timezone||!Array.isArray(blocks)||!blocks.length)fail('The calendar is empty or has not finished loading.');
+  if(!timezone)fail('The interviewer timezone is not displayed in the calendar header.');
+  if(!Array.isArray(blocks)||!blocks.length)fail('The calendar is empty or has not finished loading.');
   function interval(text){
     const m=text.match(/(\d{1,2}):(\d{2})\s*(AM|PM)\s*[–-]\s*(\d{1,2}):(\d{2})\s*(AM|PM)\s+([A-Z]{2,5})\s*$/i);
     if(!m)fail('A calendar block could not be read; no free times can be inferred.');
@@ -32,7 +33,7 @@ async function readCalendar(page,{interviewer}){
   let date;
   try { date=await page.getByPlaceholder('Set date to view...',{exact:true}).inputValue({timeout:5000}); }
   catch (_) { fail('The calendar date control could not be read.'); }
-  const data=await page.evaluate(({name})=>{
+  const collect=({name})=>{
     const headings=[...document.querySelectorAll('h3')];
     const anchor=headings.find(h=>h.innerText.trim()==='Current Schedule');
     if(!anchor)return null;
@@ -42,9 +43,13 @@ async function readCalendar(page,{interviewer}){
     let timezone=null;
     for(let p=target[0].h.parentElement;p&&p.tagName!=='BODY';p=p.parentElement){if(p.querySelectorAll('h3').length>1)break;const m=p.innerText.match(/\b([A-Za-z_]+\/[A-Za-z_ /]+?)\s*\(GMT[+-]/);if(m){timezone=m[1].trim().replace(/ /g,'_');break;}}
     const groups=new Map(headers.map(h=>[h.name,[]]));
-    for(const b of document.querySelectorAll('button')){const rect=b.getBoundingClientRect();if(!rect.width||!rect.height||rect.top<=y||!b.querySelector('h2'))continue;const text=b.innerText.replace(/\s+/g,' ').trim();if(!/\d{1,2}:\d{2}\s*(AM|PM)/i.test(text))continue;const x=rect.left+rect.width/2;const nearest=headers.slice().sort((a,c)=>Math.abs(a.x-x)-Math.abs(c.x-x))[0];groups.get(nearest.name).push(text);}
+    for(const b of document.querySelectorAll('button, [role="button"]')){const rect=b.getBoundingClientRect();if(!rect.width||!rect.height||rect.top<=y||!b.querySelector('h2'))continue;const text=b.innerText.replace(/\s+/g,' ').trim();if(!/\d{1,2}:\d{2}\s*(AM|PM)/i.test(text))continue;const x=rect.left+rect.width/2;const nearest=headers.slice().sort((a,c)=>Math.abs(a.x-x)-Math.abs(c.x-x))[0];groups.get(nearest.name).push(text);}
     return {timezone,blocks:groups.get(name),draftBlocks:groups.get('Current Schedule')||[]};
-  },{name});
+  };
+  // Calendar headings can render before event blocks. Wait for rendered
+  // event controls, including Ashby's role=button calendar elements.
+  try {await page.waitForFunction(()=>[...document.querySelectorAll('button, [role="button"]')].some(b=>b.querySelector('h2')&&/\d{1,2}:\d{2}\s*(AM|PM)/i.test(b.innerText)),null,{timeout:10000});}catch(_){}
+  const data=await page.evaluate(collect,{name});
   if(!data)fail('The interviewer calendar column could not be identified.');
   return parseCalendar({date,...data,interviewer});
 }
