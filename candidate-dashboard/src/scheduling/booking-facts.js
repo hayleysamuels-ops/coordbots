@@ -37,12 +37,15 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
     const exact = Array.isArray(users) ? users.filter(u => u.email?.toLowerCase() === email && u.isEnabled === true) : [];
     if (exact.length !== 1 || !uuid(exact[0].id)) fail(422, 'No unique active Ashby interviewer matches that email.');
     const user = exact[0];
+    const limits = await read('user.interviewerSettings', { userId: user.id });
+    if (!limits || !['dailyLimit','weeklyLimit'].every(k => Object.hasOwn(limits,k) && (limits[k]===null || (Number.isInteger(limits[k]) && limits[k]>=0)))) fail(503, 'The interviewer’s scheduling limits could not be verified.');
     const requirements = { stageId: stage.id, activityId: selected.activityId, interviewId: selected.interviewId, title: selected.title, durationMinutes: selected.interviewDurationMinutes };
     const facts = {
       clientId, applicationId: application.id, candidateId: application.candidate.id,
       candidateName: application.candidate.name, candidateEmail: application.candidate.primaryEmailAddress.value,
       jobId: application.job.id, jobTitle: application.job.title,
       ...requirements, interviewer: { userId: user.id, email: user.email, name: [user.firstName, user.lastName].filter(Boolean).join(' ').trim() },
+      interviewerLimits: { dailyLimit: limits.dailyLimit, weeklyLimit: limits.weeklyLimit },
       timezone: input.timezone, windows: windows.map(w => ({ start: new Date(w.start).toISOString(), end: new Date(w.end).toISOString() })),
       templateRevision: digest(stage),
     };

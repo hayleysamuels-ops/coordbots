@@ -3,7 +3,7 @@ const fail=(status,message)=>{throw Object.assign(new Error(message),{status});}
 const uuid=value=>typeof value==='string'&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);
 // Deliberately read-only: fixed draft pages, no input, click, submit, or cookies
 // returned to the dashboard. A successful read does not enable booking.
-function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSandbox=true,connection,now=()=>Date.now(),confirmationReader=require("./confirmation-reader").readConfirmation}) {
+function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSandbox=true,connection,now=()=>Date.now(),confirmationReader=require("./confirmation-reader").readConfirmation,invitationReader=require("./invitation-reader").readInvitations}) {
   let reading=false;
   return {
     async inspect(input) {
@@ -38,10 +38,11 @@ function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSan
         await open('/communication/calendar-invites');
         const candidateInvite=await page.getByRole('checkbox',{name:'Send Candidate Invite',exact:true}).isChecked();
         const interviewerInvite=await page.getByRole('checkbox',{name:'Send Interviewer Invite',exact:true}).isChecked();
-        const inviteText=await page.locator('body').innerText();
         function section(text,start,end){const lines=text.split('\n').map(s=>s.trim());const a=lines.indexOf(start),b=end?lines.indexOf(end,a+1):lines.length;if(a<0||b<0)fail(409,'The Ashby draft layout changed. Review it directly before continuing.');return lines.slice(a+1,b).join('\n').trim();}
-        const candidatePreview=section(inviteText,'Candidate Invite','Interviewer Invite');
-        const interviewerPreview=section(inviteText,'Interviewer Invite');
+        const invitations=await invitationReader(page);
+        if(!invitations.complete)fail(409,'The invitation cards could not be read completely. Review this draft in Ashby.');
+        const candidatePreview=invitations.candidate.preview;
+        const interviewerPreview=invitations.interviewer.preview;
         await open('/communication/candidate-confirmation-email');
         const confirmationEnabled=await page.getByRole('checkbox',{name:'Send Candidate Confirmation Email',exact:true}).isChecked();
         await page.locator('[contenteditable="true"]').last().waitFor({state:'visible',timeout:15000});
@@ -49,14 +50,13 @@ function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSan
         const emailText=await page.locator('body').innerText();
         let confirmationPreview=section(emailText,'PREVIEW');
         if(/Loading template builder/i.test(confirmationPreview))fail(409,'The confirmation editor is still loading. Read the draft again.');
-        const inviteeText=candidatePreview.split('INVITEES').at(-1);
-        const recipients=[...new Set(inviteeText.match(/[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+/g)||[])];
+        const recipients=invitations.candidate.recipients;
         const confirmation=await confirmationReader(page,recipients.length===1?recipients[0]:null);
         if(confirmation.subject&&confirmation.body){
           confirmationPreview=`From: ${confirmation.from||'Needs verification'}\nTo: ${confirmation.to||'Needs verification'}\nCC: ${confirmation.cc?'None':'Review in Ashby'}\nBCC: ${confirmation.bcc?'None':'Review in Ashby'}\nSubject: ${confirmation.subject}\n\n${confirmation.body}\n\nAttachments: ${confirmation.attachments.map(a=>a.name).join(', ')||'None'}`;
         }
         if(!confirmation.complete)confirmationPreview+='\n\n'+confirmation.issues.join(' ');
-        return {confirmation,draftId:input.draftId,applicationId:input.applicationId,candidateId:input.candidateId,checkedAt:now(),candidateInvite,interviewerInvite,confirmationEnabled,candidatePreview,interviewerPreview,confirmationPreview,bookingEnabled:false};
+        return {invitations,confirmation,draftId:input.draftId,applicationId:input.applicationId,candidateId:input.candidateId,checkedAt:now(),candidateInvite,interviewerInvite,confirmationEnabled,candidatePreview,interviewerPreview,confirmationPreview,bookingEnabled:false};
       }catch(error){if(error.status)throw error;fail(503,'Could not read the saved Ashby draft. No scheduling action was taken.');}
       finally{try{if(browser)await browser.close();}finally{reading=false;}}
     }

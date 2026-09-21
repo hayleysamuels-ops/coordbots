@@ -26,11 +26,12 @@ The browser calendar reader and automatic draft/booking executor are NOT impleme
 The planner is tested but not yet connected to live calendar input. A manual test in
 Chrome is not evidence that unattended hosted-worker automation works. Do not flip
 readiness or enable sends based on that test. The worker booking endpoint currently
-supports status only; it cannot execute bookings. The read-only draft inspector and review page are deployed to Luminai. Live
+supports status and draft inspection only; it cannot execute bookings. The read-only draft inspector and review page are deployed to Luminai. Live
 inspection through the coordinator session has returned both calendar invitations
-and the saved confirmation body. The current preview is a visible-page excerpt;
-structured sender/recipient extraction and exclusion of Ashby help banners still
-need work before this can be used for an exact sending approval.
+and structured confirmation fields: sender, candidate recipient, subject, body,
+empty CC/BCC and attachments. Expanded CC/BCC are flagged as unverified. The
+calendar invitations remain visible-page excerpts; exact event, conferencing and
+recipient extraction still need work before an exact sending approval is possible.
 
 Before rollout, implement and validate the adapter against an unsent test draft,
 including exact account/application binding, complete calendar coverage and working
@@ -46,3 +47,9 @@ checks the saved account plus draft/candidate/application binding and reads the
 calendar invitation and confirmation previews. This adapter has no scheduling or
 sending actions. It does not verify working hours, complete calendar coverage, or
 actual notification dispatch, and cannot enable the booking executor.
+
+Interviewer limits are read from `user.interviewerSettings` and included in the
+source fingerprint. The planner requires fresh, complete interview counts when a
+limit applies; absent counts never mean zero. Weekly counts must include explicit
+source-verified period boundaries instead of assuming which day starts the week.
+This validation is tested locally, but a live count/calendar source is still missing.

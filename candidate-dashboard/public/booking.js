@@ -47,7 +47,7 @@
     if(!$('prepare').reportValidity())return;
     const request=requestDetails(),version=sessionVersion;$('check-details').disabled=true;
     try{const facts=await api('/details',request);if(version!==sessionVersion||!credentials||JSON.stringify(request)!==JSON.stringify(requestDetails()))return;
-      $('source-details').textContent=`Verified in Ashby: ${facts.candidateName} (${facts.candidateEmail}), ${facts.title}, ${facts.durationMinutes} minutes, with ${facts.interviewer.name} (${facts.interviewer.email}). Calendar availability has not been checked. Nothing has been scheduled or sent.`;
+      $('source-details').textContent=`Verified in Ashby: ${facts.candidateName} (${facts.candidateEmail}), ${facts.title}, ${facts.durationMinutes} minutes, with ${facts.interviewer.name} (${facts.interviewer.email}). Interviewer limits: ${facts.interviewerLimits.dailyLimit??'no configured'} daily; ${facts.interviewerLimits.weeklyLimit??'no configured'} weekly. Calendar availability has not been checked. Nothing has been scheduled or sent.`;
     }catch(err){if(version===sessionVersion&&credentials)$('source-details').textContent=err.message;}finally{$('check-details').disabled=false;}
   };
   $('inspect-draft').onclick=async()=>{
