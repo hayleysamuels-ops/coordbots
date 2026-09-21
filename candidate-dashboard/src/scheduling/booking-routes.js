@@ -29,7 +29,9 @@ function bookingRoutes({ engine, store, clientId, facts, inspectDraft, inspectCa
   router.post("/inspect-calendar", handle(async req => {
     if(!facts||!inspectCalendar)throw Object.assign(Error('Calendar inspection is not connected.'),{status:503});
     const verified=await facts.load(req.body);
-    return inspectCalendar({draftId:req.body.draftId,applicationId:verified.applicationId,candidateId:verified.candidateId,candidateName:verified.candidateName,interviewer:verified.interviewer});
+    const override=require('./working-hours').workingHoursOverride(req.body.workingHoursOverride,req.schedulingUser);
+    const calendar=await inspectCalendar({draftId:req.body.draftId,applicationId:verified.applicationId,candidateId:verified.candidateId,candidateName:verified.candidateName,interviewer:verified.interviewer});
+    return {...calendar,workingHoursOverride:override};
   }));
   router.post("/details", handle(req => {
     if (!facts) throw Object.assign(new Error("Ashby interview details are not connected."), { status: 503 });

@@ -72,10 +72,12 @@
       const url=new URL($('prepare').draftUrl.value),match=url.pathname.match(/^\/schedules\/drafts\/([a-f0-9-]{36})(?:\/communication(?:\/[a-z-]+)?)?\/?$/i);
       if(url.origin!=='https://app.ashbyhq.com'||url.username||url.password||url.search||url.hash||!match)throw Error('Enter the saved Ashby draft URL.');
       $('inspect-calendar').disabled=true;output.textContent='Reading the displayed interviewer calendar…';
-      const result=await api('/inspect-calendar',{...request,draftId:match[1]});
+      const f=$('prepare'),workingHoursOverride=f.workingStart.value||f.workingEnd.value?{timezone:f.workingTimezone.value,windows:[{start:f.workingStart.value,end:f.workingEnd.value}]}:null;
+      const result=await api('/inspect-calendar',{...request,draftId:match[1],workingHoursOverride});
       if(version!==sessionVersion||!credentials||draftUrl!==$('prepare').draftUrl.value||JSON.stringify(request)!==JSON.stringify(requestDetails()))return;
       const fmt=v=>new Intl.DateTimeFormat('en-US',{timeZone:request.timezone,hour:'numeric',minute:'2-digit',timeZoneName:'short'}).format(new Date(v));
       output.textContent=`${result.interviewer.name} · ${result.date} · Calendar timezone: ${result.timezone}\nObserved occupied times (shown in ${request.timezone}):\n`+result.observedBusy.map(b=>fmt(b.start)+' – '+fmt(b.end)).join('\n')+'\n'+result.issues.join(' ');
+      if(result.workingHoursOverride)output.textContent+='\nWorking hours override entered by '+result.workingHoursOverride.enteredBy+': '+result.workingHoursOverride.windows.map(w=>fmt(w.start)+' – '+fmt(w.end)).join(', ')+'. Calendar conflicts and interview limits still apply.';
       output.style.whiteSpace='pre-wrap';
     }catch(e){if(version===sessionVersion)output.textContent=e.message;}finally{$('inspect-calendar').disabled=false;}
   };
