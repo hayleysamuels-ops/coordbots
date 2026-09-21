@@ -36,3 +36,10 @@ extra CC/attachments, durable intent before the final Schedule action, and readb
 of actual events plus all three Ashby send-success signals. Then perform a separately
 approved end-to-end dashboard booking. Never replay the already successful pilot.
 
+
+The coordinator can now request a read-only inspection of an existing Ashby draft.
+The dashboard refreshes the application and interviewer facts first; the worker
+checks the saved account plus draft/candidate/application binding and reads the
+calendar invitation and confirmation previews. This adapter has no scheduling or
+sending actions. It does not verify working hours, complete calendar coverage, or
+actual notification dispatch, and cannot enable the booking executor.

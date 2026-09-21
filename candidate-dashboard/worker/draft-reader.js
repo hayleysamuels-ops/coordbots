@@ -1,0 +1,52 @@
+'use strict';
+const fail=(status,message)=>{throw Object.assign(new Error(message),{status});};
+const uuid=value=>typeof value==='string'&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);
+// Deliberately read-only: fixed draft pages, no input, click, submit, or cookies
+// returned to the dashboard. A successful read does not enable booking.
+function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSandbox=true,connection,now=()=>Date.now()}) {
+  let reading=false;
+  return {
+    async inspect(input) {
+      if(!input||!['draftId','candidateId','applicationId'].every(k=>uuid(input[k]))||typeof input.candidateName!=='string'||!input.candidateName.trim())fail(422,'A verified candidate and Ashby draft are required.');
+      if(reading||(await connection.status()).signInOpen)fail(409,'Close the sign-in window before checking an Ashby draft.');
+      const saved=vault.load();
+      if(!saved||saved.clientId!==clientId||saved.expectedIdentity!==expectedIdentity||!saved.storageState)fail(409,'Save the expected Ashby connection first.');
+      reading=true;let browser;
+      try {
+        browser=await chromium.launch({headless:true,chromiumSandbox});
+        const context=await browser.newContext({storageState:saved.storageState,acceptDownloads:false});
+        await context.route('**/*',async route=>{
+          if(route.request().isNavigationRequest()) {
+            try {if(new URL(route.request().url()).origin!=='https://app.ashbyhq.com')return route.abort();}catch(_){return route.abort();}
+          }
+          return route.continue();
+        });
+        const page=await context.newPage();
+        const base='https://app.ashbyhq.com/schedules/drafts/'+input.draftId;
+        async function open(suffix) {
+          await page.goto(base+suffix,{waitUntil:'domcontentloaded',timeout:30000});
+          await page.getByRole('button',{name:expectedIdentity,exact:true}).waitFor({state:'visible',timeout:15000});
+          if(page.url()!==base+suffix)fail(409,'Ashby did not open the requested unsent draft.');
+          const candidate=page.getByRole('link',{name:input.candidateName.trim(),exact:true});
+          const links=await candidate.all();let bound=false;
+          for(const link of links){const href=await link.getAttribute('href');if(href&&href.includes('/candidates/'+input.candidateId+'/applications/'+input.applicationId))bound=true;}
+          if(!bound)fail(409,'The Ashby draft belongs to a different candidate or application.');
+        }
+        await open('/communication/calendar-invites');
+        const candidateInvite=await page.getByRole('checkbox',{name:'Send Candidate Invite',exact:true}).isChecked();
+        const interviewerInvite=await page.getByRole('checkbox',{name:'Send Interviewer Invite',exact:true}).isChecked();
+        const inviteText=await page.locator('body').innerText();
+        function section(text,start,end){const lines=text.split('\n').map(s=>s.trim());const a=lines.indexOf(start),b=end?lines.indexOf(end,a+1):lines.length;if(a<0||b<0)fail(409,'The Ashby draft layout changed. Review it directly before continuing.');return lines.slice(a+1,b).join('\n').trim();}
+        const candidatePreview=section(inviteText,'Candidate Invite','Interviewer Invite');
+        const interviewerPreview=section(inviteText,'Interviewer Invite');
+        await open('/communication/candidate-confirmation-email');
+        const confirmationEnabled=await page.getByRole('checkbox',{name:'Send Candidate Confirmation Email',exact:true}).isChecked();
+        const emailText=await page.locator('body').innerText();
+        const confirmationPreview=section(emailText,'PREVIEW');
+        return {draftId:input.draftId,applicationId:input.applicationId,candidateId:input.candidateId,checkedAt:now(),candidateInvite,interviewerInvite,confirmationEnabled,candidatePreview,interviewerPreview,confirmationPreview,bookingEnabled:false};
+      }catch(error){if(error.status)throw error;fail(503,'Could not read the saved Ashby draft. No scheduling action was taken.');}
+      finally{try{if(browser)await browser.close();}finally{reading=false;}}
+    }
+  };
+}
+module.exports={createDraftReader};
