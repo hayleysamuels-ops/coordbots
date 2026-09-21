@@ -44,12 +44,18 @@ async function readCalendar(page,{interviewer}){
     for(let p=target[0].h.parentElement;p&&p.tagName!=='BODY';p=p.parentElement){if(p.querySelectorAll('h3').length>1)break;const m=p.innerText.match(/\b([A-Za-z_]+\/[A-Za-z_ /]+?)\s*\(GMT[+-]/);if(m){timezone=m[1].trim().replace(/ /g,'_');break;}}
     const groups=new Map(headers.map(h=>[h.name,[]]));
     for(const b of document.querySelectorAll('button, [role="button"]')){const rect=b.getBoundingClientRect();if(!rect.width||!rect.height||rect.top<=y||!b.querySelector('h2'))continue;const text=b.innerText.replace(/\s+/g,' ').trim();if(!/\d{1,2}:\d{2}\s*(AM|PM)/i.test(text))continue;const x=rect.left+rect.width/2;const nearest=headers.slice().sort((a,c)=>Math.abs(a.x-x)-Math.abs(c.x-x))[0];groups.get(nearest.name).push(text);}
-    return {timezone,blocks:groups.get(name),draftBlocks:groups.get('Current Schedule')||[]};
+    const blocks=groups.get(name),draftBlocks=groups.get('Current Schedule')||[];
+    const title=text=>text.replace(/\d{1,2}:\d{2}\s*(AM|PM).*$/i,'').replace(/[,\s]+$/,'');
+    const draftTitles=new Set(draftBlocks.map(title));
+    // Draft overlays arrive before the connected calendar. Require at least
+    // one independently displayed block before returning observations. A day
+    // with only overlays or no meetings is unknown, never verified free.
+    if(!blocks.some(text=>!draftTitles.has(title(text))))return null;
+    return {timezone,blocks,draftBlocks};
   };
-  // Calendar headings can render before event blocks. Wait for rendered
-  // event controls, including Ashby's role=button calendar elements.
-  try {await page.waitForFunction(()=>[...document.querySelectorAll('button, [role="button"]')].some(b=>b.querySelector('h2')&&/\d{1,2}:\d{2}\s*(AM|PM)/i.test(b.innerText)),null,{timeout:10000});}catch(_){}
-  const data=await page.evaluate(collect,{name});
+  let data;
+  try {const handle=await page.waitForFunction(collect,{name},{timeout:15000});data=await handle.jsonValue();}
+  catch (_) {fail('The connected calendar has not returned independently verifiable blocks. No free times can be inferred.');}
   if(!data)fail('The interviewer calendar column could not be identified.');
   return parseCalendar({date,...data,interviewer});
 }
