@@ -18,6 +18,10 @@ async function readConfirmation(page,to) {
   // Only rendered form controls are read. The subject and body are separate
   // editors; reading those excludes toolbars and Ashby's product announcements.
   const editors=await page.locator('[contenteditable="true"]').evaluateAll(elements=>elements.filter(e=>e.getBoundingClientRect().width&&e.getBoundingClientRect().height).map(e=>e.innerText));
+  // Ashby hydrates the sender picker separately from the message editors.
+  // A loading picker must not turn a valid saved sender into an intermittent
+  // unknown result. If it never resolves, parsing below still fails closed.
+  try { await page.waitForFunction(()=>[...document.querySelectorAll('select, [role="combobox"], button')].filter(e=>e.getBoundingClientRect().width&&e.getBoundingClientRect().height).flatMap(e=>e.tagName==='SELECT'?[...e.selectedOptions].map(o=>o.textContent):[e.innerText,e.getAttribute('aria-label'),e.getAttribute('title')]).some(text=>/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(String(text||'').trim())||/<[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+>$/.test(String(text||'').trim())),null,{timeout:10000}); } catch (_) {}
   const senders=await page.locator('select, [role="combobox"], button').evaluateAll(elements=>elements.filter(e=>e.getBoundingClientRect().width&&e.getBoundingClientRect().height).flatMap(e=>e.tagName==='SELECT'?[...e.selectedOptions].map(o=>o.textContent):[e.innerText,e.getAttribute('aria-label'),e.getAttribute('title')]).filter(Boolean));
   const attachments=await page.locator('a[href*="/api/files/redirect/"]').evaluateAll(elements=>elements.filter(e=>e.getBoundingClientRect().width&&e.getBoundingClientRect().height).map(e=>({name:e.innerText,url:e.href})));
   return parseConfirmation({editors,senders,attachments,to,
