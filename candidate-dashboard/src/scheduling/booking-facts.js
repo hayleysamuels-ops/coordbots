@@ -48,6 +48,15 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
     };
     return { ...facts, sourceFingerprint: digest(facts), checkedAt: now(), availabilityVerified: false };
   }
-  return { load };
+  async function application(applicationId) {
+    if(!uuid(applicationId))fail(422,'Use an Ashby candidate application link.');
+    const a=await read('application.info',{applicationId});
+    if(a?.id!==applicationId||a.status!=='Active'||!uuid(a.job?.id))fail(409,'This candidate application is not active.');
+    const p=await read('jobInterviewPlan.info',{jobId:a.job.id});
+    const stage=p?.stages?.find(s=>s.id===a.currentInterviewStage?.id);
+    if(!stage)fail(409,'The current interview stage could not be found.');
+    return {applicationId:a.id,candidateName:a.candidate?.name,jobTitle:a.job.title,activities:(stage.activities||[]).map(activity=>({id:activity.id,title:activity.title,sessions:(activity.interviews||[]).filter(i=>i.isSchedulable===true).map(i=>({interviewId:i.interviewId,title:i.title,durationMinutes:i.interviewDurationMinutes}))})).filter(a=>a.sessions.length)};
+  }
+  return { load, application };
 }
 module.exports = { createBookingFacts };

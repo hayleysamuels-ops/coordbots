@@ -23,6 +23,20 @@
   $('login').onsubmit=async e=>{e.preventDefault();const form=e.currentTarget;credentials='Basic '+btoa(unescape(encodeURIComponent(form.username.value+':'+form.password.value)));try{await refresh();form.password.value='';form.hidden=true;$('workspace').hidden=false;const r=await fetch('/api/issues');if(!r.ok)throw Error('Candidate list unavailable');const snapshot=await r.json();const rows=[...new Map(Object.values(snapshot).filter(Array.isArray).flat().filter(c=>c?.applicationId&&c.status==='Active').map(c=>[c.applicationId,c])).values()];$('prepare').applicationId.innerHTML='<option value="">Select candidate</option>'+rows.map(c=>`<option value="${esc(c.applicationId)}">${esc(c.candidateName)} · ${esc(c.jobTitle)}</option>`).join('');}catch(err){credentials=null;form.hidden=false;$('workspace').hidden=true;$('message').textContent=err.message;}};
   $('logout').onclick=()=>{sessionVersion++;$('source-details').textContent='';$('ashby-preview').replaceChildren();credentials=null;state=null;selected=null;$('approval').close();$('drafts').replaceChildren();$('workspace').hidden=true;$('login').hidden=false;$('message').textContent='Signed out.';};
   $('refresh').onclick=()=>refresh().catch(e=>$('message').textContent=e.message);
+  $('load-application').onclick=async()=>{
+    const version=sessionVersion;
+    try {
+      const url=new URL($('prepare').applicationUrl.value),match=url.pathname.match(/\/applications\/([a-f0-9-]{36})(?:\/|$)/i);
+      if(url.origin!=='https://app.ashbyhq.com'||url.username||url.password||!match)throw Error('Use the candidate’s Ashby link with an application selected.');
+      $('load-application').disabled=true;const data=await api('/application',{applicationId:match[1]});
+      if(version!==sessionVersion||!credentials)return;
+      const select=$('prepare').applicationId;let option=[...select.options].find(o=>o.value===data.applicationId);
+      if(!option){option=document.createElement('option');option.value=data.applicationId;select.append(option);}
+      option.textContent=`${data.candidateName} · ${data.jobTitle}`;select.value=data.applicationId;
+      $('prepare').interviewId.innerHTML=data.activities.flatMap(a=>a.sessions.map(s=>`<option value="${esc(s.interviewId)}">${esc(a.title)}: ${esc(s.title)} (${s.durationMinutes} min)</option>`)).join('');
+      $('source-details').textContent=data.activities.length?'Candidate and current interview plan loaded from Ashby.':'This stage has no schedulable interviews.';$('ashby-preview').replaceChildren();
+    }catch(err){if(version===sessionVersion)$('source-details').textContent=err.message;}finally{$('load-application').disabled=false;}
+  };
   $('load-plan').onclick=async()=>{try{const id=$('prepare').applicationId.value;if(!id)throw Error('Choose a candidate.');const response=await fetch('/api/scheduling-review/template/'+encodeURIComponent(id));const data=await response.json();if(!response.ok)throw Error(data.error);$('prepare').interviewId.innerHTML=data.activities.flatMap(a=>a.sessions.map(s=>`<option value="${esc(s.interviewId)}">${esc(a.title)}: ${esc(s.title)} (${s.durationMinutes} min)</option>`)).join('');}catch(e){$('message').textContent=e.message;}};
   $('prepare').applicationId.onchange=()=>{$('prepare').interviewId.innerHTML='<option value="">Load a plan first</option>';};
   function addWindow(){const field=document.createElement('fieldset');field.innerHTML='<legend>Candidate availability</legend><label>From<input name="start" type="datetime-local" required></label><label>Until<input name="end" type="datetime-local" required></label><button type="button">Remove window</button>';field.querySelector('button').onclick=()=>field.remove();$('windows').append(field);}

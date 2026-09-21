@@ -17,6 +17,10 @@ function bookingRoutes({ engine, store, clientId, facts, inspectDraft, capabilit
     catch (e) { res.status(e.status || 503).json({ error: e.status ? e.message : "Could not confirm booking status. Refresh before taking further action." }); }
   };
   router.get("/", handle(async req => ({ clientId, coordinator: req.schedulingUser.id, capabilities: await capabilities(), drafts: (await store.list()).filter(r => r.clientId === clientId) })));
+  router.post("/application", handle(req => {
+    if(!facts)throw Object.assign(new Error('Ashby details are not connected.'),{status:503});
+    return facts.application(req.body.applicationId);
+  }));
   router.post("/inspect-draft", handle(async req => {
     if (!facts || !inspectDraft) throw Object.assign(new Error("Ashby draft inspection is not connected."), {status:503});
     const verified=await facts.load(req.body);
