@@ -68,3 +68,18 @@ It shows an interview agenda, not a timed draft: importing actual availability,
 calendar verification and automatic timed draft generation remain unimplemented.
 Availability shared outside Ashby's submitted-availability state is not detected.
 Booking dropdowns now default to this queue; direct application links still work.
+
+## Calendar inspection
+The coordinator-only `inspect-calendar` route re-reads Ashby candidate and user
+identities, then asks the signed worker to inspect the existing unsent draft's
+calendar. It navigates only to that bound draft and reads the displayed date,
+interviewer timezone and occupied blocks. It never edits a date, changes an
+interviewer or sends anything. The UI presents observations, not free slots.
+The reader still marks coverage/availability unverified: additional days,
+complete loading/coverage checks, authoritative working hours, draft-overlay
+identity and complete interview counts must be resolved before slot generation.
+A coordinator can supply explicit dated working windows with an IANA timezone.
+Overrides are attributed to the authenticated coordinator, not a client-supplied
+name. They do not authorize sending, clear conflicts or bypass interview limits.
+Currently overrides are returned with the inspection; they are not persisted as
+an approval or used to turn on automatic suggestions.
