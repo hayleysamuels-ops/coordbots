@@ -6,7 +6,7 @@
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   let state, template, candidates = [], loading = false;
   root.innerHTML = `<h2>Scheduling</h2><p>Review interview plans, approve bookings, and share onsite drafts with the team.</p>
-    <p><a href="/ashby-connection.html">Manage Ashby connection</a></p>
+    <p><a href="/booking.html">Prepare and approve an Ashby booking</a> · <a href="/ashby-connection.html">Manage Ashby connection</a></p>
     <p id="scheduling-message" role="status"></p><button id="scheduling-refresh" type="button">Refresh schedules</button>
     <details id="scheduling-editor"><summary>Draft an onsite schedule</summary><form id="scheduling-form">
     <label>Candidate application <select name="applicationId" required></select></label>

@@ -28,6 +28,7 @@ function createWorkerApp({connection,secret,clientId,expectedIdentity}) {
       res.json(result);
     }catch(error){res.status(error.status||503).json({error:error.status?error.message:"Ashby connection unavailable. No connection success has been confirmed."});}
   });
+  app.use("/booking",require("./booking-routes").bookingRoutes({secret,clientId,expectedIdentity}));
   return app;
 }
 async function start(){

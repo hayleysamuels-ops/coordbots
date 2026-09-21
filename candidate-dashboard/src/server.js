@@ -25,6 +25,20 @@ function createServer() {
     url: connectionConfig.ashbyWorkerUrl, secret: connectionConfig.ashbyWorkerSecret,
     clientId: connectionConfig.schedulingClientId, expectedIdentity: connectionConfig.ashbyExpectedIdentity,
   }));
+  const bookingWorker = require("./scheduling/booking-worker-client").createBookingWorkerClient({
+    url: connectionConfig.ashbyWorkerUrl, secret: connectionConfig.ashbyWorkerSecret,
+    clientId: connectionConfig.schedulingClientId, expectedIdentity: connectionConfig.ashbyExpectedIdentity,
+  });
+  const bookingStore = require("./scheduling/booking-store").createBookingStore(connectionConfig.dataDir);
+  const bookingEngine = require("./scheduling/booking-engine").createBookingEngine({
+    store: bookingStore, clientId: connectionConfig.schedulingClientId,
+    source: null, executor: null,
+    userById: async id => connectionConfig.schedulingApprovers.some(a => a.username === id) ? { id, canApprove: true } : null,
+  });
+  app.use("/api/scheduling-booking", require("./scheduling/booking-routes").bookingRoutes({
+    engine: bookingEngine, store: bookingStore, clientId: connectionConfig.schedulingClientId,
+    capabilities: async () => { const worker = await bookingWorker.capabilities(); return {available: false, reason: worker.available ? "The booking executor is being connected to this dashboard. Sending remains disabled." : worker.reason}; },
+  }));
   app.use(express.static(path.join(__dirname, "..", "public")));
 
   app.get("/api/issues", (req, res) => {

@@ -1,0 +1,10 @@
+'use strict';
+const {test}=require('node:test'),assert=require('node:assert/strict');
+const {instant,proposeSlots}=require('../src/scheduling/booking-planner');
+const now=Date.parse('2026-09-21T12:00:00Z');
+function input(){return {windows:[{start:'2026-09-22T10:00',end:'2026-09-22T16:00'}],timezone:'America/Los_Angeles',durationMinutes:15,now,calendar:{verified:true,checkedAt:now,coverage:[{start:'2026-09-22T00:00:00Z',end:'2026-09-23T07:00:00Z'}],workingWindows:[{start:'2026-09-22T13:00:00Z',end:'2026-09-22T21:00:00Z'}],busy:[{start:'2026-09-22T17:00:00Z',end:'2026-09-22T17:15:00Z'}]}};}
+test('Pacific window intersects working hours and skips the already booked test',()=>{const slots=proposeSlots(input());assert.equal(slots[0].start,'2026-09-22T17:15:00.000Z');assert.equal(slots[0].end,'2026-09-22T17:30:00.000Z');assert.equal(slots.length,5);});
+test('offset follows daylight saving instead of using a fixed PT offset',()=>{assert.equal(new Date(instant('2026-09-22T10:00','America/Los_Angeles')).toISOString(),'2026-09-22T17:00:00.000Z');assert.equal(new Date(instant('2026-12-22T10:00','America/Los_Angeles')).toISOString(),'2026-12-22T18:00:00.000Z');});
+test('ambiguous and missing wall-clock times are refused',()=>{assert.throws(()=>instant('2026-11-01T01:30','America/Los_Angeles'),/ambiguous/);assert.throws(()=>instant('2026-03-08T02:30','America/Los_Angeles'),/does not exist/);assert.throws(()=>instant('2026-02-30T10:00','UTC'));});
+test('missing, stale, partial, or malformed calendars never imply free time',()=>{for(const override of [null,{...input().calendar,checkedAt:now-61000},{...input().calendar,coverage:[]},{...input().calendar,busy:[{start:'invalid',end:'invalid'}]}])assert.throws(()=>proposeSlots({...input(),calendar:override}));assert.deepEqual(proposeSlots({...input(),calendar:{...input().calendar,workingWindows:[]}}),[]);});
+test('no slots cross candidate or interviewer window boundaries',()=>{const i=input();i.windows=[{start:'2026-09-22T13:50',end:'2026-09-22T16:00'}];assert.deepEqual(proposeSlots(i),[]);});
