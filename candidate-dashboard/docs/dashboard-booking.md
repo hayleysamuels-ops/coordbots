@@ -99,3 +99,9 @@ candidate windows, these working hours and observed busy blocks. Suggestions are
 explicitly marked needs_review and never enter the booking engine, create an Ashby
 draft, send messages, or authorize booking. Counts, complete coverage and a final
 calendar recheck remain outstanding. Overrides are response-only, not persisted.
+
+Live Luminai validation (September 21): the two-day reader returned September 22's
+six existing meetings plus the unsent test overlay, and September 23's six meetings,
+matching the manually inspected calendar. The worker's unchanged-interview-date
+checks passed. Real tentative options await coordinator-provided working hours;
+full availability and interview-load verification remain incomplete. 104 tests pass.
