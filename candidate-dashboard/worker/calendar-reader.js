@@ -40,7 +40,7 @@ async function readCalendar(page,{interviewer}){
     const headers=headings.filter(h=>Math.abs(h.getBoundingClientRect().top-y)<12).map(h=>({name:h.innerText.trim(),x:h.getBoundingClientRect().left+h.getBoundingClientRect().width/2,h})).sort((a,b)=>a.x-b.x);
     const target=headers.filter(h=>h.name===name);if(target.length!==1)return null;
     let timezone=null;
-    for(let p=target[0].h.parentElement;p&&p.tagName!=='BODY';p=p.parentElement){if(p.querySelectorAll('h3').length>1)break;const m=p.innerText.match(/\b[A-Za-z_]+\/[A-Za-z_]+(?:\/[A-Za-z_]+)?\b/);if(m){timezone=m[0];break;}}
+    for(let p=target[0].h.parentElement;p&&p.tagName!=='BODY';p=p.parentElement){if(p.querySelectorAll('h3').length>1)break;const m=p.innerText.match(/\b([A-Za-z_]+\/[A-Za-z_ /]+?)\s*\(GMT[+-]/);if(m){timezone=m[1].trim().replace(/ /g,'_');break;}}
     const groups=new Map(headers.map(h=>[h.name,[]]));
     for(const b of document.querySelectorAll('button')){const rect=b.getBoundingClientRect();if(!rect.width||!rect.height||rect.top<=y||!b.querySelector('h2'))continue;const text=b.innerText.replace(/\s+/g,' ').trim();if(!/\d{1,2}:\d{2}\s*(AM|PM)/i.test(text))continue;const x=rect.left+rect.width/2;const nearest=headers.slice().sort((a,c)=>Math.abs(a.x-x)-Math.abs(c.x-x))[0];groups.get(nearest.name).push(text);}
     return {timezone,blocks:groups.get(name),draftBlocks:groups.get('Current Schedule')||[]};
