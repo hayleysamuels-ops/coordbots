@@ -28,6 +28,9 @@ function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSan
           await page.getByRole('button',{name:expectedIdentity,exact:true}).waitFor({state:'visible',timeout:15000});
           if(page.url()!==base+suffix)fail(409,'Ashby did not open the requested unsent draft.');
           const candidate=page.getByRole('link',{name:input.candidateName.trim(),exact:true});
+          // Ashby's account header renders before the draft's candidate link.
+          // Wait for the requested draft content before evaluating its binding.
+          await candidate.first().waitFor({state:'visible',timeout:15000});
           const links=await candidate.all();let bound=false;
           for(const link of links){const href=await link.getAttribute('href');if(href&&href.includes('/candidates/'+input.candidateId+'/applications/'+input.applicationId))bound=true;}
           if(!bound)fail(409,'The Ashby draft belongs to a different candidate or application.');
