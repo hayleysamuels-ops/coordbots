@@ -3,7 +3,7 @@ const fail=(status,message)=>{throw Object.assign(new Error(message),{status});}
 const uuid=value=>typeof value==='string'&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);
 // Deliberately read-only: fixed draft pages, no input, click, submit, or cookies
 // returned to the dashboard. A successful read does not enable booking.
-function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSandbox=true,connection,now=()=>Date.now(),confirmationReader=require("./confirmation-reader").readConfirmation,invitationReader=require("./invitation-reader").readInvitations}) {
+function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSandbox=true,connection,now=()=>Date.now(),confirmationReader=require("./confirmation-reader").readConfirmation,invitationReader=require("./invitation-reader").readInvitations,calendarReader=require("./calendar-reader").readCalendar}) {
   let reading=false;
   return {
     async inspect(input, mode='communications') {
@@ -37,8 +37,13 @@ function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSan
         }
         if(mode==='calendar'){
           if(!input.interviewer?.name||!input.interviewer?.email)fail(422,'A verified interviewer is required.');
-          await open('');
-          const calendar=await require('./calendar-reader').readCalendar(page,input);
+          // Directly opening the draft root can redirect to its last-used
+          // Communications page. Use Ashby's visible Schedule navigation.
+          await open('/communication/calendar-invites');
+          await page.getByRole('link',{name:'Schedule',exact:true}).click();
+          await page.getByPlaceholder('Set date to view...',{exact:true}).waitFor({state:'visible',timeout:15000});
+          if(page.url()!==base)fail(409,'Ashby did not open the requested draft calendar.');
+          const calendar=await calendarReader(page,input);
           return {...calendar,draftId:input.draftId,candidateId:input.candidateId,applicationId:input.applicationId,checkedAt:now()};
         }
         await open('/communication/calendar-invites');
