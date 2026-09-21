@@ -44,7 +44,8 @@ function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSan
         const interviewerPreview=section(inviteText,'Interviewer Invite');
         await open('/communication/candidate-confirmation-email');
         const confirmationEnabled=await page.getByRole('checkbox',{name:'Send Candidate Confirmation Email',exact:true}).isChecked();
-        await page.getByRole('textbox',{name:'Rich text editor',exact:true}).waitFor({state:'visible',timeout:15000});
+        await page.locator('[contenteditable="true"]').last().waitFor({state:'visible',timeout:15000});
+        await page.getByText('Loading template builder',{exact:true}).waitFor({state:'hidden',timeout:15000});
         const emailText=await page.locator('body').innerText();
         const confirmationPreview=section(emailText,'PREVIEW');
         if(/Loading template builder/i.test(confirmationPreview))fail(409,'The confirmation editor is still loading. Read the draft again.');
