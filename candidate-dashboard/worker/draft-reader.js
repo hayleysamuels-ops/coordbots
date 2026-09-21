@@ -44,8 +44,10 @@ function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSan
         const interviewerPreview=section(inviteText,'Interviewer Invite');
         await open('/communication/candidate-confirmation-email');
         const confirmationEnabled=await page.getByRole('checkbox',{name:'Send Candidate Confirmation Email',exact:true}).isChecked();
+        await page.getByRole('textbox',{name:'Rich text editor',exact:true}).waitFor({state:'visible',timeout:15000});
         const emailText=await page.locator('body').innerText();
         const confirmationPreview=section(emailText,'PREVIEW');
+        if(/Loading template builder/i.test(confirmationPreview))fail(409,'The confirmation editor is still loading. Read the draft again.');
         return {draftId:input.draftId,applicationId:input.applicationId,candidateId:input.candidateId,checkedAt:now(),candidateInvite,interviewerInvite,confirmationEnabled,candidatePreview,interviewerPreview,confirmationPreview,bookingEnabled:false};
       }catch(error){if(error.status)throw error;fail(503,'Could not read the saved Ashby draft. No scheduling action was taken.');}
       finally{try{if(browser)await browser.close();}finally{reading=false;}}
