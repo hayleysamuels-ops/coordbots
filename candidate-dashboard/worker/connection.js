@@ -7,7 +7,7 @@ const fail = (status,message) => { throw Object.assign(new Error(message),{statu
 // coordinator. It cannot approve, schedule, send invitations or return cookies.
 function createConnection({ chromium, vault, clientId, expectedIdentity, chromiumSandbox = true, now = () => Date.now() }) {
   if (!clientId || !expectedIdentity) throw new Error("Client and expected Ashby identity are required");
-  let lease = null, browser = null, cleanupTimer = null, opening = false;
+  let lease = null, browser = null, cleanupTimer = null, opening = false, lastVerification = null;
   function usable(page) {
     if(!page || page.isClosed()) return false;
     try { return page.url()!=="about:blank" && ALLOWED_ORIGINS.has(new URL(page.url()).origin); }
@@ -39,7 +39,9 @@ function createConnection({ chromium, vault, clientId, expectedIdentity, chromiu
     try {
       await close();
       browser=await chromium.launch({headless:true,chromiumSandbox});
-      const context=await browser.newContext({viewport:{width:1100,height:800},acceptDownloads:false});
+      const saved=vault.load();
+      const storageState=saved && saved.clientId===clientId && saved.expectedIdentity===expectedIdentity ? saved.storageState : undefined;
+      const context=await browser.newContext({viewport:{width:1100,height:800},acceptDownloads:false,...(storageState?{storageState}:{})});
       await context.route("**/*",async route => {
         const request=route.request();
         if(request.isNavigationRequest()) {
@@ -92,6 +94,35 @@ function createConnection({ chromium, vault, clientId, expectedIdentity, chromiu
   }
   return {
     start,act,
+    async verify() {
+      if(opening || (lease && lease.expires>now())) fail(409,"Close the sign-in window before checking the saved connection");
+      const saved=vault.load();
+      if(!saved || saved.clientId!==clientId || saved.expectedIdentity!==expectedIdentity || !saved.storageState)
+        fail(409,"Save a session for the configured Ashby account first");
+      opening=true;lastVerification=null;let probe;
+      try {
+        probe=await chromium.launch({headless:true,chromiumSandbox});
+        const context=await probe.newContext({storageState:saved.storageState,acceptDownloads:false});
+        await context.route("**/*",async route=>{
+          if(route.request().isNavigationRequest()) {
+            let origin;try{origin=new URL(route.request().url()).origin;}catch(_){return route.abort();}
+            if(origin!=="https://app.ashbyhq.com")return route.abort();
+          }
+          return route.continue();
+        });
+        const page=await context.newPage();
+        await page.goto("https://app.ashbyhq.com/home/upcoming",{waitUntil:"domcontentloaded",timeout:30000});
+        const identity=page.getByRole("button",{name:expectedIdentity,exact:true});
+        await identity.waitFor({state:"visible",timeout:15000});
+        if(new URL(page.url()).origin!=="https://app.ashbyhq.com" || await identity.count()!==1)
+          fail(409,"The saved session does not show the expected Ashby account");
+        lastVerification={savedAt:saved.savedAt,at:now()};
+        return {sessionVerified:true,verifiedAt:new Date(lastVerification.at).toISOString(),bookingEnabled:false};
+      } catch(_) {
+        lastVerification=null;
+        fail(409,"The saved connection could not be verified. It may need a new sign-in, or Ashby may be temporarily unavailable.");
+      } finally {try{if(probe)await probe.close();}finally{opening=false;}}
+    },
     async frame(owner,id) {
       const page=await activePage(current(owner,id)), url=new URL(page.url());
       return {origin:url.origin,image:(await page.screenshot({type:"jpeg",quality:75})).toString("base64")};
@@ -103,6 +134,7 @@ function createConnection({ chromium, vault, clientId, expectedIdentity, chromiu
       // Verify the observed account AND organization, never just a login cookie.
       if(await page.getByRole("button",{name:expectedIdentity,exact:true}).count()!==1)
         fail(409,"Select the configured Ashby account and organization before saving");
+      lastVerification=null;
       vault.save({clientId, expectedIdentity, savedAt:new Date(now()).toISOString(),
         storageState:await live.context.storageState({indexedDB:true})});
       await close(); return {saved:true,bookingEnabled:false,message:"Ashby session saved. Booking remains disabled until the booking adapter is verified."};
@@ -112,7 +144,8 @@ function createConnection({ chromium, vault, clientId, expectedIdentity, chromiu
       const saved=vault.load();
       const matches=!!saved && saved.clientId===clientId && saved.expectedIdentity===expectedIdentity;
       return {clientId,expectedIdentity,sessionSaved:matches,savedAt:matches?saved.savedAt:null,
-        sessionVerified:false,bookingEnabled:false,signInOpen:!!lease && lease.expires>now()};
+        sessionVerified:!!(matches && lastVerification && lastVerification.savedAt===saved.savedAt && now()-lastVerification.at<=60000),
+        verifiedAt:matches&&lastVerification?new Date(lastVerification.at).toISOString():null,bookingEnabled:false,signInOpen:!!lease && lease.expires>now()};
     },
     close,
   };

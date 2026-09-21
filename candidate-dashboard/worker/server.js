@@ -17,6 +17,7 @@ function createWorkerApp({connection,secret,clientId,expectedIdentity}) {
       let result;
       switch(data.action){
         case "status":result=await connection.status();break;
+        case "verify":result=await connection.verify();break;
         case "start":result=await connection.start(data.owner);break;
         case "frame":result=await connection.frame(data.owner,data.id);break;
         case "input":result=await connection.act(data.owner,data.id,data.input||{});break;

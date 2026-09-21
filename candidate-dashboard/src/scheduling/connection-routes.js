@@ -13,7 +13,7 @@ function connectionRoutes({ url, secret, clientId, expectedIdentity, fetchImpl =
   });
   router.post("/:action", async (req, res) => {
     const action = req.params.action;
-    if (!["status", "start", "frame", "input", "finish", "cancel"].includes(action)) return res.status(404).json({ error: "Unknown connection action" });
+    if (!["status", "verify", "start", "frame", "input", "finish", "cancel"].includes(action)) return res.status(404).json({ error: "Unknown connection action" });
     if (!url || !secret || secret.length < 32 || !clientId || !expectedIdentity) return res.status(503).json({ error: "The dedicated Ashby connection has not been configured for this dashboard yet." });
     let endpoint;
     try {

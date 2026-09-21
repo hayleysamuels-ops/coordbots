@@ -18,7 +18,7 @@ test("session vault persists encrypted data, detects tampering and wrong key",t=
 });
 function fake(){let saved=null,identity=true,closed=0,route,launchOptions;
  const listeners={},pages=[];
- function makePage(url="https://app.ashbyhq.com/home"){let current=url,isClosed=false;const handlers={};return {goto:async value=>{current=value;},url:()=>current,isClosed:()=>isClosed,on:(event,fn)=>{handlers[event]=fn;},emit:event=>handlers[event]?.(),close:()=>{isClosed=true;},screenshot:async()=>Buffer.from(current),getByRole:()=>({count:async()=>identity?1:0}),mouse:{click:async()=>{},wheel:async()=>{}},keyboard:{insertText:async()=>{},press:async()=>{}}};}
+ function makePage(url="https://app.ashbyhq.com/home"){let current=url,isClosed=false;const handlers={};return {goto:async value=>{current=value;},url:()=>current,isClosed:()=>isClosed,on:(event,fn)=>{handlers[event]=fn;},emit:event=>handlers[event]?.(),close:()=>{isClosed=true;},screenshot:async()=>Buffer.from(current),getByRole:()=>({waitFor:async()=>{if(!identity)throw new Error("not visible");},count:async()=>identity?1:0}),mouse:{click:async()=>{},wheel:async()=>{}},keyboard:{insertText:async()=>{},press:async()=>{}}};}
  const page=makePage();pages.push(page);
  let firstPage=true;
  const context={route:async(pattern,fn)=>{route=fn;},newPage:async()=>{if(firstPage){firstPage=false;return page;}const next=makePage("about:blank");pages.push(next);listeners.page?.(next);return next;},on:(event,fn)=>{listeners[event]=fn;},pages:()=>pages,storageState:async()=>({cookies:[{value:"test"}]})};
@@ -96,4 +96,16 @@ test("runtime probe verifies launch and shutdown without opening a page",async()
  await checkRuntime({launch:async value=>{options=value;return {close:async()=>{closed=true;}};}},false);
  assert.deepEqual(options,{headless:true,chromiumSandbox:false});assert.equal(closed,true);
  await assert.rejects(checkRuntime({launch:async()=>{throw new Error("launch failed");}},true),/launch failed/);
+});
+
+test("saved-session verification reopens the saved browser and checks live identity",async t=>{
+ const f=fake();let clock=1000;
+ const c=createConnection({...f,clientId:"test",expectedIdentity:"Test Coordinator",now:()=>clock});t.after(()=>c.close());
+ await assert.rejects(c.verify(),{status:409});
+ const lease=await c.start("rc");await assert.rejects(c.verify(),{status:409});await c.finish("rc",lease.id);
+ assert.equal((await c.verify()).sessionVerified,true);assert.equal((await c.status()).sessionVerified,true);
+ assert.equal((await c.status()).bookingEnabled,false);
+ clock+=61000;assert.equal((await c.status()).sessionVerified,false);
+ f.identity=false;await assert.rejects(c.verify(),{status:409});assert.equal((await c.status()).sessionVerified,false);
+ assert.equal((await c.status()).sessionSaved,true);
 });

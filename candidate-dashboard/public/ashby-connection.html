@@ -12,6 +12,7 @@ body{font:16px system-ui,sans-serif;color:#222820;background:#f6f5f0;max-width:1
 <button id="coordinator-submit" type="submit">Sign in to manage Ashby</button>
 <p>Your login is kept only while this page is open. Refreshing the page may require signing in again.</p>
 </form>
+<button id="verify" disabled>Check saved connection</button>
 <button id="start" disabled>Open worker sign-in</button>
 <div id="viewer" hidden><p>Click inside the browser image, then type normally. Tab and Enter work. You can paste using the text field below. Complete verification prompts yourself.</p>
 <p>Worker browser site: <strong id="address">Loading…</strong></p>
@@ -41,8 +42,14 @@ async function checkStatus(){
  el("identity").textContent=status.expectedIdentity;
  el("coordinator-login").hidden=true;
  el("start").disabled=status.signInOpen;
+ el("verify").disabled=!status.sessionSaved||status.signInOpen;
  message(status.signInOpen?"A sign-in window is already open. Return to that window, or wait for its 15-minute session to expire.":status.sessionSaved?"An encrypted session is saved. Its current validity and the booking connection still need verification.":"Ready. Open the worker sign-in below, then sign into Ashby with the expected account.");
 }
+el("verify").onclick=async()=>{
+ el("verify").disabled=true;message("Checking the saved Ashby account…");
+ try{await api("verify");message("Saved connection verified. Automatic booking is still disabled while scheduling setup is completed.");}
+ catch(error){message(error.message);}finally{el("verify").disabled=false;}
+};
 el("coordinator-login").onsubmit=async event=>{
  event.preventDefault();el("coordinator-submit").disabled=true;el("start").disabled=true;
  const username=el("coordinator-name").value.trim(),password=el("coordinator-password").value;
