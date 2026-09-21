@@ -27,8 +27,11 @@ function parseCalendar({date,timezone,interviewer,blocks,draftBlocks}){
 }
 async function readCalendar(page,{interviewer}){
   const name=interviewer.name;
-  await page.getByRole('heading',{name,exact:true}).first().waitFor({state:'visible',timeout:15000});
-  const date=await page.getByRole('textbox',{name:'Interview Date',exact:true}).inputValue();
+  try { await page.getByRole('heading',{name,exact:true}).first().waitFor({state:'visible',timeout:15000}); }
+  catch (_) { fail('The requested interviewer calendar is not displayed in the saved draft.'); }
+  let date;
+  try { date=await page.getByPlaceholder('Set date to view...',{exact:true}).inputValue({timeout:5000}); }
+  catch (_) { fail('The calendar date control could not be read.'); }
   const data=await page.evaluate(({name})=>{
     const headings=[...document.querySelectorAll('h3')];
     const anchor=headings.find(h=>h.innerText.trim()==='Current Schedule');
