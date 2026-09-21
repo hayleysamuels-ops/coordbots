@@ -56,3 +56,15 @@ source fingerprint. The planner requires fresh, complete interview counts when a
 limit applies; absent counts never mean zero. Weekly counts must include explicit
 source-verified period boundaries instead of assuming which day starts the week.
 This validation is tested locally, but a live count/calendar source is still missing.
+
+## Submitted-availability queue
+The dashboard's Needs scheduling section uses `readyToSchedule`, a distinct
+schedule-level list of Active applications in CandidateAvailabilitySubmitted.
+It is assembled before triage deduplication and is not hidden by alert thresholds
+or candidate snoozes. Stage mismatches remain visible and block agenda loading.
+The section applies the dashboard's entity filters and fetches published current
+interview plans automatically (two concurrent reads, one-minute browser cache).
+It shows an interview agenda, not a timed draft: importing actual availability,
+calendar verification and automatic timed draft generation remain unimplemented.
+Availability shared outside Ashby's submitted-availability state is not detected.
+Booking dropdowns now default to this queue; direct application links still work.

@@ -10,3 +10,8 @@
 #scheduling-review button { cursor: pointer; padding: 8px 12px; margin: 4px 0; }
 #scheduling-review button:disabled { opacity: .5; cursor: not-allowed; }
 #scheduling-message { white-space: pre-wrap; }
+#ready-scheduling-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); max-height: 680px; overflow-y: auto; padding: 4px; }
+#ready-scheduling-cards .scheduling-draft { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+#ready-scheduling-cards h3 { margin-top: 0; }
+#ready-scheduling-cards ol { padding-left: 22px; }
+#ready-scheduling-cards li { margin: 6px 0; }

@@ -35,6 +35,7 @@ const appConfig = {
 };
 
 let snapshot = {
+  readyToSchedule: [],
   feedbackOverdue: [],
   needsScheduling: [],
   staleCandidates: [],
@@ -79,7 +80,7 @@ async function timed(label, promise) {
 const SECTION_GROUPS = [
   {
     label: "Schedule-driven sections",
-    keys: ["feedbackOverdue", "needsScheduling", "staleCandidates", "interviewerLimits", "availabilitySubmitted", "onsiteToday", "rescheduledInterviews"],
+    keys: ["readyToSchedule", "feedbackOverdue", "needsScheduling", "staleCandidates", "interviewerLimits", "availabilitySubmitted", "onsiteToday", "rescheduledInterviews"],
     fetch: () => timed("listIssues", ashby.listIssues()),
     assign: (snap, result) => Object.assign(snap, result),
   },
