@@ -64,8 +64,9 @@ It is assembled before triage deduplication and is not hidden by alert threshold
 or candidate snoozes. Stage mismatches remain visible and block agenda loading.
 The section applies the dashboard's entity filters and fetches published current
 interview plans automatically (two concurrent reads, one-minute browser cache).
-It shows an interview agenda, not a timed draft: importing actual availability,
-calendar verification and automatic timed draft generation remain unimplemented.
+It shows an interview agenda, not a timed draft. Booking review imports actual
+submitted availability; full calendar verification and automatic timed draft
+generation remain unfinished.
 Availability shared outside Ashby's submitted-availability state is not detected.
 Booking dropdowns now default to this queue; direct application links still work.
 
@@ -105,3 +106,30 @@ six existing meetings plus the unsent test overlay, and September 23's six meeti
 matching the manually inspected calendar. The worker's unchanged-interview-date
 checks passed. Real tentative options await coordinator-provided working hours;
 full availability and interview-load verification remain incomplete. 104 tests pass.
+
+
+## Candidate-submitted availability
+Opening booking review from Needs scheduling now carries both application and
+schedule IDs. After coordinator sign-in, the page loads current pending requests
+and automatically imports the selected request's submitted windows and timezone.
+If an application has multiple requests, it preserves the linked request or asks
+the coordinator to select one. Coordinator-entered availability is an explicit
+source option for times shared outside Ashby.
+
+The public interviewSchedule.list response provides status and request binding,
+not the actual windows. The worker reads the request-specific Candidate Availability
+grid using the saved Ashby session, without editing its selected cells or enabling
+Show All Availability. It scans six displayed weeks and returns that scope alongside
+the windows. A complete 7-day, 96-quarter-hour grid is required for every week;
+malformed grids fail rather than implying availability. Availability notes are not
+yet imported. Dates outside the reported scope are not inspected.
+
+Server-side reads check the current active application/stage, pending request status,
+and request revision before and after reading. The calendar/details routes refresh
+submitted windows again and ignore client-supplied window values in Ashby mode.
+Elapsed windows are omitted; stale, missing or withdrawn requests stop the lookup.
+No calendar availability verification, booking approval, or sending is implied.
+
+Live validation: Andrew Lee's exact pending request imported September 28 and 29,
+2026, 09:00–17:00 America/New_York, matching the manually inspected grid. The local
+browser fixture also verified automatic prefill and switching to coordinator entry.

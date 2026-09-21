@@ -21,7 +21,7 @@
   }
   async function refresh(){state=await api();render();}
   $('login').onsubmit=async e=>{e.preventDefault();const form=e.currentTarget;credentials='Basic '+btoa(unescape(encodeURIComponent(form.username.value+':'+form.password.value)));try{await refresh();form.password.value='';form.hidden=true;$('workspace').hidden=false;const r=await fetch('/api/issues');if(!r.ok)throw Error('Candidate list unavailable');const snapshot=await r.json();const rows=[...new Map((snapshot.readyToSchedule||[]).filter(c=>c?.applicationId&&c.status==='Active').map(c=>[c.applicationId,c])).values()];$('prepare').applicationId.innerHTML='<option value="">Select candidate</option>'+rows.map(c=>`<option value="${esc(c.applicationId)}">${esc(c.candidateName)} · ${esc(c.jobTitle)}</option>`).join('');const target=new URLSearchParams(location.search).get('applicationId');if(target&&rows.some(c=>c.applicationId===target)){$('prepare').applicationId.value=target;$('prepare').closest('details').open=true;await $('load-plan').onclick();}}catch(err){credentials=null;form.hidden=false;$('workspace').hidden=true;$('message').textContent=err.message;}};
-  $('logout').onclick=()=>{sessionVersion++;$('source-details').textContent='';$('calendar-preview').replaceChildren();$('ashby-preview').replaceChildren();credentials=null;state=null;selected=null;$('approval').close();$('drafts').replaceChildren();$('workspace').hidden=true;$('login').hidden=false;$('message').textContent='Signed out.';};
+  $('logout').onclick=()=>{sessionVersion++;$('source-details').textContent='';$('windows').replaceChildren();$('availability-status').textContent='';$('prepare').availabilitySource.value='ashby';applyAvailabilityMode();$('calendar-preview').replaceChildren();$('ashby-preview').replaceChildren();credentials=null;state=null;selected=null;$('approval').close();$('drafts').replaceChildren();$('workspace').hidden=true;$('login').hidden=false;$('message').textContent='Signed out.';};
   $('refresh').onclick=()=>refresh().catch(e=>$('message').textContent=e.message);
   $('load-application').onclick=async()=>{
     const version=sessionVersion;
@@ -34,18 +34,51 @@
       if(!option){option=document.createElement('option');option.value=data.applicationId;select.append(option);}
       option.textContent=`${data.candidateName} · ${data.jobTitle}`;select.value=data.applicationId;
       $('prepare').interviewId.innerHTML=data.activities.flatMap(a=>a.sessions.map(s=>`<option value="${esc(s.interviewId)}">${esc(a.title)}: ${esc(s.title)} (${s.durationMinutes} min)</option>`)).join('');
-      $('source-details').textContent=data.activities.length?'Candidate and current interview plan loaded from Ashby.':'This stage has no schedulable interviews.';$('ashby-preview').replaceChildren();
+      $('source-details').textContent=data.activities.length?'Candidate and current interview plan loaded from Ashby.':'This stage has no schedulable interviews.';$('ashby-preview').replaceChildren();await loadAvailabilityRequests();
     }catch(err){if(version===sessionVersion)$('source-details').textContent=err.message;}finally{$('load-application').disabled=false;}
   };
-  $('load-plan').onclick=async()=>{try{const id=$('prepare').applicationId.value;if(!id)throw Error('Choose a candidate.');const response=await fetch('/api/scheduling-review/template/'+encodeURIComponent(id));const data=await response.json();if(!response.ok)throw Error(data.error);$('prepare').interviewId.innerHTML=data.activities.flatMap(a=>a.sessions.map(s=>`<option value="${esc(s.interviewId)}">${esc(a.title)}: ${esc(s.title)} (${s.durationMinutes} min)</option>`)).join('');}catch(e){$('message').textContent=e.message;}};
-  $('prepare').applicationId.onchange=()=>{$('prepare').interviewId.innerHTML='<option value="">Load a plan first</option>';};
-  function addWindow(){const field=document.createElement('fieldset');field.innerHTML='<legend>Candidate availability</legend><label>From<input name="start" type="datetime-local" required></label><label>Until<input name="end" type="datetime-local" required></label><button type="button">Remove window</button>';field.querySelector('button').onclick=()=>{field.remove();$('calendar-preview').replaceChildren();};$('windows').append(field);}
-  $('add-window').onclick=addWindow;addWindow();
+  $('load-plan').onclick=async()=>{try{const id=$('prepare').applicationId.value;if(!id)throw Error('Choose a candidate.');const response=await fetch('/api/scheduling-review/template/'+encodeURIComponent(id));const data=await response.json();if(!response.ok)throw Error(data.error);$('prepare').interviewId.innerHTML=data.activities.flatMap(a=>a.sessions.map(s=>`<option value="${esc(s.interviewId)}">${esc(a.title)}: ${esc(s.title)} (${s.durationMinutes} min)</option>`)).join('');await loadAvailabilityRequests();}catch(e){$('message').textContent=e.message;}};
+  $('prepare').applicationId.onchange=async()=>{$('prepare').interviewId.innerHTML='<option value="">Load a plan first</option>';clearAvailability();await $('load-plan').onclick();};
+  function clearAvailability(){$('windows').replaceChildren();$('calendar-preview').replaceChildren();$('availability-status').textContent='';$('prepare').scheduleId.innerHTML='<option value="">Loading requests…</option>';}
+  function applyAvailabilityMode(){const imported=$('prepare').availabilitySource.value==='ashby';$('add-window').disabled=imported;for(const el of $('windows').querySelectorAll('input'))el.readOnly=imported;for(const el of $('windows').querySelectorAll('button'))el.disabled=imported;$('prepare').timezone.disabled=imported;$('prepare').scheduleId.disabled=!imported;$('reload-availability').disabled=!imported;}
+  async function importAvailability(){
+    const f=$('prepare'),applicationId=f.applicationId.value,scheduleId=f.scheduleId.value,version=sessionVersion;
+    if(f.availabilitySource.value!=='ashby')return;
+    $('windows').replaceChildren();$('calendar-preview').replaceChildren();
+    if(!scheduleId){$('availability-status').textContent='Choose a pending request to import its availability.';return;}
+    $('availability-status').textContent='Reading the candidate’s submitted availability…';
+    try{const data=await api('/availability',{applicationId,scheduleId});if(version!==sessionVersion||!credentials||applicationId!==f.applicationId.value||scheduleId!==f.scheduleId.value||f.availabilitySource.value!=='ashby')return;
+      if(![...f.timezone.options].some(o=>o.value===data.timezone)){const option=document.createElement('option');option.value=option.textContent=data.timezone;f.timezone.append(option);}f.timezone.value=data.timezone;
+      for(const w of data.localWindows)addWindow(w);
+      $('availability-status').textContent=data.localWindows.length?`Imported ${data.localWindows.length} submitted windows from Ashby (${data.timezone}).`:'No future availability was found in the checked range.';
+      if(data.scope)$('availability-status').textContent+=' Checked '+data.scope.start+' through '+data.scope.end+'.';
+      if(data.expiredCount)$('availability-status').textContent+=` ${data.expiredCount} elapsed windows omitted.`;
+      if(data.notes)$('availability-status').textContent+=' Candidate note: '+data.notes;
+      applyAvailabilityMode();
+    }catch(e){if(version===sessionVersion&&applicationId===f.applicationId.value&&scheduleId===f.scheduleId.value)$('availability-status').textContent=e.message;}
+  }
+  async function loadAvailabilityRequests(){
+    const f=$('prepare'),applicationId=f.applicationId.value,version=sessionVersion;
+    if(!applicationId)return;clearAvailability();
+    try{const data=await api('/availability-requests',{applicationId});if(version!==sessionVersion||!credentials||applicationId!==f.applicationId.value)return;
+      f.scheduleId.innerHTML='<option value="">Select availability request</option>'+data.requests.map(r=>`<option value="${esc(r.scheduleId)}">Updated ${esc(new Date(r.updatedAt).toLocaleString())} · ${esc(r.scheduleId.slice(0,8))}</option>`).join('');
+      const target=new URLSearchParams(location.search).get('scheduleId');
+      if(data.requests.some(r=>r.scheduleId===target))f.scheduleId.value=target;else if(data.requests.length===1)f.scheduleId.value=data.requests[0].scheduleId;
+      if(f.availabilitySource.value==='ashby'){if(data.requests.length)await importAvailability();else $('availability-status').textContent='No current submitted-availability request. Use coordinator entry for times shared outside Ashby.';}else addWindow();
+      applyAvailabilityMode();
+    }catch(e){if(version===sessionVersion&&applicationId===f.applicationId.value)$('availability-status').textContent=e.message;}
+  }
+  $('reload-availability').onclick=importAvailability;
+  $('prepare').scheduleId.onchange=importAvailability;
+  $('prepare').availabilitySource.onchange=async()=>{$('calendar-preview').replaceChildren();if($('prepare').availabilitySource.value==='ashby')await importAvailability();else {if(!$('windows').children.length)addWindow();$('availability-status').textContent='Coordinator-entered availability. These times are not a verified Ashby submission.';}applyAvailabilityMode();};
+
+  function addWindow(values){const field=document.createElement('fieldset');field.innerHTML='<legend>Candidate availability</legend><label>From<input name="start" type="datetime-local" required></label><label>Until<input name="end" type="datetime-local" required></label><button type="button">Remove window</button>';field.querySelector('button').onclick=()=>{field.remove();$('calendar-preview').replaceChildren();};if(values?.start){field.querySelector('[name=start]').value=values.start;field.querySelector('[name=end]').value=values.end;}$('windows').append(field);}
+  $('add-window').onclick=()=>addWindow();applyAvailabilityMode();
   function addWorkingWindow(){const field=document.createElement('fieldset');field.innerHTML='<legend>Allowed working hours</legend><label>From<input name="workingStart" type="datetime-local"></label><label>Until<input name="workingEnd" type="datetime-local"></label><button type="button">Remove working hours</button>';field.querySelector('button').onclick=()=>{field.remove();$('calendar-preview').replaceChildren();};$('working-windows').append(field);}
   $('add-working-window').onclick=addWorkingWindow;addWorkingWindow();
   function workingOverride(){const windows=[...$('working-windows').children].map(w=>({start:w.querySelector('[name=workingStart]').value,end:w.querySelector('[name=workingEnd]').value})).filter(w=>w.start||w.end);return windows.length?{timezone:$('prepare').workingTimezone.value,windows}:null;}
 
-  function requestDetails(){const f=$('prepare');return {applicationId:f.applicationId.value,interviewId:f.interviewId.value,interviewerEmail:f.interviewerEmail.value,timezone:f.timezone.value,windows:[...$('windows').children].map(w=>({start:w.querySelector('[name=start]').value,end:w.querySelector('[name=end]').value}))};}
+  function requestDetails(){const f=$('prepare');return {applicationId:f.applicationId.value,interviewId:f.interviewId.value,interviewerEmail:f.interviewerEmail.value,availabilitySource:f.availabilitySource.value,scheduleId:f.scheduleId.value,timezone:f.timezone.value,windows:[...$('windows').children].map(w=>({start:w.querySelector('[name=start]').value,end:w.querySelector('[name=end]').value}))};}
   $('prepare').addEventListener('input',()=>{$('source-details').textContent='';$('calendar-preview').replaceChildren();});
   $('check-details').onclick=async()=>{
     if(!$('prepare').reportValidity())return;
@@ -85,7 +118,7 @@
       output.style.whiteSpace='pre-wrap';
     }catch(e){if(version===sessionVersion)output.textContent=e.message;}finally{$('inspect-calendar').disabled=false;}
   };
-  $('prepare').onsubmit=async e=>{e.preventDefault();if(busy)return;busy=true;$('prepare-button').disabled=true;try{const f=e.currentTarget;await api('/drafts',{applicationId:f.applicationId.value,interviewId:f.interviewId.value,interviewerEmail:f.interviewerEmail.value,timezone:f.timezone.value,windows:[...$('windows').children].map(w=>({start:w.querySelector('[name=start]').value,end:w.querySelector('[name=end]').value}))});await refresh();}catch(err){$('message').textContent=err.message;}finally{busy=false;$('prepare-button').disabled=!state?.capabilities.available;}};
+  $('prepare').onsubmit=async e=>{e.preventDefault();if(busy)return;busy=true;$('prepare-button').disabled=true;try{const f=e.currentTarget;await api('/drafts',{applicationId:f.applicationId.value,interviewId:f.interviewId.value,interviewerEmail:f.interviewerEmail.value,availabilitySource:f.availabilitySource.value,scheduleId:f.scheduleId.value,timezone:f.timezone.value,windows:[...$('windows').children].map(w=>({start:w.querySelector('[name=start]').value,end:w.querySelector('[name=end]').value}))});await refresh();}catch(err){$('message').textContent=err.message;}finally{busy=false;$('prepare-button').disabled=!state?.capabilities.available;}};
   $('drafts').onclick=async e=>{const approve=e.target.closest('[data-approve]'),reject=e.target.closest('[data-reject]');if(approve){selected=state.drafts.find(r=>r.id===approve.dataset.approve);$('approval-summary').innerHTML=summary(selected);$('approval').showModal();}if(reject){const row=state.drafts.find(r=>r.id===reject.dataset.reject);reject.disabled=true;try{await api('/'+encodeURIComponent(row.id)+'/reject',{revision:row.revision,digest:row.digest});await refresh();}catch(err){$('message').textContent=err.message;reject.disabled=false;}}};
   $('cancel').onclick=()=>{$('approval').close();selected=null;};
   $('send').onclick=async()=>{if(busy||!selected)return;busy=true;$('send').disabled=true;const row=selected;selected=null;try{await api('/'+encodeURIComponent(row.id)+'/approve',{revision:row.revision,digest:row.digest});$('approval').close();await refresh();}catch(err){$('approval').close();$('message').textContent=err.message+' Refresh status before taking further action.';}finally{busy=false;$('send').disabled=false;}};
