@@ -29,9 +29,12 @@ readiness or enable sends based on that test. The worker booking endpoint curren
 supports status and draft inspection only; it cannot execute bookings. The read-only draft inspector and review page are deployed to Luminai. Live
 inspection through the coordinator session has returned both calendar invitations
 and structured confirmation fields: sender, candidate recipient, subject, body,
-empty CC/BCC and attachments. Expanded CC/BCC are flagged as unverified. The
-calendar invitations remain visible-page excerpts; exact event, conferencing and
-recipient extraction still need work before an exact sending approval is possible.
+empty CC/BCC and attachments. Expanded CC/BCC are flagged as unverified. The invitation reader now isolates each rendered invitation card and separates
+its title, displayed time, event details and recipients. It supports one candidate
+card and one interviewer card; unknown layouts require direct review. Exact
+machine-readable event times and conferencing organizer verification still need
+work before a sending approval is possible. Sender loading is awaited separately
+from message loading; an unresolved or ambiguous sender stays unverified.
 
 Before rollout, implement and validate the adapter against an unsent test draft,
 including exact account/application binding, complete calendar coverage and working
