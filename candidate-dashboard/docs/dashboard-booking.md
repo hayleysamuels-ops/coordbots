@@ -6,6 +6,9 @@ and the new `/api/scheduling-booking` routes. Shared dashboard credentials canno
 approve. Discussion approvals remain separate.
 
 Implemented:
+- Read-only live details check binds the active application, current stage, exact
+  interview, duration and enabled interviewer via documented Ashby APIs. Changes
+  alter the source fingerprint; no calendar availability is inferred from these reads.
 - Exact event and recipient review, candidate confirmation preview, separate final
   approval dialog, durable ledger with compare-and-swap transitions.
 - Source freshness and permission rechecks; uncertain writes require reconciliation

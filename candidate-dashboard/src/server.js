@@ -37,6 +37,7 @@ function createServer() {
   });
   app.use("/api/scheduling-booking", require("./scheduling/booking-routes").bookingRoutes({
     engine: bookingEngine, store: bookingStore, clientId: connectionConfig.schedulingClientId,
+    facts: require("./scheduling/booking-facts").createBookingFacts({key: connectionConfig.ashbyApiKey, clientId: connectionConfig.schedulingClientId}),
     capabilities: async () => { const worker = await bookingWorker.capabilities(); return {available: false, reason: worker.available ? "The booking executor is being connected to this dashboard. Sending remains disabled." : worker.reason}; },
   }));
   app.use(express.static(path.join(__dirname, "..", "public")));

@@ -1,6 +1,6 @@
 "use strict";
 const express = require("express");
-function bookingRoutes({ engine, store, clientId, capabilities = async () => ({ available: false, reason: "Ashby calendar and booking automation are not connected yet." }) }) {
+function bookingRoutes({ engine, store, clientId, facts, capabilities = async () => ({ available: false, reason: "Ashby calendar and booking automation are not connected yet." }) }) {
   const router = express.Router();
   router.use((req, res, next) => {
     res.set("Cache-Control", "no-store");
@@ -17,6 +17,10 @@ function bookingRoutes({ engine, store, clientId, capabilities = async () => ({ 
     catch (e) { res.status(e.status || 503).json({ error: e.status ? e.message : "Could not confirm booking status. Refresh before taking further action." }); }
   };
   router.get("/", handle(async req => ({ clientId, coordinator: req.schedulingUser.id, capabilities: await capabilities(), drafts: (await store.list()).filter(r => r.clientId === clientId) })));
+  router.post("/details", handle(req => {
+    if (!facts) throw Object.assign(new Error("Ashby interview details are not connected."), { status: 503 });
+    return facts.load(req.body);
+  }));
   router.post("/drafts", handle(req => engine.draft(req.body, req.schedulingUser)));
   router.post("/:id/reject", handle(req => engine.reject(req.params.id, req.body, req.schedulingUser)));
   router.post("/:id/approve", handle(async req => {
