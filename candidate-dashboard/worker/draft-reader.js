@@ -1,9 +1,10 @@
 'use strict';
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status});};
 const uuid=value=>typeof value==='string'&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);
-// Deliberately read-only: fixed draft pages, no input, click, submit, or cookies
-// returned to the dashboard. A successful read does not enable booking.
-function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSandbox=true,connection,now=()=>Date.now(),confirmationReader=require("./confirmation-reader").readConfirmation,invitationReader=require("./invitation-reader").readInvitations,calendarReader=require("./calendar-reader").readCalendar}) {
+// Inspection only: fixed draft pages and calendar-view navigation. No booking
+// submission or cookies returned to the dashboard. Calendar range navigation
+// verifies that saved interview dates stay unchanged.
+function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSandbox=true,connection,now=()=>Date.now(),confirmationReader=require("./confirmation-reader").readConfirmation,invitationReader=require("./invitation-reader").readInvitations,calendarReader=require("./calendar-range").readCalendarRange}) {
   let reading=false;
   return {
     async inspect(input, mode='communications') {

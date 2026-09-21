@@ -1,7 +1,7 @@
 'use strict';
 const {instant}=require('../src/scheduling/booking-planner');
 const fail=message=>{throw Object.assign(Error(message),{status:409});};
-function parseCalendar({date,timezone,interviewer,blocks,draftBlocks}){
+function parseCalendar({date,timezone,interviewer,blocks,draftBlocks,viewTimezone}){
   const match=String(date).match(/(?:\w+,\s*)?(January|February|March|April|May|June|July|August|September|October|November|December) (\d{1,2}), (\d{4})/);
   if(!match)fail('The displayed calendar date could not be verified.');
   const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -22,9 +22,9 @@ function parseCalendar({date,timezone,interviewer,blocks,draftBlocks}){
   const events=blocks.map(interval);
   // Draft overlays are kept occupied until their event identity is verified.
   // Never remove a block merely because its title resembles the draft title.
-  return {date:day,timezone,interviewer,observedBusy:events,draftOverlayCount:draftBlocks.length,
+  return {date:day,timezone,viewTimezone,interviewer,observedBusy:events,draftOverlayCount:draftBlocks.length,
     coverageVerified:false,workingHoursVerified:false,availabilityVerified:false,
-    issues:['This is the displayed day only; complete calendar coverage and working hours are not yet verified.','Unsent draft overlays remain included in occupied time.'],bookingEnabled:false};
+    issues:['This is the displayed day only; complete calendar coverage and working hours are not yet verified.','Observed draft overlays are treated as occupied; complete overlay coverage is not verified.'],bookingEnabled:false};
 }
 async function readCalendar(page,{interviewer}){
   const name=interviewer.name;
@@ -51,12 +51,19 @@ async function readCalendar(page,{interviewer}){
     // one independently displayed block before returning observations. A day
     // with only overlays or no meetings is unknown, never verified free.
     if(!blocks.some(text=>!draftTitles.has(title(text))))return null;
-    return {timezone,blocks,draftBlocks};
+    let viewTimezone=null;
+    for(let p=anchor.parentElement;p&&p.tagName!=='BODY';p=p.parentElement){if(p.querySelectorAll('h3').length>1)break;const m=p.innerText.match(/\b([A-Za-z_]+\/[A-Za-z_ /]+)/);if(m){viewTimezone=m[1].trim().replace(/ /g,'_');break;}}
+    return {timezone,viewTimezone,blocks,draftBlocks};
   };
   let data;
   try {const handle=await page.waitForFunction(collect,{name},{timeout:15000});data=await handle.jsonValue();}
   catch (_) {fail('The connected calendar has not returned independently verifiable blocks. No free times can be inferred.');}
   if(!data)fail('The interviewer calendar column could not be identified.');
+  // Let the calendar finish replacing the previous day's rendered blocks.
+  await page.waitForTimeout(1500);
+  data=await page.evaluate(collect,{name});
+  if(!data)fail('The connected calendar is still loading.');
+  date=await page.getByPlaceholder('Set date to view...',{exact:true}).inputValue();
   return parseCalendar({date,...data,interviewer});
 }
 module.exports={readCalendar,parseCalendar};

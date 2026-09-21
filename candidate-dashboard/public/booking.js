@@ -30,7 +30,7 @@
       if(url.origin!=='https://app.ashbyhq.com'||url.username||url.password||!match)throw Error('Use the candidate’s Ashby link with an application selected.');
       $('load-application').disabled=true;const data=await api('/application',{applicationId:match[1]});
       if(version!==sessionVersion||!credentials)return;
-      const select=$('prepare').applicationId;let option=[...select.options].find(o=>o.value===data.applicationId);
+      $('calendar-preview').replaceChildren();const select=$('prepare').applicationId;let option=[...select.options].find(o=>o.value===data.applicationId);
       if(!option){option=document.createElement('option');option.value=data.applicationId;select.append(option);}
       option.textContent=`${data.candidateName} · ${data.jobTitle}`;select.value=data.applicationId;
       $('prepare').interviewId.innerHTML=data.activities.flatMap(a=>a.sessions.map(s=>`<option value="${esc(s.interviewId)}">${esc(a.title)}: ${esc(s.title)} (${s.durationMinutes} min)</option>`)).join('');
@@ -39,8 +39,12 @@
   };
   $('load-plan').onclick=async()=>{try{const id=$('prepare').applicationId.value;if(!id)throw Error('Choose a candidate.');const response=await fetch('/api/scheduling-review/template/'+encodeURIComponent(id));const data=await response.json();if(!response.ok)throw Error(data.error);$('prepare').interviewId.innerHTML=data.activities.flatMap(a=>a.sessions.map(s=>`<option value="${esc(s.interviewId)}">${esc(a.title)}: ${esc(s.title)} (${s.durationMinutes} min)</option>`)).join('');}catch(e){$('message').textContent=e.message;}};
   $('prepare').applicationId.onchange=()=>{$('prepare').interviewId.innerHTML='<option value="">Load a plan first</option>';};
-  function addWindow(){const field=document.createElement('fieldset');field.innerHTML='<legend>Candidate availability</legend><label>From<input name="start" type="datetime-local" required></label><label>Until<input name="end" type="datetime-local" required></label><button type="button">Remove window</button>';field.querySelector('button').onclick=()=>field.remove();$('windows').append(field);}
+  function addWindow(){const field=document.createElement('fieldset');field.innerHTML='<legend>Candidate availability</legend><label>From<input name="start" type="datetime-local" required></label><label>Until<input name="end" type="datetime-local" required></label><button type="button">Remove window</button>';field.querySelector('button').onclick=()=>{field.remove();$('calendar-preview').replaceChildren();};$('windows').append(field);}
   $('add-window').onclick=addWindow;addWindow();
+  function addWorkingWindow(){const field=document.createElement('fieldset');field.innerHTML='<legend>Allowed working hours</legend><label>From<input name="workingStart" type="datetime-local"></label><label>Until<input name="workingEnd" type="datetime-local"></label><button type="button">Remove working hours</button>';field.querySelector('button').onclick=()=>{field.remove();$('calendar-preview').replaceChildren();};$('working-windows').append(field);}
+  $('add-working-window').onclick=addWorkingWindow;addWorkingWindow();
+  function workingOverride(){const windows=[...$('working-windows').children].map(w=>({start:w.querySelector('[name=workingStart]').value,end:w.querySelector('[name=workingEnd]').value})).filter(w=>w.start||w.end);return windows.length?{timezone:$('prepare').workingTimezone.value,windows}:null;}
+
   function requestDetails(){const f=$('prepare');return {applicationId:f.applicationId.value,interviewId:f.interviewId.value,interviewerEmail:f.interviewerEmail.value,timezone:f.timezone.value,windows:[...$('windows').children].map(w=>({start:w.querySelector('[name=start]').value,end:w.querySelector('[name=end]').value}))};}
   $('prepare').addEventListener('input',()=>{$('source-details').textContent='';$('calendar-preview').replaceChildren();});
   $('check-details').onclick=async()=>{
@@ -67,17 +71,17 @@
   };
   $('inspect-calendar').onclick=async()=>{
     if(!$('prepare').reportValidity())return;
-    const request=requestDetails(),version=sessionVersion,output=$('calendar-preview'),draftUrl=$('prepare').draftUrl.value;
+    const request=requestDetails(),version=sessionVersion,output=$('calendar-preview'),draftUrl=$('prepare').draftUrl.value,workingHoursOverride=workingOverride();
     try{
       const url=new URL($('prepare').draftUrl.value),match=url.pathname.match(/^\/schedules\/drafts\/([a-f0-9-]{36})(?:\/communication(?:\/[a-z-]+)?)?\/?$/i);
       if(url.origin!=='https://app.ashbyhq.com'||url.username||url.password||url.search||url.hash||!match)throw Error('Enter the saved Ashby draft URL.');
-      $('inspect-calendar').disabled=true;output.textContent='Reading the displayed interviewer calendar…';
-      const f=$('prepare'),workingHoursOverride=f.workingStart.value||f.workingEnd.value?{timezone:f.workingTimezone.value,windows:[{start:f.workingStart.value,end:f.workingEnd.value}]}:null;
+      $('inspect-calendar').disabled=true;output.textContent='Checking calendars across the candidate’s availability dates…';
       const result=await api('/inspect-calendar',{...request,draftId:match[1],workingHoursOverride});
-      if(version!==sessionVersion||!credentials||draftUrl!==$('prepare').draftUrl.value||JSON.stringify(request)!==JSON.stringify(requestDetails()))return;
-      const fmt=v=>new Intl.DateTimeFormat('en-US',{timeZone:request.timezone,hour:'numeric',minute:'2-digit',timeZoneName:'short'}).format(new Date(v));
-      output.textContent=`${result.interviewer.name} · ${result.date} · Calendar timezone: ${result.timezone}\nObserved occupied times (shown in ${request.timezone}):\n`+result.observedBusy.map(b=>fmt(b.start)+' – '+fmt(b.end)).join('\n')+'\n'+result.issues.join(' ');
+      if(version!==sessionVersion||!credentials||draftUrl!==$('prepare').draftUrl.value||JSON.stringify(workingHoursOverride)!==JSON.stringify(workingOverride())||JSON.stringify(request)!==JSON.stringify(requestDetails()))return;
+      const fmt=v=>new Intl.DateTimeFormat('en-US',{timeZone:request.timezone,month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}).format(new Date(v));
+      output.textContent=`${result.interviewer.name} · ${(result.dates||[result.date]).join(', ')} · Calendar timezone: ${result.timezone}\nObserved occupied times (shown in ${request.timezone}):\n`+result.observedBusy.map(b=>fmt(b.start)+' – '+fmt(b.end)).join('\n')+'\n'+result.issues.join(' ');
       if(result.workingHoursOverride)output.textContent+='\nWorking hours override entered by '+result.workingHoursOverride.enteredBy+': '+result.workingHoursOverride.windows.map(w=>fmt(w.start)+' – '+fmt(w.end)).join(', ')+'. Calendar conflicts and interview limits still apply.';
+      if(result.suggestions){output.textContent+='\n\nTentative times — review required\n'+result.suggestions.reason;for(const slot of result.suggestions.slots)output.textContent+='\n'+fmt(slot.start)+' – '+fmt(slot.end);if(result.suggestions.slots.length)output.textContent+='\nStill to verify: '+result.suggestions.checks.join('; ')+'. These suggestions do not create or approve an Ashby booking.';}
       output.style.whiteSpace='pre-wrap';
     }catch(e){if(version===sessionVersion)output.textContent=e.message;}finally{$('inspect-calendar').disabled=false;}
   };

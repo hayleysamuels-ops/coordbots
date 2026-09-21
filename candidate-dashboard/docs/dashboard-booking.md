@@ -21,7 +21,7 @@ Implemented:
 
 ## Not production-ready
 
-The browser calendar reader and automatic draft/booking executor are NOT implemented.
+A browser calendar observation reader is implemented. Complete free/busy verification and the automatic draft/booking executor remain unfinished.
 `src/server.js` deliberately supplies no source or executor and readiness is false.
 The planner is tested but not yet connected to live calendar input. A manual test in
 Chrome is not evidence that unattended hosted-worker automation works. Do not flip
@@ -83,3 +83,19 @@ Overrides are attributed to the authenticated coordinator, not a client-supplied
 name. They do not authorize sending, clear conflicts or bypass interview limits.
 Currently overrides are returned with the inspection; they are not persisted as
 an approval or used to turn on automatic suggestions.
+
+
+## Multi-day calendar observations and tentative suggestions
+The calendar inspector now accepts server-validated candidate windows and reads up
+to five dates in the draft's displayed month. Ashby's single-day date controls move
+interviews, so the worker enables multi-day view before navigating, verifies the
+saved interview dates after every read, and restores the original view before
+restoring single-day mode. An unreadable day fails the request rather than treating
+it as free. Observations still do not prove complete calendar coverage.
+
+Coordinators can enter multiple dated working-hour windows. The response attributes
+these to the authenticated coordinator and calculates tentative options that fit
+candidate windows, these working hours and observed busy blocks. Suggestions are
+explicitly marked needs_review and never enter the booking engine, create an Ashby
+draft, send messages, or authorize booking. Counts, complete coverage and a final
+calendar recheck remain outstanding. Overrides are response-only, not persisted.
