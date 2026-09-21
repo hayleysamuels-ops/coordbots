@@ -6,7 +6,7 @@ const uuid=value=>typeof value==='string'&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f
 function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSandbox=true,connection,now=()=>Date.now(),confirmationReader=require("./confirmation-reader").readConfirmation,invitationReader=require("./invitation-reader").readInvitations}) {
   let reading=false;
   return {
-    async inspect(input) {
+    async inspect(input, mode='communications') {
       if(!input||!['draftId','candidateId','applicationId'].every(k=>uuid(input[k]))||typeof input.candidateName!=='string'||!input.candidateName.trim())fail(422,'A verified candidate and Ashby draft are required.');
       if(reading||(await connection.status()).signInOpen)fail(409,'Close the sign-in window before checking an Ashby draft.');
       const saved=vault.load();
@@ -34,6 +34,12 @@ function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSan
           const links=await candidate.all();let bound=false;
           for(const link of links){const href=await link.getAttribute('href');if(href&&href.includes('/candidates/'+input.candidateId+'/applications/'+input.applicationId))bound=true;}
           if(!bound)fail(409,'The Ashby draft belongs to a different candidate or application.');
+        }
+        if(mode==='calendar'){
+          if(!input.interviewer?.name||!input.interviewer?.email)fail(422,'A verified interviewer is required.');
+          await open('');
+          const calendar=await require('./calendar-reader').readCalendar(page,input);
+          return {...calendar,draftId:input.draftId,candidateId:input.candidateId,applicationId:input.applicationId,checkedAt:now()};
         }
         await open('/communication/calendar-invites');
         const candidateInvite=await page.getByRole('checkbox',{name:'Send Candidate Invite',exact:true}).isChecked();

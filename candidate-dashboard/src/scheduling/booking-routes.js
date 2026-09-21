@@ -1,6 +1,6 @@
 "use strict";
 const express = require("express");
-function bookingRoutes({ engine, store, clientId, facts, inspectDraft, capabilities = async () => ({ available: false, reason: "Ashby calendar and booking automation are not connected yet." }) }) {
+function bookingRoutes({ engine, store, clientId, facts, inspectDraft, inspectCalendar, capabilities = async () => ({ available: false, reason: "Ashby calendar and booking automation are not connected yet." }) }) {
   const router = express.Router();
   router.use((req, res, next) => {
     res.set("Cache-Control", "no-store");
@@ -25,6 +25,11 @@ function bookingRoutes({ engine, store, clientId, facts, inspectDraft, capabilit
     if (!facts || !inspectDraft) throw Object.assign(new Error("Ashby draft inspection is not connected."), {status:503});
     const verified=await facts.load(req.body);
     return inspectDraft({draftId:req.body.draftId,applicationId:verified.applicationId,candidateId:verified.candidateId,candidateName:verified.candidateName});
+  }));
+  router.post("/inspect-calendar", handle(async req => {
+    if(!facts||!inspectCalendar)throw Object.assign(Error('Calendar inspection is not connected.'),{status:503});
+    const verified=await facts.load(req.body);
+    return inspectCalendar({draftId:req.body.draftId,applicationId:verified.applicationId,candidateId:verified.candidateId,candidateName:verified.candidateName,interviewer:verified.interviewer});
   }));
   router.post("/details", handle(req => {
     if (!facts) throw Object.assign(new Error("Ashby interview details are not connected."), { status: 503 });
