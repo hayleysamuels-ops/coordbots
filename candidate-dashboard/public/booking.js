@@ -40,10 +40,10 @@
   $('load-plan').onclick=async()=>{try{const id=$('prepare').applicationId.value;if(!id)throw Error('Choose a candidate.');const response=await fetch('/api/scheduling-review/template/'+encodeURIComponent(id));const data=await response.json();if(!response.ok)throw Error(data.error);$('prepare').interviewId.innerHTML=data.activities.flatMap(a=>a.sessions.map(s=>`<option value="${esc(s.interviewId)}">${esc(a.title)}: ${esc(s.title)} (${s.durationMinutes} min)</option>`)).join('');await loadAvailabilityRequests();}catch(e){$('message').textContent=e.message;}};
   $('prepare').applicationId.onchange=async()=>{$('prepare').interviewId.innerHTML='<option value="">Load a plan first</option>';clearAvailability();await $('load-plan').onclick();};
   let fullPlanVersion=0;
-  function clearFullPlan(){fullPlanVersion++;$('full-plan').replaceChildren();$('full-suggestions').replaceChildren();$('full-calendar-preview').replaceChildren();$('full-plan-status').textContent='Load the full plan for this availability request.';}
+  function clearFullPlan(){fullPlanVersion++;$('full-plan').replaceChildren();$('full-suggestions').replaceChildren();$('full-calendar-preview').replaceChildren();$('google-calendar-preview').replaceChildren();$('full-plan-status').textContent='Load the full plan for this availability request.';}
   async function loadFullPlan(){
     const f=$('prepare'),applicationId=f.applicationId.value,scheduleId=f.scheduleId.value,version=++fullPlanVersion,session=sessionVersion;
-    $('full-plan').replaceChildren();$('full-suggestions').replaceChildren();$('full-calendar-preview').replaceChildren();
+    $('full-plan').replaceChildren();$('full-suggestions').replaceChildren();$('full-calendar-preview').replaceChildren();$('google-calendar-preview').replaceChildren();
     if(!scheduleId){$('full-plan-status').textContent='Choose a pending request to load its full interview template.';return;}
     $('full-plan-status').textContent='Reading all interviews and eligible interviewers from Ashby…';
     try{const plan=await api('/full-plan',{applicationId,scheduleId});if(version!==fullPlanVersion||session!==sessionVersion||!credentials)return;
@@ -66,7 +66,7 @@
   async function importAvailability(){
     const f=$('prepare'),applicationId=f.applicationId.value,scheduleId=f.scheduleId.value,version=sessionVersion;
     if(f.availabilitySource.value!=='ashby')return;
-    $('windows').replaceChildren();$('calendar-preview').replaceChildren();$('full-suggestions').replaceChildren();$('full-calendar-preview').replaceChildren();
+    $('windows').replaceChildren();$('calendar-preview').replaceChildren();$('full-suggestions').replaceChildren();$('full-calendar-preview').replaceChildren();$('google-calendar-preview').replaceChildren();
     if(!scheduleId){$('availability-status').textContent='Choose a pending request to import its availability.';return;}
     $('availability-status').textContent='Reading the candidate’s submitted availability…';
     try{const data=await api('/availability',{applicationId,scheduleId});if(version!==sessionVersion||!credentials||applicationId!==f.applicationId.value||scheduleId!==f.scheduleId.value||f.availabilitySource.value!=='ashby')return;
@@ -92,22 +92,30 @@
   }
   $('reload-availability').onclick=importAvailability;
   $('prepare').scheduleId.onchange=async()=>{clearFullPlan();await importAvailability();await loadFullPlan();};
-  $('prepare').availabilitySource.onchange=async()=>{$('full-suggestions').replaceChildren();$('full-calendar-preview').replaceChildren();$('calendar-preview').replaceChildren();if($('prepare').availabilitySource.value==='ashby')await importAvailability();else {if(!$('windows').children.length)addWindow();$('availability-status').textContent='Coordinator-entered availability. These times are not a verified Ashby submission.';}applyAvailabilityMode();};
+  $('prepare').availabilitySource.onchange=async()=>{$('full-suggestions').replaceChildren();$('full-calendar-preview').replaceChildren();$('google-calendar-preview').replaceChildren();$('calendar-preview').replaceChildren();if($('prepare').availabilitySource.value==='ashby')await importAvailability();else {if(!$('windows').children.length)addWindow();$('availability-status').textContent='Coordinator-entered availability. These times are not a verified Ashby submission.';}applyAvailabilityMode();};
 
-  function addWindow(values){const field=document.createElement('fieldset');field.innerHTML='<legend>Candidate availability</legend><label>From<input name="start" type="datetime-local" required></label><label>Until<input name="end" type="datetime-local" required></label><button type="button">Remove window</button>';field.querySelector('button').onclick=()=>{field.remove();$('full-suggestions').replaceChildren();$('full-calendar-preview').replaceChildren();$('calendar-preview').replaceChildren();};if(values?.start){field.querySelector('[name=start]').value=values.start;field.querySelector('[name=end]').value=values.end;}$('windows').append(field);}
+  function addWindow(values){const field=document.createElement('fieldset');field.innerHTML='<legend>Candidate availability</legend><label>From<input name="start" type="datetime-local" required></label><label>Until<input name="end" type="datetime-local" required></label><button type="button">Remove window</button>';field.querySelector('button').onclick=()=>{field.remove();$('full-suggestions').replaceChildren();$('full-calendar-preview').replaceChildren();$('google-calendar-preview').replaceChildren();$('calendar-preview').replaceChildren();};if(values?.start){field.querySelector('[name=start]').value=values.start;field.querySelector('[name=end]').value=values.end;}$('windows').append(field);}
   $('add-window').onclick=()=>addWindow();applyAvailabilityMode();
-  function addWorkingWindow(){const field=document.createElement('fieldset');field.innerHTML='<legend>Allowed working hours</legend><label>From<input name="workingStart" type="datetime-local"></label><label>Until<input name="workingEnd" type="datetime-local"></label><button type="button">Remove working hours</button>';field.querySelector('button').onclick=()=>{field.remove();$('full-suggestions').replaceChildren();$('full-calendar-preview').replaceChildren();$('calendar-preview').replaceChildren();};$('working-windows').append(field);}
+  function addWorkingWindow(){const field=document.createElement('fieldset');field.innerHTML='<legend>Allowed working hours</legend><label>From<input name="workingStart" type="datetime-local"></label><label>Until<input name="workingEnd" type="datetime-local"></label><button type="button">Remove working hours</button>';field.querySelector('button').onclick=()=>{field.remove();$('full-suggestions').replaceChildren();$('full-calendar-preview').replaceChildren();$('google-calendar-preview').replaceChildren();$('calendar-preview').replaceChildren();};$('working-windows').append(field);}
   $('add-working-window').onclick=addWorkingWindow;addWorkingWindow();
   function workingOverride(){const windows=[...$('working-windows').children].map(w=>({start:w.querySelector('[name=workingStart]').value,end:w.querySelector('[name=workingEnd]').value})).filter(w=>w.start||w.end);return windows.length?{timezone:$('prepare').workingTimezone.value,windows}:null;}
 
   function requestDetails(){const f=$('prepare');return {applicationId:f.applicationId.value,interviewId:f.interviewId.value,interviewerEmail:f.interviewerEmail.value,availabilitySource:f.availabilitySource.value,scheduleId:f.scheduleId.value,timezone:f.timezone.value,windows:[...$('windows').children].map(w=>({start:w.querySelector('[name=start]').value,end:w.querySelector('[name=end]').value}))};}
-  $('prepare').addEventListener('input',()=>{$('full-suggestions').replaceChildren();$('full-calendar-preview').replaceChildren();$('source-details').textContent='';$('calendar-preview').replaceChildren();});
+  $('prepare').addEventListener('input',()=>{$('full-suggestions').replaceChildren();$('full-calendar-preview').replaceChildren();$('google-calendar-preview').replaceChildren();$('source-details').textContent='';$('calendar-preview').replaceChildren();});
   $('check-details').onclick=async()=>{
     if(!$('prepare').reportValidity())return;
     const request=requestDetails(),version=sessionVersion;$('check-details').disabled=true;
     try{const facts=await api('/details',request);if(version!==sessionVersion||!credentials||JSON.stringify(request)!==JSON.stringify(requestDetails()))return;
       $('source-details').textContent=`Verified in Ashby: ${facts.candidateName} (${facts.candidateEmail}), ${facts.title}, ${facts.durationMinutes} minutes, with ${facts.interviewer.name} (${facts.interviewer.email}). Interviewer limits: ${facts.interviewerLimits.dailyLimit??'no configured'} daily; ${facts.interviewerLimits.weeklyLimit??'no configured'} weekly. Calendar availability has not been checked. Nothing has been scheduled or sent.`;
     }catch(err){if(version===sessionVersion&&credentials)$('source-details').textContent=err.message;}finally{$('check-details').disabled=false;}
+  };
+  $('read-google-calendars').onclick=async()=>{
+    const f=$('prepare'),version=sessionVersion,planVersion=fullPlanVersion,request={applicationId:f.applicationId.value,scheduleId:f.scheduleId.value,availabilitySource:f.availabilitySource.value},output=$('google-calendar-preview');
+    $('read-google-calendars').disabled=true;output.textContent='Reading primary-calendar busy times for the interview plan…';
+    try{if(request.availabilitySource!=='ashby')throw Error('Choose the candidate’s submitted Ashby availability for this calendar check.');const r=await api('/calendar-availability',request);if(version!==sessionVersion||planVersion!==fullPlanVersion||!credentials||request.applicationId!==f.applicationId.value||request.scheduleId!==f.scheduleId.value||request.availabilitySource!==f.availabilitySource.value)return;
+      const fmt=v=>new Intl.DateTimeFormat('en-US',{timeZone:r.timezone,dateStyle:'medium',timeStyle:'short'}).format(new Date(v));
+      output.innerHTML='<p>'+esc(r.reason)+'</p><p>Shown in '+esc(r.timezone)+'.</p>'+r.calendars.map(c=>`<details><summary>${esc(c.name)} — ${c.busy.length} busy intervals</summary><p>Checked ${esc(fmt(c.checkedAt))}</p><ul>${c.busy.map(b=>`<li>${esc(fmt(b.start))}–${esc(fmt(b.end))}</li>`).join('')||'<li>No busy intervals returned for this primary calendar in the checked range.</li>'}</ul></details>`).join('');
+    }catch(e){if(version===sessionVersion&&planVersion===fullPlanVersion)output.textContent=e.message;}finally{$('read-google-calendars').disabled=false;}
   };
   $('inspect-full-calendar').onclick=async()=>{
     const f=$('prepare'),version=sessionVersion,planVersion=fullPlanVersion,draftUrl=f.fullDraftUrl.value;

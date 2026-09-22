@@ -109,6 +109,11 @@ if (!schedulingCandidateChannels || Array.isArray(schedulingCandidateChannels) |
 if (process.env.SCHEDULING_SLACK_ROUTING && !["candidate", "client"].includes(process.env.SCHEDULING_SLACK_ROUTING)) throw new Error("Scheduling Slack routing must be candidate or client");
 const config = {
   schedulingApprovers,
+  googleCalendarClientId: process.env.GOOGLE_CALENDAR_CLIENT_ID || "",
+  googleCalendarClientSecret: process.env.GOOGLE_CALENDAR_CLIENT_SECRET || "",
+  googleCalendarRedirectUri: process.env.GOOGLE_CALENDAR_REDIRECT_URI || "",
+  googleCalendarExpectedEmail: process.env.GOOGLE_CALENDAR_EXPECTED_EMAIL || "",
+  googleCalendarEncryptionKey: process.env.GOOGLE_CALENDAR_ENCRYPTION_KEY || "",
   ashbyWorkerUrl: process.env.ASHBY_WORKER_URL || "",
   ashbyWorkerSecret: process.env.ASHBY_WORKER_SECRET || "",
   ashbyExpectedIdentity: process.env.ASHBY_EXPECTED_IDENTITY || "",

@@ -30,7 +30,8 @@ function basicAuth(req, res, next) {
   const connectionRequest = req.method === "POST" && req.path.startsWith("/api/ashby-connection/");
   const bookingRequest = ["GET", "POST"].includes(req.method) &&
     (req.path === "/api/scheduling-booking" || req.path.startsWith("/api/scheduling-booking/"));
-  if (connectionLogin !== undefined && (connectionRequest || bookingRequest)) {
+  const calendarRequest = ["GET", "POST"].includes(req.method) && req.path.startsWith("/api/google-calendar/");
+  if (connectionLogin !== undefined && (connectionRequest || bookingRequest || calendarRequest)) {
     res.set("Cache-Control", "no-store");
     const match = typeof connectionLogin === "string" && /^Basic ([A-Za-z0-9+/=]+)$/.exec(connectionLogin);
     const decoded = match ? Buffer.from(match[1], "base64").toString("utf8") : "";

@@ -38,7 +38,7 @@ function createAvailabilitySource({key,clientId,inspect,request=fetch,now=()=>Da
     const normalized=normalizeSubmission(raw,now());
     const after=await requests(applicationId),latest=after.requests.find(s=>s.scheduleId===scheduleId);
     if(!latest||after.candidateId!==before.candidateId||after.stageId!==before.stageId||latest.updatedAt!==selected.updatedAt)fail(409,'The availability request changed while it was being read. Reload it.');
-    return {...normalized,applicationId,scheduleId,stageId:before.stageId,source:'ashby_submission',checkedAt:now(),revision:digest({scheduleId,updatedAt:selected.updatedAt,...normalized}),bookingEnabled:false};
+    return {...normalized,applicationId,scheduleId,stageId:before.stageId,source:'ashby_submission',requestUpdatedAt:selected.updatedAt,checkedAt:now(),revision:digest({scheduleId,updatedAt:selected.updatedAt,...normalized}),bookingEnabled:false};
   }
   return {requests,load};
 }

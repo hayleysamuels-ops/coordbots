@@ -25,6 +25,14 @@ function createServer() {
     url: connectionConfig.ashbyWorkerUrl, secret: connectionConfig.ashbyWorkerSecret,
     clientId: connectionConfig.schedulingClientId, expectedIdentity: connectionConfig.ashbyExpectedIdentity,
   }));
+  const googleCalendar = require("./scheduling/google-calendar-connection").createGoogleCalendarConnection({
+    tenantId: connectionConfig.schedulingClientId, clientId: connectionConfig.googleCalendarClientId,
+    clientSecret: connectionConfig.googleCalendarClientSecret, redirectUri: connectionConfig.googleCalendarRedirectUri,
+    expectedEmail: connectionConfig.googleCalendarExpectedEmail, keyHex: connectionConfig.googleCalendarEncryptionKey,
+    dataDir: connectionConfig.dataDir, ownerAllowed: async id => connectionConfig.schedulingApprovers.some(a => a.username === id),
+  });
+  const googleFreeBusy = require("./scheduling/google-freebusy").createGoogleFreeBusy({connection:googleCalendar});
+  app.use("/api/google-calendar", require("./scheduling/google-calendar-routes").googleCalendarRoutes({connection:googleCalendar,freeBusy:googleFreeBusy}));
   const bookingWorker = require("./scheduling/booking-worker-client").createBookingWorkerClient({
     url: connectionConfig.ashbyWorkerUrl, secret: connectionConfig.ashbyWorkerSecret,
     clientId: connectionConfig.schedulingClientId, expectedIdentity: connectionConfig.ashbyExpectedIdentity,
@@ -36,7 +44,7 @@ function createServer() {
     userById: async id => connectionConfig.schedulingApprovers.some(a => a.username === id) ? { id, canApprove: true } : null,
   });
   app.use("/api/scheduling-booking", require("./scheduling/booking-routes").bookingRoutes({
-    engine: bookingEngine, store: bookingStore, clientId: connectionConfig.schedulingClientId,
+    engine: bookingEngine, store: bookingStore, clientId: connectionConfig.schedulingClientId, googleCalendar, googleFreeBusy,
     availability: require("./scheduling/availability-source").createAvailabilitySource({key:connectionConfig.ashbyApiKey,clientId:connectionConfig.schedulingClientId,inspect:payload=>bookingWorker.call("inspect-availability",payload)}),
     inspectFullCalendar: payload => bookingWorker.call("inspect-full-calendar",payload),
     inspectPlan: payload => bookingWorker.call("inspect-plan",payload),

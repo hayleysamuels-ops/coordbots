@@ -1,6 +1,6 @@
 "use strict";
 const express = require("express");
-function bookingRoutes({ engine, store, clientId, facts, inspectDraft, inspectCalendar, inspectPlan, inspectFullCalendar, availability, capabilities = async () => ({ available: false, reason: "Ashby calendar and booking automation are not connected yet." }) }) {
+function bookingRoutes({ engine, store, clientId, facts, inspectDraft, inspectCalendar, inspectPlan, inspectFullCalendar, availability, googleCalendar, googleFreeBusy, capabilities = async () => ({ available: false, reason: "Ashby calendar and booking automation are not connected yet." }) }) {
   const router = express.Router();
   router.use((req, res, next) => {
     res.set("Cache-Control", "no-store");
@@ -52,6 +52,21 @@ function bookingRoutes({ engine, store, clientId, facts, inspectDraft, inspectCa
     return {...plan,scheduleId:request.scheduleId,sessions:observed.sessions,checkedAt:observed.checkedAt,bookingEnabled:false};
   }
   router.post('/full-plan',handle(fullPlan));
+  router.post('/calendar-availability',handle(async req=>{
+    if(!googleCalendar?.status().connected||!googleFreeBusy)throw Object.assign(Error('Connect read-only Google Calendar availability first.'),{status:409});
+    const plan=await fullPlan(req),resolved=await facts.resolveInterviewers(plan.sessions);
+    const submission=await availability.load({applicationId:plan.applicationId,scheduleId:plan.scheduleId});
+    if(submission.stageId!==plan.stageId||!submission.windows.length)throw Object.assign(Error('Reload the candidate’s current submitted availability.'),{status:409});
+    const windows=require('./booking-planner').windowsToInstants(submission.localWindows,submission.timezone);
+    const rows=await googleFreeBusy.read({calendarIds:resolved.interviewers.map(p=>p.email),timeMin:new Date(Math.min(...windows.map(w=>w.start))).toISOString(),timeMax:new Date(Math.max(...windows.map(w=>w.end))).toISOString()});
+    const pendingAfter=await availability.requests(plan.applicationId);
+    if(pendingAfter.stageId!==plan.stageId||!pendingAfter.requests.some(r=>r.scheduleId===plan.scheduleId&&r.updatedAt===submission.requestUpdatedAt))throw Object.assign(Error('Candidate availability changed during the calendar check. Read it again.'),{status:409});
+    const after=await facts.application(plan.applicationId);
+    if(after.stageId!==plan.stageId||after.templateRevision!==plan.templateRevision)throw Object.assign(Error('The interview plan changed during the calendar check.'),{status:409});
+    return {applicationId:plan.applicationId,scheduleId:plan.scheduleId,timezone:submission.timezone,source:'google-calendar-freebusy',bookingEnabled:false,availabilityVerified:false,
+      reason:'Primary-calendar busy times were read from Google. Additional blocking calendars, Ashby meeting hours and interview limits must also be verified before a complete agenda can be marked available.',
+      calendars:resolved.interviewers.map(p=>({...p,...rows.find(r=>r.calendarId===p.email)}))};
+  }));
   router.post('/inspect-full-calendar',handle(async req=>{
     if(!inspectFullCalendar)throw Object.assign(Error('Full calendar inspection is not connected.'),{status:503});
     const plan=await fullPlan(req);

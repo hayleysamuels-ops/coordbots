@@ -7,7 +7,7 @@ const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4})
 // This reader uses only documented, read-only endpoints. Its results identify
 // the requested interview; they never imply calendar availability or delivery.
 function createBookingFacts({ key, clientId, request = fetch, now = () => Date.now() }) {
-  async function read(endpoint, body) {
+  async function read(endpoint, body, envelope = false) {
     if (!key || !clientId) fail(503, 'The client Ashby read connection is not configured.');
     const response = await request('https://api.ashbyhq.com/' + endpoint, {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(20000),
@@ -16,7 +16,7 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
     });
     const data = await response.json();
     if (!response.ok || data.success !== true) fail(503, 'Could not verify the current Ashby scheduling details.');
-    return data.results;
+    return envelope ? data : data.results;
   }
   async function load(input) {
     if (!input || !uuid(input.applicationId) || !uuid(input.interviewId)) fail(422, 'Choose a candidate and interview from the current plan.');
@@ -60,6 +60,31 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
     if(!stage)fail(409,'The current interview stage could not be found.');
     return {applicationId:a.id,candidateId:a.candidate?.id,stageId:stage.id,templateRevision:digest(stage),candidateName:a.candidate?.name,jobTitle:a.job.title,activities:(stage.activities||[]).map(activity=>({id:activity.id,title:activity.title,sessions:(activity.interviews||[]).filter(i=>i.isSchedulable===true).map(i=>({sessionId:i.id,interviewId:i.interviewId,title:i.title,durationMinutes:i.interviewDurationMinutes}))})).filter(a=>a.sessions.length)};
   }
-  return { load, application };
+  async function resolveInterviewers(sessions) {
+    if(!Array.isArray(sessions)||!sessions.length||sessions.some(s=>s.assignmentVerified!==true||!s.eligibleInterviewers?.length))fail(422,'Load the verified interviewer lists first.');
+    const users=[],cursors=new Set();let cursor='start';
+    while(cursor){
+      const page=await read('user.list',{cursor,limit:100,includeDeactivated:false},true);
+      if(!Array.isArray(page.results))fail(503,'The interviewer directory could not be read.');
+      users.push(...page.results);
+      cursor=page.moreDataAvailable?page.nextCursor:null;
+      if(page.moreDataAvailable&&(!cursor||cursors.has(cursor)))fail(503,'The interviewer directory is incomplete.');
+      cursors.add(cursor);if(cursors.size>50)fail(503,'The interviewer directory is too large.');
+    }
+    const normalize=s=>String(s||'').replace(/\s+/g,' ').trim().toLowerCase(),people=new Map(),resolved=[];
+    for(const session of sessions){
+      const eligible=[];
+      for(const person of session.eligibleInterviewers){
+        const matches=users.filter(u=>u.isEnabled===true&&normalize([u.firstName,u.lastName].filter(Boolean).join(' '))===normalize(person.name));
+        if(matches.length!==1||!uuid(matches[0].id)||!/^\S+@\S+\.\S+$/.test(matches[0].email||''))fail(409,'An eligible interviewer could not be uniquely matched to an active Ashby account.');
+        const user=matches[0];
+        if(!people.has(user.id))people.set(user.id,{userId:user.id,name:person.name,email:user.email.toLowerCase()});
+        eligible.push(people.get(user.id));
+      }
+      resolved.push({...session,eligibleInterviewers:eligible});
+    }
+    return {sessions:resolved,interviewers:[...people.values()]};
+  }
+  return { load, application, resolveInterviewers };
 }
 module.exports = { createBookingFacts };
