@@ -20,3 +20,13 @@ test('submitted availability is refreshed server-side and client windows cannot 
   const response=await fetch(`http://127.0.0.1:${server.address().port}/booking/details`,{method:'POST',headers,body:JSON.stringify({applicationId:'app',scheduleId:'request',availabilitySource:'ashby',timezone:'wrong',windows:[{start:'wrong',end:'wrong'}]})});
   assert.equal(response.status,200);assert.equal(imports,1);assert.equal(received.timezone,'Etc/UTC');assert.equal(received.windows[0].start,'2026-09-28T13:00');assert.equal((await response.json()).candidateAvailability.source,'ashby_submission');
 });
+
+test('full schedule re-reads trusted plan and availability and never dispatches',async t=>{
+ const sessions=[{sessionId:'s',interviewId:'i',title:'Welcome',durationMinutes:15}],plan={applicationId:'app',candidateId:'candidate',stageId:'stage',templateRevision:'v1',activities:[{sessions}]};let calls=0,dispatches=0;
+ const app=express();app.use(express.json());app.use((req,res,next)=>{if(req.get('X-Test-User')==='coordinator')req.schedulingUser={id:'coordinator',canApprove:true};next();});
+ app.use('/booking',bookingRoutes({facts:{application:async()=>plan},availability:{requests:async()=>({stageId:'stage',requests:[{scheduleId:'request',updatedAt:'version'}]}),load:async()=>({stageId:'stage',timezone:'UTC',localWindows:[{start:'2099-01-01T10:00',end:'2099-01-01T11:00'}]})},inspectPlan:async input=>{calls++;assert.equal(input.candidateId,'candidate');return {...input,sessions:sessions.map(s=>({...s,assignmentVerified:true,requiredCount:1,eligibleInterviewers:[{name:'Plan Interviewer'}]}))};},engine:{execute:()=>dispatches++}}));
+ const server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});t.after(()=>new Promise(resolve=>server.close(resolve)));const url=`http://127.0.0.1:${server.address().port}/booking/suggest-full-schedule`;
+ const body=JSON.stringify({applicationId:'app',scheduleId:'request',candidateId:'spoof',availabilitySource:'ashby',windows:[{start:'wrong',end:'wrong'}],sessions:[{interviewer:'spoof'}]});
+ assert.equal((await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body})).status,403);assert.equal(calls,0);
+ const r=await fetch(url,{method:'POST',headers,body});assert.equal(r.status,200);const result=await r.json();assert.equal(result.proposals[0].events[0].interviewer.name,'Plan Interviewer');assert.equal(result.bookingEnabled,false);assert.equal(dispatches,0);
+});

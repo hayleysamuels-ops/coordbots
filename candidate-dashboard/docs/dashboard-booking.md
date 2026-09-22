@@ -133,3 +133,19 @@ No calendar availability verification, booking approval, or sending is implied.
 Live validation: Andrew Lee's exact pending request imported September 28 and 29,
 2026, 09:00–17:00 America/New_York, matching the manually inspected grid. The local
 browser fixture also verified automatic prefill and switching to coordinator entry.
+
+## Full onsite agendas
+The booking page loads all interviews from the active stage, then reads the selected
+pending schedule's linked template through the signed worker. It shows each duration,
+fixed interviewer, and explicit eligible employee list. The reader supports one required
+interviewer slot per interview, including explicit employee-identity matchers; unsupported
+rules or mismatched counts fail closed. It never unlinks or edits the template.
+
+Full-agenda proposals preserve the published order and fit the complete duration inside
+one candidate availability window. They distribute eligible choices within the agenda,
+keeping fixed interviewers fixed. They are advisory agenda sketches, not calendar-checked
+slots: interviewer calendars, working hours, interview limits, rooms, and break preferences
+remain unverified. They cannot enter approval/dispatch, create an Ashby draft, or send
+invitations. Submitted availability and template bindings are re-read server-side; caller-
+supplied interviewer lists are ignored. The existing single-interview diagnostic tools
+remain available in a collapsed advanced section.

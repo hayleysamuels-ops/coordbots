@@ -8,7 +8,7 @@ function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSan
   let reading=false;
   return {
     async inspect(input, mode='communications') {
-      if(!input||!(mode==='availability'?['scheduleId','candidateId','applicationId']:['draftId','candidateId','applicationId']).every(k=>uuid(input[k]))||typeof input.candidateName!=='string'||!input.candidateName.trim())fail(422,'A verified candidate and Ashby draft are required.');
+      if(!input||!(mode==='plan'?['scheduleId','candidateId','applicationId']:mode==='availability'?['scheduleId','candidateId','applicationId']:['draftId','candidateId','applicationId']).every(k=>uuid(input[k]))||typeof input.candidateName!=='string'||!input.candidateName.trim())fail(422,'A verified candidate and Ashby draft are required.');
       if(reading||(await connection.status()).signInOpen)fail(409,'Close the sign-in window before checking an Ashby draft.');
       const saved=vault.load();
       if(!saved||saved.clientId!==clientId||saved.expectedIdentity!==expectedIdentity||!saved.storageState)fail(409,'Save the expected Ashby connection first.');
@@ -23,7 +23,7 @@ function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSan
           return route.continue();
         });
         const page=await context.newPage();
-        const base=mode==='availability'?'https://app.ashbyhq.com/schedules/'+input.scheduleId:'https://app.ashbyhq.com/schedules/drafts/'+input.draftId;
+        const base=(mode==='plan'||mode==='availability')?'https://app.ashbyhq.com/schedules/'+input.scheduleId:'https://app.ashbyhq.com/schedules/drafts/'+input.draftId;
         async function open(suffix) {
           await page.goto(base+suffix,{waitUntil:'domcontentloaded',timeout:30000});
           await page.getByRole('button',{name:expectedIdentity,exact:true}).waitFor({state:'visible',timeout:15000});
@@ -35,6 +35,10 @@ function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSan
           const links=await candidate.all();let bound=false;
           for(const link of links){const href=await link.getAttribute('href');if(href&&href.includes('/candidates/'+input.candidateId+'/applications/'+input.applicationId))bound=true;}
           if(!bound)fail(409,'The Ashby draft belongs to a different candidate or application.');
+        }
+        if(mode==='plan'){
+          await open('/template/events');
+          return {...await require('./plan-reader').readPlan(page,input),scheduleId:input.scheduleId,applicationId:input.applicationId,candidateId:input.candidateId,checkedAt:now()};
         }
         if(mode==='availability'){
           await open('/candidate-availability');

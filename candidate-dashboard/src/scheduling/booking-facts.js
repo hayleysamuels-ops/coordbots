@@ -58,7 +58,7 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
     const p=await read('jobInterviewPlan.info',{jobId:a.job.id});
     const stage=p?.stages?.find(s=>s.id===a.currentInterviewStage?.id);
     if(!stage)fail(409,'The current interview stage could not be found.');
-    return {applicationId:a.id,candidateName:a.candidate?.name,jobTitle:a.job.title,activities:(stage.activities||[]).map(activity=>({id:activity.id,title:activity.title,sessions:(activity.interviews||[]).filter(i=>i.isSchedulable===true).map(i=>({interviewId:i.interviewId,title:i.title,durationMinutes:i.interviewDurationMinutes}))})).filter(a=>a.sessions.length)};
+    return {applicationId:a.id,candidateId:a.candidate?.id,stageId:stage.id,templateRevision:digest(stage),candidateName:a.candidate?.name,jobTitle:a.job.title,activities:(stage.activities||[]).map(activity=>({id:activity.id,title:activity.title,sessions:(activity.interviews||[]).filter(i=>i.isSchedulable===true).map(i=>({sessionId:i.id,interviewId:i.interviewId,title:i.title,durationMinutes:i.interviewDurationMinutes}))})).filter(a=>a.sessions.length)};
   }
   return { load, application };
 }

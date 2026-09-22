@@ -58,3 +58,8 @@ dialog::backdrop { background: #0009; }
   outline-offset: 3px;
 }
 #screen:focus { outline-color: var(--scheduler-focus); }
+/* Full interview agendas must fit narrow coordinator windows. */
+#prepare, #prepare fieldset, #full-plan, #full-suggestions { min-width: 0; }
+#full-plan table, #full-suggestions table { table-layout: fixed; width: 100%; }
+#full-plan th, #full-plan td, #full-suggestions th, #full-suggestions td { overflow-wrap: anywhere; vertical-align: top; }
+#full-suggestions article { margin-inline: 0; }

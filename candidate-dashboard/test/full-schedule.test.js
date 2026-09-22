@@ -1,0 +1,13 @@
+'use strict';
+const {test}=require('node:test'),assert=require('node:assert/strict');
+const {proposeFullSchedule}=require('../src/scheduling/full-schedule');
+const {parseAssignment}=require('../worker/plan-reader');
+const now=Date.parse('2026-09-21T00:00Z');
+const sessions=[15,60,60,60,30,30,60,30].map((durationMinutes,i)=>({sessionId:String(i),interviewId:String(i),title:'Interview '+i,durationMinutes,assignmentVerified:true,requiredCount:1,eligibleInterviewers:[{name:i===4?'Fixed Person':'Person One'},{name:'Person Two'}].slice(0,i===4?1:2)}));
+const input={sessions,timezone:'America/New_York',now,windows:[{start:'2026-09-28T09:00',end:'2026-09-28T17:00'}]};
+test('full agenda includes all eight interviews in template order within candidate availability',()=>{const r=proposeFullSchedule(input);assert.equal(r.totalMinutes,345);assert.equal(r.proposals[0].events.length,8);assert.equal(r.proposals[0].end,'2026-09-28T18:45:00.000Z');assert.equal(r.proposals[0].events[4].interviewer.name,'Fixed Person');assert.equal(r.bookingEnabled,false);assert.equal(r.availabilityVerified,false);for(let i=1;i<8;i++)assert.equal(r.proposals[0].events[i].start,r.proposals[0].events[i-1].end);});
+test('short windows do not silently truncate the plan or split across days',()=>{const r=proposeFullSchedule({...input,windows:[{start:'2026-09-28T09:00',end:'2026-09-28T12:00'},{start:'2026-09-29T09:00',end:'2026-09-29T12:00'}]});assert.equal(r.proposals.length,0);});
+test('unverified or missing interviewers cannot produce an agenda',()=>{assert.throws(()=>proposeFullSchedule({...input,sessions:[{...sessions[0],assignmentVerified:false}]}));assert.throws(()=>proposeFullSchedule({...input,sessions:[{...sessions[0],eligibleInterviewers:[]}]}));});
+test('specific employee rule preserves eligible alternatives',()=>{const r=parseAssignment('Coding\nSlot #1 —\n2 Eligible Matches\nAdvanced\nSpecific Employees:\n2 Employees\nPerson One\nOR Person Two\nAdd Interviewer Slot');assert.deepEqual(r.eligibleInterviewers,[{name:'Person One'},{name:'Person Two'}]);});
+test('advanced explicit identity rule checks resolved eligible count',()=>{assert.equal(parseAssignment("Welcome\nSlot #1 —\n2 Eligible Matches\nEmployee's Employee\nAll are true:\nis Person One\nPerson Two\nSearch for user...\nSelect matcher...\nAdd Interviewer Slot").eligibleInterviewers.length,2);assert.throws(()=>parseAssignment('Slot #1 —\n3 Eligible Matches\nSpecific Employees:\n3 Employees\nPerson One\nAdd Interviewer Slot'));});
+test('rendered line breaks do not drop eligible employees',()=>{const r=parseAssignment('Coding\nSlot #1 —\n2\nEligible\nMatches\nSpecific\nEmployees:\n2\nEmployees\nPerson One\nOR Person Two\nAdd\nInterviewer\nSlot');assert.equal(r.eligibleInterviewers.length,2);});

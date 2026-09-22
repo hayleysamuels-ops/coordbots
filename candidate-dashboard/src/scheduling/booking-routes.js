@@ -1,6 +1,6 @@
 "use strict";
 const express = require("express");
-function bookingRoutes({ engine, store, clientId, facts, inspectDraft, inspectCalendar, availability, capabilities = async () => ({ available: false, reason: "Ashby calendar and booking automation are not connected yet." }) }) {
+function bookingRoutes({ engine, store, clientId, facts, inspectDraft, inspectCalendar, inspectPlan, availability, capabilities = async () => ({ available: false, reason: "Ashby calendar and booking automation are not connected yet." }) }) {
   const router = express.Router();
   router.use((req, res, next) => {
     res.set("Cache-Control", "no-store");
@@ -35,6 +35,33 @@ function bookingRoutes({ engine, store, clientId, facts, inspectDraft, inspectCa
   router.get("/", handle(async req => ({ clientId, coordinator: req.schedulingUser.id, capabilities: await capabilities(), drafts: (await store.list()).filter(r => r.clientId === clientId) })));
   router.post("/availability-requests", handle(req => {if(!availability)throw Object.assign(Error('Submitted availability is not connected.'),{status:503});return availability.requests(req.body.applicationId);}));
   router.post("/availability", handle(req => {if(!availability)throw Object.assign(Error('Submitted availability is not connected.'),{status:503});return availability.load({applicationId:req.body.applicationId,scheduleId:req.body.scheduleId});}));
+  async function fullPlan(req){
+    if(!facts||!availability||!inspectPlan)throw Object.assign(Error('Full interview plan reading is not connected.'),{status:503});
+    const plan=await facts.application(req.body.applicationId);
+    const pending=await availability.requests(plan.applicationId);
+    const request=pending.requests.find(r=>r.scheduleId===req.body.scheduleId);
+    if(!request||pending.stageId!==plan.stageId)throw Object.assign(Error('Choose a current pending schedule for this stage.'),{status:409});
+    const observed=await inspectPlan({...plan,scheduleId:request.scheduleId});
+    if(observed.applicationId!==plan.applicationId||observed.candidateId!==plan.candidateId||observed.scheduleId!==request.scheduleId)throw Object.assign(Error('The interview plan belongs to another request.'),{status:409});
+    const expected=plan.activities.flatMap(a=>a.sessions);
+    if(!Array.isArray(observed.sessions)||observed.sessions.length!==expected.length||observed.sessions.some((s,i)=>s.sessionId!==expected[i].sessionId||s.interviewId!==expected[i].interviewId||s.durationMinutes!==expected[i].durationMinutes))throw Object.assign(Error('The template interviews no longer match the published plan.'),{status:409});
+    const latest=await availability.requests(plan.applicationId);
+    if(latest.stageId!==plan.stageId||!latest.requests.some(r=>r.scheduleId===request.scheduleId&&r.updatedAt===request.updatedAt))throw Object.assign(Error('The pending schedule changed. Reload its plan.'),{status:409});
+    const after=await facts.application(plan.applicationId);
+    if(after.templateRevision!==plan.templateRevision)throw Object.assign(Error('The interview plan changed. Reload it.'),{status:409});
+    return {...plan,scheduleId:request.scheduleId,sessions:observed.sessions,checkedAt:observed.checkedAt,bookingEnabled:false};
+  }
+  router.post('/full-plan',handle(fullPlan));
+  router.post('/suggest-full-schedule',handle(async req=>{
+    const plan=await fullPlan(req);
+    let windows=req.body.windows,timezone=req.body.timezone;
+    if(req.body.availabilitySource==='ashby'){
+      const submission=await availability.load({applicationId:plan.applicationId,scheduleId:plan.scheduleId});
+      if(submission.stageId!==plan.stageId)throw Object.assign(Error('The candidate stage changed. Reload the plan.'),{status:409});
+      windows=submission.localWindows;timezone=submission.timezone;
+    }else if(req.body.availabilitySource!=='manual')throw Object.assign(Error('Choose an availability source.'),{status:422});
+    return {...require('./full-schedule').proposeFullSchedule({sessions:plan.sessions,windows,timezone}),candidateName:plan.candidateName,checkedAt:plan.checkedAt};
+  }));
   router.post("/application", handle(req => {
     if(!facts)throw Object.assign(new Error('Ashby details are not connected.'),{status:503});
     return facts.application(req.body.applicationId);
