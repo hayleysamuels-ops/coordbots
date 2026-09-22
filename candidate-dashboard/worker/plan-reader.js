@@ -1,7 +1,7 @@
 'use strict';
 const fail=message=>{throw Object.assign(Error(message),{status:409});};
 function parseAssignment(text){
-  text=text.replace(/Specific\s+Employees\s*:/g,'Specific Employees:').replace(/(\d+)\s+Employees?/g,'$1 Employees').replace(/Add\s+Interviewer\s+Slot/g,'Add Interviewer Slot').replace(/Search\s+for\s+user\s*\.\.\./g,'Search for user...').replace(/Select\s+matcher\s*\.\.\./g,'Select matcher...').replace(/is\s*\n\s*/g,'is ');
+  text=text.replace(/Specific\s+Employees\s*:/g,'Specific Employees:').replace(/(\d+)\s+Employees?/g,'$1 Employees').replace(/Add\s+Interviewer\s+Slot/g,'Add Interviewer Slot').replace(/Search\s+for\s+user\s*\.\.\./g,'Search for user...').replace(/Select\s+matcher\s*\.\.\./g,'Select matcher...').replace(/\bis\s*\n\s*/g,'is ');
   const matches=[...text.matchAll(/(\d+)\s*Eligible\s*Match(?:es)?/g)];
   if(matches.length!==1||!/^Slot\s*#1\b/m.test(text))fail('This interview requires an unsupported interviewer-slot rule. Review it in Ashby.');
   const count=Number(matches[0][1]);
