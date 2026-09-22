@@ -7,7 +7,7 @@ function createBookingWorkerClient({url,secret,clientId,expectedIdentity,fetchIm
     target.pathname='/booking';return target;
   }
   async function call(action,payload={}) {
-    const response=await fetchImpl(endpoint(),{method:'POST',...signed(secret,{action,clientId,expectedIdentity,payload}),redirect:'error',signal:AbortSignal.timeout(['inspect-calendar','inspect-availability'].includes(action)?120000:55000)});
+    const response=await fetchImpl(endpoint(),{method:'POST',...signed(secret,{action,clientId,expectedIdentity,payload}),redirect:'error',signal:AbortSignal.timeout(['inspect-full-calendar','inspect-calendar','inspect-availability'].includes(action)?120000:55000)});
     const data=await response.json();
     if(!response.ok)throw Object.assign(Error(data.error||'Ashby scheduling worker unavailable.'),{status:response.status>=400&&response.status<500?response.status:503});
     if(data.clientId!==clientId||data.expectedIdentity!==expectedIdentity)throw Object.assign(Error('The scheduling worker identity does not match this client.'),{status:503});

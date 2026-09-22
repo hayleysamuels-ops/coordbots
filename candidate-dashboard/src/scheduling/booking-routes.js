@@ -1,6 +1,6 @@
 "use strict";
 const express = require("express");
-function bookingRoutes({ engine, store, clientId, facts, inspectDraft, inspectCalendar, inspectPlan, availability, capabilities = async () => ({ available: false, reason: "Ashby calendar and booking automation are not connected yet." }) }) {
+function bookingRoutes({ engine, store, clientId, facts, inspectDraft, inspectCalendar, inspectPlan, inspectFullCalendar, availability, capabilities = async () => ({ available: false, reason: "Ashby calendar and booking automation are not connected yet." }) }) {
   const router = express.Router();
   router.use((req, res, next) => {
     res.set("Cache-Control", "no-store");
@@ -52,6 +52,13 @@ function bookingRoutes({ engine, store, clientId, facts, inspectDraft, inspectCa
     return {...plan,scheduleId:request.scheduleId,sessions:observed.sessions,checkedAt:observed.checkedAt,bookingEnabled:false};
   }
   router.post('/full-plan',handle(fullPlan));
+  router.post('/inspect-full-calendar',handle(async req=>{
+    if(!inspectFullCalendar)throw Object.assign(Error('Full calendar inspection is not connected.'),{status:503});
+    const plan=await fullPlan(req);
+    const result=await inspectFullCalendar({...plan,draftId:req.body.draftId});
+    if(result.applicationId!==plan.applicationId||result.candidateId!==plan.candidateId||result.draftId!==req.body.draftId)throw Object.assign(Error('The calendar assessment belongs to another draft.'),{status:409});
+    return result;
+  }));
   router.post('/suggest-full-schedule',handle(async req=>{
     const plan=await fullPlan(req);
     let windows=req.body.windows,timezone=req.body.timezone;

@@ -149,3 +149,26 @@ remain unverified. They cannot enter approval/dispatch, create an Ashby draft, o
 invitations. Submitted availability and template bindings are re-read server-side; caller-
 supplied interviewer lists are ignored. The existing single-interview diagnostic tools
 remain available in a collapsed advanced section.
+
+## Full-agenda calendar work (September 21, 2026)
+
+`full-calendar-schedule.js` implements an ordered, contiguous single-day search
+with eligible-interviewer backtracking. It requires server-resolved user IDs,
+fresh complete coverage, session-specific meeting-hour windows, busy intervals,
+and verified interview limits/counts. Assignments made earlier in the same agenda
+consume daily and weekly capacity. Incomplete input fails closed. This solver is
+not yet connected to a live verified calendar provider; its tests are not proof
+that production agendas are available.
+
+The coordinator-only `inspect-full-calendar` endpoint re-reads the current plan
+and inspects every interviewer panel in an existing unsent draft. It binds the
+saved account, application, candidate, draft, interview count and order. It checks
+that dates/times/links are unchanged after inspection. It reads Ashby's explicit
+conflict text (including Ashby Meeting Hours); absence of that text remains
+`unknown`, not `available`. This diagnostic is under Advanced on the review page.
+It never creates or edits a draft, chooses an interviewer, or sends messages.
+
+Remaining: complete live availability evidence, reliable machine-readable positive
+availability states, automatic time/assignment search connected to those reads,
+and an approved, durable draft-preparation/booking workflow. Do not claim that
+agenda previews match interviewer calendars or enable booking based on this reader.

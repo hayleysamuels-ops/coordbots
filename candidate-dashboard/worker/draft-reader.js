@@ -45,6 +45,10 @@ function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSan
           const availability=await availabilityReader(page,input);
           return {...availability,scheduleId:input.scheduleId,applicationId:input.applicationId,candidateId:input.candidateId,checkedAt:now()};
         }
+        if(mode==='full-calendar'){
+          await open('');
+          return {...await require('./full-calendar-reader').readFullCalendar(page,input),draftId:input.draftId,candidateId:input.candidateId,applicationId:input.applicationId,checkedAt:now()};
+        }
         if(mode==='calendar'){
           if(!input.interviewer?.name||!input.interviewer?.email)fail(422,'A verified interviewer is required.');
           // Directly opening the draft root can redirect to its last-used

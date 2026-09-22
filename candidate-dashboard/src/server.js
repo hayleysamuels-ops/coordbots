@@ -38,6 +38,7 @@ function createServer() {
   app.use("/api/scheduling-booking", require("./scheduling/booking-routes").bookingRoutes({
     engine: bookingEngine, store: bookingStore, clientId: connectionConfig.schedulingClientId,
     availability: require("./scheduling/availability-source").createAvailabilitySource({key:connectionConfig.ashbyApiKey,clientId:connectionConfig.schedulingClientId,inspect:payload=>bookingWorker.call("inspect-availability",payload)}),
+    inspectFullCalendar: payload => bookingWorker.call("inspect-full-calendar",payload),
     inspectPlan: payload => bookingWorker.call("inspect-plan",payload),
     inspectCalendar: payload => bookingWorker.call("inspect-calendar",payload),
     inspectDraft: payload => bookingWorker.call("inspect-draft",payload),

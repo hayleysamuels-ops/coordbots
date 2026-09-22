@@ -13,9 +13,9 @@ function bookingRoutes({secret,clientId,expectedIdentity,adapter=null,draftReade
     if(data.clientId!==clientId||data.expectedIdentity!==expectedIdentity)return res.status(403).json({error:'Client identity mismatch'});
     try{
       let result;
-      if(data.action==='inspect-plan'||data.action==='inspect-draft'||data.action==='inspect-calendar'||data.action==='inspect-availability'){
+      if(data.action==='inspect-full-calendar'||data.action==='inspect-plan'||data.action==='inspect-draft'||data.action==='inspect-calendar'||data.action==='inspect-availability'){
         if(!draftReader)return res.status(503).json({error:'Draft inspection is not connected.'});
-        result=await draftReader.inspect(data.payload,data.action==='inspect-plan'?'plan':data.action==='inspect-availability'?'availability':data.action==='inspect-calendar'?'calendar':'communications');
+        result=await draftReader.inspect(data.payload,data.action==='inspect-full-calendar'?'full-calendar':data.action==='inspect-plan'?'plan':data.action==='inspect-availability'?'availability':data.action==='inspect-calendar'?'calendar':'communications');
       }
       else if(data.action==='status')result=adapter?await adapter.status():{availabilityVerified:false,bookingVerified:false,reason:'The saved Ashby connection is available for sign-in. Automatic calendar reading and booking still need verification.'};
       else {
