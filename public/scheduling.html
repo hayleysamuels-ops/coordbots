@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Schedule review · Work Trial Tracker</title>
+<style>
+:root{color-scheme:light;font-family:system-ui,sans-serif;color:#222820;background:#f6f5f0}body{max-width:1000px;margin:32px auto;padding:0 20px}a{color:#285736}h1{font-size:28px}h2{font-size:20px}section,article{background:white;border:1px solid #d1d5cb;border-radius:12px;padding:20px;margin:18px 0}label{display:block;margin:12px 0}input,select,button{font:inherit;padding:9px;border:1px solid #788371;border-radius:5px}button{cursor:pointer;background:#ebf1e6;color:#22301d;margin:6px 8px 6px 0}button:disabled{cursor:not-allowed;opacity:.6}input:focus,select:focus,button:focus,a:focus{outline:3px solid #507743;outline-offset:3px}.fields{display:flex;flex-wrap:wrap;gap:20px}.notice{border-left:4px solid #8c6519;padding:12px;background:#fff4d9}.muted{color:#4d5748}table{border-collapse:collapse;width:100%}td,th{text-align:left;vertical-align:top;padding:12px;border-bottom:1px solid #d1d5cb}caption{text-align:left;font-weight:bold;padding:10px 0}.scroll{overflow:auto}small{display:block;margin-top:5px}textarea{width:95%;min-height:65px;font:inherit;padding:8px}.state{font-weight:bold}#message{white-space:pre-wrap}summary{cursor:pointer}li{margin:8px 0}
+</style></head>
+<body>
+<a href="/">← Tracker</a><h1 id="title">Schedule review</h1>
+<p>Review the proposed agenda and tracker resource suggestions. Approval saves the suggestion for coordination; it does not book Ashby or send invitations.</p>
+<p id="message" role="status" aria-live="polite"></p>
+<section aria-labelledby="connectionTitle"><h2 id="connectionTitle">Suggestion source</h2><div id="connection">Checking source…</div></section>
+<section><h2>Suggest a schedule</h2><form id="request">
+<div class="fields"><label>Operation <select name="kind"><option value="new">New work trial</option><option value="replacement">Replace declined interviewer or room</option></select></label>
+<label>Confirmed start date <input type="date" name="startDate" required></label><label>Confirmed end date <input type="date" name="endDate" required></label>
+<label>Timezone <select name="timezone" required><option value="">Choose timezone</option><option value="America/New_York">Eastern</option><option value="America/Chicago">Central</option><option value="America/Denver">Mountain</option><option value="America/Los_Angeles">Pacific</option></select></label></div>
+<div class="fields"><label>Start time <input type="time" name="startTime" required></label><label>Ashby session <select name="sessionTitle" required><option value="Full Work Trial">Full Work Trial</option><option value="Agent Shadowing">Agent Shadowing</option></select></label><label>Main Partner <input name="mainPartner" readonly><small id="partnerReason"></small></label><label>Suggested laptop <input name="suggestedLaptop" readonly><small id="laptopReason"></small></label></div>
+<div id="replacement" hidden><label>Declined session <select name="declinedSession"><option value="">Choose a session after connecting Ashby</option></select></label></div>
+<button id="suggest" disabled>Suggest schedule</button><p id="formMessage" role="status" aria-live="polite"></p><p class="muted">Creating a proposal does not book anything. Reject an outdated proposal before generating its replacement.</p>
+</form></section>
+<section><h2>Proposals</h2><button id="refresh">Refresh status</button><div id="proposals">Loading proposals…</div></section>
+<script>
+"use strict";
+const candidateId = new URLSearchParams(location.search).get("candidateId");
+let me, status, context, proposals = [], busy = false, initialized = false;
+const el = id => document.getElementById(id);
+const esc = value => String(value == null ? "" : value).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+async function api(path, body) {
+  const response = await fetch("/api/" + path, { method: body ? "POST" : "GET", headers: { "Content-Type": "application/json", "X-Scheduling-Request": "1" }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  if (response.status === 401) { location.href = "/login"; throw new Error("Sign in to continue"); }
+  const data = await response.json(); if (!response.ok) throw new Error(data.error || "Request failed"); return data;
+}
+function time(value, timezone) { return new Intl.DateTimeFormat("en-US", {timeZone:timezone,month:"short",day:"numeric",hour:"numeric",minute:"2-digit",timeZoneName:"short"}).format(new Date(value)); }
+function setMessage(value) { el("message").textContent=value;el("formMessage").textContent=value; }
+function resourceText(resource) { return resource ? (resource.ok ? (resource.display || resource.value) : "No option") : "No suggestion needed"; }
+function showResources(resources={}) { el("request").elements.mainPartner.value=resourceText(resources.partner);el("partnerReason").textContent=resources.partner?.reason||"";el("request").elements.suggestedLaptop.value=resourceText(resources.laptop);el("laptopReason").textContent=resources.laptop?.reason||""; }
+async function refreshResources() { const form=el("request").elements,startDate=form.startDate.value,endDate=form.endDate.value;if(!startDate)return;const query=new URLSearchParams({startDate,endDate:endDate||startDate});const fresh=await api("scheduling/context/"+encodeURIComponent(candidateId)+"?"+query);context={...context,...fresh};showResources(context.resources);render(); }
+function render() {
+  el("connection").innerHTML = status.ready ? '<p>Proposal-only mode. Ashby supplies the agenda; the tracker supplies partner, desk, and laptop suggestions.</p>' : '<div class="notice">' + status.blockers.map(esc).join("<br>") + '</div>';
+  el("suggest").disabled = busy || !status.ready || !candidateId || !context?.resources?.partner?.ok;
+  el("proposals").innerHTML = proposals.length ? proposals.map(row => {
+    const p = row.plan, editable = ["draft","approved","needs_review"].includes(row.state) && !row.operations.length;
+    const blockers = p.blockers || [], canApprove = row.state === "draft" && me.canApprove && status.ready && blockers.every(b => b.code === "same_role" && b.overrideAllowed);
+    return '<article data-id="'+esc(row.id)+'"><h3>'+esc(p.kind === "replacement" ? "Replacement proposal" : "New schedule proposal")+'</h3><p class="state">'+esc(row.state.replace(/_/g," "))+' · Revision '+row.revision+'</p>'+
+      (row.issueMessage ? '<p class="notice">'+esc(row.issueMessage)+'</p>' : '') +
+      '<p>'+esc(p.timezone)+' · '+esc(p.role)+(p.pilot?' · Pilot test':'')+'</p>' +
+      (p.trackerSuggestions?'<h4>Tracker resource suggestions</h4><ul>'+Object.entries(p.trackerSuggestions).map(([key,s])=>'<li><strong>'+esc(key[0].toUpperCase()+key.slice(1))+':</strong> '+esc(s.ok?(s.display||s.value):"No option")+'<small>'+esc(s.reason||"")+'</small></li>').join('')+'</ul>':'')+
+      (blockers.length ? '<ul class="notice">'+blockers.map(b => '<li>'+esc(b.message)+'</li>').join('')+'</ul>' : '') +
+      '<div class="scroll"><table><caption>Proposed sessions and recipients</caption><thead><tr><th>Session</th><th>Time</th><th>Assignments</th><th>Invitations</th></tr></thead><tbody>'+p.events.map(e => '<tr><td>'+esc(e.title)+(e.ashbyEventId?'<small>Replacing event '+esc(e.ashbyEventId)+'</small>':'')+'</td><td>'+esc(time(e.start,p.timezone))+'<br>'+esc(time(e.end,p.timezone))+'</td><td>'+e.interviewers.map(i => esc(i.name || i.email)).join('<br>')+'<small>Room: '+esc(e.room && (e.room.name || e.room.resourceId) || "None")+'</small><small>Delivery: '+esc(e.conferencing.provider === "ashby" ? "Ashby interview plan" : e.conferencing.accountId)+'</small></td><td>'+e.notify.map(esc).join('<br>')+((e.cancelNotify||[]).length?'<small>Cancel previous invitation: '+e.cancelNotify.map(esc).join(', ')+'</small>':'')+(e.before?'<small>Previous assignments: '+e.before.interviewers.map(i=>esc(i.name||i.email)).join(', ')+'; room '+esc(e.before.room&&(e.before.room.name||e.before.room.resourceId)||'None')+'</small>':'')+'</td></tr>').join('')+'</tbody></table></div>'+
+      (row.state === "draft" && blockers.some(b => b.code === "same_role") ? '<label>Why is the same-role overlap unavoidable?<textarea data-reason maxlength="2000"></textarea></label>' : '')+
+      (canApprove ? '<button data-action="approve">Approve this suggestion</button>' : '')+
+      (editable ? '<button data-action="reject">Reject proposal</button>' : '')+
+      (row.approval ? '<p>Approved by '+esc(row.approval.by)+' at '+esc(row.approval.at)+'</p>' : '')+
+      '<details><summary>Activity history</summary><ul>'+row.audit.map(a => '<li>'+esc(a.action)+' · '+esc(a.by)+' · '+esc(a.at)+'</li>').join('')+'</ul></details></article>';
+  }).join('') : '<p>No proposals for this candidate yet.</p>';
+}
+async function load() {
+  const results = await Promise.all([api("me"), api("scheduling/status"), api("scheduling/proposals?candidateId="+encodeURIComponent(candidateId)), api("scheduling/context/"+encodeURIComponent(candidateId))]);
+  [me,status,proposals,context] = results;
+  el("title").textContent = "Schedule review: " + context.name;
+  if(!initialized) {
+    el("request").elements.startDate.value = context.startDate;
+    el("request").elements.endDate.value = context.endDate;
+    el("request").elements.startTime.value = "10:00";
+    el("request").elements.sessionTitle.value = "Full Work Trial";
+    showResources(context.resources);
+    el("request").elements.declinedSession.innerHTML = '<option value="">Choose a declined session</option>' + context.declines.map((d,index)=>'<option value="'+index+'">'+esc(d.title)+" · "+esc(d.start)+'</option>').join('');
+    initialized = true;
+  }
+  render();
+}
+el("request").elements.kind.addEventListener("change", e => { const replacement = e.target.value === "replacement"; el("replacement").hidden = !replacement; el("request").elements.declinedSession.required = replacement; });
+el("request").elements.startDate.addEventListener("change",()=>refreshResources().catch(error=>{el("message").textContent=error.message;}));
+el("request").elements.endDate.addEventListener("change",()=>refreshResources().catch(error=>{el("message").textContent=error.message;}));
+el("request").addEventListener("submit", async e => {
+  e.preventDefault(); if (busy) return; busy = true; el("suggest").disabled = true;
+  try { const request = Object.fromEntries(new FormData(e.target));
+    if(request.kind === "replacement") { const decline = context.declines[Number(request.declinedSession)]; if(!decline) throw new Error("Choose a declined session"); request.ashbyScheduleId = decline.scheduleId; request.ashbyEventId = decline.eventId; }
+    await api("scheduling/suggest/"+encodeURIComponent(candidateId), request); setMessage("Proposal created below. Review the agenda and resources before approving."); await load(); }
+  catch (error) { setMessage(error.message); } finally { busy = false; if(status) render(); }
+});
+el("proposals").addEventListener("click", async e => {
+  const button = e.target.closest("[data-action]"); if (!button || busy) return;
+  const article = button.closest("[data-id]"), row = proposals.find(p => p.id === article.dataset.id), action = button.dataset.action;
+  const reason = article.querySelector("[data-reason]"); busy = true; button.disabled = true;
+  try { await api("scheduling/proposals/"+encodeURIComponent(row.id)+"/"+action, { revision:row.revision,digest:row.digest,reason:reason ? reason.value : "" }); el("message").textContent = action === "approve" ? "Suggestion approved and saved. No Ashby booking or invitations were created." : "Proposal rejected. No invitations were sent by this action."; await load(); }
+  catch(error) { el("message").textContent = error.message; } finally { busy = false; if(status) render(); }
+});
+el("refresh").addEventListener("click", () => load().catch(error => { el("message").textContent = error.message; }));
+if (!candidateId) { el("message").textContent = "Open Schedule review from a candidate in the tracker."; el("proposals").textContent = "No candidate selected."; el("connection").textContent = "Select a candidate first."; }
+else { load().catch(error => { el("message").textContent = error.message; el("connection").textContent = "Connection status unavailable."; el("proposals").textContent = "Proposals could not be loaded."; }); }
+</script></body></html>

@@ -1,0 +1,25 @@
+{
+  "state": "requested",
+  "executable": false,
+  "kind": "new",
+  "role": "FDE",
+  "candidateName": "Test Tess",
+  "candidateEmail": "tess@carrara.is",
+  "candidateId": "4dbc5d4c-6753-401f-b709-29b2ea1adff9",
+  "applicationId": "79cda04f-7211-4481-bd65-4d571d29a8a9",
+  "interviewer": {
+    "name": "Jenna Caminiti",
+    "email": "jenna@carrara.is"
+  },
+  "requestedStart": "2026-09-21T10:00:00-04:00",
+  "timezone": "America/New_York",
+  "workerEmail": "tess.wicks@poetic.com",
+  "ashbyDraftId": "a1b19929-4dcd-4181-a8f5-e40d9dfc3b33",
+  "pending": [
+    "Verify intended FDE session and duration",
+    "Verify availability",
+    "Configure and verify approved Zoom account",
+    "Complete worker sign-in and executor",
+    "Review exact proposal before booking"
+  ]
+}

@@ -1,0 +1,14 @@
+node_modules/
+data.json
+.env
+.DS_Store
+npm-debug.log*
+bots.json
+scheduling.json
+scheduling.json.tmp
+.auth/
+playwright-report/
+test-results/
+
+discussion.json
+discussion.json.tmp
