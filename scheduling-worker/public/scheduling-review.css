@@ -1,0 +1,17 @@
+#scheduling-review { max-width: 1200px; margin: 24px auto; padding: 24px; }
+#scheduling-review label { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+#scheduling-review input, #scheduling-review select, #scheduling-review textarea { font: inherit; padding: 8px; max-width: 100%; }
+#scheduling-review fieldset { display: grid; grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap: 12px; margin: 16px 0; border: 1px solid var(--border, #ccc); }
+.scheduling-draft { border: 1px solid var(--border, #ccc); border-radius: 8px; padding: 20px; margin-top: 24px; }
+.scheduling-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.scheduling-table-wrap { overflow-x: auto; }
+#scheduling-review table { width: 100%; border-collapse: collapse; }
+#scheduling-review th, #scheduling-review td { padding: 10px; text-align: left; border-bottom: 1px solid var(--border, #ccc); }
+#scheduling-review button { cursor: pointer; padding: 8px 12px; margin: 4px 0; }
+#scheduling-review button:disabled { opacity: 1; cursor: not-allowed; color: var(--ink-3); background: var(--surface); border-style: dashed; }
+#scheduling-message { white-space: pre-wrap; }
+
+#scheduling-review :is(input,select,textarea,button){color:var(--ink);background:var(--paper);border:1px solid var(--ink-2);border-radius:4px}
+#scheduling-review button:not(:disabled):hover{background:var(--surface)}
+#scheduling-review :is(input,textarea)::placeholder{color:var(--ink-3);opacity:1}
+#scheduling-review a{color:var(--ink);text-decoration:underline;text-underline-offset:3px}

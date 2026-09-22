@@ -1,0 +1,10 @@
+node_modules/
+.git/
+.env
+data.json
+bots.json
+scheduling.json
+scheduling.json.tmp
+.auth/
+playwright-report/
+test-results/
