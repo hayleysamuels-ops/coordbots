@@ -1,5 +1,9 @@
 # Client-specific Ashby connection
 
+> **Current checkpoint (September 22, 2026): work paused by the user.** Read the
+> [Luminai handoff](scheduling-handoff.md) for deployed state, San Francisco onsite context,
+> remaining verification, deployment branch and instructions for resuming elsewhere.
+
 This is a sign-in connection, not a booking executor. No route in this worker
 approves a proposal, creates an interview, sends an invitation, or posts Slack.
 The Scheduling tab links to `/ashby-connection.html`. Shared dashboard credentials
@@ -55,7 +59,8 @@ before booking can be enabled. Discussion approvals never grant booking authorit
 Connection HTTP/authentication and browser lifecycle tests use fictional accounts.
 They verify cross-client rejection, owner spoofing, replay, expiry, wrong identity,
 wrong encryption key, popup handling, and disabled booking. They do not establish
-live browser launch or invitation delivery. No live session has been stored by this
-implementation. Startup now probes browser launch and shutdown before serving requests,
-without opening a webpage or using credentials. Coordinator account provisioning, interactive login,
-availability provider, and verified booking/reconciliation executor remain pending.
+live browser launch or invitation delivery. A live Luminai session has been saved and used for read-only inspections;
+recheck validity when resuming. Startup now probes browser launch and shutdown before serving requests,
+without opening a webpage or using credentials. Luminai coordinator provisioning and interactive login are complete. Submitted
+availability reading is implemented; complete calendar/rule integration and a
+verified booking/reconciliation executor remain pending.

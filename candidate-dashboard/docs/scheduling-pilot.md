@@ -1,8 +1,15 @@
 # Scheduling review pilot
 
-Status: local implementation, not deployed. Luminai is the first live pilot;
-Anna's Ashby login is the intended scheduling identity. Anna still needs to
-sign in. No real interview has been scheduled and no Slack message has been sent.
+> **Current checkpoint (September 22, 2026): work paused by the user.** Read the
+> [Luminai handoff](scheduling-handoff.md) for deployed state, San Francisco onsite context,
+> remaining verification, deployment branch and instructions for resuming elsewhere.
+
+Status: Luminai pilot deployed; development paused September 22, 2026.
+Anna's hosted Ashby session is saved; read-only draft/availability/plan inspection
+is deployed. Anna's Google OAuth account-level test passed. Full calendar-aware
+agenda generation and automatic booking remain incomplete/disabled. A separately
+approved manual TEST petrino interview was previously sent with confirmation;
+never replay it. Live Slack delivery is not established by this checkpoint.
 
 ## Implemented
 
@@ -34,8 +41,8 @@ blocked until an operator reconciles Slack. There is no automatic repost/retry.
 
 ## Still required for live automatic scheduling
 
-1. Anna signs into Luminai via the normal Ashby login flow. Do not share her
-   password in chat or import personal Chrome cookies into a server.
+1. Reverify the saved hosted Ashby session when resuming. Interactive sign-in has
+   already been completed; do not import personal Chrome cookies into a server.
 2. Inspect Luminai's complete auto-scheduling flow, actual availability sources,
    interviewer pool settings, rooms, conferencing, and candidate communications.
 3. Implement a Luminai source provider and booking/reconciliation executor against
@@ -44,18 +51,19 @@ blocked until an operator reconciles Slack. There is no automatic repost/retry.
    no automatic retries after an uncertain write, and read-back verification.
 4. Connect that executor to a separate booking approval. The current
    `Approve and schedule in Ashby` control is disabled and its endpoint returns
-   unavailable. No adapter is wired in `setup.js`. No worker runs in this change.
+   unavailable. The deployed worker supports read-only inspection, not booking.
 5. Configure Slack and candidate-channel mappings; verify the destination
    workspace. Invite the bot to the approved channel and grant `chat:write`.
 6. Obtain approval of a specific test schedule, candidate, recipients, timezone,
    and communications before any test invitation. Verify actual delivery, not
    merely a successful `interviewSchedule.create` response.
-7. Deploy Luminai first; then configure and verify each other client separately.
+7. Luminai is already deployed. Configure and verify each other client separately.
 
 A read-only check on 18 September 2026 confirmed Luminai's existing API key
 includes `interviews:write` as well as read permissions. The Software Engineer,
 Product published onsite activities were readable. No write endpoint was called.
-The current connected Chrome session does not include Luminai.
+That initial Chrome-session limitation was resolved later; the hosted Luminai
+session has since supported successful read-only inspections.
 
 Official references:
 - https://developers.ashbyhq.com/reference/interviewschedulecreate

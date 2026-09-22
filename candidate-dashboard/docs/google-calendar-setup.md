@@ -1,12 +1,26 @@
 # Luminai read-only calendar setup
 
+> **Current checkpoint (September 22, 2026): work paused by the user.** Read the
+> [Luminai handoff](scheduling-handoff.md) for deployed state, San Francisco onsite context,
+> remaining verification, deployment branch and instructions for resuming elsewhere.
+
 The scheduler uses Google OAuth to read busy intervals, not event titles or
 contents. It never creates, updates or deletes Google Calendar events. Booking
 and candidate confirmation remain separate Ashby actions requiring approval.
 
+## Current connection
+
+OAuth credentials are configured in the Luminai WEB service. Anna connected
+`anna@luminai.com`; her September 22 screenshot confirms the account-level
+read-only test passed. The full plan’s interviewer calendars have not yet been
+verified at this checkpoint. No service account is used. If the External app
+remains in Testing, refresh tokens expire after seven days; verify publishing
+status and reauthorize as needed before resuming.
+
 ## Google Cloud administrator
 
-1. Use a Luminai-owned Google Cloud project and enable **Google Calendar API**.
+1. Enable **Google Calendar API** in the chosen Google Cloud project. The user
+   chose Carrara-hosted OAuth with Anna authorizing her Luminai account.
 2. Configure Google Auth Platform branding and audience. Use **Internal** when
    the project belongs to Luminai's Workspace organization. If using External
    testing, add `anna@luminai.com` as a test user and review Google's testing-mode

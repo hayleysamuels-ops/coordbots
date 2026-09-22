@@ -1,5 +1,9 @@
 # Candidate issues dashboard
 
+> **Current checkpoint (September 22, 2026): work paused by the user.** Read the
+> [Luminai handoff](docs/scheduling-handoff.md) for deployed state, San Francisco onsite context,
+> remaining verification, deployment branch and instructions for resuming elsewhere.
+
 A small dashboard for a recruiting coordinator: at a glance, which candidates
 (and interviewers) need attention right now. Twelve sections:
 
@@ -28,7 +32,7 @@ moved to Stale Candidates.
 
 ## Pages
 
-The page is split into three tabs (`.tab-btn`/`.tab-panel` in `index.html`
+The page is split into four tabs (`.tab-btn`/`.tab-panel` in `index.html`
 and `app.js` — plain DOM show/hide via the `hidden` attribute, no router):
 
 - **Dashboard** (default) — a left sidebar (Triage queues: Feedback
@@ -50,10 +54,11 @@ and `app.js` — plain DOM show/hide via the `hidden` attribute, no router):
   second one was out of scope for this addition; per-card dismiss still
   works the same as everywhere else.
 
-All three tabs' data refreshes on the same cycle and renders on every poll
-regardless of which tab is currently visible — switching tabs is instant
-and never shows stale content, since it's just toggling which already-
-rendered panel is hidden.
+- **Scheduling** — coordinator-reviewed discussion drafts and links to full-plan
+  booking review, Ashby sign-in, and read-only Google Calendar connection.
+
+The first three tabs render from the issue polling cycle. Scheduling has its own
+coordinator-authenticated workflow and links to booking and connection pages.
 
 ## Action queue
 
@@ -491,14 +496,16 @@ accidental dismiss.
   than run concurrently — you'll see `refresh already in progress, skipping
   duplicate trigger` in the server log.
 
-## Scheduling review (pilot, not yet deployed)
+## Scheduling review (Luminai pilot deployed; automatic booking disabled)
 
 A fourth **Scheduling** tab supports coordinator-authored onsite drafts, current
 Ashby interview-plan lookup, and approval before posting to a configured Slack
 channel. Candidate-specific channels are the default; each client may explicitly
 choose a shared channel. Approval for discussion never authorizes booking.
 
-**Automatic booking is not connected.** Luminai is the first planned pilot using
-Anna's Ashby login, pending sign-in and verification of the booking workflow.
+**Automatic booking is not connected.** Luminai's hosted Ashby session is saved
+and read-only inspection is deployed. Anna's Google OAuth connection passed its
+account-level read-only test on September 22; the complete interviewer calendar
+check and calendar-aware full-agenda integration remain pending.
 See [the pilot guide](docs/scheduling-pilot.md) for configuration, remaining work,
 storage/recovery limits, and testing instructions.

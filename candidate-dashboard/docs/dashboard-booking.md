@@ -1,8 +1,12 @@
 # Dashboard booking implementation checkpoint
 
+> **Current checkpoint (September 22, 2026): work paused by the user.** Read the
+> [Luminai handoff](scheduling-handoff.md) for deployed state, San Francisco onsite context,
+> remaining verification, deployment branch and instructions for resuming elsewhere.
+
 The `/booking.html` review page is linked from Scheduling. Individual coordinator
 credentials stay in memory and authenticate only the existing connection routes
-and the new `/api/scheduling-booking` routes. Shared dashboard credentials cannot
+and the `/api/scheduling-booking` and `/api/google-calendar` routes. Shared dashboard credentials cannot
 approve. Discussion approvals remain separate.
 
 Implemented:
@@ -172,3 +176,14 @@ Remaining: complete live availability evidence, reliable machine-readable positi
 availability states, automatic time/assignment search connected to those reads,
 and an approved, durable draft-preparation/booking workflow. Do not claim that
 agenda previews match interviewer calendars or enable booking based on this reader.
+
+## Google Calendar connection (September 22, 2026)
+
+Anna OAuth and a strict primary-calendar free/busy reader are deployed. The account
+connection test passed, as shown in the user's screenshot. The booking page's
+`Read interviewer calendar availability` action resolves eligible people through
+Ashby and queries fresh submitted windows. Verification of all actual interviewer
+calendars is the next step after resuming; it has not been established by the
+account-level test. Additional calendars, session working hours, interview counts
+and limits still need to feed the full-agenda solver. No automatic booking is enabled.
+See the handoff for San Francisco onsite/travel context and exact resume order.
