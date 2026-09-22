@@ -20,3 +20,15 @@ communications review, an executor, and explicit coordinator approval.
 Poetic’s separate work-trial tracker remains in scope for eventual integration;
 its code lives outside this repository. Client branch/rule isolation remains
 unfinished. This documentation checkpoint does not change runtime scheduling rules.
+
+## Entire scheduling project
+
+The [private scheduling project index](https://github.com/hayleysamuels-ops/work-trial-tracker/blob/feature/scheduling-discussion-approvals/docs/scheduling-project/README.md)
+links both codebases, clone instructions, deployment/setup docs and the complete
+rollout history. It requires access to the private work-trial-tracker repository.
+
+The Poetic scheduling shell lives in
+[work-trial-tracker](https://github.com/hayleysamuels-ops/work-trial-tracker/tree/feature/scheduling-discussion-approvals),
+not in a workstation-only folder. Both repositories' scheduling branches are
+required for the complete project. Credentials and live state remain in Railway
+and private databases/volumes; they are deliberately not GitHub source files.

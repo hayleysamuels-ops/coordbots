@@ -151,3 +151,10 @@ TEST petrino with Mary:
 Documentation and GitHub handoff only at this checkpoint. No new calendar reads,
 bookings, draft edits, Slack posts, or scheduling-rule deployments as part of pause.
 Existing hosted dashboards remain running; pausing development does not disable them.
+
+## Whole-project GitHub index
+
+For both codebases and the historical rollout record, use the
+[private scheduling project index](https://github.com/hayleysamuels-ops/work-trial-tracker/blob/feature/scheduling-discussion-approvals/docs/scheduling-project/README.md).
+Poetic's source is on `feature/scheduling-discussion-approvals` in that repository.
+No original-workstation helper or session is required to check out the code.
