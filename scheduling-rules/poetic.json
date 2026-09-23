@@ -1,0 +1,96 @@
+{
+  "$schema": "./schema.json",
+  "$comment": "Reproduces scheduling-worker/ behaviour as of 2026-09-22. Not yet read by any engine.",
+  "schemaVersion": 1,
+  "clientId": "poetic",
+  "rulesRevision": 1,
+
+  "trial": {
+    "stageTitleContains": "work trial",
+    "maxDaysAfterStart": 14,
+    "roles": ["FDE", "FDS", "Sales", "Platform"],
+    "jobTitleToRole": [
+      { "contains": "forward deployed engineer", "role": "FDE" },
+      { "contains": "forward deployed strategist", "role": "FDS" },
+      { "contains": "sales", "role": "Sales" }
+    ]
+  },
+
+  "capacity": {
+    "maxConcurrentTrialsPerDay": 2,
+    "sameRoleSameDay": { "action": "block_with_override", "minReasonChars": 10 },
+    "bypassCandidateName": { "pattern": "^Test\\b", "flags": "i" }
+  },
+
+  "sessions": {
+    "exclusions": [
+      {
+        "match": "contains",
+        "value": "agent shadow",
+        "appliesTo": ["trialDate", "shadowMilestone"],
+        "label": "Agent shadowing",
+        "reason": "happens before the candidate comes onsite, so it is never the start of the trial. Counting it as the trial date read Sid Panjwani's 8 Sept trial as 3 Sept and posted him as an urgent unprepped trial three times.",
+        "decidedBy": "Tess Wicks",
+        "decidedOn": "2026-09-02"
+      },
+      {
+        "match": "contains",
+        "value": "product demo",
+        "appliesTo": ["trialDate"],
+        "label": "Product Demo",
+        "reason": "a screening session that sits on the Work Trial stage but happens before the trial. It carried the whole trial date on Danni El Tayeb's row and on Preston Vaughn's, whose 1-session Product Demo on 31 Aug read as the trial instead of the 10-session day on 10 Sept. Where a Product Demo is the ONLY session booked, the row now derives no trial date at all rather than asserting a date that is not the trial.",
+        "decidedBy": "Hayley Samuels",
+        "decidedOn": "2026-09-09"
+      },
+      {
+        "match": "exact",
+        "value": "Agent Shadowing",
+        "appliesTo": ["fullTrialProposal"],
+        "label": null,
+        "reason": null,
+        "decidedBy": null,
+        "decidedOn": null
+      }
+    ]
+  },
+
+  "agenda": { "singleDay": false },
+
+  "duration": {
+    "$comment": "fallbackMinutes 45 preserves the tracker's silent fallback. Probably accidental; the dashboard's refuse behaviour (null) is safer and is the intended end state.",
+    "fallbackMinutes": 45,
+    "minMinutes": null,
+    "maxMinutes": null
+  },
+
+  "assignment": { "strategy": "lowest_confirmed_load" },
+
+  "limits": { "ashbyInterviewerLimits": "ignore" },
+
+  "busy": {
+    "source": "none",
+    "calendars": [],
+    "ashbyConflictsAdvisory": false
+  },
+
+  "communications": {
+    "calendarInvitesRequired": true,
+    "candidateConfirmationRequired": false
+  },
+
+  "conferencing": { "allowedProviders": ["zoom", "ashby"] },
+
+  "rooms": { "policy": "required_when_session_flagged" },
+
+  "approval": {
+    "$comment": "Taken from the SEED_USERS list in scheduling-worker/users.js, not from production. The tracker's live permissions are the Postgres users table (can_approve and active), where revocations and direct inserts are not reflected in the seed. This list has not been reconciled against production Postgres; do that before any engine reads it.",
+    "approvers": [
+      { "kind": "email", "id": "hayley.samuels@carrara.is" },
+      { "kind": "email", "id": "tess@carrara.is" },
+      { "kind": "email", "id": "sadiqeh@carrara.is" },
+      { "kind": "email", "id": "ria@carrara.is" },
+      { "kind": "email", "id": "catherine.ariola@carrara.is" }
+    ],
+    "allowedDomain": "carrara.is"
+  }
+}

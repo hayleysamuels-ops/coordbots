@@ -1,0 +1,56 @@
+{
+  "$schema": "./schema.json",
+  "$comment": "Reproduces candidate-dashboard on feature/client-ashby-connection as of 2026-09-22. Not yet read by any engine.",
+  "schemaVersion": 1,
+  "clientId": "luminai",
+  "rulesRevision": 1,
+
+  "trial": {
+    "stageTitleContains": null,
+    "maxDaysAfterStart": null,
+    "roles": null,
+    "jobTitleToRole": []
+  },
+
+  "capacity": {
+    "maxConcurrentTrialsPerDay": null,
+    "sameRoleSameDay": null,
+    "bypassCandidateName": null
+  },
+
+  "sessions": { "exclusions": [] },
+
+  "agenda": { "singleDay": true },
+
+  "duration": {
+    "fallbackMinutes": null,
+    "minMinutes": 5,
+    "maxMinutes": 480
+  },
+
+  "assignment": { "strategy": "fewest_in_agenda" },
+
+  "limits": { "ashbyInterviewerLimits": "zero_only" },
+
+  "busy": {
+    "source": "google_freebusy",
+    "calendars": ["primary"],
+    "ashbyConflictsAdvisory": true
+  },
+
+  "communications": {
+    "calendarInvitesRequired": true,
+    "candidateConfirmationRequired": true
+  },
+
+  "conferencing": { "allowedProviders": ["none", "google_meet", "zoom"] },
+
+  "rooms": { "policy": "validate_if_present" },
+
+  "approval": {
+    "approvers": [
+      { "kind": "username", "id": "Luminai Scheduler" }
+    ],
+    "allowedDomain": null
+  }
+}

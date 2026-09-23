@@ -1,0 +1,300 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hayleysamuels-ops/coordbots/scheduling-rules/schema.json",
+  "title": "Client scheduling policy",
+  "description": "Policy rules the scheduling engines consume, one document per client. Defaults in the example documents reproduce behaviour as of 2026-09-22: poetic.json matches scheduling-worker/ (the tracker engine), luminai.json matches candidate-dashboard on feature/client-ashby-connection. null means that engine does not enforce the rule. No engine reads these files yet; until one does, editing them changes nothing. Coordinator-editable data (partner roster, identities, tracker assignments, desks, laptops, working hours) is deliberately out of scope.",
+  "$comment": "Deliberately absent: breaks/buffers (row 19), Ashby meeting hours (row 30) and bookable-over event types (row 32). Each needs new engine logic, not just config, and row 32 also needs client sign-off before any code, because it requires wider Google Calendar access than the current free/busy-only connection. additionalProperties is false throughout so these cannot be added to a document ahead of that work.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "clientId", "rulesRevision", "trial", "capacity", "sessions", "agenda", "duration", "assignment", "limits", "busy", "communications", "conferencing", "rooms", "approval"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "$comment": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "clientId": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$",
+      "description": "Matches SCHEDULING_CLIENT_ID on the dashboard; the tracker hardcodes \"poetic\"."
+    },
+    "rulesRevision": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Increment on every change. Engines should include it in each plan's digest, as they already do with templateRevision, so an approval made under older rules can no longer book."
+    },
+
+    "trial": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stageTitleContains", "maxDaysAfterStart", "roles", "jobTitleToRole"],
+      "properties": {
+        "stageTitleContains": {
+          "type": ["string", "null"],
+          "description": "Row 7. Case-insensitive substring identifying the work-trial stage. Today: /work trial/i in ashby-provider.js, plus copies in bots/ashby-panel.config.js and bots/pool-health.config.js."
+        },
+        "maxDaysAfterStart": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Row 5. Latest end date as days after the start date. Today diffDays(start, end) <= 14, which allows up to 15 calendar days counting both ends."
+        },
+        "roles": {
+          "type": ["array", "null"],
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true,
+          "description": "Row 6. Valid trial roles (proposal.js validatePlan, assignment-inventory.js ROLES)."
+        },
+        "jobTitleToRole": {
+          "type": "array",
+          "description": "Row 6. Ashby job title to role, case-insensitive substring, first match wins (bots/ashby-panel.config.js positions). Each role should appear in trial.roles; JSON Schema cannot check that, so the loader must.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["contains", "role"],
+            "properties": {
+              "contains": { "type": "string", "minLength": 1 },
+              "role": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+
+    "capacity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxConcurrentTrialsPerDay", "sameRoleSameDay", "bypassCandidateName"],
+      "properties": {
+        "maxConcurrentTrialsPerDay": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Row 1. Total trials allowed on one day, including the one being proposed. Today 2: the proposal is blocked when 2 other trials already occupy a day (proposal.js capacityIssues)."
+        },
+        "sameRoleSameDay": {
+          "description": "Row 2. What happens when another trial of the same role is on the same day.",
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["action", "minReasonChars"],
+              "properties": {
+                "action": { "enum": ["block_with_override"] },
+                "minReasonChars": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Minimum trimmed length of the approver's override reason."
+                }
+              }
+            }
+          ]
+        },
+        "bypassCandidateName": {
+          "description": "Row 4. Candidates whose tracker name matches skip every capacity check (pilot bypass in ashby-provider.js).",
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["pattern", "flags"],
+              "properties": {
+                "pattern": { "type": "string", "format": "regex" },
+                "flags": { "type": "string", "pattern": "^[imsu]*$" }
+              }
+            }
+          ]
+        }
+      }
+    },
+
+    "sessions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exclusions"],
+      "properties": {
+        "exclusions": {
+          "type": "array",
+          "description": "Rows 8 and 9, merged. Matching is always case-insensitive and ignores surrounding spaces. appliesTo keeps today's three separate uses: trialDate = never sets the trial date (bots/pre-trial-sessions.config.js via lib/trialwindow.js); shadowMilestone = shown as the shadowing milestone (bots/ashby-panel.config.js agentShadowTitleContains; only meaningful together with trialDate); fullTrialProposal = left out when the scheduler proposes a Full Work Trial (ashby-provider.js).",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["match", "value", "appliesTo", "label", "reason", "decidedBy", "decidedOn"],
+            "properties": {
+              "match": { "enum": ["exact", "contains"] },
+              "value": { "type": "string", "minLength": 1 },
+              "appliesTo": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": { "enum": ["trialDate", "shadowMilestone", "fullTrialProposal"] }
+              },
+              "label": { "type": ["string", "null"] },
+              "reason": { "type": ["string", "null"] },
+              "decidedBy": { "type": ["string", "null"] },
+              "decidedOn": { "type": ["string", "null"], "format": "date" }
+            }
+          }
+        }
+      }
+    },
+
+    "agenda": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["singleDay"],
+      "properties": {
+        "singleDay": {
+          "type": "boolean",
+          "description": "Row 24. The whole agenda must fall on one candidate-local date. The dashboard enforces this only in full-calendar-schedule.js, which no route calls yet; the tracker never checks it."
+        }
+      }
+    },
+
+    "duration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fallbackMinutes", "minMinutes", "maxMinutes"],
+      "properties": {
+        "$comment": { "type": "string" },
+        "fallbackMinutes": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Row 21. Duration used when Ashby's plan gives none. null means refuse the plan instead.",
+          "$comment": "The two engines diverge here, and the divergence is probably accidental. The tracker silently uses 45 minutes (ashby-provider.js) while the dashboard refuses a session with a missing or invalid duration. Refusing is safer: a guessed duration can book the wrong length and push every later session. Poetic keeps 45 only to preserve today's behaviour; the intended end state is null for every client."
+        },
+        "minMinutes": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Row 21. Shortest accepted session. The dashboard refuses anything under 5."
+        },
+        "maxMinutes": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Row 21. Longest accepted session. The dashboard refuses anything over 480."
+        }
+      }
+    },
+
+    "assignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy"],
+      "properties": {
+        "strategy": {
+          "enum": ["lowest_confirmed_load", "fewest_in_agenda"],
+          "description": "Row 17. How to choose between eligible interviewers. lowest_confirmed_load is the tracker's planner.js, which only tests use; fewest_in_agenda is live in the dashboard's agenda previews."
+        }
+      }
+    },
+
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ashbyInterviewerLimits"],
+      "properties": {
+        "ashbyInterviewerLimits": {
+          "enum": ["ignore", "zero_only", "enforce"],
+          "description": "Row 18. Use of Ashby's per-interviewer dailyLimit/weeklyLimit. zero_only = a limit of 0 blocks suggestions (live on the dashboard today); enforce = full counting, which exists only in solvers nothing calls yet."
+        }
+      }
+    },
+
+    "busy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "calendars", "ashbyConflictsAdvisory"],
+      "properties": {
+        "source": {
+          "enum": ["none", "google_freebusy"],
+          "description": "Row 31. Where interviewer busy time comes from. Missing data is always busy; that stays in code."
+        },
+        "calendars": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true,
+          "description": "Row 31. Which of each interviewer's calendars block time. Today only the primary calendar is read; the handoff notes extra blocking calendars are not."
+        },
+        "ashbyConflictsAdvisory": {
+          "type": "boolean",
+          "description": "Row 31. Also show the conflicts Ashby displays on a saved draft, as advice only. A missing conflict never counts as free."
+        }
+      }
+    },
+
+    "communications": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["calendarInvitesRequired", "candidateConfirmationRequired"],
+      "properties": {
+        "calendarInvitesRequired": {
+          "type": "boolean",
+          "description": "Row 40. A booking is not marked scheduled until calendar invitations are verified as sent."
+        },
+        "candidateConfirmationRequired": {
+          "type": "boolean",
+          "description": "Row 40. A candidate confirmation email must be part of the plan and verified as sent (booking-engine.js)."
+        }
+      }
+    },
+
+    "conferencing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowedProviders"],
+      "properties": {
+        "allowedProviders": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["none", "google_meet", "zoom", "ashby"] },
+          "description": "Row 41."
+        }
+      }
+    },
+
+    "rooms": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy"],
+      "properties": {
+        "policy": {
+          "enum": ["required_when_session_flagged", "validate_if_present"],
+          "description": "Row 42. required_when_session_flagged = a session marked requiresRoom must have a room (tracker proposal.js); validate_if_present = there is no requiresRoom concept, but any room given must have an id and an invited email (dashboard booking-engine.js). Nothing supplies rooms today."
+        }
+      }
+    },
+
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approvers"],
+      "properties": {
+        "$comment": { "type": "string" },
+        "approvers": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Row 36. Who may approve proposals and bookings. Identities only: passwords and other credentials never go in this file. Today the tracker reads Postgres users.can_approve (seeded from users.js; revocations made in the database are not undone by the seed), and the dashboard reads usernames from SCHEDULING_APPROVERS_JSON.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "id"],
+            "properties": {
+              "kind": {
+                "enum": ["email", "username"],
+                "description": "email = tracker sign-in identity; username = dashboard basic-auth approver account."
+              },
+              "id": { "type": "string", "minLength": 1 },
+              "shared": {
+                "type": "boolean",
+                "default": false,
+                "description": "true when the account is used by more than one person, so an approval does not identify an individual."
+              }
+            }
+          }
+        },
+        "allowedDomain": {
+          "type": ["string", "null"],
+          "description": "Row 36. Email domain required to sign in (users.js ALLOWED_DOMAIN). null where the engine has no such check."
+        }
+      }
+    }
+  }
+}
