@@ -59,6 +59,12 @@
     </aside>
 
     <main class="page-stack">
+      <section id="readyToSchedule" class="column wide-section">
+        <h2>Needs scheduling</h2>
+        <p class="column-sub">Candidates who have shared availability in Ashby. Review their interview plan here; sending invitations always requires coordinator approval.</p>
+        <p id="ready-scheduling-status" class="muted" role="status"></p>
+        <div id="ready-scheduling-cards" class="cards"></div>
+      </section>
       <section id="actionQueue" class="column action-queue-section">
         <h2>Action queue</h2>
         <span class="section-updated muted" id="updated-actionQueue"></span>
@@ -189,6 +195,7 @@
     <button type="button" class="dismiss-toast-undo">Undo</button>
   </div>
 
+  <script src="ready-scheduling.js"></script>
   <script src="app.js"></script>
   <script src="scheduling-review.js"></script>
 </body>

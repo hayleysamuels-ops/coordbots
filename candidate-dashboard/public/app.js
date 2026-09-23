@@ -314,7 +314,7 @@
     },
     {
       key: "needsScheduling",
-      label: "Needs scheduling",
+      label: "Scheduling not started",
       thresholdKey: "needsSchedulingAlertHours",
       // Not signal-serious: that's the same ember hue as feedbackOverdue's
       // signal-critical, just a lighter tint — Carrara's warning/serious/
@@ -1065,6 +1065,7 @@
     // e.g. Onsite Interviews Today (part of the listIssues() group) no
     // longer shows "refresh failed" just because an unrelated
     // listRecentSourced() call failed this cycle.
+    window.renderReadyScheduling?.(filterByEntity(data.readyToSchedule || []), getSectionStatus(data, "readyToSchedule"));
     renderActionQueue(data);
     const actionQueueStatus = getSectionStatus(data, "feedbackOverdue");
     renderSectionTimestamp("actionQueue", actionQueueStatus.lastUpdated, actionQueueStatus.lastError);

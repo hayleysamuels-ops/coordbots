@@ -80,6 +80,10 @@
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
+    --border-default: #8c837b;
+    --border-subtle: #514c49;
+    --ember: #ffad89;
+    --ember-wash: #51382d;
     --page: var(--grafite);
     --surface: #3a3634;
     --surface-sunken: #242121;
@@ -176,7 +180,7 @@ button#refresh-btn {
   height: 34px;
   padding: 0;
   border: 2px solid var(--border-default);
-  background: var(--white);
+  background: var(--surface);
   color: var(--text-primary);
   border-radius: var(--radius-sm);
   font-size: 1.15rem;
@@ -212,7 +216,7 @@ button#refresh-btn.spinning {
 
 .tab-btn {
   border: 2px solid var(--border-default);
-  background: var(--white);
+  background: var(--surface);
   color: var(--text-secondary);
   border-radius: var(--radius-sm);
   padding: 8px 16px;
@@ -279,7 +283,7 @@ button#refresh-btn.spinning {
 
 .filter-mode-btn {
   border: none;
-  background: var(--white);
+  background: var(--surface);
   color: var(--text-secondary);
   padding: 5px 12px;
   font-size: 14px;
@@ -305,7 +309,7 @@ button#refresh-btn.spinning {
   display: flex;
   align-items: center;
   gap: 6px;
-  background: var(--white);
+  background: var(--surface);
   color: var(--text-primary);
   border: 2px solid var(--border-default);
   border-radius: var(--radius-sm);
@@ -336,7 +340,7 @@ button#refresh-btn.spinning {
   min-width: 200px;
   max-height: 320px;
   overflow-y: auto;
-  background: var(--white);
+  background: var(--surface);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   box-shadow: 0 6px 18px rgba(45, 42, 42, 0.18);
@@ -587,7 +591,7 @@ button#refresh-btn.spinning {
 
 .signal-chip {
   border: 1px solid var(--border-default);
-  background: var(--white);
+  background: var(--surface);
   color: var(--text-secondary);
   padding: 5px 12px;
   border-radius: var(--radius-pill);
@@ -1035,7 +1039,7 @@ button#refresh-btn.spinning {
 
 .dismiss-btn {
   border: 1px solid var(--border-default);
-  background: var(--white);
+  background: var(--surface);
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 0.68rem;
@@ -1044,7 +1048,7 @@ button#refresh-btn.spinning {
   line-height: 1;
   padding: 3px 7px;
   border-radius: var(--radius-sm);
-  opacity: 0.55;
+  opacity: 1;
   transition: opacity 120ms ease, color 120ms ease, background 120ms ease, border-color 120ms ease;
 }
 
@@ -1109,7 +1113,7 @@ button#refresh-btn.spinning {
   z-index: 1000;
   min-width: 240px;
   max-width: 320px;
-  background: var(--white);
+  background: var(--surface);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   box-shadow: 0 6px 18px rgba(45, 42, 42, 0.18);
@@ -1228,3 +1232,24 @@ button#refresh-btn.spinning {
   text-decoration: underline;
 }
 
+
+/* Keep selected controls distinct from their dark surroundings. */
+@media (prefers-color-scheme: dark) {
+  .tab-btn.is-active,
+  .filter-mode-btn.is-active,
+  .signal-chip.is-active,
+  .queue-nav-item.is-active {
+    background: #e2ddd8;
+    color: #242121;
+    border-color: #e2ddd8;
+  }
+  .queue-nav-item.is-active .queue-count { color: #242121; }
+  .dismiss-btn.dismiss-forever { color: var(--critical); background: var(--critical-wash); border-color: var(--critical); opacity: 1; }
+  .dismiss-btn.dismiss-forever:hover,
+  .dismiss-btn.dismiss-forever:focus-visible { background: var(--critical); color: #242121; }
+  #entity-filter-btn:hover { border-color: var(--text-secondary); }
+}
+:where(button, a, input, select, textarea, summary):focus-visible {
+  outline: 3px solid var(--text-primary);
+  outline-offset: 3px;
+}
