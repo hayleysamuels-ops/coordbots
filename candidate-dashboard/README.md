@@ -323,6 +323,7 @@ Fill in `.env`:
 | `DISPLAY_TIMEZONE` | no | Default `America/New_York`. Real IANA time zone name (e.g. `America/Los_Angeles`, `Europe/London`) — formats every absolute time in the UI (`app.js`, via `appConfig`) and computes the "is this today" day boundary for Onsite Interviews Today (`ashby.js`, read directly). **Must be an IANA name, not a fixed abbreviation** — `EST`/`PST`/`CST` etc. silently resolve to a fixed UTC offset that never observes daylight saving (confirmed: Node resolves `EST` to the fixed `America/Panama`, not real US Eastern time), reading an hour off for roughly half the year. Warns on startup (not silently) if the value looks like a fixed abbreviation instead of an IANA name. |
 | `RECRUITER_ROLE_NAME` / `COORDINATOR_ROLE_NAME` | no | Defaults `Recruiter` / `Recruiting Coordinator`. Exact `hiringTeamRole.list` values (not a substring match) used for the Recruiter/Coordinator filter. **This org's actual role names, not an Ashby standard** — verify with `scripts/check-ashby-compatibility.js` before onboarding a new client. |
 | `DISABLED_SECTIONS` | no | Comma-separated section keys (see § Section keys) to hide from this client's dashboard entirely. Empty by default (nothing hidden). An unrecognized key logs a startup warning rather than silently doing nothing. |
+| `SCHEDULING_CLIENT_ID` | no | Turns on the scheduling pilot for this dashboard (see § Scheduling review). Empty by default: the Scheduling tab, the ready-to-schedule section, the booking and connection pages and their API routes all return 404, and the queue keeps the name "Needs scheduling". |
 
 ## Onboarding a new client
 
@@ -497,6 +498,11 @@ accidental dismiss.
   duplicate trigger` in the server log.
 
 ## Scheduling review (Luminai pilot deployed; automatic booking disabled)
+
+Everything in this section is on only where `SCHEDULING_CLIENT_ID` is set (today:
+Luminai). Other dashboards get 404s for its routes and pages, and `index.html` is
+sent with its `<!-- scheduling:start -->`/`<!-- scheduling:end -->` blocks removed
+(`src/scheduling/page-gate.js`, tested in `test/scheduling-flag.test.js`).
 
 A fourth **Scheduling** tab supports coordinator-authored onsite drafts, current
 Ashby interview-plan lookup, and approval before posting to a configured Slack

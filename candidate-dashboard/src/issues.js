@@ -32,6 +32,11 @@ const appConfig = {
   sourceReferralKeywords: config.sourceReferralKeywords,
   sourceAgencyKeywords: config.sourceAgencyKeywords,
   displayTimeZone: config.displayTimeZone,
+  schedulingEnabled: config.schedulingEnabled,
+  // With the scheduling pilot on, "Needs scheduling" is the ready-to-schedule
+  // section and the older queue is renamed; without it, the queue keeps its
+  // original name.
+  needsSchedulingLabel: config.schedulingEnabled ? "Scheduling not started" : "Needs scheduling",
 };
 
 let snapshot = {

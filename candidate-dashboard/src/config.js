@@ -118,6 +118,11 @@ const config = {
   ashbyWorkerSecret: process.env.ASHBY_WORKER_SECRET || "",
   ashbyExpectedIdentity: process.env.ASHBY_EXPECTED_IDENTITY || "",
   schedulingClientId: process.env.SCHEDULING_CLIENT_ID || "",
+  // The scheduling pilot (booking review, Ashby and Google connections, the
+  // ready-to-schedule section) is on only for dashboards with a scheduling
+  // client ID. Everywhere else its routes and pages return 404 — see
+  // scheduling/page-gate.js.
+  schedulingEnabled: Boolean(process.env.SCHEDULING_CLIENT_ID),
   schedulingRouting: process.env.SCHEDULING_SLACK_ROUTING || "candidate",
   schedulingChannelId: process.env.SCHEDULING_SLACK_CHANNEL_ID || "",
   schedulingChannelName: process.env.SCHEDULING_SLACK_CHANNEL_NAME || "",
