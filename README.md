@@ -12,18 +12,19 @@ Monorepo for Carrara recruiting operations tooling.
 
 ## Railway projects
 
-Build sources below were read from Railway on 25 September 2026. Services on `main` have watch paths, so a push
-only redeploys the services whose directory changed.
+Build sources below were read from Railway on 25 September 2026. Every repo-connected service has watch paths, so a
+push only redeploys the services whose directory changed. The dashboards exclude `candidate-dashboard/worker/`,
+which only the Luminai `scheduling-worker` service builds.
 
 | Project | Service | Builds from |
 |---|---|---|
-| dashboard-january | `coordbots` | this repo, branch `main`, root `/candidate-dashboard`, rebuilds only on changes under `/candidate-dashboard/**` |
-| dashboard-luminai | `coordbots` | this repo, branch `feature/client-ashby-connection`, root `/candidate-dashboard` |
+| dashboard-january | `coordbots` | this repo, branch `main`, root `/candidate-dashboard`, rebuilds only on changes under `/candidate-dashboard/**` except `/candidate-dashboard/worker/**` |
+| dashboard-luminai | `coordbots` | this repo, branch `feature/client-ashby-connection`, root `/candidate-dashboard`, rebuilds only on changes under `/candidate-dashboard/**` except `/candidate-dashboard/worker/**` |
 | dashboard-luminai | `scheduling-worker` | this repo, branch `feature/client-ashby-connection`, root `/candidate-dashboard`, Dockerfile `candidate-dashboard/worker/Dockerfile`, rebuilds only on changes under `/candidate-dashboard/**` |
-| dashboard-profound | `coordbots` | this repo, branch `main`, root `/candidate-dashboard`, rebuilds only on changes under `/candidate-dashboard/**` |
-| dashboard-poetic | `coordbots` | this repo, branch `main`, root `/candidate-dashboard`, rebuilds only on changes under `/candidate-dashboard/**` |
-| dashboard-forus | `coordbots` | this repo, branch `main`, root `/candidate-dashboard`, rebuilds only on changes under `/candidate-dashboard/**` |
-| dashboard-runlayer | `coordbots` | this repo, branch `main`, root `/candidate-dashboard`, rebuilds only on changes under `/candidate-dashboard/**` |
+| dashboard-profound | `coordbots` | this repo, branch `main`, root `/candidate-dashboard`, rebuilds only on changes under `/candidate-dashboard/**` except `/candidate-dashboard/worker/**` |
+| dashboard-poetic | `coordbots` | this repo, branch `main`, root `/candidate-dashboard`, rebuilds only on changes under `/candidate-dashboard/**` except `/candidate-dashboard/worker/**` |
+| dashboard-forus | `coordbots` | this repo, branch `main`, root `/candidate-dashboard`, rebuilds only on changes under `/candidate-dashboard/**` except `/candidate-dashboard/worker/**` |
+| dashboard-runlayer | `coordbots` | this repo, branch `main`, root `/candidate-dashboard`, rebuilds only on changes under `/candidate-dashboard/**` except `/candidate-dashboard/worker/**` |
 | poetic-worktrialtracker | `work-trial-tracker` | the separate `hayleysamuels-ops/work-trial-tracker` repo, branch `main`, repo root |
 | poetic-worktrialtracker | `scheduling-worker` | no connected repo: deployed by CLI upload (`railway up`), Dockerfile `worker/Dockerfile`, last deployed 18 September 2026 |
 | poetic-worktrialtracker | `Postgres` | Railway Postgres image |
