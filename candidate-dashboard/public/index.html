@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Candidate Dashboard</title>
   <link rel="stylesheet" href="style.css" />
+  <!-- scheduling:start -->
   <link rel="stylesheet" href="scheduling-review.css" />
+  <!-- scheduling:end -->
 </head>
 <body>
   <header class="topbar">
@@ -26,7 +28,9 @@
     <button type="button" class="tab-btn is-active" data-tab="dashboard" aria-pressed="true">Dashboard</button>
     <button type="button" class="tab-btn" data-tab="interviewers" aria-pressed="false">Interviewer Info</button>
     <button type="button" class="tab-btn" data-tab="offers" aria-pressed="false">Offers</button>
+    <!-- scheduling:start -->
     <button type="button" class="tab-btn" data-tab="scheduling" aria-pressed="false">Scheduling</button>
+    <!-- scheduling:end -->
   </nav>
 
   <div id="tab-dashboard" class="tab-panel">
@@ -59,12 +63,14 @@
     </aside>
 
     <main class="page-stack">
+      <!-- scheduling:start -->
       <section id="readyToSchedule" class="column wide-section">
         <h2>Needs scheduling</h2>
         <p class="column-sub">Candidates who have shared availability in Ashby. Review their interview plan here; sending invitations always requires coordinator approval.</p>
         <p id="ready-scheduling-status" class="muted" role="status"></p>
         <div id="ready-scheduling-cards" class="cards"></div>
       </section>
+      <!-- scheduling:end -->
       <section id="actionQueue" class="column action-queue-section">
         <h2>Action queue</h2>
         <span class="section-updated muted" id="updated-actionQueue"></span>
@@ -186,7 +192,9 @@
     </div>
   </div>
 
+  <!-- scheduling:start -->
   <div id="tab-scheduling" class="tab-panel" hidden><main id="scheduling-review"></main></div>
+  <!-- scheduling:end -->
 
   <footer class="page-footer">Created by Hayley・Carrara</footer>
 
@@ -195,8 +203,12 @@
     <button type="button" class="dismiss-toast-undo">Undo</button>
   </div>
 
+  <!-- scheduling:start -->
   <script src="ready-scheduling.js"></script>
+  <!-- scheduling:end -->
   <script src="app.js"></script>
+  <!-- scheduling:start -->
   <script src="scheduling-review.js"></script>
+  <!-- scheduling:end -->
 </body>
 </html>

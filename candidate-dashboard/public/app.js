@@ -314,7 +314,10 @@
     },
     {
       key: "needsScheduling",
-      label: "Scheduling not started",
+      // Replaced from appConfig.needsSchedulingLabel in applyAppConfig():
+      // "Scheduling not started" where the scheduling pilot is on (its
+      // ready-to-schedule section takes the "Needs scheduling" name).
+      label: "Needs scheduling",
       thresholdKey: "needsSchedulingAlertHours",
       // Not signal-serious: that's the same ember hue as feedbackOverdue's
       // signal-critical, just a lighter tint — Carrara's warning/serious/
@@ -1040,6 +1043,9 @@
     }
     if (appConfig.displayTimeZone) {
       displayTimeZone = appConfig.displayTimeZone;
+    }
+    if (appConfig.needsSchedulingLabel) {
+      TRIAGE_QUEUES.find((queue) => queue.key === "needsScheduling").label = appConfig.needsSchedulingLabel;
     }
     applyDisabledSections(appConfig.disabledSections);
   }
