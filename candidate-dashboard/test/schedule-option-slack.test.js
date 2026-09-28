@@ -160,3 +160,41 @@ test("the store refuses a second row for a posted option even when the first is 
   assert.equal(await store.insert(row("2", "candidate", "draft")), false);
   assert.equal(await store.insert({ ...row("3", "other", "draft"), clientId: "another-client" }), true);
 });
+
+// ---- message text -----------------------------------------------------------
+
+const { createSlack } = require("../src/scheduling/slack");
+async function render(plan) {
+  let text;
+  const slack = createSlack("fictional-token", async (url, init) => { text = JSON.parse(init.body).text; return { ok: true, json: async () => ({ ok: true, ts: "1", channel: "C1" }) }; }, { displayTimeZone: "America/Los_Angeles" });
+  await slack({ candidateName: "Fictional", jobTitle: "Role", notes: "", ...plan }, { channelId: "C1", proposalId: "ref", approver: "coordinator" });
+  // Intl puts narrow no-break and thin spaces around AM/PM and the dash.
+  return text.replace(/[\u202f\u2009]/g, " ");
+}
+const session = { title: "Welcome", start: "2026-10-01T17:00:00.000Z", end: "2026-10-01T17:15:00.000Z", interviewers: "Someone", location: "Room" };
+
+test("posts use a neutral header and never say the schedule was approved", async () => {
+  const text = await render({ timezone: "America/Los_Angeles", sessions: [session] });
+  assert.match(text, /^INTERVIEW SCHEDULE DRAFT — FOR DISCUSSION/);
+  assert.doesNotMatch(text, /ONSITE|Approved/);
+  assert.match(text, /Posted for discussion by coordinator\./);
+});
+
+test("coordinator time comes first, then the candidate's submitted time, each labelled", async () => {
+  const text = await render({ timezone: "America/New_York", timezoneSource: "candidate_submitted", sessions: [session] });
+  const coordinator = text.indexOf("Coordinator time (America/Los_Angeles): Oct 1, 2026, 10:00 – 10:15 AM");
+  const candidateLine = text.indexOf("Candidate time (America/New_York, as submitted): Oct 1, 2026, 1:00 – 1:15 PM");
+  assert.ok(coordinator > 0 && candidateLine > coordinator, text);
+});
+
+test("coordinator-entered times are never labelled as the candidate's", async () => {
+  const text = await render({ timezone: "Europe/London", sessions: [session] });
+  assert.match(text, /Entered time \(Europe\/London\): Oct 1, 2026, 6:00 – 6:15 PM/);
+  assert.doesNotMatch(text, /Candidate time/);
+});
+
+test("one line when both timezones match", async () => {
+  const text = await render({ timezone: "America/Los_Angeles", timezoneSource: "candidate_submitted", sessions: [session] });
+  assert.match(text, /Coordinator time \(America\/Los_Angeles\), same as the candidate's submitted timezone: Oct 1, 2026, 10:00 – 10:15 AM/);
+  assert.equal((text.match(/10:00/g) || []).length, 1);
+});

@@ -1,10 +1,19 @@
 "use strict";
-function createSlack(token, request = fetch) {
+// One plain-text format for every discussion post. Each session is shown in
+// the dashboard's DISPLAY_TIMEZONE first (the coordinators reading the
+// channel), then in the plan's own timezone, labelled by where it came from:
+// the candidate's submission for a Full schedule option built from Ashby,
+// otherwise the timezone the times were entered in.
+function createSlack(token, request = fetch, { displayTimeZone = "America/New_York" } = {}) {
   return async (plan, { channelId, proposalId, approver }) => {
-    const fmt = value => new Intl.DateTimeFormat("en-US", { timeZone: plan.timezone, dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
-    const content = ["ONSITE DRAFT — FOR DISCUSSION", `${plan.candidateName} · ${plan.jobTitle}`, `Timezone: ${plan.timezone}`,
-      ...plan.sessions.map(s => `${fmt(s.start)} – ${fmt(s.end)} | ${s.title}\nInterviewers: ${s.interviewers}\nLocation: ${s.location}`),
-      plan.notes, `Approved for discussion by ${approver}. Interviews have not been booked.`, `Draft reference: ${proposalId}`].filter(Boolean).join("\n\n");
+    const range = (tz, s) => new Intl.DateTimeFormat("en-US", { timeZone: tz, dateStyle: "medium", timeStyle: "short" }).formatRange(new Date(s.start), new Date(s.end));
+    const planLabel = plan.timezoneSource === "candidate_submitted" ? `Candidate time (${plan.timezone}, as submitted)` : `Entered time (${plan.timezone})`;
+    const times = s => plan.timezone === displayTimeZone
+      ? [`Coordinator time (${displayTimeZone}), same as the ${plan.timezoneSource === "candidate_submitted" ? "candidate's submitted" : "entered"} timezone: ${range(displayTimeZone, s)}`]
+      : [`Coordinator time (${displayTimeZone}): ${range(displayTimeZone, s)}`, `${planLabel}: ${range(plan.timezone, s)}`];
+    const content = ["INTERVIEW SCHEDULE DRAFT — FOR DISCUSSION", `${plan.candidateName} · ${plan.jobTitle}`,
+      ...plan.sessions.map(s => [s.title, ...times(s), `Interviewers: ${s.interviewers}`, `Location: ${s.location}`].join("\n")),
+      plan.notes, `Posted for discussion by ${approver}. Interviews have not been booked.`, `Draft reference: ${proposalId}`].filter(Boolean).join("\n\n");
     const response = await request("https://slack.com/api/chat.postMessage", { method: "POST", signal: AbortSignal.timeout(15000),
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ channel: channelId, text: content, mrkdwn: false, parse: "none", unfurl_links: false, unfurl_media: false }) });

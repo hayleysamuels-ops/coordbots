@@ -7,6 +7,6 @@ function setup(config, candidates) {
     channelId: config.schedulingChannelId, channelName: config.schedulingChannelName,
     candidateChannels: config.schedulingCandidateChannels, routing: config.schedulingRouting,
     templateReader: require("./ashby-template").createTemplateReader(config.ashbyApiKey),
-    slack: config.schedulingSlackToken ? createSlack(config.schedulingSlackToken) : null });
+    slack: config.schedulingSlackToken ? createSlack(config.schedulingSlackToken, fetch, { displayTimeZone: config.displayTimeZone }) : null });
 }
 module.exports = { setup };
