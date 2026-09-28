@@ -121,7 +121,11 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 20px 28px;
-  border-bottom: 3px solid var(--header-accent);
+  border-bottom: 3px solid var(--header-accent-on-page);
+  /* The accent as drawn on the page (this rule and the title). Declared here,
+     not on :root, so it resolves against whichever element set
+     --header-accent. Lifted in dark mode below. */
+  --header-accent-on-page: var(--header-accent);
 }
 
 .topbar-brand {
@@ -142,7 +146,7 @@ body {
   font-weight: 700;
   letter-spacing: -0.01em;
   margin: 0;
-  color: var(--header-accent);
+  color: var(--header-accent-on-page);
 }
 
 .topbar-meta {
@@ -1235,6 +1239,16 @@ button#refresh-btn.spinning {
 
 /* Keep selected controls distinct from their dark surroundings. */
 @media (prefers-color-scheme: dark) {
+  /* CLIENT_ACCENT_COLOR can be any colour, including black (live on
+     Profound), which drew the topbar title and rule black on grafite. Keep
+     the client's hue but raise its lightness to a floor that reads on the
+     dark page: black becomes a light grey, a dark blue a lighter blue, and an
+     already-light accent (the default dark ember) is unchanged. Browsers
+     without relative colour syntax get the neutral text colour instead. */
+  .topbar { --header-accent-on-page: var(--text-primary); }
+  @supports (color: oklch(from red l c h)) {
+    .topbar { --header-accent-on-page: oklch(from var(--header-accent) max(l, 0.72) c h); }
+  }
   .tab-btn.is-active,
   .filter-mode-btn.is-active,
   .signal-chip.is-active,

@@ -398,7 +398,11 @@ is normally still in Application Review and any status).
   Dashboard" — no `DASHBOARD_TITLE` override needed here anymore.
   `CLIENT_ACCENT_COLOR` is independent of both — it only touches
   `--header-accent` (topbar border + title color), defined once in
-  `style.css`'s `:root` token block, default `var(--ember)`.
+  `style.css`'s `:root` token block, default `var(--ember)`. The topbar draws
+  it through `--header-accent-on-page`, declared on `.topbar` (not `:root`, so
+  it resolves wherever `--header-accent` was set); in dark mode that lifts the
+  accent to OKLCH lightness ≥ 0.72 so a black or dark accent stays readable
+  on grafite (see `docs/DESIGN.md` § Found while writing this).
 - **`DISPLAY_TIMEZONE` (`config.displayTimeZone`, default `America/New_York`)
   reaches two genuinely different places, not one** — this is worth
   understanding before touching either: (1) `public/app.js` formats every

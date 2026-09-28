@@ -185,6 +185,9 @@ accepted. So nothing may depend on its hue or its lightness.
 - **It's never used for:** state, a primary button, links, a card, a tag, a
   focus ring, or a loading or empty state. Keeping the orange accent out of state
   matters most, because it's Carrara's ember, the same hue as `--serious`.
+- **Anything drawn in the accent on the page goes through `--header-accent-on-page`**
+  (the title and rule), which lifts it in dark mode. Only the active tab uses
+  `--header-accent` directly, and dark mode replaces that fill.
 - **Anything drawn in the accent needs a fallback that works for any value:**
   - Text in the accent is only allowed at title size (22px or more, bold), where
     3:1 contrast is enough.
@@ -231,9 +234,15 @@ Still open, for the restyle itself:
 
 ## Found while writing this
 
-- **Black accent in dark mode.** With a black accent, the topbar title
-  (`.topbar h1 { color: var(--header-accent) }`) and the topbar rule are black on
-  grafite, so both are close to invisible. The dark block overrides the active tab but
-  not these two. A fix consistent with § Client accent: in dark mode, the title uses
-  `--text-primary`, and the rule stays in the accent but gets a lighter fallback, or
-  sits on a lighter band. Fixed separately, before the restyle (§ Decisions).
+- **Black accent in dark mode (fixed).** With a black accent, the topbar title and
+  rule were black on grafite, about 1.5:1, so close to invisible. A dark blue was
+  about 2.1:1. The dark-mode block now draws both through `--header-accent-on-page`,
+  which keeps the client's hue but raises its OKLCH lightness to at least 0.72:
+  - black becomes a light grey (5.7:1)
+  - `#1d4ed8` becomes a lighter blue (5.1:1)
+  - raw ember becomes a lighter orange (5.0:1)
+  - the default dark ember is unchanged (7.9:1)
+
+  Browsers without relative colour syntax fall back to `--text-primary`. This keeps
+  the accent in the title, rather than switching the title to `--text-primary` as
+  first suggested, so every client's dark-mode title stays recognisably theirs.
