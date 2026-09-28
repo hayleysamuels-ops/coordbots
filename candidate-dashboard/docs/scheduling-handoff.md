@@ -126,12 +126,12 @@ done; the full sequence, in order:
 
 ## Known gaps
 
-- **Ready-to-schedule rows can't be cleared.** The section deliberately ignores
-  snoozes (`src/scheduling/ready-queue.js`), so a coordinator has no way to remove a
-  stuck row, such as a submission that was booked outside Ashby's status flow. An
-  unclearable queue is how the old Active Referrals section became unusable.
-  Follow-up: add snooze/hide support to ready-to-schedule, keyed like other
-  candidate dismissals.
+- **Hidden Ready to schedule rows have no un-hide page.** Rows now have Snooze and
+  Hide, keyed per submission as `schedule:<scheduleId>:<submittedAt>` rather than
+  per candidate, so candidate snoozes elsewhere still don't touch this section.
+  Past the 12-second Undo, a hidden row returns only when its schedule changes in
+  Ashby (any change, by design) or when its entry is removed from `dismissals.json`.
+  The status line shows how many are hidden.
 
 Google Cloud project was being configured in Carrara with External audience and Anna
 as test user. Verify its current publishing state on resume. If still Testing,

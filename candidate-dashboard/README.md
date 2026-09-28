@@ -433,7 +433,10 @@ bottom of the page offers **Undo** for 12 seconds afterward.
 Dismissals are per-candidate (they hide that person from *all* candidate
 sections at once) or per-interviewer (for the Interviewer Weekly Limits
 section), and are persisted to `<DATA_DIR>/dismissals.json` so "indefinitely"
-survives restarts. Beyond the Undo toast, a card can also be brought back by
+survives restarts. The one exception is Ready to schedule (scheduling pilot only):
+its dismissals are per submission, keyed `schedule:<scheduleId>:<submittedAt>`,
+so a candidate dismissed elsewhere stays in Ready to schedule, and any later change
+to the schedule in Ashby brings a hidden row back. Its status line counts hidden rows. Beyond the Undo toast, a card can also be brought back by
 waiting for its "until tomorrow" window to lapse, `POST /api/undismiss` with
 `{ "key": "candidate:<id>" }`, or deleting the relevant entry from
 `dismissals.json`.

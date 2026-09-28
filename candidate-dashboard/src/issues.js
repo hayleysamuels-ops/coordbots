@@ -4,6 +4,7 @@ const config = require("./config");
 const ashby = require("./ashby");
 const dismissals = require("./dismissals");
 const notes = require("./notes");
+const { splitDismissed } = require("./scheduling/ready-queue");
 
 const thresholds = {
   feedbackOverdueHours: config.feedbackOverdueHours,
@@ -242,12 +243,18 @@ function start() {
 
 // Apply dismissals at serve time (not refresh time) so a dismiss takes effect
 // on the very next poll, without waiting for the background refresh. Candidate
-// sections filter on candidateId; the interviewer section on userId.
+// sections filter on candidateId; the interviewer section on userId. Ready to
+// schedule filters on its own per-submission key (see ready-queue.js), never
+// on candidateId, and also returns its hidden rows so the section can count
+// them after the dashboard's entity filters.
 function applyDismissals(snap) {
   const keepCandidate = (x) => !dismissals.isDismissed(`candidate:${x.candidateId}`);
   const keepInterviewer = (x) => !dismissals.isDismissed(`interviewer:${x.userId}`);
+  const ready = splitDismissed(snap.readyToSchedule, dismissals.isDismissed);
   return {
     ...snap,
+    readyToSchedule: ready.visible,
+    readyToScheduleHidden: ready.hidden,
     feedbackOverdue: snap.feedbackOverdue.filter(keepCandidate),
     needsScheduling: snap.needsScheduling.filter(keepCandidate),
     staleCandidates: snap.staleCandidates.filter(keepCandidate),

@@ -102,7 +102,8 @@ is normally still in Application Review and any status).
 - `src/concurrency.js` — `mapWithConcurrency`, bounds parallel
   `application.info` / `user.interviewerSettings` calls in `ashby.js`.
 - `src/dismissals.js` — persisted (`<DATA_DIR>/dismissals.json`) store of
-  dismissed cards keyed `candidate:<id>` / `interviewer:<id>`; "today" scope
+  dismissed cards keyed `candidate:<id>` / `interviewer:<id>` /
+  `schedule:<scheduleId>:<submittedAt>` (Ready to schedule only); "today" scope
   expires at next local midnight (pruned lazily on read), "forever" persists.
 - `src/ashby.js` — paginated Ashby client (`fetchAllPages` walks
   `moreDataAvailable`/`nextCursor`) + flag computation for Feedback Overdue,
@@ -720,6 +721,17 @@ is normally still in Application Review and any status).
   bringing a card back early. If you add a new candidate-facing section, add
   it to the `keepCandidate` filter list in `issues.js`'s `applyDismissals()`
   — it's not automatic.
+- **Ready to schedule is the one row-scoped exception, on purpose.** Its rows
+  carry `dismissKey` = `schedule:<scheduleId>:<submittedAt>` (built in
+  `src/scheduling/ready-queue.js`), and `applyDismissals()` splits them into
+  `readyToSchedule` and `readyToScheduleHidden` with `splitDismissed()`; the
+  client counts the hidden ones after entity filters for the "N hidden" status
+  line. Don't add it to `keepCandidate`: a candidate snoozed for overdue
+  feedback must not lose their submitted availability. `submittedAt` is the
+  schedule's `updatedAt`, so any Ashby change to the schedule resurfaces a
+  hidden row. That is the intended way to fail, since past the Undo toast there
+  is no un-hide UI and a buried submission is worse than a resurfaced one.
+  `ready-scheduling.js` reuses `dismissHtml()` via `window.dismissHtml`.
 - **The dismiss control is two always-visible buttons, not a "×" that opens a
   menu — deliberately, after a live report of dismiss silently not working.**
   Root cause: a browser extension's own `position: fixed` overlay sat above

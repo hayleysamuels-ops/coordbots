@@ -4,15 +4,15 @@
   if(!root)return;
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const cache=new Map();let generation=0;
-  window.renderReadyScheduling=async(rows,status)=>{
+  window.renderReadyScheduling=async(rows,status,hiddenCount=0)=>{
     const current=++generation;
     const note=document.getElementById('ready-scheduling-status');
-    note.textContent=status?.lastError?'Refresh failed. These are the last known submissions; refresh before scheduling.':!status?.lastUpdated?'Loading availability submissions…':`${rows.length} awaiting scheduling · Last checked ${new Date(status.lastUpdated).toLocaleString()}`;
+    note.textContent=status?.lastError?'Refresh failed. These are the last known submissions; refresh before scheduling.':!status?.lastUpdated?'Loading availability submissions…':`${rows.length} awaiting scheduling${hiddenCount?` · ${hiddenCount} hidden`:''} · Last checked ${new Date(status.lastUpdated).toLocaleString()}`;
     root.replaceChildren();
-    if(!rows.length){root.textContent=status?.lastUpdated?'No candidates with submitted availability in the current filters.':'';return;}
+    if(!rows.length){root.textContent=!status?.lastUpdated?'':hiddenCount?'Every submission in the current filters is snoozed or hidden.':'No candidates with submitted availability in the current filters.';return;}
     const pending=rows.map(row=>{
       const card=document.createElement('article');card.className='scheduling-draft';
-      card.innerHTML=`<h3>${esc(row.candidateName)} · ${esc(row.jobTitle)}</h3><p>Availability submitted${row.submittedAt?' · '+esc(new Date(row.submittedAt).toLocaleString()):''}</p><div class="ready-agenda">Loading current Ashby interview plan…</div><p class="muted">Open booking review to import submitted availability and check tentative times. Complete calendar and interview-limit verification is still pending. No invitations have been sent by this workflow.</p><p><a href="https://app.ashbyhq.com/schedules/${encodeURIComponent(row.scheduleId)}" target="_blank" rel="noopener">View availability in Ashby</a> · <a href="/booking.html?applicationId=${encodeURIComponent(row.applicationId)}&scheduleId=${encodeURIComponent(row.scheduleId)}">Open booking review</a></p>`;
+      card.innerHTML=`<div class="card-top"><h3>${esc(row.candidateName)} · ${esc(row.jobTitle)}</h3>${row.dismissKey&&window.dismissHtml?window.dismissHtml(esc(row.dismissKey)):''}</div><p>Availability submitted${row.submittedAt?' · '+esc(new Date(row.submittedAt).toLocaleString()):''}</p><div class="ready-agenda">Loading current Ashby interview plan…</div><p class="muted">Open booking review to import submitted availability and check tentative times. Complete calendar and interview-limit verification is still pending. No invitations have been sent by this workflow.</p><p><a href="https://app.ashbyhq.com/schedules/${encodeURIComponent(row.scheduleId)}" target="_blank" rel="noopener">View availability in Ashby</a> · <a href="/booking.html?applicationId=${encodeURIComponent(row.applicationId)}&scheduleId=${encodeURIComponent(row.scheduleId)}">Open booking review</a></p>`;
       root.append(card);return {row,card};
     });
     async function worker(){while(pending.length&&generation===current){const {row,card}=pending.shift(),agenda=card.querySelector('.ready-agenda');

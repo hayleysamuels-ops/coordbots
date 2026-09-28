@@ -436,6 +436,10 @@
       </div>`;
   }
 
+  // ready-scheduling.js renders its own cards but reuses this control, so
+  // its Snooze/Hide buttons go through the same delegated listeners below.
+  window.dismissHtml = dismissHtml;
+
   function candidateKey(item) {
     return `candidate:${item.candidateId}`;
   }
@@ -1071,7 +1075,11 @@
     // e.g. Onsite Interviews Today (part of the listIssues() group) no
     // longer shows "refresh failed" just because an unrelated
     // listRecentSourced() call failed this cycle.
-    window.renderReadyScheduling?.(filterByEntity(data.readyToSchedule || []), getSectionStatus(data, "readyToSchedule"));
+    window.renderReadyScheduling?.(
+      filterByEntity(data.readyToSchedule || []),
+      getSectionStatus(data, "readyToSchedule"),
+      filterByEntity(data.readyToScheduleHidden || []).length,
+    );
     renderActionQueue(data);
     const actionQueueStatus = getSectionStatus(data, "feedbackOverdue");
     renderSectionTimestamp("actionQueue", actionQueueStatus.lastUpdated, actionQueueStatus.lastError);

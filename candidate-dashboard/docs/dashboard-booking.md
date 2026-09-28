@@ -65,7 +65,8 @@ This validation is tested locally, but a live count/calendar source is still mis
 The dashboard's Ready to schedule section uses `readyToSchedule`, a distinct
 schedule-level list of Active applications in CandidateAvailabilitySubmitted.
 It is assembled before triage deduplication and is not hidden by alert thresholds
-or candidate snoozes. Stage mismatches remain visible and block agenda loading.
+or candidate snoozes. Each row has its own Snooze/Hide, keyed
+`schedule:<scheduleId>:<submittedAt>`; a later change to the schedule brings it back. Stage mismatches remain visible and block agenda loading.
 The section applies the dashboard's entity filters and fetches published current
 interview plans automatically (two concurrent reads, one-minute browser cache).
 It shows an interview agenda, not a timed draft. Booking review imports actual
