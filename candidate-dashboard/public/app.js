@@ -1009,9 +1009,9 @@
   }
 
   // Removes a disabled section's <section> entirely (not just `hidden`) so
-  // structural CSS — `.page-stack > * + *`'s divider — recomputes against
-  // the real remaining siblings instead of leaving a stray divider where the
-  // removed section used to be. Collapses a now-empty `.side-margin` too, so
+  // structural sibling selectors recompute against the real remaining
+  // siblings (this once avoided a stray `.page-stack > * + *` divider, since
+  // dropped when sections became cards). Collapses a now-empty `.side-margin` too, so
   // a disabled Onsite Interviews Today doesn't leave an empty gap. Only
   // covers keys that still have their own static `[data-key]` section —
   // recentSourced/staleCandidates/onsiteToday. The four TRIAGE_QUEUES keys

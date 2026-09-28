@@ -1,6 +1,6 @@
 # Dashboard design system
 
-Status: agreed 28 September 2026 (decisions in § Decisions); not implemented yet. It describes the
+Status: agreed and implemented 28 September 2026 (§ Decisions, § Implementation notes). It describes the
 system in two reference screens from another project: a daily dashboard, and a
 candidate swipe-review page. It then maps that system onto this dashboard's existing
 tokens in `public/style.css`. The values are approximate, because they were read from
@@ -226,11 +226,57 @@ These already exist in `style.css` and stay:
 4. **The black-accent dark-mode bug is fixed as a defect, before the restyle** and
    in its own commit, because it's live on Profound (§ Found while writing this).
 
-Still open, for the restyle itself:
+Settled during the restyle:
 
-- **Mono.** It's a third typeface, which the current system doesn't have.
-- **Stat tiles and page title.** The dashboard has neither today. They're described
-  here in case a summary row is wanted; nothing requires adding them.
+- **Mono: IBM Plex Mono** (400/500) for metadata, loaded with the other two faces.
+  It's one token, `--font-mono`, if a different face is wanted.
+- **Stat tiles and page title: not added.** They're described here in case a summary
+  row is wanted later; nothing in the restyle needed them.
+
+## Implementation notes
+
+What the restyle changed beyond restating this doc in CSS, and why:
+
+- **Sections are cards.** Each `.column` is a card on the tinted page, with its
+  title and "Updated" time on one row. The side column stacks them, since 300px has
+  no room for both. The onsite panel keeps its deliberately heavier 2px border.
+- **The queue sidebar is a card too**, so its muted counts and labels sit on
+  `--surface`, not the tinted page.
+- **Removed as decoration:**
+  - the coloured dot before each section title (a fixed colour per section, not
+    state)
+  - the ember tick on "Filter by"
+  - the Stale Candidates card tint
+  - ember link hovers, which are now underline only
+  - the ember accent colour on the filter checkboxes, which now use ink
+- **Hide never fills in light mode.** It's outlined in `--critical` and gains the
+  wash on hover. The dark-mode override at the end of `style.css` is unchanged, and
+  it still fills on hover. Align it only if the fill looks wrong there.
+- **Contrast.** Every text-on-background pair was measured in headless Chrome
+  before and after, in both modes and with the default, black, blue and orange
+  accents. The restyle put state pills on the lighter card surface in dark mode,
+  where two regressed, so the tokens were adjusted until every pair passes:
+  - `--nuvola`: `#7C776D` → `#7A756B`, from 4.45:1 to 4.61:1. It was just short of
+    AA before.
+  - Light-mode `--good`, `--warning`, `--critical`: `#4a7442`, `#807115`, `#b0370b`,
+    a shade darker than moss, lemon and ember-press. Their pills measured 4.29,
+    4.08 and 4.29 before.
+  - Dark-mode `--good`, `--critical`: `#9fca8f`, `#ffb198`, with washes redrawn from
+    the new inks. On the card surface they'd dropped to 4.22 and 3.96.
+  - The active tab's accent fill is capped at OKLCH lightness 0.55, so its white
+    text passes for any accent. The default ember was 3.73:1 and is now 5.33:1.
+    Black and dark blue are unchanged.
+- **Dark-mode title contrast is now measured on the topbar's card surface**
+  (`#3a3634`), not grafite: black 4.79, blue 4.29, orange 4.22. All clear the 3:1
+  that 22px bold needs. The figures in § Found while writing this were measured on
+  grafite.
+- **Phone width.** The tab row wraps, and gutters drop to 16px. The page no longer
+  scrolls sideways at 400px; it scrolled 218px before. The action queue table still
+  scrolls inside its own box.
+- **Still to do:** empty-state copy. The empty state is restyled, but most sections
+  still say only "Nothing flagged". § Loading, empty and error asks for a sentence
+  on why it's empty and what happens next, which is an `app.js` copy change per
+  section.
 
 ## Found while writing this
 

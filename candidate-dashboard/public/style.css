@@ -1,11 +1,13 @@
 /* ============================================================
    Carrara design tokens, ported from the "Carrara Design System"
-   (Manrope/PT Serif type, ember/grafite/marmol palette, sharp
-   angular radii with a chamfer accent). Copied in directly rather
-   than linked, since this app has no build step to pull an
-   external stylesheet at request time.
+   (Manrope/PT Serif type, ember/grafite/marmol palette). Copied in
+   directly rather than linked, since this app has no build step to
+   pull an external stylesheet at request time. Layout, radii, type
+   roles and state colour follow docs/DESIGN.md, which deliberately
+   uses soft radii for the dashboard even though Carrara's deck and
+   document templates stay angular.
    ============================================================ */
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=PT+Serif:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&family=PT+Serif:ital,wght@0,400;0,700;1,400;1,700&display=swap');
 
 :root {
   color-scheme: light;
@@ -18,9 +20,10 @@
   --ember-wash: #fce7df;
   --grafite: #2d2a2a;
   /* Darkened from #9a938e — that was only ~3:1 contrast on white, too light
-     for the 10–11px meta text (section timestamps, card ages, dismiss
-     buttons) that uses --text-muted below. #7C776D gets to ~4.45:1. */
-  --nuvola: #7C776D;
+     for the 10–12px meta text (section timestamps, card ages, dismiss
+     buttons) that uses --text-muted below. #7C776D reached ~4.45:1, just
+     short of AA; #7A756B reaches 4.61:1. */
+  --nuvola: #7A756B;
   --ardesia: #59534f;
   --marmol: #edebea;
   --border-subtle: #e2dfdd;
@@ -37,20 +40,23 @@
   /* --- Fonts --- */
   --font-serif: "PT Serif", Georgia, "Times New Roman", serif;
   --font-sans: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Metadata only: counts, times, dates, eyebrow labels. Never a sentence. */
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-  /* --- Spacing / radii / shadows (Carrara is angular: small radii,
-     pill reserved for tags/chips, chamfer as the signature cut-block
-     accent) --- */
-  --radius-sm: 2px;
-  --radius-md: 4px;
-  --radius-lg: 8px;
+  /* --- Radii / shadows. Soft, per docs/DESIGN.md § Radii: a deliberate
+     dashboard choice that may differ from Carrara's (angular) deck and
+     document templates. Pill is for status pills and badges only. --- */
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-check: 6px;
   --radius-pill: 999px;
-  --chamfer-sm: 8px;
   --shadow-xs: 0 1px 2px rgba(45, 42, 42, 0.06);
   --shadow-sm: 0 2px 8px rgba(45, 42, 42, 0.08);
 
   /* --- Semantic aliases --- */
-  --page: var(--white);
+  /* Tinted page so white cards lift off it without heavy shadow. Muted
+     text stays on --surface (see DESIGN.md § Keeping today's fixes). */
+  --page: #f5f3f1;
   --surface: var(--white);
   --surface-sunken: var(--marmol);
   --text-primary: var(--grafite);
@@ -66,14 +72,17 @@
 
   /* --- Severity, mapped onto Carrara's own palette rather than
      invented colors: an ascending "heat" ramp through the brand's
-     ember ramp for warning → serious → critical, moss for good. --- */
-  --good: var(--moss);
+     ember ramp for warning → serious → critical, moss for good. The good,
+     warning and critical inks are a shade darker than moss/lemon/ember-press
+     so each reaches 4.5:1 on its own wash as a 12px status pill (moss,
+     lemon and ember-press measured 4.29, 4.08 and 4.29). --- */
+  --good: #4a7442;
   --good-wash: var(--moss-wash);
-  --warning: var(--lemon);
+  --warning: #807115;
   --warning-wash: var(--lemon-wash);
   --serious: var(--ember);
   --serious-wash: var(--ember-wash);
-  --critical: var(--ember-press);
+  --critical: #b0370b;
   --critical-wash: #f7d9cd;
 }
 
@@ -93,15 +102,18 @@
     --border: rgba(255, 255, 255, 0.12);
     --gridline: rgba(255, 255, 255, 0.12);
 
-    /* Lighter tints of the same hues so they hold contrast on grafite. */
-    --good: #8fc17d;
-    --good-wash: rgba(143, 193, 125, 0.16);
+    /* Lighter tints of the same hues so they hold contrast on grafite and
+       on the card surface (#3a3634) sections now sit on. Good and critical
+       were lightened again for the card surface, where their pills measured
+       4.22 and 3.96; each wash is drawn from its own ink. */
+    --good: #9fca8f;
+    --good-wash: rgba(159, 202, 143, 0.16);
     --warning: #e8cf5c;
     --warning-wash: rgba(232, 207, 92, 0.16);
     --serious: #ff7a45;
     --serious-wash: rgba(255, 122, 69, 0.16);
-    --critical: #ff9270;
-    --critical-wash: rgba(255, 146, 112, 0.18);
+    --critical: #ffb198;
+    --critical-wash: rgba(255, 177, 152, 0.18);
   }
 }
 
@@ -114,13 +126,16 @@ body {
   background: var(--page);
   color: var(--text-primary);
   font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 28px;
+  padding: 16px 32px;
+  background: var(--surface);
   border-bottom: 3px solid var(--header-accent-on-page);
   /* The accent as drawn on the page (this rule and the title). Declared here,
      not on :root, so it resolves against whichever element set
@@ -162,6 +177,9 @@ body {
   align-items: flex-end;
   gap: 2px;
   line-height: 1.3;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .muted {
@@ -183,10 +201,10 @@ button#refresh-btn {
   width: 34px;
   height: 34px;
   padding: 0;
-  border: 2px solid var(--border-default);
+  border: 1px solid var(--border-default);
   background: var(--surface);
   color: var(--text-primary);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
   font-size: 1.15rem;
   line-height: 1;
   cursor: pointer;
@@ -194,8 +212,7 @@ button#refresh-btn {
 }
 
 button#refresh-btn:hover {
-  border-color: var(--ember);
-  color: var(--ember);
+  border-color: var(--text-secondary);
 }
 
 button#refresh-btn.spinning {
@@ -213,19 +230,21 @@ button#refresh-btn.spinning {
    page's content, not just a filter within one view. */
 .tab-switcher {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-  padding: 14px 28px;
-  border-bottom: 1px solid var(--border);
+  padding: 12px 32px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--gridline);
 }
 
 .tab-btn {
-  border: 2px solid var(--border-default);
+  border: 1px solid var(--border-default);
   background: var(--surface);
   color: var(--text-secondary);
-  border-radius: var(--radius-sm);
-  padding: 8px 16px;
+  border-radius: var(--radius-control);
+  padding: 7px 16px;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   font-family: inherit;
   cursor: pointer;
 }
@@ -241,6 +260,17 @@ button#refresh-btn.spinning {
   border-color: var(--header-accent);
 }
 
+/* White text on an arbitrary client accent isn't guaranteed to read (the
+   default ember measured 3.73:1). Keep the hue but cap the fill's lightness
+   so white text reaches 4.5:1; an already-dark accent (black, a dark blue)
+   is unchanged. Dark mode replaces this fill entirely (end of file). */
+@supports (color: oklch(from red l c h)) {
+  .tab-btn.is-active {
+    background: oklch(from var(--header-accent) min(l, 0.55) c h);
+    border-color: oklch(from var(--header-accent) min(l, 0.55) c h);
+  }
+}
+
 .tab-panel[hidden] {
   display: none;
 }
@@ -248,31 +278,22 @@ button#refresh-btn.spinning {
 .filter-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 28px;
-  border-bottom: 1px solid var(--border);
+  gap: 12px;
+  padding: 10px 32px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--gridline);
   font-size: 14px;
 }
 
-/* Eyebrow treatment (uppercase, wide tracking, small ember tick), lifted
-   from the design system's Eyebrow component. */
+/* Eyebrow label (DESIGN.md § Typography): mono, uppercase, wide tracking.
+   No coloured tick: colour is reserved for state. */
 .filter-bar-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
   color: var(--text-secondary);
-  font-weight: 700;
+  font-family: var(--font-mono);
+  font-weight: 500;
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-}
-
-.filter-bar-label::before {
-  content: "";
-  width: 18px;
-  height: 2px;
-  background: var(--ember);
-  display: inline-block;
 }
 
 /* Segmented control choosing which field the filter below applies to.
@@ -280,8 +301,8 @@ button#refresh-btn.spinning {
    department + job filtering, it replaces which one is live. */
 .filter-mode-toggle {
   display: flex;
-  border: 2px solid var(--border-default);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
   overflow: hidden;
 }
 
@@ -297,16 +318,20 @@ button#refresh-btn.spinning {
 }
 
 .filter-mode-btn:not(:first-child) {
-  border-left: 2px solid var(--border-default);
+  border-left: 1px solid var(--border-default);
 }
 
 .filter-mode-btn:hover {
   color: var(--text-primary);
 }
 
+/* Segmented control (DESIGN.md § Buttons 4): the active segment is a
+   sunken fill in ink, bolder than its neighbours. Dark mode keeps its own
+   light-fill override at the end of this file. */
 .filter-mode-btn.is-active {
-  background: var(--grafite);
-  color: var(--white);
+  background: var(--surface-sunken);
+  color: var(--text-primary);
+  font-weight: 700;
 }
 
 #entity-filter-btn {
@@ -315,9 +340,9 @@ button#refresh-btn.spinning {
   gap: 6px;
   background: var(--surface);
   color: var(--text-primary);
-  border: 2px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  padding: 5px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  padding: 5px 12px;
   font-size: 14px;
   font-weight: 600;
   font-family: inherit;
@@ -331,7 +356,7 @@ button#refresh-btn.spinning {
 }
 
 #entity-filter-btn:hover {
-  border-color: var(--grafite);
+  border-color: var(--text-secondary);
 }
 
 .entity-filter-menu {
@@ -346,7 +371,7 @@ button#refresh-btn.spinning {
   overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   box-shadow: 0 6px 18px rgba(45, 42, 42, 0.18);
   padding: 4px;
 }
@@ -365,7 +390,7 @@ button#refresh-btn.spinning {
   font-weight: 700;
   font-family: inherit;
   cursor: pointer;
-  border-radius: var(--radius-sm);
+  border-radius: calc(var(--radius-control) - 2px);
 }
 
 .entity-filter-reset:hover {
@@ -385,7 +410,7 @@ button#refresh-btn.spinning {
   gap: 8px;
   padding: 6px 10px;
   font-size: 14px;
-  border-radius: var(--radius-sm);
+  border-radius: calc(var(--radius-control) - 2px);
   cursor: pointer;
 }
 
@@ -396,7 +421,7 @@ button#refresh-btn.spinning {
 .entity-filter-row input {
   margin: 0;
   flex: none;
-  accent-color: var(--ember);
+  accent-color: var(--text-primary);
 }
 
 /* Outer wrapper: a left nav sidebar (Triage queues/Watchlist), the main
@@ -409,23 +434,32 @@ button#refresh-btn.spinning {
   gap: 24px;
   max-width: 1620px;
   margin: 0 auto;
-  padding: 24px 28px;
+  padding: 24px 32px 32px;
 }
 
+/* A side panel card (DESIGN.md § Surfaces), so its muted counts and
+   labels sit on --surface rather than the tinted page. */
 .queue-sidebar {
   flex: 0 0 220px;
   position: sticky;
   top: 24px;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 20px;
+  padding: 16px 12px;
+  background: var(--surface);
+  border: 1px solid var(--gridline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-xs);
 }
 
 .queue-group-title {
   margin: 0 0 6px;
+  padding: 0 10px;
+  font-family: var(--font-mono);
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-weight: 500;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-muted);
 }
@@ -447,7 +481,7 @@ button#refresh-btn.spinning {
   color: var(--text-secondary);
   text-decoration: none;
   padding: 7px 10px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
   font-size: 14px;
   font-weight: 600;
   font-family: inherit;
@@ -467,8 +501,10 @@ button#refresh-btn.spinning {
 
 .queue-nav-item .queue-count {
   color: var(--text-muted);
+  font-family: var(--font-mono);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 .queue-nav-item.is-active .queue-count {
@@ -492,6 +528,18 @@ button#refresh-btn.spinning {
 @media (max-width: 900px) {
   .page-with-margin {
     flex-direction: column;
+    padding: 16px;
+  }
+
+  .topbar,
+  .tab-switcher,
+  .filter-bar {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .filter-bar {
+    flex-wrap: wrap;
   }
 
   .queue-sidebar,
@@ -511,16 +559,40 @@ button#refresh-btn.spinning {
      make this border nearly invisible against the page exactly in the mode
      where it matters. text-primary correctly flips per mode. */
   border: 2px solid var(--text-primary);
-  border-radius: var(--radius-lg);
-  padding: 18px 20px;
-  background: var(--surface);
 }
 
-/* Very light dividers between sections — subtle, not a hard rule. Only
-   between siblings (first child never gets one). */
-.page-stack > * + * {
-  border-top: 1px solid var(--gridline);
-  padding-top: 24px;
+/* Every section is a card on the tinted page (DESIGN.md § Surfaces). The
+   title and its "Updated" timestamp share the first row, with the
+   timestamp as mono meta at the right; everything else spans the card. */
+.column {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 16px;
+  align-items: baseline;
+  background: var(--surface);
+  border: 1px solid var(--gridline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-xs);
+  padding: 20px;
+}
+
+.column > * {
+  grid-column: 1 / -1;
+}
+
+.column > h2 {
+  grid-column: 1;
+}
+
+.column > .section-updated {
+  grid-column: 2;
+}
+
+/* The 300px side column has no room for both on one row. */
+.side-margin .column > h2,
+.side-margin .column > .section-updated {
+  grid-column: 1 / -1;
 }
 
 .wide-section .cards {
@@ -534,31 +606,25 @@ button#refresh-btn.spinning {
   flex: 1 1 260px;
 }
 
-.wide-section.tint-critical .card {
-  background: color-mix(in srgb, var(--critical) 6%, var(--surface));
-}
-
 .reason-badge {
   display: inline-flex;
   align-items: center;
   margin-top: 4px;
-  padding: 3px 9px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
   color: var(--critical);
   background: var(--critical-wash);
   border-radius: var(--radius-pill);
 }
 
 .column h2 {
-  display: flex;
-  align-items: center;
-  gap: 9px;
   font-family: var(--font-serif);
-  font-size: 19px;
+  font-size: 20px;
   font-weight: 700;
-  margin: 0 0 6px;
+  line-height: 1.2;
+  margin: 0 0 8px;
 }
 
 .column-sub {
@@ -570,8 +636,11 @@ button#refresh-btn.spinning {
 
 .section-updated {
   display: block;
+  font-family: var(--font-mono);
   font-size: 12px;
-  margin: 2px 0 8px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  margin: 0 0 8px;
 }
 
 .section-updated.stale {
@@ -598,7 +667,7 @@ button#refresh-btn.spinning {
   background: var(--surface);
   color: var(--text-secondary);
   padding: 5px 12px;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-control);
   font-size: 13px;
   font-weight: 600;
   font-family: inherit;
@@ -611,13 +680,14 @@ button#refresh-btn.spinning {
 }
 
 .signal-chip.is-active {
-  background: var(--grafite);
-  border-color: var(--grafite);
-  color: var(--white);
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+  color: var(--surface);
 }
 
 .aq-shown-count {
   color: var(--text-muted);
+  font-family: var(--font-mono);
   font-size: 12px;
   margin: 0 0 8px;
 }
@@ -658,17 +728,18 @@ button#refresh-btn.spinning {
 
 .action-queue-table th {
   text-align: left;
-  padding: 8px 10px;
+  padding: 8px;
+  font-family: var(--font-mono);
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  font-weight: 500;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-muted);
-  border-bottom: 2px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .action-queue-table td {
-  padding: 10px;
+  padding: 12px 8px;
   border-bottom: 1px solid var(--gridline);
   vertical-align: middle;
 }
@@ -678,7 +749,8 @@ button#refresh-btn.spinning {
 }
 
 .aq-candidate {
-  font-weight: 700;
+  font-weight: 600;
+  font-size: 15px;
 }
 
 .aq-candidate a {
@@ -687,7 +759,6 @@ button#refresh-btn.spinning {
 }
 
 .aq-candidate a:hover {
-  color: var(--ember);
   text-decoration: underline;
 }
 
@@ -711,14 +782,15 @@ button#refresh-btn.spinning {
    of the same one, so it spans critical/warning/good instead (skipping
    serious) plus a neutral gray for Rescheduled, which doesn't fit the
    ramp's severity semantics at all. */
+/* Status pill (DESIGN.md § Colour for state): wash fill, ink text, words. */
 .signal-tag {
   display: inline-flex;
   align-items: center;
   padding: 3px 10px;
   border-radius: var(--radius-pill);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
   white-space: nowrap;
 }
 
@@ -753,7 +825,10 @@ button#refresh-btn.spinning {
 
 .aq-waiting {
   white-space: nowrap;
-  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 .aq-waiting.sev-warning {
@@ -860,7 +935,7 @@ button#refresh-btn.spinning {
   color: var(--text-primary);
   background: var(--surface);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
+  border-radius: calc(var(--radius-control) - 2px);
   padding: 4px 6px;
 }
 
@@ -900,9 +975,11 @@ button#refresh-btn.spinning {
 }
 
 .onsite-timeline-time {
-  flex: 0 0 56px;
-  font-weight: 700;
+  flex: 0 0 64px;
+  font-family: var(--font-mono);
+  font-weight: 500;
   font-size: 13px;
+  font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
 }
 
@@ -914,8 +991,8 @@ button#refresh-btn.spinning {
 .onsite-timeline-name {
   flex: 1;
   min-width: 0;
-  font-weight: 700;
-  font-size: 14px;
+  font-weight: 600;
+  font-size: 15px;
 }
 
 .onsite-timeline-name a {
@@ -924,7 +1001,6 @@ button#refresh-btn.spinning {
 }
 
 .onsite-timeline-name a:hover {
-  color: var(--ember);
   text-decoration: underline;
 }
 
@@ -936,26 +1012,6 @@ button#refresh-btn.spinning {
 
 .onsite-timeline-dismiss {
   flex: none;
-}
-
-/* Small chamfered squares instead of circles — a quiet nod to Carrara's
-   "sharp, not soft" brand geometry for the per-section status indicator. */
-.dot {
-  width: 10px;
-  height: 10px;
-  border-radius: var(--radius-sm);
-  clip-path: polygon(0 0, calc(100% - 3px) 0, 100% 3px, 100% 100%, 0 100%);
-  flex: none;
-}
-
-.dot-warning {
-  background: var(--warning);
-}
-.dot-critical {
-  background: var(--critical);
-}
-.dot-good {
-  background: var(--good);
 }
 
 /* Empty when there's nothing paused to reveal — collapses to zero height
@@ -978,7 +1034,7 @@ button#refresh-btn.spinning {
 }
 
 .show-paused-toggle:hover {
-  color: var(--ember);
+  color: var(--text-primary);
 }
 
 .cards {
@@ -990,26 +1046,15 @@ button#refresh-btn.spinning {
   padding-right: 4px;
 }
 
+/* An item inside a section card: hairline border, no shadow, and no state
+   colour on the container. State is in the words inside it (age labels,
+   badges, "over limit", "Paused"). The sev-* class stays on the markup for
+   .card-age but no longer colours the card. */
 .card {
   background: var(--surface);
   border: 1px solid var(--gridline);
-  border-left: 3px solid var(--text-muted);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xs);
-  padding: 12px 14px;
-}
-
-.card.sev-warning {
-  border-left-color: var(--warning);
-}
-.card.sev-serious {
-  border-left-color: var(--serious);
-}
-.card.sev-critical {
-  border-left-color: var(--critical);
-}
-.card.sev-good {
-  border-left-color: var(--good);
+  border-radius: var(--radius-control);
+  padding: 12px 16px;
 }
 
 .card-top {
@@ -1046,12 +1091,11 @@ button#refresh-btn.spinning {
   background: var(--surface);
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.01em;
+  font-size: 0.72rem;
+  font-weight: 600;
   line-height: 1;
-  padding: 3px 7px;
-  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  border-radius: calc(var(--radius-control) - 2px);
   opacity: 1;
   transition: opacity 120ms ease, color 120ms ease, background 120ms ease, border-color 120ms ease;
 }
@@ -1068,30 +1112,26 @@ button#refresh-btn.spinning {
   border-color: var(--text-muted);
 }
 
-/* "Hide" (indefinite) reads heavier than "Snooze" even at rest — an
-   ember-tinted chip rather than a neutral one — so the more consequential
-   action never looks like the lighter one just because both start out
-   subtle. Rest-state opacity (0.85) only matters while neither :hover nor
-   :focus-visible applies — those states have their own explicit opacity: 1
-   below (same selector specificity as this block's, so without an explicit
-   override, hovering/focusing this button would still show 0.85, not 1). */
+/* "Hide" (indefinite) is a consequential button (DESIGN.md § Buttons 3):
+   outlined in --critical so it reads heavier than Snooze, but never filled,
+   so the lasting action never looks like the recommended one. Hover adds
+   the wash rather than a solid fill. Dark mode keeps its own override at
+   the end of this file. */
 .dismiss-btn.dismiss-forever {
-  color: var(--ember);
-  border-color: var(--ember-wash);
-  background: var(--ember-wash);
-  opacity: 0.85;
+  color: var(--critical);
+  border-color: var(--critical);
+  background: var(--surface);
 }
 
 .dismiss-btn.dismiss-forever:hover,
 .dismiss-btn.dismiss-forever:focus-visible {
-  color: var(--white);
-  background: var(--ember);
-  border-color: var(--ember);
-  opacity: 1;
+  color: var(--critical);
+  background: var(--critical-wash);
+  border-color: var(--critical);
 }
 
 .card-name {
-  font-weight: 700;
+  font-weight: 600;
   font-size: 15px;
 }
 
@@ -1101,7 +1141,6 @@ button#refresh-btn.spinning {
 }
 
 .card-name a:hover {
-  color: var(--ember);
   text-decoration: underline;
 }
 
@@ -1119,9 +1158,9 @@ button#refresh-btn.spinning {
   max-width: 320px;
   background: var(--surface);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   box-shadow: 0 6px 18px rgba(45, 42, 42, 0.18);
-  padding: 10px 12px;
+  padding: 12px 14px;
 }
 
 .card-details.open {
@@ -1129,8 +1168,10 @@ button#refresh-btn.spinning {
 }
 
 .card-age {
-  font-size: 13px;
-  font-weight: 700;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
@@ -1156,13 +1197,15 @@ button#refresh-btn.spinning {
   margin-top: 6px;
 }
 
+/* "Nothing to do": centred text, no border (DESIGN.md § Loading, empty
+   and error). Only the can't-confirm variant below keeps a border. */
 .empty-state {
-  color: var(--text-muted);
+  flex: 1 1 100%; /* span the whole row inside a wrapping .cards list */
+  color: var(--text-secondary);
   font-size: 14px;
-  padding: 18px 0;
+  font-weight: 600;
+  padding: 20px 0;
   text-align: center;
-  border: 1px dashed var(--gridline);
-  border-radius: var(--radius-md);
 }
 
 /* "We don't know" (a failed refresh, zero items to show either way), not
@@ -1172,8 +1215,8 @@ button#refresh-btn.spinning {
    under a red timestamp. */
 .empty-state-error {
   color: var(--warning);
-  border-color: var(--warning);
-  border-style: solid;
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-control);
 }
 
 .status-badge {
@@ -1183,9 +1226,8 @@ button#refresh-btn.spinning {
   padding: 2px 9px;
   border-radius: var(--radius-pill);
   background: var(--surface-sunken);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--text-secondary);
   vertical-align: middle;
 }
@@ -1211,7 +1253,7 @@ button#refresh-btn.spinning {
   padding: 12px 18px;
   background: var(--grafite);
   color: var(--white);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   box-shadow: 0 6px 18px rgba(45, 42, 42, 0.28);
   font-size: 14px;
 }
@@ -1228,7 +1270,7 @@ button#refresh-btn.spinning {
   font-size: 14px;
   cursor: pointer;
   padding: 2px 4px;
-  border-radius: var(--radius-sm);
+  border-radius: calc(var(--radius-control) - 2px);
 }
 
 .dismiss-toast-undo:hover,

@@ -165,12 +165,11 @@ is normally still in Application Review and any status).
   per-column loop already used, just now inside the merge instead of at
   render()'s top level. `recentSourced`/`staleCandidates`/`onsiteToday`
   keep their own static sections, so `applyDisabledSections()` still
-  removes their DOM node directly (`section.remove()`, not `hidden` —
-  `.page-stack > * + *`'s divider is a structural CSS pseudo-class
-  (adjacent-sibling `+`) that only recomputes correctly against the real
-  remaining DOM; `display: none` would leave a stray divider at the top of
-  the next section — verified this the hard way against the real cascade
-  behavior, not just reasoned about it). Also collapses `.side-margin` to
+  removes their DOM node directly (`section.remove()`, not `hidden`). This
+  originally avoided a stray `.page-stack > * + *` divider; the restyle
+  (docs/DESIGN.md) made each section its own card and dropped that divider,
+  but keep `remove()` so structural sibling selectors stay correct if one
+  comes back. Also collapses `.side-margin` to
   nothing if `onsiteToday` was its only remaining `.column`, rather than
   leaving an empty 300px gap. The backend (`issues.js`/`ashby.js`) still
   computes every section's data regardless of `DISABLED_SECTIONS` — this is
@@ -813,8 +812,12 @@ is normally still in Application Review and any status).
   source names, stage titles, hiring-team role names — which needs
   client-specific env-var tuning and verification via the compatibility
   script before onboarding).
+- **Layout, radii, type roles and state colour follow `docs/DESIGN.md`**
+  (soft 8/12px radii, sections as cards on a tinted page, IBM Plex Mono for
+  metadata, no severity-coloured card borders, colour only for state). It
+  deliberately differs from Carrara's angular deck/doc templates.
 - **`public/style.css` ports design tokens from the "Carrara Design
-  System"** (colors, PT Serif/Manrope type, spacing/radii/shadows) —
+  System"** (colors, PT Serif/Manrope type, shadows) —
   copied in as plain CSS custom properties rather than linked, since
   there's no build step to fetch an external stylesheet at request time.
   Severity colors (`--good`/`--warning`/`--serious`/`--critical`) are a
