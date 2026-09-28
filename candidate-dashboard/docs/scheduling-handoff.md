@@ -98,10 +98,39 @@ On September 22 a variable deployment rebuilt old main (`f8f6d39`) and removed t
 Google page. The WEB service source was corrected to `feature/client-ashby-connection`.
 Restoration deployment: `be4bc4ed-6b95-4ebc-8246-c947011c1e99`; page HTTP200 and
 Google configured:true were verified. Subsequent user screenshot confirms connection.
-Keep this branch source on Luminai; do not switch to main until the features are
-merged deliberately. A branch push may auto-deploy the web service. Other clients
-must not receive this pilot merely because documentation or shared code changes.
+Keep this branch source on Luminai until step 2 of the post-merge sequence below.
+A branch push may auto-deploy the web service. Other clients must not receive this
+pilot merely because documentation or shared code changes.
 Latest known worker deployment: `474f7867-56a0-4f7a-a066-92e5c4e8e3ce`.
+
+## Post-merge sequence (feature/client-ashby-connection → main, September 28, 2026)
+
+Main now contains the pilot, off unless `SCHEDULING_CLIENT_ID` is set. Pushing main
+redeploys January, Profound, Poetic, Forus and Runlayer; Luminai still builds from
+the feature branch until step 2. Do these in order:
+
+1. Verify the five main-built dashboards: each loads with three tabs (no Scheduling
+   tab, no ready-to-schedule section), the queue reads "Needs scheduling", and
+   `/booking.html` returns 404.
+2. Point Luminai's `coordbots` and `scheduling-worker` services at `main`, keeping
+   their root directory, Dockerfile and watch paths. Confirm the Scheduling tab,
+   booking review and Google page still load.
+3. Set Luminai's `DISABLED_SECTIONS=interviewerLimits,availabilitySubmitted`. Keep
+   `interviewerLimits` in the value: setting `availabilitySubmitted` alone would
+   un-hide Interviewer Weekly Limits. Ready-to-schedule replaces Availability
+   Submitted on Luminai because it lists every submitted schedule, not just the
+   one-section-per-candidate winners.
+4. Retire `feature/client-ashby-connection`, and update the branch references in
+   § Resume from any computer and the root README to `main`.
+
+## Known gaps
+
+- **Ready-to-schedule rows can't be cleared.** The section deliberately ignores
+  snoozes (`src/scheduling/ready-queue.js`), so a coordinator has no way to remove a
+  stuck row, such as a submission that was booked outside Ashby's status flow. An
+  unclearable queue is how the old Active Referrals section became unusable.
+  Follow-up: add snooze/hide support to ready-to-schedule, keyed like other
+  candidate dismissals.
 
 Google Cloud project was being configured in Carrara with External audience and Anna
 as test user. Verify its current publishing state on resume. If still Testing,
