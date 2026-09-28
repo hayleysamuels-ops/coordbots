@@ -118,7 +118,7 @@ test("flag on: the dashboard page is index.html unchanged, with the scheduling t
     assert.equal(on[route].status, 200, route);
     assert.equal(on[route].body, indexFile, route);
   }
-  for (const present of ['id="readyToSchedule"', "<h2>Needs scheduling</h2>", 'data-tab="scheduling"', 'id="tab-scheduling"',
+  for (const present of ['id="readyToSchedule"', "<h2>Ready to schedule</h2>", 'data-tab="scheduling"', 'id="tab-scheduling"',
     '<script src="ready-scheduling.js"></script>', '<script src="scheduling-review.js"></script>']) {
     assert.ok(indexFile.includes(present), "index.html is missing " + present);
   }

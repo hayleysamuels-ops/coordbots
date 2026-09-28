@@ -62,7 +62,7 @@ source-verified period boundaries instead of assuming which day starts the week.
 This validation is tested locally, but a live count/calendar source is still missing.
 
 ## Submitted-availability queue
-The dashboard's Needs scheduling section uses `readyToSchedule`, a distinct
+The dashboard's Ready to schedule section uses `readyToSchedule`, a distinct
 schedule-level list of Active applications in CandidateAvailabilitySubmitted.
 It is assembled before triage deduplication and is not hidden by alert thresholds
 or candidate snoozes. Stage mismatches remain visible and block agenda loading.
@@ -113,7 +113,7 @@ full availability and interview-load verification remain incomplete. 104 tests p
 
 
 ## Candidate-submitted availability
-Opening booking review from Needs scheduling now carries both application and
+Opening booking review from Ready to schedule now carries both application and
 schedule IDs. After coordinator sign-in, the page loads current pending requests
 and automatically imports the selected request's submitted windows and timezone.
 If an application has multiple requests, it preserves the linked request or asks

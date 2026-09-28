@@ -33,8 +33,8 @@ const appConfig = {
   sourceAgencyKeywords: config.sourceAgencyKeywords,
   displayTimeZone: config.displayTimeZone,
   schedulingEnabled: config.schedulingEnabled,
-  // With the scheduling pilot on, "Needs scheduling" is the ready-to-schedule
-  // section and the older queue is renamed; without it, the queue keeps its
+  // With the scheduling pilot on, the older queue is renamed to set it apart
+  // from the "Ready to schedule" section; without it, the queue keeps its
   // original name.
   needsSchedulingLabel: config.schedulingEnabled ? "Scheduling not started" : "Needs scheduling",
 };

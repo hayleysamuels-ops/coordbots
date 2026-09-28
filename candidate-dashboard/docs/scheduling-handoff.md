@@ -7,7 +7,7 @@ No automatic work or interview sends are authorized by this document.
 ## Product intent and client rules
 
 The dashboard should automatically propose complete schedules that fit the client's
-rules, not recreate Ashby's internal scheduling UI. Needs scheduling should include
+rules, not recreate Ashby's internal scheduling UI. Ready to schedule should include
 candidates with submitted availability, load their current published interview plan,
 and assign eligible interviewers using real availability. Coordinator approval is
 required before booking; booking must include calendar invitations AND candidate

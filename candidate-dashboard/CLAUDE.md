@@ -379,7 +379,7 @@ is normally still in Application Review and any status).
   intercepted: `express.static` serves every file exactly as before the flag.
   The one client-side piece is the Action queue label —
   `appConfig.needsSchedulingLabel` renames "Needs scheduling" to "Scheduling
-  not started" only where the ready-to-schedule section takes that name. The
+  not started" only where the "Ready to schedule" section is shown. The
   ready queue is still computed server-side either way, per the
   DISABLED_SECTIONS rule above. If you add scheduling-only markup, wrap it in
   the markers; if you add a scheduling-only file, add it to

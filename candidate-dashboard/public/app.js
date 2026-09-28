@@ -316,7 +316,7 @@
       key: "needsScheduling",
       // Replaced from appConfig.needsSchedulingLabel in applyAppConfig():
       // "Scheduling not started" where the scheduling pilot is on (its
-      // ready-to-schedule section takes the "Needs scheduling" name).
+      // "Ready to schedule" section shows candidates past that point).
       label: "Needs scheduling",
       thresholdKey: "needsSchedulingAlertHours",
       // Not signal-serious: that's the same ember hue as feedbackOverdue's
