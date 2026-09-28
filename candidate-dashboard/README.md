@@ -1,8 +1,8 @@
 # Candidate issues dashboard
 
-> **Current checkpoint (September 22, 2026): work paused by the user.** Read the
-> [Luminai handoff](docs/scheduling-handoff.md) for deployed state, San Francisco onsite context,
-> remaining verification, deployment branch and instructions for resuming elsewhere.
+> **Luminai scheduling pilot:** on `main`, and on only where `SCHEDULING_CLIENT_ID` is set
+> (Luminai alone). Read the [Luminai handoff](docs/scheduling-handoff.md) for deployed state, San Francisco
+> onsite context, remaining verification and known gaps.
 
 A small dashboard for a recruiting coordinator: at a glance, which candidates
 (and interviewers) need attention right now. Twelve sections:

@@ -1,7 +1,6 @@
-# Luminai scheduling handoff — paused September 22, 2026
+# Luminai scheduling handoff
 
-Work is paused at the user's request. Resume only when requested. This is the
-current checkpoint; older dated validation notes in other docs are historical.
+This is the current checkpoint; older dated validation notes in other docs are historical.
 No automatic work or interview sends are authorized by this document.
 
 ## Product intent and client rules
@@ -107,16 +106,16 @@ Latest known worker deployment: `474f7867-56a0-4f7a-a066-92e5c4e8e3ce`.
 ## Post-merge sequence (feature/client-ashby-connection → main, September 28, 2026)
 
 Main now contains the pilot, off unless `SCHEDULING_CLIENT_ID` is set. All six
-dashboards and Luminai's `scheduling-worker` build from main. Steps 2 and 4 are
-done; the full sequence, in order:
+dashboards and Luminai's `scheduling-worker` build from main. All four steps are
+done and verified, in this order:
 
-1. Verify the five main-built dashboards: each loads with three tabs (no Scheduling
+1. **Done.** Verify the five main-built dashboards: each loads with three tabs (no Scheduling
    tab, no ready-to-schedule section), the queue reads "Needs scheduling", and
    `/booking.html` returns 404.
 2. **Done.** Point Luminai's `coordbots` and `scheduling-worker` services at `main`, keeping
    their root directory, Dockerfile and watch paths. Confirm the Scheduling tab,
    booking review and Google page still load.
-3. Set Luminai's `DISABLED_SECTIONS=interviewerLimits,availabilitySubmitted`. Keep
+3. **Done.** Set Luminai's `DISABLED_SECTIONS=interviewerLimits,availabilitySubmitted`. Keep
    `interviewerLimits` in the value: setting `availabilitySubmitted` alone would
    un-hide Interviewer Weekly Limits. Ready-to-schedule replaces Availability
    Submitted on Luminai because it lists every submitted schedule, not just the
@@ -132,13 +131,17 @@ done; the full sequence, in order:
   Past the 12-second Undo, a hidden row returns only when its schedule changes in
   Ashby (any change, by design) or when its entry is removed from `dismissals.json`.
   The status line shows how many are hidden.
+- **Ready to schedule Snooze/Hide is unverified in a browser.** Luminai had zero rows
+  in the section when it shipped (September 28, 2026), so the buttons have only been
+  covered by unit tests and a syntax check. Once a real submission appears, click
+  Snooze, Undo, then Hide, Undo on it, and confirm the "N hidden" count follows.
 
 Google Cloud project was being configured in Carrara with External audience and Anna
 as test user. Verify its current publishing state on resume. If still Testing,
 Google refresh authorization expires after seven days; reauthorization may be needed.
 Resolve production OAuth setup before relying on unattended long-term reads.
 
-## Next work, in order when resumed
+## Next work, in order
 
 1. Verify Google connection and read the complete plan's actual interviewer calendars
    from booking review. Confirm missing/inaccessible calendars stop the lookup.
@@ -175,12 +178,6 @@ TEST petrino with Mary:
 - separate UNSENT draft `739778b9-bb86-491e-9647-00eefe2d60f2`, last observed September
   22, 10:15–10:30 Pacific. Old test availability expires; get fresh approval and dates
   before a new test. Do not book a real candidate as an implicit test.
-
-## Pause boundary
-
-Documentation and GitHub handoff only at this checkpoint. No new calendar reads,
-bookings, draft edits, Slack posts, or scheduling-rule deployments as part of pause.
-Existing hosted dashboards remain running; pausing development does not disable them.
 
 ## Whole-project GitHub index
 

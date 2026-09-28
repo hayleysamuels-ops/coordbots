@@ -1,8 +1,8 @@
 # Dashboard booking implementation checkpoint
 
-> **Current checkpoint (September 22, 2026): work paused by the user.** Read the
-> [Luminai handoff](scheduling-handoff.md) for deployed state, San Francisco onsite context,
-> remaining verification, deployment branch and instructions for resuming elsewhere.
+> **Luminai scheduling pilot:** on `main`, and on only where `SCHEDULING_CLIENT_ID` is set
+> (Luminai alone). Read the [Luminai handoff](scheduling-handoff.md) for deployed state, San Francisco
+> onsite context, remaining verification and known gaps.
 
 The `/booking.html` review page is linked from Scheduling. Individual coordinator
 credentials stay in memory and authenticate only the existing connection routes

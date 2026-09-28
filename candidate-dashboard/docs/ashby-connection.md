@@ -1,8 +1,8 @@
 # Client-specific Ashby connection
 
-> **Current checkpoint (September 22, 2026): work paused by the user.** Read the
-> [Luminai handoff](scheduling-handoff.md) for deployed state, San Francisco onsite context,
-> remaining verification, deployment branch and instructions for resuming elsewhere.
+> **Luminai scheduling pilot:** on `main`, and on only where `SCHEDULING_CLIENT_ID` is set
+> (Luminai alone). Read the [Luminai handoff](scheduling-handoff.md) for deployed state, San Francisco
+> onsite context, remaining verification and known gaps.
 
 This is a sign-in connection, not a booking executor. No route in this worker
 approves a proposal, creates an interview, sends an invitation, or posts Slack.

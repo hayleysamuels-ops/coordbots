@@ -1,10 +1,10 @@
 # Scheduling review pilot
 
-> **Current checkpoint (September 22, 2026): work paused by the user.** Read the
-> [Luminai handoff](scheduling-handoff.md) for deployed state, San Francisco onsite context,
-> remaining verification, deployment branch and instructions for resuming elsewhere.
+> **Luminai scheduling pilot:** on `main`, and on only where `SCHEDULING_CLIENT_ID` is set
+> (Luminai alone). Read the [Luminai handoff](scheduling-handoff.md) for deployed state, San Francisco
+> onsite context, remaining verification and known gaps.
 
-Status: Luminai pilot deployed; development paused September 22, 2026.
+Status: Luminai pilot deployed from `main`.
 Anna's hosted Ashby session is saved; read-only draft/availability/plan inspection
 is deployed. Anna's Google OAuth account-level test passed. Full calendar-aware
 agenda generation and automatic booking remain incomplete/disabled. A separately
