@@ -1,7 +1,37 @@
 # "Schedule" button on Full schedule options — design analysis
 
-Status: analysis only, 25 September 2026. Nothing here is built. Based on
-`feature/client-ashby-connection` at `ad5b592` (after the scheduling flag, PR #4).
+Status: analysis written 25 September 2026, based on `feature/client-ashby-connection`
+at `ad5b592` (after the scheduling flag, PR #4). **Phase one is built** (see below);
+the interactive Slack button, its endpoint and approver mapping are phase two.
+
+## Phase one: post an option for discussion (built September 28, 2026)
+
+- **Booking page.** Each Full schedule option has a **Post to Slack for discussion**
+  button. While a post is in flight every button is disabled, and a posted option's
+  button stays disabled.
+- **Route.** `POST /api/scheduling-booking/post-full-schedule-option`, inside the
+  existing coordinator-only booking router, so it's behind Basic Auth and the
+  coordinator login. There's no new public endpoint. The route exists only where
+  `SCHEDULING_CLIENT_ID` is set.
+- **Nothing trusted from the browser but a choice.** The route rebuilds the options
+  from the current Ashby plan and availability, the same way `suggest-full-schedule`
+  does. The browser sends only the option's index and the `optionDigest` it was shown;
+  if the rebuilt option's digest differs, it refuses with 409.
+- **Same posting path.** `service.postScheduleOption()` drafts the option and then
+  calls `share()`, so it keeps the claim before posting, the revision and digest
+  checks, and the Ashby candidate re-check. The channel comes only from
+  `destination()`. A missing channel or token refuses with 503 before any draft is
+  written.
+- **Posting the same option twice.** Each draft records
+  `sourceRef = full-schedule:<scheduleId>:<optionDigest>`. The store refuses a second
+  row with the same `sourceRef` unless the first was rejected. It checks this under
+  its lock, so overlapping requests can't both post. A different option for the same
+  candidate can be posted once the first is `shared`.
+- **Plain message.** The Slack message is today's plain-text discussion message. The
+  notes say the option isn't calendar-checked and that nothing was booked.
+- **Uncertain deliveries.** If Slack's response can't be verified, the draft is left
+  `discussion_uncertain` and blocks that candidate's next post, as for any discussion
+  draft.
 
 **The request:** each option under **Full schedule options** on the booking page gets a
 **Schedule** button. Clicking it posts that option to a shared Slack channel, where a

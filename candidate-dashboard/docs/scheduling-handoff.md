@@ -135,6 +135,13 @@ done and verified, in this order:
   in the section when it shipped (September 28, 2026), so the buttons have only been
   covered by unit tests and a syntax check. Once a real submission appears, click
   Snooze, Undo, then Hide, Undo on it, and confirm the "N hidden" count follows.
+- **Post to Slack for discussion (phase one of [the Slack schedule button](slack-schedule-button.md))
+  is built but not configured or tested live.** It needs `SCHEDULING_SLACK_ROUTING=client`,
+  `SCHEDULING_SLACK_CHANNEL_ID`, `SCHEDULING_SLACK_CHANNEL_NAME` and
+  `SCHEDULING_SLACK_BOT_TOKEN` on Luminai, with the bot invited to that channel.
+- **An uncertain Slack post has no reconcile button.** A `discussion_uncertain` draft
+  blocks that candidate's next post, and the dashboard can only reject drafts in the
+  `draft` state, so clearing one means editing `scheduling.json` on the volume.
 
 Google Cloud project was being configured in Carrara with External audience and Anna
 as test user. Verify its current publishing state on resume. If still Testing,

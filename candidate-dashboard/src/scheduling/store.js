@@ -34,6 +34,9 @@ function createStore(dir) {
     get: async id => read()[id] || null,
     insert: async row => mutate(rows => {
       if (rows[row.id] || Object.values(rows).some(existing => existing.clientId === row.clientId && existing.plan.candidateId === row.plan.candidateId && ["draft", "sharing", "discussion_uncertain"].includes(existing.state))) return false;
+      // Checked again here, under the lock, so two overlapping posts of the same
+      // Full schedule option can't both pass postScheduleOption's earlier check.
+      if (row.plan.sourceRef && Object.values(rows).some(existing => existing.clientId === row.clientId && existing.plan.sourceRef === row.plan.sourceRef && existing.state !== "rejected")) return false;
       rows[row.id] = row; return true;
     }),
     replace: async (id, revision, next) => mutate(rows => {

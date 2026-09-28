@@ -18,6 +18,7 @@ const PROBES = [
   ["GET", "/api/scheduling-review"],
   ["POST", "/api/scheduling-review/drafts", {}],
   ["GET", "/api/scheduling-booking"],
+  ["POST", "/api/scheduling-booking/post-full-schedule-option", {}],
   ["POST", "/api/ashby-connection/status", {}],
   ["GET", "/api/google-calendar/status"],
   ["GET", "/booking.html"],

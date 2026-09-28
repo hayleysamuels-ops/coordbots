@@ -45,6 +45,7 @@ const API_ROUTES = [
   "GET /api/scheduling-review",
   "POST /api/scheduling-review/drafts",
   "GET /api/scheduling-booking",
+  "POST /api/scheduling-booking/post-full-schedule-option",
   "POST /api/ashby-connection/status",
   "GET /api/google-calendar/status",
 ];
@@ -96,6 +97,8 @@ test("flag on: scheduling API routes respond exactly as before the flag", () => 
   const expected = {
     "POST /api/scheduling-review/drafts": [403, { error: "Sign in with an individual scheduling approver account." }],
     "GET /api/scheduling-booking": [403, { error: "Sign in with your coordinator account to review and approve bookings." }],
+    // Added after the flag: the post-to-Slack route sits behind the same coordinator guard.
+    "POST /api/scheduling-booking/post-full-schedule-option": [403, { error: "Sign in with your coordinator account to review and approve bookings." }],
     "POST /api/ashby-connection/status": [403, { error: "Sign in with an individual coordinator account to connect Ashby. The shared dashboard login cannot manage connections." }],
     "GET /api/google-calendar/status": [403, { error: "Sign in with your coordinator account to manage Google Calendar." }],
     "GET /api/scheduling-review": [200, { status: { canApprove: false, clientId: "luminai", channelName: "Not configured", slackReady: false, routing: "candidate", bookingReady: false, bookingMessage: "The Ashby booking connection is not ready. No invitations can be sent." }, proposals: [], sources: [] }],

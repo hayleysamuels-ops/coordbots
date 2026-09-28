@@ -58,9 +58,26 @@
     $('suggest-full').disabled=true;$('full-suggestions').textContent='Preparing the entire agenda from the current Ashby template and candidate availability…';
     try{const result=await api('/suggest-full-schedule',request);if(version!==fullPlanVersion||session!==sessionVersion||!credentials||JSON.stringify(request)!==JSON.stringify(requestDetails()))return;
       const fmt=value=>new Intl.DateTimeFormat('en-US',{timeZone:result.timezone,dateStyle:'medium',timeStyle:'short'}).format(new Date(value));
-      $('full-suggestions').innerHTML=`<h2>Full schedule options</h2><p>${esc(result.reason)}</p><p>Shown in ${esc(result.timezone)}. Suggested interviewers are eligible choices, not confirmed available. These options cannot send invitations.</p>`+result.proposals.map((p,i)=>`<article><h3>Option ${i+1}: ${esc(fmt(p.start))}</h3><table><thead><tr><th>Interview</th><th>Time</th><th>Suggested interviewer</th></tr></thead><tbody>${p.events.map(e=>`<tr><td>${esc(e.title)}</td><td>${esc(fmt(e.start))}–${esc(fmt(e.end))}</td><td>${esc(e.interviewer.name)}<details><summary>Eligible alternatives</summary>${e.eligibleInterviewers.map(i=>esc(i.name)).join(', ')}</details></td></tr>`).join('')}</tbody></table></article>`).join('');
+      $('full-suggestions').innerHTML=`<h2>Full schedule options</h2><p>${esc(result.reason)}</p><p>Shown in ${esc(result.timezone)}. Suggested interviewers are eligible choices, not confirmed available. These options cannot send invitations. Posting one to Slack is for discussion only and books nothing.</p>`+result.proposals.map((p,i)=>`<article><h3>Option ${i+1}: ${esc(fmt(p.start))}</h3><p><button type="button" class="post-option" data-index="${i}" data-digest="${esc(p.optionDigest)}">Post to Slack for discussion</button> <span class="post-option-status" role="status"></span></p><table><thead><tr><th>Interview</th><th>Time</th><th>Suggested interviewer</th></tr></thead><tbody>${p.events.map(e=>`<tr><td>${esc(e.title)}</td><td>${esc(fmt(e.start))}–${esc(fmt(e.end))}</td><td>${esc(e.interviewer.name)}<details><summary>Eligible alternatives</summary>${e.eligibleInterviewers.map(i=>esc(i.name)).join(', ')}</details></td></tr>`).join('')}</tbody></table></article>`).join('');
+      suggestedRequest=request;
     }catch(e){if(version===fullPlanVersion&&session===sessionVersion)$('full-suggestions').textContent=e.message;}finally{$('suggest-full').disabled=false;}
   };
+  // Every Post button is disabled while one post is in flight, and a posted
+  // option's button stays disabled, so a double-click sends one request. The
+  // server's claim-before-posting and per-option check are the real guard.
+  let suggestedRequest=null;
+  $('full-suggestions').addEventListener('click',async e=>{
+    const button=e.target.closest('.post-option');if(!button||button.disabled||!suggestedRequest)return;
+    const status=button.parentElement.querySelector('.post-option-status'),buttons=[...$('full-suggestions').querySelectorAll('.post-option')],session=sessionVersion;
+    if(JSON.stringify(suggestedRequest)!==JSON.stringify(requestDetails())){status.textContent='The request changed. Suggest the full schedule again.';return;}
+    for(const b of buttons)b.disabled=true;status.textContent='Rechecking Ashby and posting…';
+    let posted=false;
+    try{const r=await api('/post-full-schedule-option',{...suggestedRequest,optionIndex:Number(button.dataset.index),optionDigest:button.dataset.digest});if(session!==sessionVersion)return;
+      posted=true;button.textContent=r.state==='shared'?'Posted':'Check Slack';
+      status.textContent=r.state==='shared'?`Posted to ${r.channelName} for discussion. Nothing was booked.`:`Slack didn’t confirm delivery. Check ${r.channelName} before trying again. This candidate can’t get another post until the draft is reconciled.`;
+    }catch(err){if(session===sessionVersion)status.textContent=err.message;}
+    finally{for(const b of buttons)if(!(b===button&&posted)&&b.textContent==='Post to Slack for discussion')b.disabled=false;}
+  });
   function clearAvailability(){clearFullPlan();$('windows').replaceChildren();$('calendar-preview').replaceChildren();$('availability-status').textContent='';$('prepare').scheduleId.innerHTML='<option value="">Loading requests…</option>';}
   function applyAvailabilityMode(){const imported=$('prepare').availabilitySource.value==='ashby';$('add-window').disabled=imported;for(const el of $('windows').querySelectorAll('input'))el.readOnly=imported;for(const el of $('windows').querySelectorAll('button'))el.disabled=imported;$('prepare').timezone.disabled=imported;$('prepare').scheduleId.disabled=!imported;$('reload-availability').disabled=!imported;}
   async function importAvailability(){

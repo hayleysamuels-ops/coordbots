@@ -1,6 +1,6 @@
 "use strict";
 const express = require("express");
-function bookingRoutes({ engine, store, clientId, facts, inspectDraft, inspectCalendar, inspectPlan, inspectFullCalendar, availability, googleCalendar, googleFreeBusy, capabilities = async () => ({ available: false, reason: "Ashby calendar and booking automation are not connected yet." }) }) {
+function bookingRoutes({ engine, store, clientId, discussion = null, facts, inspectDraft, inspectCalendar, inspectPlan, inspectFullCalendar, availability, googleCalendar, googleFreeBusy, capabilities = async () => ({ available: false, reason: "Ashby calendar and booking automation are not connected yet." }) }) {
   const router = express.Router();
   router.use((req, res, next) => {
     res.set("Cache-Control", "no-store");
@@ -74,7 +74,10 @@ function bookingRoutes({ engine, store, clientId, facts, inspectDraft, inspectCa
     if(result.applicationId!==plan.applicationId||result.candidateId!==plan.candidateId||result.draftId!==req.body.draftId)throw Object.assign(Error('The calendar assessment belongs to another draft.'),{status:409});
     return result;
   }));
-  router.post('/suggest-full-schedule',handle(async req=>{
+  // Each option carries a digest of itself, so posting one can prove the
+  // server rebuilt exactly the option the coordinator saw.
+  const optionDigest=p=>require('./service').digest(p);
+  async function suggestFull(req){
     const plan=await fullPlan(req);
     let windows=req.body.windows,timezone=req.body.timezone;
     if(req.body.availabilitySource==='ashby'){
@@ -82,7 +85,22 @@ function bookingRoutes({ engine, store, clientId, facts, inspectDraft, inspectCa
       if(submission.stageId!==plan.stageId)throw Object.assign(Error('The candidate stage changed. Reload the plan.'),{status:409});
       windows=submission.localWindows;timezone=submission.timezone;
     }else if(req.body.availabilitySource!=='manual')throw Object.assign(Error('Choose an availability source.'),{status:422});
-    return {...require('./full-schedule').proposeFullSchedule({sessions:plan.sessions,windows,timezone}),candidateName:plan.candidateName,checkedAt:plan.checkedAt};
+    const result=require('./full-schedule').proposeFullSchedule({sessions:plan.sessions,windows,timezone});
+    return {plan,result:{...result,proposals:result.proposals.map(p=>({...p,optionDigest:optionDigest(p)})),candidateName:plan.candidateName,checkedAt:plan.checkedAt}};
+  }
+  router.post('/suggest-full-schedule',handle(async req=>(await suggestFull(req)).result));
+  // Posts one option to this client's configured Slack channel for discussion.
+  // The option is rebuilt here from the current Ashby plan and availability;
+  // only its index and digest come from the browser, and the channel never does.
+  router.post('/post-full-schedule-option',handle(async req=>{
+    if(!discussion)throw Object.assign(Error('Slack discussion posting is not connected.'),{status:503});
+    const index=req.body.optionIndex;
+    if(!Number.isInteger(index)||index<0||typeof req.body.optionDigest!=='string')throw Object.assign(Error('Choose a schedule option.'),{status:422});
+    const {plan,result}=await suggestFull(req),option=result.proposals[index];
+    if(!option||option.optionDigest!==req.body.optionDigest)throw Object.assign(Error('The schedule options changed. Suggest the full schedule again.'),{status:409});
+    const {optionDigest:ref,...chosen}=option;
+    return discussion.postScheduleOption({applicationId:plan.applicationId,candidateId:plan.candidateId,timezone:result.timezone,option:chosen,optionNumber:index+1,
+      sourceRef:`full-schedule:${plan.scheduleId}:${ref}`,availabilitySource:req.body.availabilitySource},req.schedulingUser);
   }));
   router.post("/application", handle(req => {
     if(!facts)throw Object.assign(new Error('Ashby details are not connected.'),{status:503});
