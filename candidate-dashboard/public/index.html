@@ -12,7 +12,11 @@
 <body>
   <header class="topbar">
     <div class="topbar-brand">
-      <img src="assets/carrara-iso-grafite.svg" alt="" />
+      <!-- Grafite mark on light pages, marmol (same geometry, light fills) on dark. -->
+      <picture>
+        <source srcset="assets/carrara-iso-marmol.svg" media="(prefers-color-scheme: dark)" />
+        <img src="assets/carrara-iso-grafite.svg" alt="" />
+      </picture>
       <h1 id="dashboard-title">Candidate Dashboard</h1>
     </div>
     <div class="topbar-meta">
