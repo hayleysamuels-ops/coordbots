@@ -1,0 +1,65 @@
+/* Shared theme for booking review and the hosted Ashby connection page. */
+:root {
+  color-scheme: light;
+  --scheduler-page: #f7f6f2;
+  --scheduler-surface: #ffffff;
+  --scheduler-text: #242b25;
+  --scheduler-muted: #576252;
+  --scheduler-border: #84917f;
+  --scheduler-button: #e9eee5;
+  --scheduler-hover: #dce5d5;
+  --scheduler-disabled: #efefeb;
+  --scheduler-disabled-text: #62685e;
+  --scheduler-link: #285736;
+  --scheduler-message: #fff4d7;
+  --scheduler-message-text: #42391d;
+  --scheduler-focus: #285736;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --scheduler-page: #242721;
+    --scheduler-surface: #30362e;
+    --scheduler-text: #f3f5ef;
+    --scheduler-muted: #c1cbb9;
+    --scheduler-border: #8e9c86;
+    --scheduler-button: #414e39;
+    --scheduler-hover: #526147;
+    --scheduler-disabled: #2d3329;
+    --scheduler-disabled-text: #a9b39f;
+    --scheduler-link: #b8dda5;
+    --scheduler-message: #443c23;
+    --scheduler-message-text: #ffe7a3;
+    --scheduler-focus: #c3e6ae;
+  }
+}
+body { color: var(--scheduler-text); background: var(--scheduler-page); }
+a { color: var(--scheduler-link); text-underline-offset: 3px; }
+input, select, textarea, button { color: var(--scheduler-text); background: var(--scheduler-surface); border: 1px solid var(--scheduler-border); }
+input::placeholder, textarea::placeholder { color: var(--scheduler-muted); opacity: 1; }
+button { background: var(--scheduler-button); font-weight: 600; }
+button:not(:disabled):hover { background: var(--scheduler-hover); }
+button:disabled, input:disabled, select:disabled, textarea:disabled {
+  opacity: 1;
+  color: var(--scheduler-disabled-text);
+  -webkit-text-fill-color: var(--scheduler-disabled-text);
+  background: var(--scheduler-disabled);
+  border-style: dashed;
+  cursor: not-allowed;
+}
+input[readonly], textarea[readonly] { background: var(--scheduler-disabled); }
+article, fieldset, dialog, #screen { border-color: var(--scheduler-border); }
+dialog { color: var(--scheduler-text); background: var(--scheduler-surface); }
+dialog::backdrop { background: #0009; }
+#message { background: var(--scheduler-message); color: var(--scheduler-message-text); }
+.muted { color: var(--scheduler-muted); }
+:where(button, a, input, select, textarea, summary):focus-visible {
+  outline: 3px solid var(--scheduler-focus);
+  outline-offset: 3px;
+}
+#screen:focus { outline-color: var(--scheduler-focus); }
+/* Full interview agendas must fit narrow coordinator windows. */
+#prepare, #prepare fieldset, #full-plan, #full-suggestions { min-width: 0; }
+#full-plan table, #full-suggestions table { table-layout: fixed; width: 100%; }
+#full-plan th, #full-plan td, #full-suggestions th, #full-suggestions td { overflow-wrap: anywhere; vertical-align: top; }
+#full-suggestions article { margin-inline: 0; }

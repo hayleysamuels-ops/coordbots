@@ -2,6 +2,9 @@
 
 Monorepo for Carrara recruiting operations tooling.
 
+For Luminai's scheduling pilot (gated by `SCHEDULING_CLIENT_ID`), start with the
+[scheduling handoff](candidate-dashboard/docs/scheduling-handoff.md).
+
 | Directory | What it is | Railway service |
 |---|---|---|
 | `candidate-dashboard/` | Per-client coordinator dashboard | `coordbots` in each of the six dashboard projects below |

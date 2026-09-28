@@ -1,5 +1,9 @@
 # CLAUDE.md — Candidate issues dashboard
 
+> **Current checkpoint (September 22, 2026): work paused by the user.** Read the
+> [Luminai handoff](docs/scheduling-handoff.md) for deployed state, San Francisco onsite context,
+> remaining verification, deployment branch and instructions for resuming elsewhere.
+
 Context for Claude Code when working in this repo. Keep this file current when
 the architecture or conventions change.
 
@@ -21,7 +25,7 @@ couldn't represent "availability submitted" at all — see § Correction there
 before touching scheduling-status logic. Two flags were scoped out —
 "Awaiting Reply" (needs Gmail) and "declined meetings" (needs Google
 Calendar RSVP data — a `Cancelled` schedule has no reason code) —
-both dropped to keep this Ashby-only. Don't re-add either without a fresh
+both remain out of scope. The scheduling pilot now adds Google free/busy only. Don't re-add either without a fresh
 product decision on the integration tradeoff.
 
 ## Run / dev
@@ -32,7 +36,8 @@ npm start              # node src/index.js
 npm run dev             # same, with --watch
 ```
 
-No build step, no test framework, no linter. Node 18+, CommonJS (`require`).
+No build step or linter. Tests use Node’s built-in test runner (`npm test`);
+last implementation check passed 158 tests. Node 18+, CommonJS (`require`).
 
 **Multi-client env files.** `.env` is the full local dev config for whichever
 client this checkout currently targets. `.env.<client>` files (`.env.january`,
@@ -123,13 +128,15 @@ is normally still in Application Review and any status).
 
 ## Key design facts (don't "fix" these — they're intentional)
 
-- **The page is three tabs (Dashboard / Interviewer Info / Offers),
-  implemented as plain DOM show/hide, not a router.** `index.html` has
-  three sibling `.tab-panel` divs (`#tab-dashboard`, `#tab-interviewers`,
-  `#tab-offers`) and three `.tab-btn` buttons with a `data-tab` attribute;
+- **The page is four tabs (Dashboard / Interviewer Info / Offers / Scheduling),
+  implemented as plain DOM show/hide, not a router.** The Scheduling tab (and
+  the ready-to-schedule section) exist only where `SCHEDULING_CLIENT_ID` is set —
+  see the scheduling-pilot bullet below; elsewhere the page has three tabs. `index.html` has
+  four sibling `.tab-panel` divs (`#tab-dashboard`, `#tab-interviewers`,
+  `#tab-offers`, `#tab-scheduling`) and four `.tab-btn` buttons with a `data-tab` attribute;
   `app.js`'s click handler is generic over the convention
-  `id="tab-<data-tab value>"`, so a fourth tab needs only a matching
-  button+panel pair, no JS changes. All three panels' content renders on
+  `id="tab-<data-tab value>"`, so another tab needs only a matching
+  button+panel pair, no JS changes. The first three panels' content renders on
   **every** poll regardless of which is visible — the `hidden` attribute is
   purely cosmetic, so switching tabs is instant and never shows stale
   content. Interviewer Weekly Limits and Interviewer Training live on the
@@ -361,6 +368,22 @@ is normally still in Application Review and any status).
   special-casing "only on first load" is needed). If you add another
   client-specific display value, follow the same path — don't reach for
   server-side HTML templating for a single value.
+- **The scheduling pilot is the one deliberate exception: it is gated on the
+  server, not through `appConfig`.** `config.schedulingEnabled` (true when
+  `SCHEDULING_CLIENT_ID` is set) decides whether `server.js` mounts the
+  scheduling API routes at all. When it's off, `src/scheduling/page-gate.js`
+  404s the scheduling-only static files and serves `index.html` with every
+  `<!-- scheduling:start -->`…`<!-- scheduling:end -->` block removed. It
+  can't go through `appConfig` because `scheduling-review.js` calls its API as
+  soon as it loads, before `/api/issues` returns. When it's on, nothing is
+  intercepted: `express.static` serves every file exactly as before the flag.
+  The one client-side piece is the Action queue label —
+  `appConfig.needsSchedulingLabel` renames "Needs scheduling" to "Scheduling
+  not started" only where the ready-to-schedule section takes that name. The
+  ready queue is still computed server-side either way, per the
+  DISABLED_SECTIONS rule above. If you add scheduling-only markup, wrap it in
+  the markers; if you add a scheduling-only file, add it to
+  `SCHEDULING_ONLY_ASSETS`. `test/scheduling-flag.test.js` covers both states.
 - **`CLIENT_NAME` is the single source of truth for the title/header text;
   `DASHBOARD_TITLE` is a full-override escape hatch, not a separate
   concept.** `config.dashboardTitle` resolves `DASHBOARD_TITLE` first, then

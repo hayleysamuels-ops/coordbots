@@ -314,6 +314,9 @@
     },
     {
       key: "needsScheduling",
+      // Replaced from appConfig.needsSchedulingLabel in applyAppConfig():
+      // "Scheduling not started" where the scheduling pilot is on (its
+      // ready-to-schedule section takes the "Needs scheduling" name).
       label: "Needs scheduling",
       thresholdKey: "needsSchedulingAlertHours",
       // Not signal-serious: that's the same ember hue as feedbackOverdue's
@@ -1041,6 +1044,9 @@
     if (appConfig.displayTimeZone) {
       displayTimeZone = appConfig.displayTimeZone;
     }
+    if (appConfig.needsSchedulingLabel) {
+      TRIAGE_QUEUES.find((queue) => queue.key === "needsScheduling").label = appConfig.needsSchedulingLabel;
+    }
     applyDisabledSections(appConfig.disabledSections);
   }
 
@@ -1065,6 +1071,7 @@
     // e.g. Onsite Interviews Today (part of the listIssues() group) no
     // longer shows "refresh failed" just because an unrelated
     // listRecentSourced() call failed this cycle.
+    window.renderReadyScheduling?.(filterByEntity(data.readyToSchedule || []), getSectionStatus(data, "readyToSchedule"));
     renderActionQueue(data);
     const actionQueueStatus = getSectionStatus(data, "feedbackOverdue");
     renderSectionTimestamp("actionQueue", actionQueueStatus.lastUpdated, actionQueueStatus.lastError);

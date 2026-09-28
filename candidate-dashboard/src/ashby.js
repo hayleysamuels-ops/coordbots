@@ -641,6 +641,7 @@ async function listIssues() {
   // Depends on `applications` (to know which schedules are for still-Active
   // candidates), so it can't join the Promise.all above.
   let onsiteToday = await listOnsiteToday(schedules, applications);
+  const readyToSchedule = require("./scheduling/ready-queue").readyQueue(schedules, applications);
 
   const now = Date.now();
   let feedbackEntries = [];
@@ -792,6 +793,7 @@ async function listIssues() {
   rescheduledInterviews.sort((a, b) => b.rescheduleCount - a.rescheduleCount);
 
   return {
+    readyToSchedule,
     feedbackOverdue,
     needsScheduling,
     staleCandidates,

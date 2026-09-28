@@ -32,9 +32,15 @@ const appConfig = {
   sourceReferralKeywords: config.sourceReferralKeywords,
   sourceAgencyKeywords: config.sourceAgencyKeywords,
   displayTimeZone: config.displayTimeZone,
+  schedulingEnabled: config.schedulingEnabled,
+  // With the scheduling pilot on, "Needs scheduling" is the ready-to-schedule
+  // section and the older queue is renamed; without it, the queue keeps its
+  // original name.
+  needsSchedulingLabel: config.schedulingEnabled ? "Scheduling not started" : "Needs scheduling",
 };
 
 let snapshot = {
+  readyToSchedule: [],
   feedbackOverdue: [],
   needsScheduling: [],
   staleCandidates: [],
@@ -79,7 +85,7 @@ async function timed(label, promise) {
 const SECTION_GROUPS = [
   {
     label: "Schedule-driven sections",
-    keys: ["feedbackOverdue", "needsScheduling", "staleCandidates", "interviewerLimits", "availabilitySubmitted", "onsiteToday", "rescheduledInterviews"],
+    keys: ["readyToSchedule", "feedbackOverdue", "needsScheduling", "staleCandidates", "interviewerLimits", "availabilitySubmitted", "onsiteToday", "rescheduledInterviews"],
     fetch: () => timed("listIssues", ashby.listIssues()),
     assign: (snap, result) => Object.assign(snap, result),
   },

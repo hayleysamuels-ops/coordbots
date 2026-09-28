@@ -109,7 +109,20 @@ if (!schedulingCandidateChannels || Array.isArray(schedulingCandidateChannels) |
 if (process.env.SCHEDULING_SLACK_ROUTING && !["candidate", "client"].includes(process.env.SCHEDULING_SLACK_ROUTING)) throw new Error("Scheduling Slack routing must be candidate or client");
 const config = {
   schedulingApprovers,
+  googleCalendarClientId: process.env.GOOGLE_CALENDAR_CLIENT_ID || "",
+  googleCalendarClientSecret: process.env.GOOGLE_CALENDAR_CLIENT_SECRET || "",
+  googleCalendarRedirectUri: process.env.GOOGLE_CALENDAR_REDIRECT_URI || "",
+  googleCalendarExpectedEmail: process.env.GOOGLE_CALENDAR_EXPECTED_EMAIL || "",
+  googleCalendarEncryptionKey: process.env.GOOGLE_CALENDAR_ENCRYPTION_KEY || "",
+  ashbyWorkerUrl: process.env.ASHBY_WORKER_URL || "",
+  ashbyWorkerSecret: process.env.ASHBY_WORKER_SECRET || "",
+  ashbyExpectedIdentity: process.env.ASHBY_EXPECTED_IDENTITY || "",
   schedulingClientId: process.env.SCHEDULING_CLIENT_ID || "",
+  // The scheduling pilot (booking review, Ashby and Google connections, the
+  // ready-to-schedule section) is on only for dashboards with a scheduling
+  // client ID. Everywhere else its routes and pages return 404 — see
+  // scheduling/page-gate.js.
+  schedulingEnabled: Boolean(process.env.SCHEDULING_CLIENT_ID),
   schedulingRouting: process.env.SCHEDULING_SLACK_ROUTING || "candidate",
   schedulingChannelId: process.env.SCHEDULING_SLACK_CHANNEL_ID || "",
   schedulingChannelName: process.env.SCHEDULING_SLACK_CHANNEL_NAME || "",
