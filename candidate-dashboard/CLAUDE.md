@@ -1,8 +1,8 @@
 # CLAUDE.md — Candidate issues dashboard
 
-> **Current checkpoint (September 22, 2026): work paused by the user.** Read the
-> [Luminai handoff](docs/scheduling-handoff.md) for deployed state, San Francisco onsite context,
-> remaining verification, deployment branch and instructions for resuming elsewhere.
+> **Luminai scheduling pilot:** merged to `main` on September 28, 2026, and on only where
+> `SCHEDULING_CLIENT_ID` is set (Luminai alone). Read the [Luminai handoff](docs/scheduling-handoff.md)
+> for deployed state, San Francisco onsite context, remaining verification and known gaps.
 
 Context for Claude Code when working in this repo. Keep this file current when
 the architecture or conventions change.

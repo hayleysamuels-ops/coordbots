@@ -57,12 +57,12 @@ Mary Petrino; coordinator overrides are allowed, not yet a complete rule system.
 ## Resume from any computer
 
 Repository: https://github.com/hayleysamuels-ops/coordbots
-Branch: `feature/client-ashby-connection`
-Draft PR: https://github.com/hayleysamuels-ops/coordbots/pull/2
-Last implementation commit: `1b9a60c` (documentation commits may follow).
+Branch: `main`. The pilot was developed on `feature/client-ashby-connection`
+([PR #2](https://github.com/hayleysamuels-ops/coordbots/pull/2), merged September 28,
+2026; the branch is deleted).
 
 ```sh
-git clone --branch feature/client-ashby-connection https://github.com/hayleysamuels-ops/coordbots.git
+git clone https://github.com/hayleysamuels-ops/coordbots.git
 cd coordbots/candidate-dashboard
 npm ci
 npm test
@@ -70,7 +70,8 @@ npm test
 
 Read this document, then [booking implementation](dashboard-booking.md),
 [Google setup](google-calendar-setup.md), [Ashby connection](ashby-connection.md),
-and [discussion pilot](scheduling-pilot.md). Do not assume main has these features.
+and [discussion pilot](scheduling-pilot.md). Main has these features, but they are
+off unless `SCHEDULING_CLIENT_ID` is set, and only Luminai sets it.
 GitHub and Railway access are needed. Live credentials and encrypted session data
 remain in Railway; cloning the repo does not bring them to a new machine. Use the
 existing coordinator account through the deployed UI or an approved secret store;
@@ -98,21 +99,21 @@ On September 22 a variable deployment rebuilt old main (`f8f6d39`) and removed t
 Google page. The WEB service source was corrected to `feature/client-ashby-connection`.
 Restoration deployment: `be4bc4ed-6b95-4ebc-8246-c947011c1e99`; page HTTP200 and
 Google configured:true were verified. Subsequent user screenshot confirms connection.
-Keep this branch source on Luminai until step 2 of the post-merge sequence below.
-A branch push may auto-deploy the web service. Other clients must not receive this
-pilot merely because documentation or shared code changes.
+Both Luminai services have built from `main` since step 2 of the post-merge sequence
+below. A push to main may auto-deploy every dashboard; other clients must not receive
+this pilot, which `SCHEDULING_CLIENT_ID` guarantees.
 Latest known worker deployment: `474f7867-56a0-4f7a-a066-92e5c4e8e3ce`.
 
 ## Post-merge sequence (feature/client-ashby-connection → main, September 28, 2026)
 
-Main now contains the pilot, off unless `SCHEDULING_CLIENT_ID` is set. Pushing main
-redeploys January, Profound, Poetic, Forus and Runlayer; Luminai still builds from
-the feature branch until step 2. Do these in order:
+Main now contains the pilot, off unless `SCHEDULING_CLIENT_ID` is set. All six
+dashboards and Luminai's `scheduling-worker` build from main. Steps 2 and 4 are
+done; the full sequence, in order:
 
 1. Verify the five main-built dashboards: each loads with three tabs (no Scheduling
    tab, no ready-to-schedule section), the queue reads "Needs scheduling", and
    `/booking.html` returns 404.
-2. Point Luminai's `coordbots` and `scheduling-worker` services at `main`, keeping
+2. **Done.** Point Luminai's `coordbots` and `scheduling-worker` services at `main`, keeping
    their root directory, Dockerfile and watch paths. Confirm the Scheduling tab,
    booking review and Google page still load.
 3. Set Luminai's `DISABLED_SECTIONS=interviewerLimits,availabilitySubmitted`. Keep
@@ -120,7 +121,7 @@ the feature branch until step 2. Do these in order:
    un-hide Interviewer Weekly Limits. Ready-to-schedule replaces Availability
    Submitted on Luminai because it lists every submitted schedule, not just the
    one-section-per-candidate winners.
-4. Retire `feature/client-ashby-connection`, and update the branch references in
+4. **Done.** Retire `feature/client-ashby-connection`, and update the branch references in
    § Resume from any computer and the root README to `main`.
 
 ## Known gaps
