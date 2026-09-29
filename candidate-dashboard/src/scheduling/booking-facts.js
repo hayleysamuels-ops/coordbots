@@ -85,6 +85,21 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
     }
     return {sessions:resolved,interviewers:[...people.values()]};
   }
-  return { load, application, resolveInterviewers };
+  // Ashby's per-interviewer limits for every resolved interviewer, read four at
+  // a time. The shape is checked exactly as load() checks it; a missing or
+  // malformed answer refuses rather than counting as "no limit".
+  async function interviewerLimits(userIds) {
+    if (!Array.isArray(userIds) || userIds.some(id => !uuid(id))) fail(422, 'Resolve the interviewers first.');
+    const out = new Map(), ids = [...new Set(userIds)];
+    for (let i = 0; i < ids.length; i += 4) {
+      await Promise.all(ids.slice(i, i + 4).map(async userId => {
+        const limits = await read('user.interviewerSettings', { userId });
+        if (!limits || !['dailyLimit','weeklyLimit'].every(k => Object.hasOwn(limits,k) && (limits[k]===null || (Number.isInteger(limits[k]) && limits[k]>=0)))) fail(503, 'An interviewer’s scheduling limits could not be verified.');
+        out.set(userId, { dailyLimit: limits.dailyLimit, weeklyLimit: limits.weeklyLimit });
+      }));
+    }
+    return out;
+  }
+  return { load, application, resolveInterviewers, interviewerLimits };
 }
 module.exports = { createBookingFacts };

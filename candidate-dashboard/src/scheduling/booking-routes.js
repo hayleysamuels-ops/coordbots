@@ -85,8 +85,19 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
       if(submission.stageId!==plan.stageId)throw Object.assign(Error('The candidate stage changed. Reload the plan.'),{status:409});
       windows=submission.localWindows;timezone=submission.timezone;
     }else if(req.body.availabilitySource!=='manual')throw Object.assign(Error('Choose an availability source.'),{status:422});
-    const result=require('./full-schedule').proposeFullSchedule({sessions:plan.sessions,windows,timezone});
+    const result=req.body.calendarCheck===true?await calendarChecked(plan,windows,timezone):require('./full-schedule').proposeFullSchedule({sessions:plan.sessions,windows,timezone});
     return {plan,result:{...result,proposals:result.proposals.map(p=>({...p,optionDigest:optionDigest(p)})),candidateName:plan.candidateName,checkedAt:plan.checkedAt}};
+  }
+  // Calendar-constrained options: interviewers' primary Google calendars as a
+  // hard constraint, meeting hours assumed from client rules, zero limits
+  // excluded (calendar-inputs.js). Anyone excluded is listed with the result.
+  async function calendarChecked(plan,windows,timezone){
+    if(!googleCalendar?.status().connected||!googleFreeBusy)throw Object.assign(Error('Connect read-only Google Calendar availability first.'),{status:409});
+    if(!rules)throw Object.assign(Error('Scheduling rules are not loaded.'),{status:503});
+    const inputs=await require('./calendar-inputs').buildCalendarInputs({plan,windows,timezone,rules:rules.get(),facts,freeBusy:googleFreeBusy});
+    const context={calendarCheck:{excluded:inputs.excluded,meetingHours:inputs.meetingHours,limitsPolicy:inputs.limitsPolicy,busySource:inputs.busySource,rulesRevision:inputs.rulesRevision}};
+    if(inputs.blocked){const totalMinutes=plan.sessions.reduce((n,s)=>n+s.durationMinutes,0);return {status:'no_calendar_fit',bookingEnabled:false,availabilityVerified:false,meetingHoursAssumed:true,totalMinutes,timezone,proposals:[],reason:inputs.blocked,...context};}
+    return {...require('./full-calendar-schedule').proposeCalendarSchedule({sessions:inputs.sessions,windows,timezone,calendars:inputs.calendars}),...context};
   }
   router.post('/suggest-full-schedule',handle(async req=>(await suggestFull(req)).result));
   // Posts one option to this client's configured Slack channel for discussion.
@@ -104,7 +115,8 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     if(!rules)throw Object.assign(Error('Scheduling rules are not loaded, so interviewer attendance can\'t be confirmed.'),{status:503});
     const clientRules=rules.get(),attendance=await require('./rules').attendanceForEvents(clientRules,chosen.events,facts?.resolveInterviewers);
     return discussion.postScheduleOption({applicationId:plan.applicationId,candidateId:plan.candidateId,timezone:result.timezone,option:chosen,optionNumber:index+1,
-      sourceRef:`full-schedule:${plan.scheduleId}:${ref}`,availabilitySource:req.body.availabilitySource,attendance,rulesRevision:clientRules.rulesRevision},req.schedulingUser);
+      sourceRef:`full-schedule:${plan.scheduleId}:${ref}`,availabilitySource:req.body.availabilitySource,attendance,rulesRevision:clientRules.rulesRevision,
+      calendarCheck:result.status==='calendar_checked'?{checkedAt:result.calendarCheckedAt,meetingHoursAssumed:result.meetingHoursAssumed===true}:null},req.schedulingUser);
   }));
   router.post("/application", handle(req => {
     if(!facts)throw Object.assign(new Error('Ashby details are not connected.'),{status:503});

@@ -23,12 +23,17 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
     if(!s.sessionId||ids.has(s.sessionId)||!Number.isInteger(s.durationMinutes)||s.durationMinutes<5||s.durationMinutes>480||s.assignmentVerified!==true||s.requiredCount!==1||!Array.isArray(s.eligibleInterviewers)||!s.eligibleInterviewers.length||s.eligibleInterviewers.some(i=>!i.userId||!i.name))fail('Every interview needs a verified duration and resolved eligible interviewer identities.');
     ids.add(s.sessionId);
   }
-  const people=new Map();
+  // Meeting hours are either verified (workingHoursVerified) or explicitly
+  // assumed from client rules (workingHoursSource "assumed"). Assumed hours are
+  // allowed but reported: the result is then never availabilityVerified.
+  const people=new Map();let hoursAssumed=false;
   for(const s of sessions)for(const person of s.eligibleInterviewers){
     if(people.has(person.userId))continue;
     const matches=Array.isArray(calendars)?calendars.filter(c=>c.userId===person.userId):[];
     const c=matches[0];
-    if(matches.length!==1||c.verified!==true||c.coverageVerified!==true||c.workingHoursVerified!==true||!Number.isFinite(c.checkedAt)||c.checkedAt>now||now-c.checkedAt>MAX_AGE)fail(`A current, complete calendar and working hours are required for ${person.name}.`);
+    const hoursOk=c.workingHoursVerified===true||c.workingHoursSource==='assumed';
+    if(matches.length!==1||c.verified!==true||c.coverageVerified!==true||!hoursOk||!Number.isFinite(c.checkedAt)||c.checkedAt>now||now-c.checkedAt>MAX_AGE)fail(`A current, complete calendar and working hours are required for ${person.name}.`);
+    if(c.workingHoursVerified!==true)hoursAssumed=true;
     const coverage=intervals(c.coverage),busy=intervals(c.busy);
     if(candidate.some(w=>!contains(coverage,w.start,w.end)))fail(`Calendar coverage is incomplete for ${person.name}.`);
     // Hours are scoped to each interview because Ashby activity meeting hours
@@ -103,6 +108,7 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
     }
     if(proposals.length>=limit)break;
   }
-  return {status:proposals.length?'calendar_checked':'no_calendar_fit',bookingEnabled:false,availabilityVerified:true,calendarCheckedAt:Math.min(...[...people.keys()].map(id=>calendars.find(c=>c.userId===id).checkedAt)),totalMinutes,timezone,proposals,reason:proposals.length?'These agendas fit candidate availability, interviewer calendars, meeting hours and interview limits. Review remaining client rules before approval.':'No contiguous agenda in template order fits the verified calendars, meeting hours and interview limits. Review rules or request more availability.'};
+  const assumedNote=hoursAssumed?' Meeting hours are assumed from client rules, not verified.':'';
+  return {status:proposals.length?'calendar_checked':'no_calendar_fit',bookingEnabled:false,availabilityVerified:!hoursAssumed,meetingHoursAssumed:hoursAssumed,calendarCheckedAt:Math.min(...[...people.keys()].map(id=>calendars.find(c=>c.userId===id).checkedAt)),totalMinutes,timezone,proposals,reason:(proposals.length?'These agendas fit candidate availability, interviewer calendars, meeting hours and interview limits. Review remaining client rules before approval.':'No contiguous agenda in template order fits the verified calendars, meeting hours and interview limits. Review rules or request more availability.')+assumedNote};
 }
 module.exports={proposeCalendarSchedule};

@@ -139,6 +139,15 @@ done and verified, in this order:
   is built but not configured or tested live.** It needs `SCHEDULING_SLACK_ROUTING=client`,
   `SCHEDULING_SLACK_CHANNEL_ID`, `SCHEDULING_SLACK_CHANNEL_NAME` and
   `SCHEDULING_SLACK_BOT_TOKEN` on Luminai, with the bot invited to that channel.
+- **Calendar-checked options are wired but narrow.** "Preview calendar-checked agenda"
+  runs `full-calendar-schedule.js` against each interviewer's primary Google
+  calendar. It uses meeting hours assumed from `scheduling-rules/luminai.json`
+  (reported as assumed, never verified). Under `zero_only`, anyone with an Ashby
+  limit of 0 is excluded and listed, and every other limit is ignored. Not built
+  yet: breaks between sessions (rules gaps must be 0, or the check refuses) and a
+  report of which constraint bound when nothing fits. The solver still only says
+  `no_calendar_fit`. Not checked: other calendars, bookable-over holds and non-zero
+  limits.
 - **Video interviewers inherit the wrong meeting hours.** Ten interviewers are set to
   `attendance: "video"` in `scheduling-rules/luminai.json` (Ali Feldman, Aggelos
   Arvanitakis, Alex Mavrogiannis, Anisha Tandon, Dmitriy Mekh, Harry Kirschner,

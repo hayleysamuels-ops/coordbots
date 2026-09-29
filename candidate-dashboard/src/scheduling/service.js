@@ -87,7 +87,10 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
     // `attendance` is one "in_person" | "video" per option event, from this
     // client's scheduling rules (rules.js), never from the browser. It only
     // labels the Location line; nothing books a room or creates a link.
-    async postScheduleOption({ applicationId, candidateId, timezone, option, optionNumber, sourceRef, availabilitySource, attendance, rulesRevision }, user) {
+    // `calendarCheck` is set only for options the server built against Google
+    // free/busy (booking-routes calendarChecked); it changes the wording, not
+    // the posting path.
+    async postScheduleOption({ applicationId, candidateId, timezone, option, optionNumber, sourceRef, availabilitySource, attendance, rulesRevision, calendarCheck = null }, user) {
       actor(user);
       const c = await candidate(applicationId);
       if (c.candidateId !== candidateId) fail(409, "Candidate changed in Ashby. Suggest the full schedule again.");
@@ -98,10 +101,11 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
       if ((await store.list()).some(r => r.clientId === clientId && r.plan.sourceRef === sourceRef && r.state !== "rejected")) fail(409, "This option was already posted to Slack. Check the channel.");
       if (!Array.isArray(attendance) || attendance.length !== option.events.length || attendance.some(a => !["in_person", "video"].includes(a))) fail(503, "Interviewer attendance could not be confirmed from this client's scheduling rules.");
       const source = availabilitySource === "ashby" ? "candidate-submitted availability" : "coordinator-entered availability";
+      const checked = calendarCheck ? `Checked against interviewers' primary Google calendars at ${new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(calendarCheck.checkedAt))}.${calendarCheck.meetingHoursAssumed ? " Meeting hours are assumed from client rules, not verified." : ""} Other calendars, breaks and non-zero interview limits were not checked.` : "Not calendar-checked: suggested interviewers are eligible choices, not confirmed available.";
       const row = await this.draft({ applicationId, timezone,
-        notes: `Full schedule option ${optionNumber} from booking review, built from ${source}. Not calendar-checked: suggested interviewers are eligible choices, not confirmed available. Nothing has been booked and no invitations have been sent.`,
+        notes: `Full schedule option ${optionNumber} from booking review, built from ${source}. ${checked} Nothing has been booked and no invitations have been sent.`,
         sessions: option.events.map((e, i) => ({ title: e.title, start: e.start, end: e.end,
-          interviewers: `${e.interviewer.name} (suggested, not calendar-checked)`.slice(0, 500),
+          interviewers: `${e.interviewer.name} (${calendarCheck ? "free on primary calendar" : "suggested, not calendar-checked"})`.slice(0, 500),
           location: attendance[i] === "video" ? "Video link required" : "Room / location to confirm" })) },
         user, { source: "full_schedule_option", sourceRef, rulesRevision, timezoneSource: availabilitySource === "ashby" ? "candidate_submitted" : "coordinator_entered" });
       try {

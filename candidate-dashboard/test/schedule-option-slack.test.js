@@ -278,3 +278,12 @@ test("names are resolved only when overrides exist, and only for the chosen inte
   assert.deepEqual(asked, [["Ana Silva"], ["Tom Reyes"]]);
   await assert.rejects(rulesModule.attendanceForEvents(some, events, async () => { throw Object.assign(new Error("An eligible interviewer could not be uniquely matched to an active Ashby account."), { status: 409 }); }), { status: 409 });
 });
+
+test("a calendar-checked option says what was checked and what was assumed", async t => {
+  const { service, sent } = setup(t);
+  await service.postScheduleOption(post({ calendarCheck: { checkedAt: Date.parse("2099-01-01T09:30:00Z"), meetingHoursAssumed: true } }), user);
+  const [session] = sent[0].plan.sessions;
+  assert.match(session.interviewers, /free on primary calendar/);
+  assert.match(sent[0].plan.notes, /Checked against interviewers' primary Google calendars at 9:30 AM UTC\. Meeting hours are assumed from client rules, not verified\./);
+  assert.doesNotMatch(sent[0].plan.notes, /Not calendar-checked/);
+});

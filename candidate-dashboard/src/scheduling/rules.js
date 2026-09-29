@@ -38,10 +38,24 @@ function parseRules(doc, clientId) {
     if (!EMAIL.test(email)) invalid(`attendance override "${email}" must be a lowercase email.`);
     if (!MODES.includes(mode)) invalid(`attendance override for ${email} must be in_person or video.`);
   }
+  const limitsPolicy = doc.limits?.ashbyInterviewerLimits;
+  if (!["ignore", "zero_only", "enforce"].includes(limitsPolicy)) invalid("limits.ashbyInterviewerLimits must be ignore, zero_only or enforce.");
+  const busy = doc.busy || {};
+  if (!["none", "google_freebusy"].includes(busy.source) || !Array.isArray(busy.calendars)) invalid("busy.source and busy.calendars are required.");
+  const hourOverrides = hours.overrides || {};
   return {
     clientId, rulesRevision: doc.rulesRevision,
+    agenda: { singleDay: doc.agenda.singleDay === true, minBreakMinutes, maxGapMinutes },
+    limitsPolicy, busy: { source: busy.source, calendars: [...busy.calendars] },
     hasAttendanceOverrides: Object.keys(overrides).length > 0,
     attendanceFor: email => overrides[String(email || "").toLowerCase()] || attendance.default,
+    // Always an assumption (schema: meetingHours). `source` says which rule
+    // applied; null hours means the interviewer has none and can't be scheduled.
+    meetingHoursFor: email => {
+      const key = String(email || "").toLowerCase();
+      if (Object.hasOwn(hourOverrides, key)) return { hours: hourOverrides[key], source: "override" };
+      return hours.default ? { hours: hours.default, source: "default" } : { hours: null, source: null };
+    },
   };
 }
 
@@ -67,6 +81,8 @@ function loadRules({ clientId, dir = RULES_DIR, log = console }) {
 // chosen interviewers are resolved, not every eligible one.
 async function attendanceForEvents(rules, events, resolveInterviewers) {
   if (!rules.hasAttendanceOverrides) return events.map(() => rules.attendanceFor(null));
+  // Calendar-checked options already carry each interviewer's resolved email.
+  if (events.every(e => e.interviewer?.email)) return events.map(e => rules.attendanceFor(e.interviewer.email));
   if (!resolveInterviewers) invalid("Interviewer identities can't be resolved, so attendance can't be confirmed.");
   const { sessions } = await resolveInterviewers(events.map(e => ({ assignmentVerified: true, eligibleInterviewers: [{ name: e.interviewer.name }] })));
   return sessions.map(s => rules.attendanceFor(s.eligibleInterviewers[0].email));

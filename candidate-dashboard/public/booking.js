@@ -11,7 +11,7 @@
   // (docs/DESIGN.md § Loading): the label becomes the active verb, a spinner
   // shows (CSS, on aria-busy), and the button stays disabled. A button that
   // didn't start the call (an automatic reload) is only disabled.
-  const BUSY_LABELS = {refresh:'Refreshing…','load-application':'Loading candidate…','load-plan':'Loading plan…','reload-full-plan':'Refreshing plan…','reload-availability':'Refreshing availability…','suggest-full':'Preparing agenda…','read-google-calendars':'Reading calendars…','inspect-full-calendar':'Checking calendars…','check-details':'Checking details…','inspect-draft':'Reading draft…','inspect-calendar':'Checking calendars…','prepare-button':'Preparing draft…',send:'Sending…'};
+  const BUSY_LABELS = {refresh:'Refreshing…','load-application':'Loading candidate…','load-plan':'Loading plan…','reload-full-plan':'Refreshing plan…','reload-availability':'Refreshing availability…','suggest-full':'Preparing agenda…','suggest-calendar':'Checking calendars…','read-google-calendars':'Reading calendars…','inspect-full-calendar':'Checking calendars…','check-details':'Checking details…','inspect-draft':'Reading draft…','inspect-calendar':'Checking calendars…','prepare-button':'Preparing draft…',send:'Sending…'};
   function busyStart(el, label) {
     el = typeof el === 'string' ? $(el) : el; el.disabled = true;
     label = label || BUSY_LABELS[el.id];
@@ -80,15 +80,22 @@
     }catch(e){if(version===fullPlanVersion&&session===sessionVersion)$('full-plan-status').textContent=e.message;}
   }
   $('reload-full-plan').onclick=loadFullPlan;
-  $('suggest-full').onclick=async()=>{
-    const f=$('prepare'),request=requestDetails(),version=fullPlanVersion,session=sessionVersion;
-    busyStart('suggest-full');$('full-suggestions').textContent='Preparing the entire agenda from the current Ashby template and candidate availability…';
-    try{const result=await api('/suggest-full-schedule',request);if(version!==fullPlanVersion||session!==sessionVersion||!credentials||JSON.stringify(request)!==JSON.stringify(requestDetails()))return;
+  // Both previews render the same way. The calendar-checked one asks the server
+  // to use interviewers' Google free/busy as a constraint (calendarCheck); the
+  // flag travels with the request, so posting rebuilds the same kind of option.
+  const preview=calendarCheck=>async()=>{
+    const button=calendarCheck?'suggest-calendar':'suggest-full';
+    const f=$('prepare'),request={...requestDetails(),...(calendarCheck?{calendarCheck:true}:{})},version=fullPlanVersion,session=sessionVersion;
+    busyStart(button);$('full-suggestions').textContent='Preparing the entire agenda from the current Ashby template and candidate availability…';
+    try{const result=await api('/suggest-full-schedule',request);const {calendarCheck:_,...plain}=request;if(version!==fullPlanVersion||session!==sessionVersion||!credentials||JSON.stringify(plain)!==JSON.stringify(requestDetails()))return;
       const fmt=value=>new Intl.DateTimeFormat('en-US',{timeZone:result.timezone,dateStyle:'medium',timeStyle:'short'}).format(new Date(value));
-      $('full-suggestions').innerHTML=`<h2>Full schedule options</h2><p>${esc(result.reason)}</p><p>Shown in ${esc(result.timezone)}. Suggested interviewers are eligible choices, not confirmed available. These options cannot send invitations. Posting one to Slack is for discussion only and books nothing.</p>`+result.proposals.map((p,i)=>`<article><h3>Option ${i+1}: ${esc(fmt(p.start))}</h3><p><button type="button" class="post-option" data-index="${i}" data-digest="${esc(p.optionDigest)}">Post to Slack for discussion</button> <span class="post-option-status" role="status"></span></p><table><thead><tr><th>Interview</th><th>Time</th><th>Suggested interviewer</th></tr></thead><tbody>${p.events.map(e=>`<tr><td>${esc(e.title)}</td><td>${esc(fmt(e.start))}–${esc(fmt(e.end))}</td><td>${esc(e.interviewer.name)}<details><summary>Eligible alternatives</summary>${e.eligibleInterviewers.map(i=>esc(i.name)).join(', ')}</details></td></tr>`).join('')}</tbody></table></article>`).join('');
+      const cc=result.calendarCheck,checkedNote=cc?`<p>${result.status==='calendar_checked'?'Interviewers are free on their primary Google calendars':'Checked against primary Google calendars'}${result.calendarCheckedAt?' at '+esc(fmt(result.calendarCheckedAt)):''}. Meeting hours are assumed from client rules (${[...new Set(cc.meetingHours.map(h=>h.source==='override'?'individual overrides':`${h.start}–${h.end} ${h.timezone}`))].map(esc).join('; ')}), not verified.</p>${cc.excluded.length?`<p class="sched-warning">Excluded: ${cc.excluded.map(x=>esc(x.name)+' ('+esc(x.reason)+')').join('; ')}.</p>`:''}`:'<p>Suggested interviewers are eligible choices, not confirmed available.</p>';
+      $('full-suggestions').innerHTML=`<h2>${cc?'Calendar-checked schedule options':'Full schedule options'}</h2><p>${esc(result.reason)}</p>${checkedNote}<p>Shown in ${esc(result.timezone)}. These options cannot send invitations. Posting one to Slack is for discussion only and books nothing.</p>`+result.proposals.map((p,i)=>`<article><h3>Option ${i+1}: ${esc(fmt(p.start))}</h3><p><button type="button" class="post-option" data-index="${i}" data-digest="${esc(p.optionDigest)}">Post to Slack for discussion</button> <span class="post-option-status" role="status"></span></p><table><thead><tr><th>Interview</th><th>Time</th><th>Suggested interviewer</th></tr></thead><tbody>${p.events.map(e=>`<tr><td>${esc(e.title)}</td><td>${esc(fmt(e.start))}–${esc(fmt(e.end))}</td><td>${esc(e.interviewer.name)}${cc?' <span class="muted">free</span>':''}<details><summary>Eligible alternatives</summary>${e.eligibleInterviewers.map(i=>esc(i.name)).join(', ')}</details></td></tr>`).join('')}</tbody></table></article>`).join('');
       suggestedRequest=request;
-    }catch(e){if(version===fullPlanVersion&&session===sessionVersion)$('full-suggestions').textContent=e.message;}finally{busyEnd('suggest-full');}
+    }catch(e){if(version===fullPlanVersion&&session===sessionVersion)$('full-suggestions').textContent=e.message;}finally{busyEnd(button);}
   };
+  $('suggest-full').onclick=preview(false);
+  $('suggest-calendar').onclick=preview(true);
   // Every Post button is disabled while one post is in flight, and a posted
   // option's button stays disabled, so a double-click sends one request. The
   // server's claim-before-posting and per-option check are the real guard.
@@ -96,7 +103,8 @@
   $('full-suggestions').addEventListener('click',async e=>{
     const button=e.target.closest('.post-option');if(!button||button.disabled||!suggestedRequest)return;
     const status=button.parentElement.querySelector('.post-option-status'),buttons=[...$('full-suggestions').querySelectorAll('.post-option')],session=sessionVersion;
-    if(JSON.stringify(suggestedRequest)!==JSON.stringify(requestDetails())){status.textContent='The request changed. Suggest the full schedule again.';return;}
+    const {calendarCheck:_,...sameForm}=suggestedRequest;
+    if(JSON.stringify(sameForm)!==JSON.stringify(requestDetails())){status.textContent='The request changed. Suggest the full schedule again.';return;}
     for(const b of buttons)b.disabled=true;busyStart(button,'Posting…');status.textContent='Rechecking Ashby and posting…';
     let posted=false;
     try{const r=await api('/post-full-schedule-option',{...suggestedRequest,optionIndex:Number(button.dataset.index),optionDigest:button.dataset.digest});busyEnd(button,false);if(session!==sessionVersion)return;
