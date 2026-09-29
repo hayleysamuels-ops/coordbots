@@ -148,15 +148,24 @@ done and verified, in this order:
   report of which constraint bound when nothing fits. The solver still only says
   `no_calendar_fit`. Not checked: other calendars, bookable-over holds and non-zero
   limits.
-- **Video interviewers inherit the wrong meeting hours.** Ten interviewers are set to
-  `attendance: "video"` in `scheduling-rules/luminai.json` (Ali Feldman, Aggelos
-  Arvanitakis, Alex Mavrogiannis, Anisha Tandon, Dmitriy Mekh, Harry Kirschner,
-  Jennifer Badash, Jordan Silvergleid, Sean O'Brien, Shawn Greenspan). None has a
-  `meetingHours.overrides` entry yet, so all ten inherit the 09:00–17:00 Pacific
-  default, which is wrong for them. Once the calendar-constrained solver is wired, it
-  will propose slots outside their real hours until their time zones and hours are
-  filled in. Mary Petrino (`mary@luminai.com`) needs her 09:00–17:00 Eastern override
-  too. Four more people named as video interviewers (Amelia, Chris Gonzalez, Daniel
+- **Most video interviewers inherit the wrong meeting hours.** Ten interviewers are set
+  to `attendance: "video"` in `scheduling-rules/luminai.json`. Two of them, Aggelos
+  Arvanitakis and Alex Mavrogiannis, have meeting-hours overrides (revision 3). The
+  other eight have none yet, so they inherit the 09:00–17:00 Pacific default, which
+  is wrong for them: Ali Feldman, Anisha Tandon, Dmitriy Mekh, Harry Kirschner,
+  Jennifer Badash, Jordan Silvergleid, Sean O'Brien and Shawn Greenspan. The
+  calendar-checked preview will propose slots outside their real hours until their
+  time zones and hours are filled in. Mary Petrino's 09:00–17:00 Eastern override
+  (`mary@luminai.com`) is in.
+- **The Athens pair's short window means frequent "no fit". That's correct, not a
+  bug.** Aggelos and Alex are available 19:00–22:00 Europe/Athens, Monday–Friday.
+  That's three hours a day, usually 09:00–12:00 Pacific; in the week each year when
+  Europe has left daylight saving and the US hasn't, it's 10:00–13:00. Any session
+  where one of them is the only eligible interviewer has to land inside that
+  window. The agenda must also stay back-to-back on one day, so the whole agenda
+  must be built around it. Expect `no_calendar_fit` for many candidate windows. Until
+  the binding-constraint report exists, a "no fit" involving either of them is most
+  likely their meeting hours. Four more people named as video interviewers (Amelia, Chris Gonzalez, Daniel
   Noguchi, Michael Carignan) have no active Luminai Ashby account, so they have no
   override. If they do interview, Ashby's plan will name them and the post will stop
   with "could not be uniquely matched".

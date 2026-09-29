@@ -3,7 +3,7 @@
   "$comment": "Reproduces candidate-dashboard on feature/client-ashby-connection as of 2026-09-22, plus revision 2's assumed 9–5 Pacific meeting hours and interviewer attendance. The dashboard reads this file at runtime.",
   "schemaVersion": 2,
   "clientId": "luminai",
-  "rulesRevision": 2,
+  "rulesRevision": 3,
 
   "trial": {
     "stageTitleContains": null,
@@ -33,9 +33,13 @@
   "limits": { "ashbyInterviewerLimits": "zero_only" },
 
   "meetingHours": {
-    "$comment": "Assumed, not collected from interviewers. Luminai is San Francisco-based; weekdays are also an assumption. Mary Petrino's 09:00–17:00 America/New_York (from the handoff) belongs in overrides as mary@luminai.com. The ten video interviewers under attendance also inherit this Pacific default, which is wrong for them; their time zones are still to come.",
+    "$comment": "Assumed, not collected from interviewers. Luminai is San Francisco-based; the default's weekdays are an assumption too. Overrides added 2026-09-29 (revision 3). The other eight video interviewers under attendance still inherit the Pacific default, which is wrong for them; their hours are still to come.",
     "default": { "timezone": "America/Los_Angeles", "days": ["mon", "tue", "wed", "thu", "fri"], "start": "09:00", "end": "17:00" },
-    "overrides": {}
+    "overrides": {
+      "aggelos@luminai.com": { "timezone": "Europe/Athens", "days": ["mon", "tue", "wed", "thu", "fri"], "start": "19:00", "end": "22:00" },
+      "alex.mavrogiannis@luminai.com": { "timezone": "Europe/Athens", "days": ["mon", "tue", "wed", "thu", "fri"], "start": "19:00", "end": "22:00" },
+      "mary@luminai.com": { "timezone": "America/New_York", "days": ["mon", "tue", "wed", "thu", "fri"], "start": "09:00", "end": "17:00" }
+    }
   },
 
   "attendance": {
