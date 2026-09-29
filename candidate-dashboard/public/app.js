@@ -1091,8 +1091,19 @@
       renderInterviewerLimits(data.interviewerLimits || [], sectionHasError(data, "interviewerLimits"));
     }
     if (!isSectionDisabled("interviewerTraining")) {
-      // same — not tied to a candidate
-      renderInterviewerTraining(data.interviewerTraining || [], sectionHasError(data, "interviewerTraining"));
+      // same — not tied to a candidate. With the training tracker on
+      // (TRAINING_TRACKER_CLIENT_ID), training.js defines this global and
+      // owns the section instead — it needs the whole payload, not just the
+      // entries, because it also renders paths, picker options and
+      // suggestions. Same optional-global handoff as renderReadyScheduling
+      // above. Without the tracker the global is never defined (the script
+      // 404s and its markup is stripped — see scheduling/page-gate.js), so
+      // the original Ashby-native rendering below runs untouched.
+      if (window.renderTrainingTracker) {
+        window.renderTrainingTracker(data, sectionHasError(data, "interviewerTraining"));
+      } else {
+        renderInterviewerTraining(data.interviewerTraining || [], sectionHasError(data, "interviewerTraining"));
+      }
     }
     if (!isSectionDisabled("recentSourced")) {
       renderRecentSourced(filterByEntity(data.recentSourced || []), sectionHasError(data, "recentSourced"));

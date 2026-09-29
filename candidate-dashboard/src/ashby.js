@@ -45,7 +45,7 @@ function getApiCallCountByEndpoint() {
 // regardless in case it's present); otherwise doubles the delay each
 // attempt. Gives up once *cumulative* waiting would exceed
 // RETRYABLE_MAX_TOTAL_BACKOFF_MS, at which point it throws like before and
-// the caller's own error handling takes over (fetchApplicationSummaries/
+// the caller's own error handling takes over (fetchApplicationsById/
 // listInterviewerLimits already skip a single failed item; fetchAllPages
 // still propagates, same as a non-retryable failure always has).
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
@@ -113,7 +113,7 @@ async function fetchAllPages(endpoint, baseBody) {
 // Ashby's candidate-feed URL needs both the candidate id and the application
 // id, plus a pipeline-view segment ("active" here). Every caller of this
 // function today is guaranteed Active status by the filter in
-// fetchApplicationSummaries below, so "active" is always correct in
+// summarizeApplications below, so "active" is always correct in
 // practice — this hasn't been verified for Hired/Archived/Lead candidates,
 // which this dashboard never links to.
 function profileUrl(candidateId, applicationId) {
@@ -159,8 +159,9 @@ function hiringTeamMember(app, roleName) {
 }
 
 // Fetches application.info for each id, bounded concurrency, skipping (not
-// throwing on) any single lookup that fails — shared by fetchApplicationSummaries
-// and fetchOfferApplications below, which differ only in which apps they keep.
+// throwing on) any single lookup that fails — shared by summarizeApplications/
+// jobsByApplication and fetchOfferApplications below, which differ only in
+// which apps they keep.
 //
 // `signatures` (Map<applicationId, string>) is the caller's best FREE signal
 // for "has anything changed here since last time" — a schedule's own
@@ -236,8 +237,8 @@ function buildApplicationRecord(app) {
  * the given applicationIds — not a scan of every active application. Filters
  * out anything no longer Active or still sitting in Application Review.
  */
-async function fetchApplicationSummaries(applicationIds, signatures) {
-  const fetched = await fetchApplicationsById(applicationIds, signatures);
+// Candidate-facing sections only: still Active, and past Application Review.
+function summarizeApplications(fetched) {
   const byId = new Map();
   for (const app of fetched) {
     if (!app || app.status !== "Active" || isPreInterview(app)) continue;
@@ -246,8 +247,24 @@ async function fetchApplicationSummaries(applicationIds, signatures) {
   return byId;
 }
 
+// Job per application, deliberately UNFILTERED by candidate status. The
+// training tracker keys a path on interview title + job (see
+// training/progress.js for why neither alone is unique), and a training
+// session counts regardless of what happened to the candidate afterwards —
+// same reasoning as Interviewer Weekly Limits, which isn't candidate-driven
+// either. Filtering these to Active would silently stop counting a shadow
+// the moment its candidate was rejected.
+function jobsByApplication(fetched) {
+  const byId = new Map();
+  for (const app of fetched) {
+    if (!app || !app.job || !app.job.id) continue;
+    byId.set(app.id, { jobId: app.job.id, jobTitle: app.job.title || "" });
+  }
+  return byId;
+}
+
 /**
- * Like fetchApplicationSummaries, but for Offers: keeps every application
+ * Like summarizeApplications, but for Offers: keeps every application
  * status, not just Active. A signed offer's candidate has usually already
  * moved to "Hired" by the time this app sees it — the Active-only filter
  * above would wrongly hide them. isPreInterview is irrelevant here too; an
@@ -606,7 +623,7 @@ function isSupersededByLaterActivity(event, applicationId, eventsByApplicationId
   });
 }
 
-async function listIssues() {
+async function listIssues(options = {}) {
   const createdAfter = Date.now() - config.scheduleLookbackDays * 24 * 60 * 60 * 1000;
   const schedules = await fetchAllPages("interviewSchedule.list", { limit: 100, createdAfter });
 
@@ -633,11 +650,13 @@ async function listIssues() {
     }
   }
 
-  const [applications, interviewerLimits, debriefInterviewIds] = await Promise.all([
-    fetchApplicationSummaries(applicationIds, scheduleUpdatedAtByApplication),
+  const [fetchedApplications, interviewerLimits, debriefInterviewIds] = await Promise.all([
+    fetchApplicationsById(applicationIds, scheduleUpdatedAtByApplication),
     listInterviewerLimits(schedules),
     fetchDebriefInterviewIds(),
   ]);
+  const applications = summarizeApplications(fetchedApplications);
+  const jobByApplicationId = jobsByApplication(fetchedApplications);
   // Depends on `applications` (to know which schedules are for still-Active
   // candidates), so it can't join the Promise.all above.
   let onsiteToday = await listOnsiteToday(schedules, applications);
@@ -792,6 +811,32 @@ async function listIssues() {
   availabilitySubmitted.sort((a, b) => b.hoursWaiting - a.hoursWaiting);
   rescheduledInterviews.sort((a, b) => b.rescheduleCount - a.rescheduleCount);
 
+  // Interviewer training tracker (TRAINING_TRACKER_CLIENT_ID only). Computed
+  // here, inside listIssues, rather than as its own SECTION_GROUPS entry
+  // specifically so it reuses the `schedules` and `jobByApplicationId` above
+  // instead of paginating interviewSchedule.list a second time - that call is
+  // the single most expensive thing in a refresh cycle (2,245 schedules over
+  // 30 days at Forus).
+  //
+  // Wrapped in its own try/catch because this section is a passenger on a
+  // fetch that eight other sections depend on. A bug in the training rules
+  // must degrade to "no training data" rather than take the whole
+  // schedule-driven group down with it.
+  let training = {};
+  if (config.trainingTrackerEnabled) {
+    try {
+      training = await require("./training/compute").build({
+        schedules,
+        jobByApplicationId,
+        ashbyNativeTraining: options.ashbyNativeTraining,
+        fetchInterview: async (id) => (await ashbyPost("interview.info", { id })).results,
+        stalledAfterDays: config.trainingStalledAfterDays,
+      });
+    } catch (err) {
+      console.warn("[training] compute failed, serving no training data this cycle:", err.message);
+    }
+  }
+
   return {
     readyToSchedule,
     feedbackOverdue,
@@ -801,6 +846,7 @@ async function listIssues() {
     availabilitySubmitted,
     onsiteToday,
     rescheduledInterviews,
+    ...training,
   };
 }
 
@@ -1077,8 +1123,35 @@ async function listInterviewerTraining() {
   return entries;
 }
 
+// Active Ashby users, for the training tracker's enrolment picker. Cached
+// in memory for an hour: the picker is opened by hand a handful of times a
+// day, and an org's user list changes far more slowly than that. Not
+// persisted like the interview-title cache - a restart re-fetching one
+// paginated call is cheap, and a stale user list is more annoying than a
+// stale interview title (a new joiner needs to be enrollable today).
+let userListCache = { users: null, fetchedAt: 0 };
+const USER_LIST_MAX_AGE_MS = 60 * 60 * 1000;
+
+async function listUsers() {
+  if (userListCache.users && Date.now() - userListCache.fetchedAt < USER_LIST_MAX_AGE_MS) {
+    return userListCache.users;
+  }
+  const raw = await fetchAllPages("user.list", { limit: 100 });
+  const users = raw
+    .filter((u) => u && u.isEnabled !== false)
+    .map((u) => ({
+      id: u.id,
+      name: `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.email,
+      email: u.email || "",
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  userListCache = { users, fetchedAt: Date.now() };
+  return users;
+}
+
 module.exports = {
   listIssues,
+  listUsers,
   listRecentSourced,
   listDepartments,
   listInterviewerTraining,

@@ -8,6 +8,9 @@
   <!-- scheduling:start -->
   <link rel="stylesheet" href="scheduling-review.css" />
   <!-- scheduling:end -->
+  <!-- training:start -->
+  <link rel="stylesheet" href="training.css" />
+  <!-- training:end -->
 </head>
 <body>
   <header class="topbar">
@@ -32,6 +35,9 @@
     <button type="button" class="tab-btn is-active" data-tab="dashboard" aria-pressed="true">Dashboard</button>
     <button type="button" class="tab-btn" data-tab="interviewers" aria-pressed="false">Interviewer Info</button>
     <button type="button" class="tab-btn" data-tab="offers" aria-pressed="false">Offers</button>
+    <!-- training:start -->
+    <button type="button" class="tab-btn" data-tab="training-history" aria-pressed="false">Training History</button>
+    <!-- training:end -->
     <!-- scheduling:start -->
     <button type="button" class="tab-btn" data-tab="scheduling" aria-pressed="false">Scheduling</button>
     <!-- scheduling:end -->
@@ -147,6 +153,7 @@
         <div class="cards" id="cards-interviewerLimits"></div>
       </section>
 
+      <!-- training-legacy:start -->
       <section id="interviewerTraining" class="column wide-section" data-key="interviewerTraining">
         <h2>Interviewer Training</h2>
         <span class="section-updated muted" id="updated-interviewerTraining"></span>
@@ -158,9 +165,56 @@
         <div class="section-toggle" id="interviewerTraining-toggle"></div>
         <div class="cards" id="cards-interviewerTraining"></div>
       </section>
+      <!-- training-legacy:end -->
+
+      <!-- training:start -->
+      <section id="interviewerTraining" class="column wide-section" data-key="interviewerTraining">
+        <div class="training-head">
+          <div>
+            <h2>Interviewer Training</h2>
+            <span class="section-updated muted" id="updated-interviewerTraining"></span>
+          </div>
+          <div class="training-head-actions">
+            <button type="button" class="training-btn" id="training-enrol-btn">Add interviewer</button>
+            <button type="button" class="training-btn training-btn-quiet" id="training-setup-btn">Paths</button>
+          </div>
+        </div>
+        <p class="column-sub">
+          Progress toward each interviewer's shadow and reverse-shadow
+          requirement, counted from interviews actually scheduled in Ashby.
+          Nothing here is written back to Ashby.
+        </p>
+
+        <div id="training-attention" class="training-group"></div>
+        <div id="training-paused" class="training-group"></div>
+        <div id="training-stalled" class="training-group"></div>
+        <div id="training-active" class="training-group"></div>
+        <div id="training-complete" class="training-group"></div>
+        <div id="training-empty"></div>
+      </section>
+      <!-- training:end -->
     </main>
     </div>
   </div>
+
+  <!-- training:start -->
+  <div id="tab-training-history" class="tab-panel" hidden>
+    <div class="page-with-margin">
+    <main class="page-stack">
+      <section class="column wide-section">
+        <h2>Training History</h2>
+        <p class="column-sub">
+          Interviewers who have completed a path, and anyone archived off one.
+          Completing a path here does not add them to the Ashby interviewer
+          pool — this tracker never writes to Ashby, so that stays a manual
+          step.
+        </p>
+        <div id="training-history"></div>
+      </section>
+    </main>
+    </div>
+  </div>
+  <!-- training:end -->
 
   <div id="tab-offers" class="tab-panel" hidden>
     <div class="page-with-margin">
@@ -211,6 +265,9 @@
   <script src="ready-scheduling.js"></script>
   <!-- scheduling:end -->
   <script src="app.js"></script>
+  <!-- training:start -->
+  <script src="training.js"></script>
+  <!-- training:end -->
   <!-- scheduling:start -->
   <script src="scheduling-review.js"></script>
   <!-- scheduling:end -->

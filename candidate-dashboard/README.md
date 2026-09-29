@@ -16,7 +16,7 @@ A small dashboard for a recruiting coordinator: at a glance, which candidates
 | **Interviewer Weekly Limits** | An interviewer whose remaining weekly interview capacity has dropped to `INTERVIEWER_LIMIT_BUFFER` slots or fewer (default 1) — i.e. their Ashby-configured `weeklyLimit` minus interviews already on their calendar this week (Mon–Sun UTC). Interviewers with no `weeklyLimit` set never appear. | Ashby `user.interviewerSettings` (the limit) + `interviewSchedule.list` event data (the count). |
 | **Recently Sourced** | Candidates whose application was **created** in the last `SOURCED_LOOKBACK_DAYS` (default 3) with a referral or agency source. All statuses shown (Active/Archived/Hired/Lead), labeled per card. | Ashby `application.list` (`createdAfter` + `source.sourceType`). |
 | **Onsite Interviews Today** | Today's final-round and executive interview events, shown in a persistent right-margin column with a deliberately heavier border than the rest of the page. "Onsite" is **approximated**: Ashby has no per-interview location/format field anywhere in this org (checked interview events, interview definitions, interview stages, and all 38 org custom fields), so this matches on the interview stage title containing "final" or "exec" instead, per explicit product decision. "Today" is a calendar day in `DISPLAY_TIMEZONE` (default `America/New_York`) — the same zone every displayed time uses — not the server container's UTC day. | Ashby `interviewSchedule.list` (the same fetch `listIssues()` already does — no extra pagination call) + `interviewStage.info` per unique stage id involved. |
-| **Interviewer Training** | Every interviewer currently enrolled in a pool's training path — real Ashby `Shadow`/`ReverseShadow` roles (not a naming-convention guess), with progress toward each stage's required interview count. Paused trainees are hidden by default behind a "Show N paused interview trainees" toggle, since a paused trainee isn't actionable the way an active one's progress is; toggling reveals them, sorted before active trainees. Not tied to any candidate/application. | Ashby `interviewerPool.list` + `interviewerPool.info` per pool with an enabled `trainingPath` (small, bounded — 22 pools on this org). |
+| **Interviewer Training** (without `TRAINING_TRACKER_CLIENT_ID`) | Every interviewer currently enrolled in a pool's training path — real Ashby `Shadow`/`ReverseShadow` roles (not a naming-convention guess), with progress toward each stage's required interview count. Paused trainees are hidden by default behind a "Show N paused interview trainees" toggle, since a paused trainee isn't actionable the way an active one's progress is; toggling reveals them, sorted before active trainees. Not tied to any candidate/application. | Ashby `interviewerPool.list` + `interviewerPool.info` per pool with an enabled `trainingPath` (small, bounded — 22 pools on this org). |
 | **Rescheduled Interviews** | Interview events whose reschedule count exceeds `RESCHEDULE_COUNT_THRESHOLD` (default 2, i.e. the 3rd reschedule onward). **Ashby has no reschedule history anywhere in its API** — checked schedule fields, event fields, `application.listHistory`, and `extraData` across a live sample of 131 events; only the event's *current* `startTime` exists. This app tracks it itself: each refresh, compares every event's `startTime` against what it last saw for that event id and increments a persisted counter when it changes. Counting starts at zero the first time a given event is ever seen — it can only catch reschedules from then on, not any that happened before. | Ashby `interviewSchedule.list` (the same fetch `listIssues()` already does) + this app's own persisted `<DATA_DIR>/reschedule-tracking.json`. |
 | **Offers Awaiting Acceptance** | Offers actually extended to the candidate, waiting on their decision. Excludes candidates whose application is already `Hired` or `Archived` — Ashby's `offerStatus` can lag the application's real outcome (confirmed live: both statuses showed up here before this exclusion), and neither is actually still "awaiting" anything. | Ashby `offer.list` — `offerStatus: "WaitingOnCandidateResponse"`, application `status` not `Hired`/`Archived`. |
 | **Offers Not Yet Sent** | The offer has been created but never reached the candidate — usually still working through this org's internal approval chain, if it uses one. **No field on the Offer object marks a "sent" event** (checked the full `offer.info` schema: Offer, OfferVersion, `versions[]`, `formDefinition` — no `sentAt`/`extendedAt`/`deliveredAt` anywhere), so this is inferred entirely from `offerStatus`. Confirmed no other `offerStatus` value can leak in here: `WaitingOnCandidateResponse`/`CandidateAccepted`/`CandidateRejected` all mean the candidate has been sent something; `OfferCancelled` is ambiguous but isn't included in this bucket at all. Kept separate from Offers Awaiting Acceptance per product decision: an offer a candidate has never seen isn't something they could be "awaiting acceptance" on. | Ashby `offer.list` — `offerStatus` one of `WaitingOnApprovalStart`/`WaitingOnOfferApproval`/`WaitingOnApprovalDefinition`. |
@@ -345,6 +345,112 @@ actually guarantees for every org:
   `COORDINATOR_ROLE_NAME`) matches an exact `hiringTeamRole.list` value —
   this org's roles happen to be "Recruiter"/"Recruiting Coordinator", but
   that's this org's naming, not an Ashby default.
+## Interviewer training tracker
+
+On only where `TRAINING_TRACKER_CLIENT_ID` is set (Forus). It **replaces** the
+Interviewer Training section above rather than sitting alongside it, and adds a
+Training History tab.
+
+### Why it doesn't use Ashby's training paths
+
+Ashby has a native interviewer-pool training path, and the section above reads
+it. Two things make it unusable as the source of truth:
+
+1. **One path per interviewer.** An interviewer can be on only one Ashby
+   training path at a time, so anyone training on a second interview is
+   invisible to it.
+2. **Nobody uses it.** Confirmed against Forus's live org on 29 September 2026:
+   of 29 interviewer pools exactly **one** has a training path enabled (`Bug
+   Bash Engineers - Javascript`, configured `Shadow:1 + Shadow:1 +
+   ReverseShadow:1`), and all 12 of its trainees sit at 0 of 1 completed.
+
+So progress is derived from `interviewSchedule.list` instead — the same fetch
+`listIssues()` already pages through, so the tracker adds **no** extra schedule
+or application calls.
+
+### It never writes to Ashby
+
+`interviewerPool.addUser` is the only interviewer-pool write endpoint Ashby
+exposes. There is no API to enrol someone in a training path, set their stage,
+pause them, or change a required count — and this app deliberately writes
+nothing back regardless. Consequences to keep in mind:
+
+- Enrolment, pausing and requirements live in **this app's store**
+  (`<DATA_DIR>/interviewer-training.json`). Point `DATA_DIR` at a mounted
+  volume or every enrolment is lost on redeploy.
+- A finished trainee shows as **"Complete — not yet in the Ashby pool"**. Adding
+  them to the real pool stays a manual step, so the two can drift; that state
+  exists specifically so the drift is visible rather than silent.
+- Ashby's native training data is still read, but **only** to flag disagreement
+  on a card. It never feeds the counts.
+
+### What a path is
+
+One Ashby interview title scoped to **one job** — "Coding Interview — Backend
+Engineer". Both halves are load-bearing, because neither is unique alone
+(confirmed against Forus's live data):
+
+- One interview record can serve several roles: `[Forus] Portfolio
+  Prioritization Work Time` covered both Strategic Accounts Lead and Enterprise
+  CSM. Keying on the interview id alone would merge two roles' training.
+- One role can be split across duplicate records: `[Tandem - Software Engineer]
+  Technical Phone Screen` exists twice and Security Operations Lead appears
+  under both. Keying on the id alone would split one role's training in half,
+  and neither half would ever reach its required count.
+
+Paths store resolved **interview ids**, not the title string, so renaming an
+interview in Ashby can't silently orphan one. A new Ashby record matching a
+path's title and job is surfaced as a **suggestion** to accept, never absorbed
+automatically — same-titled duplicates aren't always equivalent.
+
+The path picker is built from interviews actually **observed in schedules**,
+not from `interview.list`: that endpoint returns only a fraction of an org's
+interviews (103 of 364 at Forus), and most of what it does return is dormant
+(all 8 `[Forus] Coding Interview` records produced zero events in 60 days).
+
+### How a session is counted
+
+A qualifying session is an interview event where the trainee is one of the
+interviewers, on one of the path's interview ids, for the path's job, that has
+finished and whose schedule isn't `Cancelled`.
+
+- **Shadow vs reverse shadow is a sequence rule.** The schedule data can't tell
+  them apart — both are "trainee on the panel" — so the first N counting
+  sessions are shadows and the next are reverse shadows. Any session can be
+  reclassified by hand, and an explicit role always wins over the rule.
+- **Counting starts at enrolment.** Anything earlier is added deliberately as a
+  manual credit, so enrolling someone mid-training can never retroactively
+  complete them off the back of history.
+- **A sole interviewer is not a shadow.** If the trainee was the *only*
+  interviewer they ran the interview rather than shadowed it. Those are flagged
+  for a human to confirm or discount, never counted silently.
+- **Attendance can't be detected.** Ashby exposes no RSVP or response status
+  anywhere on an event's interviewers — the full field set is `id`,
+  `firstName`, `lastName`, `email`, `globalRole`, `isEnabled`, `updatedAt`,
+  `isFeedbackRequired`, `interviewerPool`. A trainee who no-showed an interview
+  that went ahead is therefore a manual "didn't attend" discount. Same wall as
+  the declined-meetings note in § Scope.
+- **Paused means recorded, not counted.** A session during a pause appears on
+  the card, flagged, but doesn't advance progress and doesn't unpause anyone.
+
+### Grouping and recency
+
+Cards group into Needs a decision / Paused / Stalled / In training / Complete.
+A card's left border shades by time since the last interview that **happened**
+(counted or not) — the question is "is this person being used?", not "is their
+progress advancing?". Steps at 7, 14 and 30 days; "Stalled" is
+`TRAINING_STALLED_AFTER_DAYS` (30) and applies only to active trainees.
+
+### Cost
+
+The tracker reuses `listIssues()`'s schedules and applications, so it adds no
+calls there. It resolves interview **titles** via `interview.info`, cached
+permanently in `<DATA_DIR>/interview-titles-cache.json` and capped at 60 per
+refresh cycle — a cold cache faces ~360 unseen interviews at Forus, and that
+cycle is already rate-limited by its ~1,300 `application.info` calls. Titles
+only feed the picker and the duplicate suggestion, never counting, so warming
+over several cycles costs nothing.
+
 - **Interviewer Training** only shows anything if the client actually uses
   Ashby's interviewer-pool training-path feature — some orgs never
   configure it, in which case this section is correctly empty, not broken.

@@ -249,6 +249,36 @@ const config = {
   recruiterRoleName: process.env.RECRUITER_ROLE_NAME || "Recruiter",
   coordinatorRoleName: process.env.COORDINATOR_ROLE_NAME || "Recruiting Coordinator",
 
+  // Interviewer training tracker. Gated the same way as the scheduling pilot
+  // (SCHEDULING_CLIENT_ID) so the other five dashboards are untouched: with
+  // this unset, the Interviewer Training section keeps reading Ashby's own
+  // interviewer-pool training paths exactly as before, and none of the
+  // tracker's routes are mounted.
+  //
+  // On, the section is instead computed from scheduled interviews and this
+  // app's own enrolment list (src/training/), because Ashby can't support
+  // the real workflow: an interviewer can be on only ONE Ashby training path
+  // at a time, and `interviewerPool.addUser` is the only interviewer-pool
+  // write endpoint Ashby has - there is no API to enrol someone in a
+  // training path, set their stage, pause them, or change a required count.
+  // This app deliberately writes nothing back to Ashby.
+  trainingTrackerEnabled: Boolean(process.env.TRAINING_TRACKER_CLIENT_ID),
+  trainingTrackerClientId: process.env.TRAINING_TRACKER_CLIENT_ID || "",
+
+  // An active trainee with no session this long is grouped as "Stalled"
+  // rather than left sitting in the active list looking healthy. Paused,
+  // archived and complete trainees are never stalled - they're inactive on
+  // purpose or finished.
+  trainingStalledAfterDays: number("TRAINING_STALLED_AFTER_DAYS", 30),
+
+  // Default requirement for a newly created training path. Per-path and
+  // per-person overrides both sit on top of this (see src/training/store.js).
+  // NOT inherited from Ashby: Forus's single enabled Ashby training path is
+  // configured Shadow:1 + Shadow:1 + ReverseShadow:1 with every trainee at
+  // 0 of 1, so there was nothing there worth defaulting to.
+  trainingDefaultShadows: number("TRAINING_DEFAULT_SHADOWS", 2),
+  trainingDefaultReverseShadows: number("TRAINING_DEFAULT_REVERSE_SHADOWS", 2),
+
   // Per-deployment section toggle: exact, case-sensitive section keys (see
   // SECTION_KEYS above and README § Section keys) to hide from this client's
   // dashboard entirely, e.g. a client that doesn't configure Ashby

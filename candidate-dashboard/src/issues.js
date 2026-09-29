@@ -34,6 +34,10 @@ const appConfig = {
   sourceAgencyKeywords: config.sourceAgencyKeywords,
   displayTimeZone: config.displayTimeZone,
   schedulingEnabled: config.schedulingEnabled,
+  trainingTrackerEnabled: config.trainingTrackerEnabled,
+  trainingStalledAfterDays: config.trainingStalledAfterDays,
+  trainingDefaultShadows: config.trainingDefaultShadows,
+  trainingDefaultReverseShadows: config.trainingDefaultReverseShadows,
   // With the scheduling pilot on, the older queue is renamed to set it apart
   // from the "Ready to schedule" section; without it, the queue keeps its
   // original name.
@@ -51,6 +55,14 @@ let snapshot = {
   onsiteToday: [],
   rescheduledInterviews: [],
   interviewerTraining: [],
+  // Tracker-only (TRAINING_TRACKER_CLIENT_ID). trainingPaths/PathOptions/
+  // Suggestions drive the configuration UI; ashbyNativeTraining holds Ashby's
+  // own interviewer-pool training data, which with the tracker on is used
+  // ONLY to flag disagreement on a card, never to compute progress.
+  trainingPaths: [],
+  trainingPathOptions: [],
+  trainingSuggestions: [],
+  ashbyNativeTraining: [],
   offersNotYetSent: [],
   offersAwaitingAcceptance: [],
   offersSigned: [],
@@ -83,11 +95,23 @@ async function timed(label, promise) {
 // offersSigned under listOffers(). recentSourced/departments/
 // interviewerTraining each get their own group since each is one
 // independent Ashby call.
+// With the training tracker on, Interviewer Training is computed inside
+// listIssues() (off the schedules it already fetched) rather than from its own
+// Ashby call, so its keys ride on the schedule-driven group's freshness and
+// failure status instead of the separate group below.
+const TRAINING_KEYS = config.trainingTrackerEnabled
+  ? ["interviewerTraining", "trainingPaths", "trainingPathOptions", "trainingSuggestions"]
+  : [];
+
 const SECTION_GROUPS = [
   {
     label: "Schedule-driven sections",
-    keys: ["readyToSchedule", "feedbackOverdue", "needsScheduling", "staleCandidates", "interviewerLimits", "availabilitySubmitted", "onsiteToday", "rescheduledInterviews"],
-    fetch: () => timed("listIssues", ashby.listIssues()),
+    keys: ["readyToSchedule", "feedbackOverdue", "needsScheduling", "staleCandidates", "interviewerLimits", "availabilitySubmitted", "onsiteToday", "rescheduledInterviews", ...TRAINING_KEYS],
+    // Ashby's native training data is passed in from the PREVIOUS cycle's
+    // snapshot - it is a cross-check shown on a card, never an input to the
+    // counts, so being one refresh interval stale is harmless and it isn't
+    // worth serialising the two groups to avoid.
+    fetch: () => timed("listIssues", ashby.listIssues({ ashbyNativeTraining: snapshot.ashbyNativeTraining })),
     assign: (snap, result) => Object.assign(snap, result),
   },
   {
@@ -107,11 +131,16 @@ const SECTION_GROUPS = [
     },
   },
   {
-    label: "Interviewer Training",
-    keys: ["interviewerTraining"],
+    // Same Ashby call either way; what changes is what it feeds. Without the
+    // tracker it IS the Interviewer Training section, exactly as before.
+    // With the tracker it becomes the cross-check the section flags
+    // disagreements against (see training/progress.js attachAshbyNative).
+    label: config.trainingTrackerEnabled ? "Ashby native training (cross-check)" : "Interviewer Training",
+    keys: config.trainingTrackerEnabled ? ["ashbyNativeTraining"] : ["interviewerTraining"],
     fetch: () => timed("listInterviewerTraining", ashby.listInterviewerTraining()),
     assign: (snap, result) => {
-      snap.interviewerTraining = result;
+      if (config.trainingTrackerEnabled) snap.ashbyNativeTraining = result;
+      else snap.interviewerTraining = result;
     },
   },
   {
@@ -263,7 +292,15 @@ function applyDismissals(snap) {
     onsiteToday: snap.onsiteToday.filter(keepCandidate),
     rescheduledInterviews: snap.rescheduledInterviews.filter(keepCandidate),
     interviewerLimits: snap.interviewerLimits.filter(keepInterviewer),
-    interviewerTraining: snap.interviewerTraining.filter(keepInterviewer),
+    // The tracker's cards have no dismiss control, so a leftover
+    // interviewer:<userId> dismissal from the Ashby-native section (or from
+    // Interviewer Weekly Limits, which shares the key space) would hide a
+    // trainee with no way to bring them back. Enrolment is explicit and
+    // archiving is the tracker's own "stop showing this person", so
+    // dismissals simply don't apply when it's on.
+    interviewerTraining: config.trainingTrackerEnabled
+      ? snap.interviewerTraining
+      : snap.interviewerTraining.filter(keepInterviewer),
     offersNotYetSent: snap.offersNotYetSent.filter(keepCandidate),
     offersAwaitingAcceptance: snap.offersAwaitingAcceptance.filter(keepCandidate),
     offersSigned: snap.offersSigned.filter(keepCandidate),
@@ -305,9 +342,22 @@ function applyNotes(snap) {
   return result;
 }
 
+// Training progress is recomputed at serve time, not refresh time, from the
+// last refresh's cached Ashby data plus the CURRENT store state - so an
+// enrol/pause/override/manual credit lands on the very next poll instead of
+// up to REFRESH_INTERVAL_MINUTES later. Exactly the reasoning behind
+// applyDismissals/applyNotes above. Before the first successful refresh
+// there's nothing cached yet, and the snapshot's own values are served
+// unchanged.
+function applyTraining(snap) {
+  if (!config.trainingTrackerEnabled) return snap;
+  const fresh = require("./training/compute").recompute();
+  return fresh ? { ...snap, ...fresh } : snap;
+}
+
 function getSnapshot() {
   return {
-    ...applyNotes(applyDismissals(snapshot)),
+    ...applyNotes(applyDismissals(applyTraining(snapshot))),
     lastUpdated,
     lastError,
     // Shallow-copied, unlike snapshot's own fields above — those get
