@@ -156,6 +156,14 @@ is normally still in Application Review and any status).
   explicitly read-only. Don't "finish" this by adding a write path — the
   "Complete — not yet in the Ashby pool" state exists precisely so the drift
   between tracker and Ashby pool is visible rather than silent.
+- **The tracker renders one card per INTERVIEWER, with a row per path, and
+  actions are scoped to the row.** Counts are deliberately never merged across
+  paths. `cardContext()` in `public/training.js` resolves against
+  `.training-path-row`, NOT `.training-card` — a card holds several rows, each
+  with its own requirement inputs and credit fields, so resolving from the
+  card would always hit the first row's controls. A person's bucket is their
+  most attention-needing path (`bucketFor`), and Complete requires every path
+  to be finished.
 - **A training path is interview title + job, never one of them alone.** Both
   failure modes are real in Forus's data: one interview record served two
   different roles, and one role was split across two same-titled records.

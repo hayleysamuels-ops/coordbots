@@ -125,20 +125,15 @@
 .training-card.recency-cold  { border-left-color: var(--ember); }
 .training-card.recency-done  { border-left-color: var(--border-default); }
 
-.training-card-top {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.training-card-id {
+/* A card is one INTERVIEWER; each path they train on is a row inside it.
+   Counts are never merged across rows - progress on one interview says
+   nothing about readiness for another. */
+.training-card-head {
   display: flex;
   align-items: baseline;
   gap: 8px;
   flex-wrap: wrap;
-  min-width: 0;
+  margin-bottom: 2px;
 }
 
 .training-name {
@@ -146,8 +141,40 @@
   font-size: 14px;
 }
 
+.training-path-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* Rows are separated by a rule rather than spacing, so a multi-path card
+   still reads as one person rather than as several stacked cards. */
+.training-path-row + .training-path-row {
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+.training-path-row.is-open {
+  background: color-mix(in srgb, var(--surface-sunken) 45%, transparent);
+  border-radius: var(--radius-control);
+  margin-left: -6px;
+  margin-right: -6px;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+.training-row-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .training-path {
   font-size: 12px;
+  color: var(--ardesia);
+  min-width: 0;
 }
 
 .training-card-progress {
@@ -221,6 +248,7 @@
 .badge-warn { background: var(--lemon-wash); color: var(--lemon); }
 .badge-info { background: var(--ember-wash); color: var(--ember-press); }
 .badge-quiet { background: var(--surface-sunken); color: var(--ardesia); }
+.badge-done { background: var(--moss-wash); color: var(--moss); }
 
 .training-pause-note,
 .training-disagree {
