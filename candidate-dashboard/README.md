@@ -435,10 +435,24 @@ finished and whose schedule isn't `Cancelled`.
 
 ### Grouping and recency
 
+**One card per interviewer, one row per path.** Counts are never combined
+across paths — a shadow on the System Design interview says nothing about
+readiness for the Bug Bash one, so each row keeps its own requirement,
+progress, last-used date and actions. Consolidating the card is what stops
+someone training on three interviews occupying three places on the page.
+
 Cards group into Needs a decision / Paused / Stalled / In training / Complete.
+A person's paths can disagree, so the card goes wherever its **most
+attention-needing** path belongs, and every row carries its own state chip so
+the choice hides nothing: a decision to make outranks a deliberate pause,
+which outranks accidental neglect, which outranks routine progress. A person
+reaches Complete only when **every** path is finished — one finished path
+among several in flight isn't a finished interviewer. Archived paths appear on
+the History tab only, so they never drag a working card into a bucket.
+
 A card's left border shades by time since the last interview that **happened**
-(counted or not) — the question is "is this person being used?", not "is their
-progress advancing?". Steps at 7, 14 and 30 days; "Stalled" is
+on any path (counted or not) — the question is "is this person being used?",
+not "is their progress advancing?". Steps at 7, 14 and 30 days; "Stalled" is
 `TRAINING_STALLED_AFTER_DAYS` (30) and applies only to active trainees.
 
 ### Cost
