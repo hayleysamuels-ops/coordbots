@@ -1,5 +1,6 @@
 'use strict';
 const {windowsToInstants}=require('./booking-planner');
+const {distinctFrom}=require('./option-variety');
 const fail=message=>{throw Object.assign(Error(message),{status:422});};
 const MAX_AGE=60000,STEP=5*60000,SEARCH_LIMIT=100000,RELAX_LIMIT=20000;
 function intervals(rows){
@@ -23,7 +24,10 @@ function dateIn(ms,timezone){
 // minBreakMinutes/maxGapMinutes (scheduling-rules agenda) allow a gap between
 // consecutive sessions. Both 0 (the default) is exactly the original
 // back-to-back search; test/full-calendar-schedule-v1.test.js holds it to that.
-function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.now(),limit=5,minBreakMinutes=0,maxGapMinutes=0}){
+// variety (default on) keeps only options that differ from every earlier one by
+// day, by an hour or more, or by interviewer (option-variety.js). The first
+// option is always the one the search finds first, variety or not.
+function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.now(),limit=5,minBreakMinutes=0,maxGapMinutes=0,variety=true}){
   if(!Array.isArray(sessions)||!sessions.length||sessions.length>30)fail('Load a complete interview plan first.');
   if(!Number.isInteger(limit)||limit<1||limit>5)fail('Invalid proposal limit.');
   if(![minBreakMinutes,maxGapMinutes].every(m=>Number.isInteger(m)&&m>=0&&m%5===0)||maxGapMinutes<minBreakMinutes||maxGapMinutes>480)fail('Breaks must be whole 5-minute steps, with the maximum gap at least the minimum break.');
@@ -143,7 +147,9 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
         // requires the complete agenda to stay on one candidate-local date.
         if(dateIn(start,timezone)!==dateIn(start+minSpan-1,timezone))continue;
         const events=assign(0,start,[],window,dateIn(start,timezone));if(!events)continue;
-        proposals.push({start:events[0].start,end:events.at(-1).end,events});
+        const option={start:events[0].start,end:events.at(-1).end,events};
+        if(variety&&!distinctFrom(proposals,option,timezone))continue;
+        proposals.push(option);
         if(proposals.length>=max)break;
       }
       if(proposals.length>=max)break;

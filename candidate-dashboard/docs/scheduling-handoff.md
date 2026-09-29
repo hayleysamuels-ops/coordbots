@@ -159,8 +159,16 @@ done and verified, in this order:
     breaks decision becomes load-bearing:** the only way to move lunch is to move
     the whole agenda's start. When the window is what binds, the no-fit report
     says so and tests how much gap would have let it fit (up to 120 minutes).
-    The unverified "Preview agenda" doesn't apply start windows; only the
-    calendar-checked one does.
+    Both previews apply start windows. "Preview agenda without calendar checks"
+    applies start windows only, and its result lists what it doesn't check:
+    calendars, meeting hours, limits and breaks.
+  - **Options are distinct.** Each option differs from every other by day, by at
+    least an hour, or by at least one interviewer (`option-variety.js`). For a
+    given start time the search keeps its first valid assignment and doesn't
+    look for an alternative panel, so interviewer variety appears only when
+    calendars force it; otherwise options are an hour or more apart. The 0/0
+    regression test runs with variety off, and also checks that variety never
+    changes the first option.
   - **Busy-time evidence for bookable-over.** Each no-fit logs
     `[calendar-check] no fit: ... rejected busy=N hours-default=N ...` (counts only,
     no names). Grep Luminai's logs for it to see how often busy time, rather than

@@ -154,3 +154,34 @@ test('an invalid start window is refused',()=>{
   const bad=[{...LUNCH,latestStart:'11:00'},{...LUNCH,timezone:'Mars/Base'},{...LUNCH,earliestStart:'12'}];
   for(const w of bad){const s=[{...session('1',30,[A]),placementWindows:[w]}];assert.throws(()=>solve(s,[calendar(A,{sessions:s})]),{status:422});}
 });
+
+// ---- option variety ----------------------------------------------------------
+
+test('options differ by day, by an hour or more, or by interviewer',()=>{
+  const s=[session('1',60,[A])];
+  const r=solve(s,[calendar(A,{sessions:s})]);
+  const starts=r.proposals.map(p=>Date.parse(p.start));
+  assert.ok(r.proposals.length>1);
+  for(let i=1;i<starts.length;i++)assert.ok(starts[i]-starts[i-1]>=3600000,`options ${i-1} and ${i} are under an hour apart`);
+});
+
+test('a different interviewer makes an option distinct even five minutes later',()=>{
+  const s=[session('1',60,[A,B])];
+  // Ana can only do 09:00-10:00. At 09:00 she takes it; from 09:05 only Ben can,
+  // so 09:05 is a different panel and counts; 09:10 with Ben again doesn't.
+  const r=solve(s,[calendar(A,{hours:[[9,10]],sessions:s}),calendar(B,{sessions:s})]);
+  assert.deepEqual(r.proposals.slice(0,3).map(p=>[p.start,p.events[0].interviewer.name]),[[at(9),'Ana'],[at(9,5),'Ben'],[at(10,5),'Ben']]);
+});
+
+test('the preview without calendar checks applies start windows and varies its options',()=>{
+  const {proposeFullSchedule}=require('../src/scheduling/full-schedule');
+  const LUNCH={match:'contains',value:'Lunch',timezone:'America/Los_Angeles',earliestStart:'12:00',latestStart:'13:30'};
+  const person={name:'Person One'};
+  const sessions=[{...session('1',60,[person])},{...session('2',45,[person]),title:'Lunch',placementWindows:[LUNCH]}];
+  const r=proposeFullSchedule({sessions,windows:[{start:`${day}T09:00`,end:`${day}T17:00`}],timezone:'America/New_York',now});
+  assert.ok(r.proposals.length>1);
+  for(const p of r.proposals){const t=p.events[1].start;assert.ok(t>=pacific(12)&&t<=pacific(13,30),t);}
+  for(let i=1;i<r.proposals.length;i++)assert.ok(Date.parse(r.proposals[i].start)-Date.parse(r.proposals[i-1].start)>=3600000);
+  assert.deepEqual(r.startWindowsApplied,[{title:'Lunch',earliestStart:'12:00',latestStart:'13:30',timezone:'America/Los_Angeles'}]);
+  assert.ok(r.notChecked.includes('meeting hours'));
+});

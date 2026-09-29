@@ -1,7 +1,8 @@
 'use strict';
-// Regression anchor: with minBreakMinutes 0 and maxGapMinutes 0 the solver must
-// find exactly the agendas the original solver found (frozen in
-// fixtures/full-calendar-schedule.v1.js). Compared across seeded random cases
+// Regression anchor: with minBreakMinutes 0 and maxGapMinutes 0, and option
+// variety off, the solver must find exactly the agendas the original solver
+// found (frozen in fixtures/full-calendar-schedule.v1.js). With variety on, the
+// first agenda must still be identical. Compared across seeded random cases
 // with busy time, per-session meeting hours and daily/weekly limits.
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const v1=require('./fixtures/full-calendar-schedule.v1.js').proposeCalendarSchedule;
@@ -38,10 +39,13 @@ test('0/0 breaks reproduce the original solver exactly on 400 random cases',()=>
   for(let seed=1;seed<=400;seed++){
     const input=makeCase(seed);let a,b,errA=null,errB=null;
     try{a=v1(input);}catch(e){errA=e.message;}
-    try{b=proposeCalendarSchedule({...input,minBreakMinutes:0,maxGapMinutes:0});}catch(e){errB=e.message;}
+    try{b=proposeCalendarSchedule({...input,minBreakMinutes:0,maxGapMinutes:0,variety:false});}catch(e){errB=e.message;}
     assert.equal(errB,errA,`seed ${seed}: errors differ`);
     if(errA)continue;
     assert.deepEqual(comparable(b),comparable(a),`seed ${seed}`);
+    const varied=proposeCalendarSchedule({...input,minBreakMinutes:0,maxGapMinutes:0});
+    assert.deepEqual(varied.proposals[0],a.proposals[0],`seed ${seed}: variety changed the first option`);
+    assert.equal(varied.status,a.status,`seed ${seed}: variety changed the status`);
     a.proposals.length?fits++:noFits++;
   }
   // The cases must exercise both outcomes, or the comparison proves little.

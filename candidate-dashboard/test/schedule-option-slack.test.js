@@ -109,7 +109,7 @@ async function routeFixture(t) {
       load: async () => ({ stageId: "stage", timezone: "UTC", localWindows: [{ start: "2099-01-01T10:00", end: "2099-01-01T11:00" }] }) },
     inspectPlan: async input => ({ ...input, sessions: sessions.map(s => ({ ...s, assignmentVerified: true, requiredCount: 1, eligibleInterviewers: [{ name: "Plan Interviewer" }] })) }),
     discussion: { postScheduleOption: async (input, u) => { posted.push({ input, u }); return { state: "shared", channelName: "luminai-scheduling" }; } },
-    rules: { get: () => ({ rulesRevision: 2, hasAttendanceOverrides: false, attendanceFor: () => "in_person" }) },
+    rules: { get: () => ({ rulesRevision: 2, hasAttendanceOverrides: false, attendanceFor: () => "in_person", placementFor: () => [] }) },
   }));
   const server = await new Promise(resolve => { const s = app.listen(0, "127.0.0.1", () => resolve(s)); });
   t.after(() => new Promise(resolve => server.close(resolve)));

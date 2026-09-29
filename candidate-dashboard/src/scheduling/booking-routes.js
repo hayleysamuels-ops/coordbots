@@ -85,8 +85,17 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
       if(submission.stageId!==plan.stageId)throw Object.assign(Error('The candidate stage changed. Reload the plan.'),{status:409});
       windows=submission.localWindows;timezone=submission.timezone;
     }else if(req.body.availabilitySource!=='manual')throw Object.assign(Error('Choose an availability source.'),{status:422});
-    const result=req.body.calendarCheck===true?await calendarChecked(plan,windows,timezone):require('./full-schedule').proposeFullSchedule({sessions:plan.sessions,windows,timezone});
+    const result=req.body.calendarCheck===true?await calendarChecked(plan,windows,timezone):unchecked(plan,windows,timezone);
     return {plan,result:{...result,proposals:result.proposals.map(p=>({...p,optionDigest:optionDigest(p)})),candidateName:plan.candidateName,checkedAt:plan.checkedAt}};
+  }
+  // Without calendar checks: back-to-back agendas with this client's start
+  // windows applied (never silently skipped, so rules must be loaded), and the
+  // result names what isn't checked.
+  function unchecked(plan,windows,timezone){
+    if(!rules)throw Object.assign(Error('Scheduling rules are not loaded.'),{status:503});
+    const clientRules=rules.get();
+    const sessions=plan.sessions.map(s=>{const w=clientRules.placementFor(s.title);return w.length?{...s,placementWindows:w}:s;});
+    return require('./full-schedule').proposeFullSchedule({sessions,windows,timezone});
   }
   // Calendar-constrained options: interviewers' primary Google calendars as a
   // hard constraint, meeting hours assumed from client rules, zero limits
@@ -95,7 +104,8 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     if(!googleCalendar?.status().connected||!googleFreeBusy)throw Object.assign(Error('Connect read-only Google Calendar availability first.'),{status:409});
     if(!rules)throw Object.assign(Error('Scheduling rules are not loaded.'),{status:503});
     const inputs=await require('./calendar-inputs').buildCalendarInputs({plan,windows,timezone,rules:rules.get(),facts,freeBusy:googleFreeBusy});
-    const context={calendarCheck:{excluded:inputs.excluded,meetingHours:inputs.meetingHours,limitsPolicy:inputs.limitsPolicy,busySource:inputs.busySource,rulesRevision:inputs.rulesRevision}};
+    const startWindowsApplied=(inputs.sessions||[]).flatMap(s=>(s.placementWindows||[]).map(w=>({title:s.title,earliestStart:w.earliestStart,latestStart:w.latestStart,timezone:w.timezone})));
+    const context={calendarCheck:{excluded:inputs.excluded,meetingHours:inputs.meetingHours,limitsPolicy:inputs.limitsPolicy,busySource:inputs.busySource,rulesRevision:inputs.rulesRevision,startWindowsApplied}};
     if(inputs.blocked){const totalMinutes=plan.sessions.reduce((n,s)=>n+s.durationMinutes,0);return {status:'no_calendar_fit',bookingEnabled:false,availabilityVerified:false,meetingHoursAssumed:true,totalMinutes,timezone,proposals:[],reason:inputs.blocked,...context};}
     const result=require('./full-calendar-schedule').proposeCalendarSchedule({sessions:inputs.sessions,windows,timezone,calendars:inputs.calendars,...inputs.agenda});
     // One line per no-fit, reason counts only (no names): the running evidence
