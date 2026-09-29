@@ -139,15 +139,23 @@ done and verified, in this order:
   is built but not configured or tested live.** It needs `SCHEDULING_SLACK_ROUTING=client`,
   `SCHEDULING_SLACK_CHANNEL_ID`, `SCHEDULING_SLACK_CHANNEL_NAME` and
   `SCHEDULING_SLACK_BOT_TOKEN` on Luminai, with the bot invited to that channel.
-- **Calendar-checked options are wired but narrow.** "Preview calendar-checked agenda"
-  runs `full-calendar-schedule.js` against each interviewer's primary Google
-  calendar. It uses meeting hours assumed from `scheduling-rules/luminai.json`
-  (reported as assumed, never verified). Under `zero_only`, anyone with an Ashby
-  limit of 0 is excluded and listed, and every other limit is ignored. Not built
-  yet: breaks between sessions (rules gaps must be 0, or the check refuses) and a
-  report of which constraint bound when nothing fits. The solver still only says
-  `no_calendar_fit`. Not checked: other calendars, bookable-over holds and non-zero
-  limits.
+- **Calendar-checked options.** "Preview calendar-checked agenda" runs
+  `full-calendar-schedule.js` against each interviewer's primary Google calendar.
+  It uses meeting hours assumed from `scheduling-rules/luminai.json` (reported as
+  assumed, never verified). Under `zero_only`, anyone with an Ashby limit of 0 is
+  excluded and listed, and every other limit is ignored. Not checked: other
+  calendars, bookable-over holds and non-zero limits.
+  - **Breaks between sessions work**, but Luminai stays at 0/0 until breaks are
+    agreed. `test/full-calendar-schedule-v1.test.js` holds 0/0 to the original
+    solver's exact output.
+  - **A no-fit comes with a report:** the furthest reach, then at most two changes
+    that would produce a fit, then one line per interviewer at the blocking
+    session. Placeholder (client-default) hours are labelled as a data gap, never
+    as a conflict.
+  - **Busy-time evidence for bookable-over.** Each no-fit logs
+    `[calendar-check] no fit: ... rejected busy=N hours-default=N ...` (counts only,
+    no names). Grep Luminai's logs for it to see how often busy time, rather than
+    hours or limits, is what binds.
 - **Most video interviewers inherit the wrong meeting hours.** Ten interviewers are set
   to `attendance: "video"` in `scheduling-rules/luminai.json`. Two of them, Aggelos
   Arvanitakis and Alex Mavrogiannis, have meeting-hours overrides (revision 3). The

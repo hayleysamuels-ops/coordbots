@@ -14,7 +14,6 @@ const { hoursIntervals } = require("./meeting-hours");
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 
 async function buildCalendarInputs({ plan, windows, timezone, rules, facts, freeBusy, now = Date.now() }) {
-  if (rules.agenda.minBreakMinutes !== 0 || rules.agenda.maxGapMinutes !== 0) fail(503, "Breaks between sessions aren't supported by the calendar check yet. Set agenda gaps to 0.");
   if (rules.busy.source !== "google_freebusy" || rules.busy.calendars.length !== 1 || rules.busy.calendars[0] !== "primary") fail(503, "Calendar checks need busy.source google_freebusy with the primary calendar only.");
   if (rules.limitsPolicy === "enforce") fail(503, "Enforced interview limits need interview counts, which aren't built. Use zero_only.");
   if (!facts?.resolveInterviewers || !freeBusy) fail(503, "Calendar checks aren't connected.");
@@ -31,7 +30,7 @@ async function buildCalendarInputs({ plan, windows, timezone, rules, facts, free
     if (limit && (limit.dailyLimit === 0 || limit.weeklyLimit === 0)) { excluded.push({ name: person.name, email: person.email, reason: `Ashby ${limit.dailyLimit === 0 ? "daily" : "weekly"} interview limit is 0` }); continue; }
     const { hours, source } = rules.meetingHoursFor(person.email);
     if (!hours) { excluded.push({ name: person.name, email: person.email, reason: "No meeting hours in the client rules" }); continue; }
-    usable.set(person.userId, { person, hours, intervals: hoursIntervals(hours, rangeStart, rangeEnd) });
+    usable.set(person.userId, { person, hours, source, intervals: hoursIntervals(hours, rangeStart, rangeEnd) });
     hoursUsed.push({ name: person.name, email: person.email, source, timezone: hours.timezone, days: hours.days, start: hours.start, end: hours.end });
   }
   const sessions = resolved.sessions.map(s => ({ ...s, eligibleInterviewers: s.eligibleInterviewers.filter(p => usable.has(p.userId)) }));
@@ -41,18 +40,21 @@ async function buildCalendarInputs({ plan, windows, timezone, rules, facts, free
 
   const rows = await freeBusy.read({ calendarIds: [...usable.values()].map(u => u.person.email), timeMin: new Date(rangeStart).toISOString(), timeMax: new Date(rangeEnd).toISOString() });
   const byEmail = new Map(rows.map(r => [String(r.calendarId).toLowerCase(), r]));
-  const calendars = [...usable.values()].map(({ person, intervals }) => {
+  const calendars = [...usable.values()].map(({ person, hours, source, intervals }) => {
     const row = byEmail.get(person.email);
     if (!row) fail(409, `Google returned no calendar for ${person.name}.`);
     return {
       userId: person.userId, verified: true, coverageVerified: row.coverageVerified === true,
-      workingHoursSource: "assumed", checkedAt: row.checkedAt, coverage: row.coverage, busy: row.busy,
+      // "default" is the client's placeholder hours, "override" hours set for
+      // this person; the solver's no-fit report keeps the two apart.
+      workingHoursSource: "assumed", hoursSource: source, hoursLabel: `${hours.start}–${hours.end} ${hours.timezone}, ${source === "default" ? "client default" : "set for this person"}`,
+      checkedAt: row.checkedAt, coverage: row.coverage, busy: row.busy,
       sessionWorkingWindows: Object.fromEntries(sessions.filter(s => s.eligibleInterviewers.some(p => p.userId === person.userId)).map(s => [s.sessionId, intervals])),
       // zero_only: zero limits were excluded above; every other limit is ignored.
       limits: { dailyLimit: null, weeklyLimit: null },
     };
   });
-  return { ...context, sessions, calendars };
+  return { ...context, sessions, calendars, agenda: { minBreakMinutes: rules.agenda.minBreakMinutes, maxGapMinutes: rules.agenda.maxGapMinutes } };
 }
 
 module.exports = { buildCalendarInputs };

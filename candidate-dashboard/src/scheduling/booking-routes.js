@@ -97,7 +97,11 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     const inputs=await require('./calendar-inputs').buildCalendarInputs({plan,windows,timezone,rules:rules.get(),facts,freeBusy:googleFreeBusy});
     const context={calendarCheck:{excluded:inputs.excluded,meetingHours:inputs.meetingHours,limitsPolicy:inputs.limitsPolicy,busySource:inputs.busySource,rulesRevision:inputs.rulesRevision}};
     if(inputs.blocked){const totalMinutes=plan.sessions.reduce((n,s)=>n+s.durationMinutes,0);return {status:'no_calendar_fit',bookingEnabled:false,availabilityVerified:false,meetingHoursAssumed:true,totalMinutes,timezone,proposals:[],reason:inputs.blocked,...context};}
-    return {...require('./full-calendar-schedule').proposeCalendarSchedule({sessions:inputs.sessions,windows,timezone,calendars:inputs.calendars}),...context};
+    const result=require('./full-calendar-schedule').proposeCalendarSchedule({sessions:inputs.sessions,windows,timezone,calendars:inputs.calendars,...inputs.agenda});
+    // One line per no-fit, reason counts only (no names): the running evidence
+    // for how often busy time, rather than hours or limits, is what binds.
+    if(result.diagnosis){const d=result.diagnosis,c=d.conflicts;console.log(`[calendar-check] no fit: placed ${d.furthest.placed}/${d.furthest.of}; unblock=${d.unblock.map(u=>u.kind==='combination'?u.changes.map(x=>x.kind).join('+'):u.kind==='hours'?`hours-${u.changes[0].hoursSource}`:u.kind).join(',')||'none'}; rejected busy=${c.busy} hours-default=${c.hours.default} hours-override=${c.hours.override} hours-verified=${c.hours.verified} limits=${c.limits}`);}
+    return {...result,...context};
   }
   router.post('/suggest-full-schedule',handle(async req=>(await suggestFull(req)).result));
   // Posts one option to this client's configured Slack channel for discussion.
