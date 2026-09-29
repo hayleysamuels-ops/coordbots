@@ -115,6 +115,14 @@ is normally still in Application Review and any status).
   only — Interviewer Weekly Limits and Interviewer Training count
   regardless of candidate status (they aren't candidate-driven at all), and
   Recently Sourced shows all statuses.
+- `src/training/` — interviewer training tracker, on only where
+  `TRAINING_TRACKER_CLIENT_ID` is set. `store.js` persists paths, enrolments,
+  pauses, per-person requirement overrides, per-session overrides and manual
+  credits (`<DATA_DIR>/interviewer-training.json`); `progress.js` is the pure
+  rules (no Ashby, no disk, directly testable); `compute.js` ties them
+  together and caches interview titles; `interviewTitleCache.js` persists
+  those titles; `routes.js` is the mutation API. See README § Interviewer
+  training tracker.
 - `src/rescheduleTracking.js` — persisted (`<DATA_DIR>/reschedule-
   tracking.json`) reschedule counter per interview event id; see the key
   design fact below.
@@ -134,6 +142,56 @@ is normally still in Application Review and any status).
   it needs so it stays runnable before a client even has a `.env` set up.
 
 ## Key design facts (don't "fix" these — they're intentional)
+
+- **The training tracker derives progress from schedules and writes NOTHING
+  to Ashby — both deliberate.** Ashby has a native interviewer-pool training
+  path (still read, see `listInterviewerTraining()`), but an interviewer can
+  be on only ONE of them at a time, and confirmed against Forus's live org on
+  29 September 2026 only 1 of 29 pools has one enabled with all 12 trainees
+  stuck at 0 of 1. So with the tracker on, that Ashby data is used ONLY to
+  flag disagreement on a card and never feeds the counts. The no-write rule
+  isn't just a limitation either: `interviewerPool.addUser` is the only
+  interviewer-pool write endpoint that exists, so enrolment/stage/pause/
+  required-count aren't writable at all, AND the product decision is
+  explicitly read-only. Don't "finish" this by adding a write path — the
+  "Complete — not yet in the Ashby pool" state exists precisely so the drift
+  between tracker and Ashby pool is visible rather than silent.
+- **A training path is interview title + job, never one of them alone.** Both
+  failure modes are real in Forus's data: one interview record served two
+  different roles, and one role was split across two same-titled records.
+  Keying on interview id alone merges two roles' training in the first case
+  and halves it in the second (where neither half ever reaches its required
+  count). Paths store resolved interview IDs so an Ashby rename can't orphan
+  them, and a new same-titled record is surfaced as a suggestion, never
+  absorbed — same-titled duplicates aren't always equivalent.
+- **Shadow vs reverse shadow is a sequence rule because the data cannot
+  distinguish them.** A shadow and a reverse shadow are the same event shape
+  (trainee added as an extra interviewer), so the first N counting sessions
+  are shadows and the next are reverse shadows, with per-session manual
+  override. Don't replace this with a scorecard heuristic: there is no
+  per-interviewer feedback-submitted flag anywhere in the API (see the
+  `hasSubmittedFeedback` comment in `ashby.js` — it's one event-level
+  aggregate).
+- **Ashby exposes no interviewer RSVP/attendance, so "didn't attend" is a
+  manual discount.** The complete field set on an event's interviewer is
+  `id`/`firstName`/`lastName`/`email`/`globalRole`/`isEnabled`/`updatedAt`/
+  `isFeedbackRequired`/`interviewerPool` — verified against 2,310 live
+  events. Same wall as the scoped-out "declined meetings" flag. Cancellation
+  IS available, but on the SCHEDULE, not the event (events carry no status
+  field at all).
+- **Training is computed inside `listIssues()`, not as its own
+  SECTION_GROUPS entry, and recomputed again at SERVE time.** Inside
+  listIssues so it reuses that call's schedules and applications rather than
+  paginating `interviewSchedule.list` a second time (the single most
+  expensive call in a cycle). At serve time (`applyTraining` in `issues.js`,
+  alongside applyDismissals/applyNotes) so an enrol/pause/override shows on
+  the very next poll instead of up to `REFRESH_INTERVAL_MINUTES` later.
+  `compute.js` keeps the last cycle's inputs in memory for exactly that.
+- **`fetchApplicationSummaries` was split into `summarizeApplications` +
+  `jobsByApplication` over one shared fetch.** The training tracker needs the
+  JOB for every application, unfiltered by candidate status — a shadow still
+  counts after its candidate is rejected, same reasoning as Interviewer
+  Weekly Limits. Filtering those to Active would silently stop counting.
 
 - **The page is four tabs (Dashboard / Interviewer Info / Offers / Scheduling),
   implemented as plain DOM show/hide, not a router.** The Scheduling tab (and

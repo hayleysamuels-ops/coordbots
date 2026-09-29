@@ -64,20 +64,37 @@ function createServer() {
     }));
   }
 
-  // Without the pilot, scheduling-only pages and assets 404, and index.html
-  // is sent with its scheduling blocks removed. With it, express.static
-  // serves every file unchanged, exactly as before the flag existed.
-  if (!config.schedulingEnabled) {
-    const indexHtml = pageGate.stripSchedulingBlocks(
-      fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8"));
+  // Feature-gated markup and assets. Without the scheduling pilot, its pages
+  // and assets 404 and its index.html blocks are removed. The training
+  // tracker gates in BOTH directions: exactly one of the two training blocks
+  // survives, because the tracker replaces the original Ashby-native
+  // Interviewer Training section rather than sitting alongside it. With every
+  // feature on, express.static serves each file unchanged.
+  const rawIndexHtml = fs.readFileSync(path.join(__dirname, "..", "public", "index.html"), "utf8");
+  let indexHtml = rawIndexHtml;
+  if (!config.schedulingEnabled) indexHtml = pageGate.stripBlocks(indexHtml, "scheduling");
+  indexHtml = config.trainingTrackerEnabled
+    ? pageGate.stripBlocks(indexHtml, "training-legacy")
+    : pageGate.stripBlocks(indexHtml, "training");
+
+  if (indexHtml !== rawIndexHtml || !config.schedulingEnabled || !config.trainingTrackerEnabled) {
     app.use((req, res, next) => {
       if (req.method !== "GET" && req.method !== "HEAD") return next();
-      if (pageGate.SCHEDULING_ONLY_ASSETS.has(req.path)) return res.status(404).send("Not found");
+      if (!config.schedulingEnabled && pageGate.SCHEDULING_ONLY_ASSETS.has(req.path)) return res.status(404).send("Not found");
+      if (!config.trainingTrackerEnabled && pageGate.TRAINING_ONLY_ASSETS.has(req.path)) return res.status(404).send("Not found");
       if (req.path === "/" || req.path === "/index.html") return res.type("html").send(indexHtml);
       next();
     });
   }
   app.use(express.static(path.join(__dirname, "..", "public")));
+
+  // Interviewer training tracker: mounted only where TRAINING_TRACKER_CLIENT_ID
+  // is set, so the other dashboards 404 on all of it - same gating shape as
+  // the scheduling pilot above. Every route writes to this app's own store
+  // and nothing to Ashby (see training/routes.js).
+  if (config.trainingTrackerEnabled) {
+    app.use("/api/training", require("./training/routes").routes(issues));
+  }
 
   app.get("/api/issues", (req, res) => {
     res.json(issues.getSnapshot());

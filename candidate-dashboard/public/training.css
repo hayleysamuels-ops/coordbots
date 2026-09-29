@@ -1,0 +1,419 @@
+/* Interviewer training tracker.
+   Loaded only where TRAINING_TRACKER_CLIENT_ID is set — elsewhere this file
+   404s (see src/scheduling/page-gate.js). Everything here is scoped under a
+   .training- prefix so it can never affect another dashboard's sections.
+   Tokens come from style.css; nothing new is defined at :root. */
+
+.training-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.training-head h2 {
+  margin: 0;
+}
+
+.training-head-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.training-btn {
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--ember);
+  background: var(--ember);
+  color: var(--white);
+  cursor: pointer;
+}
+
+.training-btn:hover {
+  background: var(--ember-hover);
+  border-color: var(--ember-hover);
+}
+
+.training-btn-quiet {
+  background: var(--surface);
+  color: var(--ardesia);
+  border-color: var(--border-default);
+}
+
+.training-btn-quiet:hover {
+  background: var(--surface-sunken);
+  border-color: var(--border-default);
+}
+
+.training-link {
+  font: inherit;
+  font-size: 11px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--ardesia);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.training-link:hover {
+  color: var(--ember);
+}
+
+/* --- groups --- */
+
+.training-group:not(:empty) {
+  margin-top: 18px;
+}
+
+.training-group-title {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ardesia);
+  margin: 0 0 2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.training-group-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 400;
+  background: var(--surface-sunken);
+  border-radius: var(--radius-pill);
+  padding: 1px 8px;
+  color: var(--ardesia);
+}
+
+.training-group-note {
+  font-size: 12px;
+  margin: 0 0 8px;
+}
+
+.training-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* --- card --- */
+
+.training-card {
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--border-default);
+  border-radius: var(--radius-card);
+  padding: 10px 12px;
+  box-shadow: var(--shadow-xs);
+}
+
+/* Recency. Discrete steps rather than a continuous ramp: the point is to
+   compare cards against each other at a glance, and a true gradient reads as
+   decoration instead of data. Driven by time since the last interview that
+   HAPPENED, counted or not — the question is "is this person being used?",
+   not "is their progress advancing?". */
+.training-card.recency-fresh { border-left-color: var(--moss); }
+.training-card.recency-warm  { border-left-color: #8FA637; }
+.training-card.recency-cool  { border-left-color: var(--lemon); }
+.training-card.recency-cold  { border-left-color: var(--ember); }
+.training-card.recency-done  { border-left-color: var(--border-default); }
+
+.training-card-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.training-card-id {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.training-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.training-path {
+  font-size: 12px;
+}
+
+.training-card-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.training-counts {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ardesia);
+  white-space: nowrap;
+}
+
+/* Progress pips: one per required interview, filled as they're completed.
+   Shadows and reverse shadows are separated by a gap and differ in shape, so
+   the two halves of a requirement stay legible without reading the label. */
+.pips {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.pip {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  border: 1px solid var(--border-default);
+  background: var(--surface);
+  display: inline-block;
+}
+
+.pip-reverse {
+  border-radius: var(--radius-pill);
+}
+
+.pip-done {
+  background: var(--ardesia);
+  border-color: var(--ardesia);
+}
+
+.pip-gap {
+  width: 6px;
+  display: inline-block;
+}
+
+.training-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.training-last {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted, var(--nuvola));
+}
+
+.training-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+
+.badge-warn { background: var(--lemon-wash); color: var(--lemon); }
+.badge-info { background: var(--ember-wash); color: var(--ember-press); }
+.badge-quiet { background: var(--surface-sunken); color: var(--ardesia); }
+
+.training-pause-note,
+.training-disagree {
+  font-size: 12px;
+  color: var(--ardesia);
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: var(--surface-sunken);
+  border-radius: var(--radius-control);
+}
+
+/* --- detail --- */
+
+.training-detail {
+  margin-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 10px;
+}
+
+.training-sessions {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.training-session {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: var(--radius-control);
+}
+
+.training-session.is-uncounted {
+  background: var(--surface-sunken);
+}
+
+.training-session-when {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  min-width: 90px;
+}
+
+.training-session-who {
+  flex: 1 1 140px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.training-session-why {
+  font-size: 11px;
+  color: var(--lemon);
+}
+
+.training-check {
+  font-size: 11px;
+  color: var(--ardesia);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.training-detail-actions {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.training-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.training-field label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ardesia);
+}
+
+.training-field-end {
+  margin-left: auto;
+}
+
+.training-field input[type="number"] {
+  width: 48px;
+}
+
+.training-field input,
+.training-field select,
+.training-session select {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 6px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: inherit;
+}
+
+/* --- panels --- */
+
+.training-panel {
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.training-panel h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.training-panel h4 {
+  margin: 12px 0 4px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ardesia);
+}
+
+.training-panel p {
+  font-size: 12px;
+  margin: 0 0 8px;
+}
+
+.training-panel select {
+  max-width: 380px;
+}
+
+.training-path-list,
+.training-suggestions ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.training-path-list li,
+.training-suggestions ul li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.training-suggestions {
+  margin-top: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  /* style.css already flips the shared tokens; only the two hard-coded hues
+     above need a dark-mode value of their own. */
+  .training-card.recency-warm { border-left-color: #A8BF4A; }
+}
+
+/* Pickers. The org has hundreds of interviewers and hundreds of
+   (interview, role) pairs, so both are type-ahead rather than plain
+   dropdowns. */
+#training-enrol-user,
+#training-path-filter {
+  min-width: 280px;
+}
+
+#training-path-option {
+  min-width: 420px;
+  max-width: 100%;
+}
+
+.training-enrol-error:empty {
+  display: none;
+}
+
+.training-enrol-error {
+  color: var(--ember-press);
+  font-size: 12px;
+  margin: 6px 0 0;
+}

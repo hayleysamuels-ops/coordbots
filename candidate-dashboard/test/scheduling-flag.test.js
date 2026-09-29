@@ -9,7 +9,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const { stripSchedulingBlocks, SCHEDULING_ONLY_ASSETS, START, END } = require("../src/scheduling/page-gate");
+const { stripSchedulingBlocks, SCHEDULING_ONLY_ASSETS, START, END, stripBlocks } = require("../src/scheduling/page-gate");
 
 const PUBLIC = path.join(__dirname, "..", "public");
 const indexFile = fs.readFileSync(path.join(PUBLIC, "index.html"), "utf8");
@@ -116,14 +116,27 @@ test("flag on: every scheduling page and asset is served unchanged", () => {
   }
 });
 
-test("flag on: the dashboard page is index.html unchanged, with the scheduling tab and section", () => {
+test("flag on: the dashboard page keeps every scheduling block, with the scheduling tab and section", () => {
+  // This used to assert the served body was index.html byte-for-byte. That
+  // stopped being true when the training tracker added a SECOND, independent
+  // gate: the training markers are always resolved (one of the two blocks is
+  // always stripped), regardless of the scheduling flag. These fixtures run
+  // with TRAINING_TRACKER_CLIENT_ID unset, so the expected page is index.html
+  // with the tracker's own blocks removed and the original Ashby-native
+  // training section left in place.
+  //
+  // The assertion this test actually exists to make - that the scheduling
+  // flag being on strips nothing of scheduling's - is now checked directly
+  // against the served body rather than against the source file, which is
+  // stronger than the byte-equality proxy it replaces.
+  const expectedPage = stripBlocks(indexFile, "training");
   for (const route of ["GET /", "GET /index.html"]) {
     assert.equal(on[route].status, 200, route);
-    assert.equal(on[route].body, indexFile, route);
+    assert.equal(on[route].body, expectedPage, route);
   }
   for (const present of ['id="readyToSchedule"', "<h2>Ready to schedule</h2>", 'data-tab="scheduling"', 'id="tab-scheduling"',
     '<script src="ready-scheduling.js"></script>', '<script src="scheduling-review.js"></script>']) {
-    assert.ok(indexFile.includes(present), "index.html is missing " + present);
+    assert.ok(on["GET /"].body.includes(present), "the served page is missing " + present);
   }
 });
 
