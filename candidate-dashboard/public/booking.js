@@ -103,7 +103,13 @@
   function diagnosisHtml(d){
     const hours=c=>c.hoursSource==='default'?`the client's placeholder hours (${esc(c.hoursLabel)}), which aren't confirmed for them`:c.hoursSource==='verified'?'their verified meeting hours':`the hours set for them (${esc(c.hoursLabel)}), which are assumed`;
     const win=w=>`${esc(w.earliestStart)}–${esc(w.latestStart)} ${esc(w.timezone)}`;
-    const change=c=>c.kind==='placement'?`<strong>Start window:</strong> ${esc(c.title)} must start ${c.windows.map(win).join(' and ')}, and that's what rules it out.${c.gapsZero?` With no gap allowed between sessions (0/0), the only way to meet it is moving the agenda's start time, so a non-zero maxGapMinutes would allow slack before it. ${c.fitsWithMaxGapMinutes?`Allowing up to ${c.fitsWithMaxGapMinutes} minutes between sessions would fit.`:'Even 120 minutes between sessions would not be enough on its own.'}`:''}`
+    const words=['no','one','two','three'],breaks=(n,max)=>`${words[n]||n} break${n===1?'':'s'} of up to ${max} minutes`;
+    // With no breaks allowed the agenda's start time is the only lever; with a
+    // budget, say what it is. Then the smallest allowance that would fit.
+    const breaksNote=c=>{const b=c.currentBreaks,f=c.fitsWithBreaks;
+      const now=b.count?` Breaks are limited to ${breaks(b.count,b.maxMinutes)} (at least ${b.minMinutes}), and that isn't enough to reach it.`:' With no breaks allowed between sessions, the only way to meet it is moving the agenda\'s start time.';
+      return now+(f?` Allowing ${breaks(f.count,f.maxMinutes)} would fit.`:' Even three breaks of up to 120 minutes wouldn\'t be enough on their own.');};
+    const change=c=>c.kind==='placement'?`<strong>Start window:</strong> ${esc(c.title)} must start ${c.windows.map(win).join(' and ')}, and that's what rules it out.${breaksNote(c)}`
       :c.kind==='hours'?(c.dataGap?`<strong>Data gap:</strong> enter ${esc(c.name)}'s real meeting hours. Every slot that would fit is outside ${hours(c)}.`:`<strong>Assumed hours:</strong> ${esc(c.name)} could take it outside ${hours(c)}.`)
       :c.kind==='busy'?`<strong>Busy time:</strong> ${esc(c.name)}'s primary calendar is busy at every slot that would otherwise fit. If some of it is a hold that can be booked over, it could work; that isn't supported yet.`
       :`<strong>Interview limit:</strong> ${esc(c.name)}'s Ashby limit rules it out.`;

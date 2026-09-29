@@ -57,7 +57,7 @@ async function buildCalendarInputs({ plan, windows, timezone, rules, facts, free
       limits: { dailyLimit: null, weeklyLimit: null },
     };
   });
-  return { ...context, sessions, calendars, agenda: { minBreakMinutes: rules.agenda.minBreakMinutes, maxGapMinutes: rules.agenda.maxGapMinutes } };
+  return { ...context, sessions, calendars, agenda: { minBreakMinutes: rules.agenda.minBreakMinutes, maxGapMinutes: rules.agenda.maxGapMinutes, maxGapCount: rules.agenda.maxGapCount } };
 }
 
 module.exports = { buildCalendarInputs };

@@ -167,14 +167,21 @@
           "minimum": 0,
           "maximum": 240,
           "multipleOf": 5,
-          "description": "Row 19. Shortest allowed gap between one session's end and the next session's start, in template order. 0 with maxGapMinutes 0 is today's back-to-back agenda."
+          "description": "Row 19. Shortest allowed break. A gap between one session's end and the next session's start, in template order, is either 0 or a break between minBreakMinutes and maxGapMinutes; at most maxGapCount gaps in an agenda may be breaks."
         },
         "maxGapMinutes": {
           "type": "integer",
           "minimum": 0,
           "maximum": 480,
           "multipleOf": 5,
-          "description": "Row 19. Longest allowed gap between consecutive sessions, so a candidate is never left waiting for hours. Must be at least minBreakMinutes; JSON Schema cannot check that, so the loader must. Both 0 reproduces today's contiguous solver exactly."
+          "description": "Row 19. Longest allowed break (the per-gap cap), so a candidate is never left waiting for hours. Must be at least minBreakMinutes, and at least 5 when maxGapCount is above 0; JSON Schema cannot check that, so the loader must."
+        },
+        "maxGapCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 29,
+          "default": 0,
+          "description": "Row 19. The break budget: how many gaps in one agenda may be non-zero. Every other gap is 0, so sessions run back to back. Optional; absent means 0, which is a back-to-back agenda whatever minBreakMinutes and maxGapMinutes say, and reproduces the original contiguous solver exactly."
         }
       }
     },

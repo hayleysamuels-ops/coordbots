@@ -77,8 +77,10 @@ test("ignore doesn't read limits; enforce and other busy sources refuse; gaps pa
   const { facts, freeBusy, calls } = sources();
   await buildCalendarInputs({ plan, windows, timezone, rules: rulesDoc(d => { d.limits.ashbyInterviewerLimits = "ignore"; }), facts, freeBusy });
   assert.equal(calls.limits, 0);
-  const gapped = await buildCalendarInputs({ plan, windows, timezone, rules: rulesDoc(d => { d.agenda.minBreakMinutes = 10; d.agenda.maxGapMinutes = 30; }), facts, freeBusy });
-  assert.deepEqual(gapped.agenda, { minBreakMinutes: 10, maxGapMinutes: 30 });
+  const gapped = await buildCalendarInputs({ plan, windows, timezone, rules: rulesDoc(d => { d.agenda.minBreakMinutes = 10; d.agenda.maxGapMinutes = 30; d.agenda.maxGapCount = 1; }), facts, freeBusy });
+  assert.deepEqual(gapped.agenda, { minBreakMinutes: 10, maxGapMinutes: 30, maxGapCount: 1 });
+  const legacy = await buildCalendarInputs({ plan, windows, timezone, rules: rulesDoc(d => { delete d.agenda.maxGapCount; }), facts, freeBusy });
+  assert.equal(legacy.agenda.maxGapCount, 0);
   assert.equal(gapped.calendars[0].hoursSource, "default");
   assert.equal(gapped.calendars[0].hoursLabel, "09:00–17:00 America/Los_Angeles, client default");
   for (const change of [d => { d.limits.ashbyInterviewerLimits = "enforce"; }, d => { d.busy.source = "none"; }, d => { d.busy.calendars = ["primary", "holds"]; }])

@@ -17,32 +17,60 @@ function calendar(person,{busy=[],hours=[[9,17]],source='override',sessions}){
 }
 const solve=(sessions,calendars,extra={})=>proposeCalendarSchedule({sessions,windows:[{start:`${day}T09:00`,end:`${day}T17:00`}],timezone:'America/New_York',now,calendars,...extra});
 
-// ---- breaks ------------------------------------------------------------------
+// ---- breaks (a budget: each gap is 0 or minBreak..maxGap; at most maxGapCount breaks) ----
 
-test('a minimum break puts that gap between every pair of sessions',()=>{
+const BUDGET=(count,min=15,max=30)=>({minBreakMinutes:min,maxGapMinutes:max,maxGapCount:count});
+
+test('breaks are optional: back to back is used whenever it fits',()=>{
   const s=[session('1',30,[A]),session('2',30,[A])];
-  const [first]=solve(s,[calendar(A,{sessions:s})],{minBreakMinutes:15,maxGapMinutes:15}).proposals;
-  assert.equal(Date.parse(first.events[1].start)-Date.parse(first.events[0].end),15*60000);
+  const [first]=solve(s,[calendar(A,{sessions:s})],BUDGET(2)).proposals;
+  assert.equal(first.events[1].start,first.events[0].end);
 });
 
-test('a maximum gap lets a session wait out a busy block that back-to-back cannot',()=>{
+test('a break of minBreak to maxGap lets a session wait out a busy block',()=>{
   const s=[session('1',60,[A]),session('2',60,[B])];
-  // Ana only 09:00-10:00; Ben busy 10:00-10:30.
-  const cals=[calendar(A,{hours:[[9,10]],sessions:s}),calendar(B,{busy:[[[10],[10,30]]],sessions:s})];
+  // Ana only 09:00-10:00; Ben busy 10:00-10:20. Back to back can't work.
+  const cals=[calendar(A,{hours:[[9,10]],sessions:s}),calendar(B,{busy:[[[10],[10,20]]],sessions:s})];
   assert.equal(solve(s,cals).status,'no_calendar_fit');
-  const r=solve(s,cals,{minBreakMinutes:0,maxGapMinutes:30});
+  const r=solve(s,cals,BUDGET(1));
   assert.equal(r.status,'calendar_checked');
-  assert.equal(r.proposals[0].events[1].start,at(10,30));
+  // 15 minutes isn't enough to clear 10:20; the 20-minute break is the shortest that is.
+  assert.equal(r.proposals[0].events[1].start,at(10,20));
+});
+
+test('a break is never shorter than minBreakMinutes',()=>{
+  const s=[session('1',60,[A]),session('2',60,[B])];
+  // Ben busy 10:00-10:05: a 5-minute wait would do, but breaks start at 15.
+  const cals=[calendar(A,{hours:[[9,10]],sessions:s}),calendar(B,{busy:[[[10],[10,5]]],sessions:s})];
+  assert.equal(solve(s,cals,BUDGET(1)).proposals[0].events[1].start,at(10,15));
+});
+
+test('no more than maxGapCount breaks in one agenda',()=>{
+  // Ana can only start the day at 09:00, so the agenda is pinned. Each later
+  // hand-off hits a busy block longer than any break can avoid by shifting an
+  // earlier session, so the agenda needs three breaks.
+  const D={userId:'d',name:'Dee'};
+  const s=[session('1',60,[A]),session('2',60,[B]),session('3',60,[C]),session('4',30,[D])];
+  const cals=[calendar(A,{hours:[[9,10]],sessions:s}),calendar(B,{busy:[[[10],[10,15]]],sessions:s}),calendar(C,{busy:[[[11,15],[11,45]]],sessions:s}),calendar(D,{busy:[[[12,30],[13,10]]],sessions:s})];
+  assert.equal(solve(s,cals,BUDGET(2)).status,'no_calendar_fit');
+  const r=solve(s,cals,BUDGET(3));
+  assert.equal(r.status,'calendar_checked');
+  const ev=r.proposals[0].events,gaps=ev.slice(1).map((e,i)=>(Date.parse(e.start)-Date.parse(ev[i].end))/60000);
+  assert.equal(gaps.filter(g=>g>0).length,3);
+  assert.ok(gaps.every(g=>g===0||(g>=15&&g<=30)),String(gaps));
 });
 
 test('breaks never push a session past the candidate window or onto another day',()=>{
-  const s=[session('1',240,[A]),session('2',240,[A])];
-  assert.equal(solve(s,[calendar(A,{sessions:s})],{minBreakMinutes:5,maxGapMinutes:60}).status,'no_calendar_fit');
+  // Two 240-minute sessions exactly fill 09:00-17:00 back to back; Ben's busy
+  // 13:00-13:15 forces a break, which would end the agenda after 17:00.
+  const s=[session('1',240,[A]),session('2',240,[B])];
+  const r=solve(s,[calendar(A,{sessions:s}),calendar(B,{busy:[[[13],[13,15]]],sessions:s})],BUDGET(1));
+  assert.equal(r.status,'no_calendar_fit');
 });
 
 test('an invalid break rule is refused',()=>{
   const s=[session('1',30,[A])];
-  for(const extra of [{minBreakMinutes:30,maxGapMinutes:10},{minBreakMinutes:7,maxGapMinutes:7},{minBreakMinutes:-5,maxGapMinutes:0}])assert.throws(()=>solve(s,[calendar(A,{sessions:s})],extra),{status:422});
+  for(const extra of [{minBreakMinutes:30,maxGapMinutes:10},{minBreakMinutes:7,maxGapMinutes:7},{minBreakMinutes:-5,maxGapMinutes:0},{maxGapCount:-1},{maxGapCount:1,maxGapMinutes:0},{maxGapCount:1.5,maxGapMinutes:30}])assert.throws(()=>solve(s,[calendar(A,{sessions:s})],extra),{status:422});
 });
 
 // ---- the no-fit report -------------------------------------------------------
@@ -131,23 +159,36 @@ test('when the start window binds, the report says so and tests how much gap wou
   assert.equal(first.kind,'placement');
   const [change]=first.changes;
   assert.equal(change.title,'Lunch with the team');
-  assert.equal(change.gapsZero,true);
+  assert.deepEqual(change.currentBreaks,{count:0,minMinutes:0,maxMinutes:0});
   assert.deepEqual(change.windows,[{value:'Lunch',timezone:'America/Los_Angeles',earliestStart:'12:00',latestStart:'13:30'}]);
-  // 07:00 PT to 12:00 PT needs a 300-minute gap: more than the 120 minutes tested.
-  assert.equal(change.fitsWithMaxGapMinutes,null);
+  // 07:00 PT to 12:00 PT needs 300 minutes of breaks: more than three of 120 minus
+  // what lunch's own position allows, so nothing tested fits.
+  assert.equal(change.fitsWithBreaks,null);
   assert.equal(r.diagnosis.blockedPlacement.title,'Lunch with the team');
   assert.deepEqual(r.diagnosis.atBlocked.map(x=>x.reason),['placement']);
   assert.ok(r.diagnosis.conflicts.placement>0);
   assert.equal(r.diagnosis.conflicts.busy,0);
 });
 
-test('the gap test reports the smallest gap that would let lunch fit',()=>{
+test('the gap test reports the smallest break count and length that would let lunch fit',()=>{
   // Ana only 13:00-14:00 ET (10:00-11:00 PT); lunch must start 12:00-13:30 PT.
   const s=[session('1',60,[A]),lunch('2',45,[B])];
-  const r=solve(s,[calendar(A,{hours:[[13,14]],sessions:s}),calendar(B,{sessions:s})]);
-  assert.equal(r.diagnosis.unblock[0].changes[0].fitsWithMaxGapMinutes,60);
-  // And the same agenda does fit once that gap is allowed.
-  assert.equal(solve(s,[calendar(A,{hours:[[13,14]],sessions:s}),calendar(B,{sessions:s})],{maxGapMinutes:60}).status,'calendar_checked');
+  const cals=()=>[calendar(A,{hours:[[13,14]],sessions:s}),calendar(B,{sessions:s})];
+  assert.deepEqual(solve(s,cals()).diagnosis.unblock[0].changes[0].fitsWithBreaks,{count:1,maxMinutes:60});
+  // And the same agenda does fit once one 60-minute break is allowed.
+  assert.equal(solve(s,cals(),BUDGET(1,15,60)).status,'calendar_checked');
+});
+
+test('the gap test prefers one break over two, and looks beyond the current budget',()=>{
+  // Ana 10:00-11:00 PT (13:00-14:00 ET); a 30-minute session, then lunch at 12:00+ PT.
+  // Back to back, lunch would start at 11:30 PT: one 30-minute break fits.
+  const s=[session('1',60,[A]),session('2',30,[B]),lunch('3',45,[B])];
+  const cals=()=>[calendar(A,{hours:[[13,14]],sessions:s}),calendar(B,{sessions:s})];
+  assert.deepEqual(solve(s,cals()).diagnosis.unblock[0].changes[0].fitsWithBreaks,{count:1,maxMinutes:30});
+  // With one break of up to 15 already allowed, it reports the next allowance up.
+  const r=solve(s,cals(),BUDGET(1,15,15));
+  assert.deepEqual(r.diagnosis.unblock[0].changes[0].currentBreaks,{count:1,minMinutes:15,maxMinutes:15});
+  assert.deepEqual(r.diagnosis.unblock[0].changes[0].fitsWithBreaks,{count:1,maxMinutes:30});
 });
 
 test('an invalid start window is refused',()=>{
@@ -184,4 +225,16 @@ test('the preview without calendar checks applies start windows and varies its o
   for(let i=1;i<r.proposals.length;i++)assert.ok(Date.parse(r.proposals[i].start)-Date.parse(r.proposals[i-1].start)>=3600000);
   assert.deepEqual(r.startWindowsApplied,[{title:'Lunch',earliestStart:'12:00',latestStart:'13:30',timezone:'America/Los_Angeles'}]);
   assert.ok(r.notChecked.includes('meeting hours'));
+});
+
+test('back-to-back agendas are offered before ones that need breaks, even if they start later',()=>{
+  // Ben is busy 10:00-10:20. From 09:00, session 2 needs a break; from 10:20 onward
+  // back to back works. The compact agenda must come first.
+  const s=[session('1',60,[A]),session('2',60,[B])];
+  const cals=[calendar(A,{sessions:s}),calendar(B,{busy:[[[10],[10,20]]],sessions:s})];
+  const r=solve(s,cals,BUDGET(2));
+  const breaks=p=>p.events.slice(1).filter((e,i)=>e.start!==p.events[i].end).length;
+  assert.equal(breaks(r.proposals[0]),0);
+  const counts=r.proposals.map(breaks);
+  assert.deepEqual(counts,[...counts].sort((a,b)=>a-b),`breaks per option: ${counts}`);
 });

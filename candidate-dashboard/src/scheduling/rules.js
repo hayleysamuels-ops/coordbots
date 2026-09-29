@@ -26,8 +26,10 @@ function parseRules(doc, clientId) {
   if (!doc || doc.schemaVersion !== 2) invalid("Scheduling rules must be schema version 2.");
   if (doc.clientId !== clientId) invalid(`Scheduling rules are for "${doc.clientId}", not "${clientId}".`);
   if (!Number.isInteger(doc.rulesRevision) || doc.rulesRevision < 1) invalid("Scheduling rules need a rulesRevision.");
-  const { minBreakMinutes, maxGapMinutes } = doc.agenda || {};
+  const { minBreakMinutes, maxGapMinutes, maxGapCount = 0 } = doc.agenda || {};
   if (!Number.isInteger(minBreakMinutes) || !Number.isInteger(maxGapMinutes) || maxGapMinutes < minBreakMinutes) invalid("agenda.maxGapMinutes must be at least minBreakMinutes.");
+  if (!Number.isInteger(maxGapCount) || maxGapCount < 0 || maxGapCount > 29) invalid("agenda.maxGapCount must be a whole number from 0 to 29.");
+  if (maxGapCount > 0 && maxGapMinutes < 5) invalid("agenda.maxGapMinutes must be at least 5 when breaks are allowed.");
   const hours = doc.meetingHours || {};
   checkHours(hours.default ?? null, "meetingHours.default");
   for (const [email, h] of Object.entries(hours.overrides || {})) { if (!EMAIL.test(email)) invalid(`meetingHours override "${email}" must be a lowercase email.`); checkHours(h, `meetingHours override for ${email}`); }
@@ -53,7 +55,7 @@ function parseRules(doc, clientId) {
   const norm = v => String(v || "").trim().toLowerCase();
   return {
     clientId, rulesRevision: doc.rulesRevision,
-    agenda: { singleDay: doc.agenda.singleDay === true, minBreakMinutes, maxGapMinutes },
+    agenda: { singleDay: doc.agenda.singleDay === true, minBreakMinutes, maxGapMinutes, maxGapCount },
     limitsPolicy, busy: { source: busy.source, calendars: [...busy.calendars] },
     hasAttendanceOverrides: Object.keys(overrides).length > 0,
     attendanceFor: email => overrides[String(email || "").toLowerCase()] || attendance.default,

@@ -21,16 +21,21 @@ function dateIn(ms,timezone){
 // calendars must never be passed here. Coverage, hours and capacity are separate
 // attestations; seeing a few rendered events does not attest any of them.
 //
-// minBreakMinutes/maxGapMinutes (scheduling-rules agenda) allow a gap between
+// Breaks (scheduling-rules agenda): each gap between sessions is either 0 or a
+// break of minBreakMinutes..maxGapMinutes, and at most maxGapCount gaps are
+// breaks. maxGapCount 0 (the default) is the original back-to-back search.
+// minBreakMinutes/maxGapMinutes alone (legacy description) allow a gap between
 // consecutive sessions. Both 0 (the default) is exactly the original
 // back-to-back search; test/full-calendar-schedule-v1.test.js holds it to that.
 // variety (default on) keeps only options that differ from every earlier one by
 // day, by an hour or more, or by interviewer (option-variety.js). The first
 // option is always the one the search finds first, variety or not.
-function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.now(),limit=5,minBreakMinutes=0,maxGapMinutes=0,variety=true}){
+function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.now(),limit=5,minBreakMinutes=0,maxGapMinutes=0,maxGapCount=0,variety=true}){
   if(!Array.isArray(sessions)||!sessions.length||sessions.length>30)fail('Load a complete interview plan first.');
   if(!Number.isInteger(limit)||limit<1||limit>5)fail('Invalid proposal limit.');
   if(![minBreakMinutes,maxGapMinutes].every(m=>Number.isInteger(m)&&m>=0&&m%5===0)||maxGapMinutes<minBreakMinutes||maxGapMinutes>480)fail('Breaks must be whole 5-minute steps, with the maximum gap at least the minimum break.');
+  if(!Number.isInteger(maxGapCount)||maxGapCount<0||maxGapCount>29||(maxGapCount>0&&maxGapMinutes<5))fail('The break count must be 0 to 29, and breaks need a maximum of at least 5 minutes.');
+  const BREAKS={count:maxGapCount,min:Math.max(minBreakMinutes,5),max:maxGapMinutes};
   const candidate=windowsToInstants(windows,timezone,now);
   const ids=new Set();
   for(const s of sessions){
@@ -106,7 +111,8 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
     return null;
   }
   const totalMinutes=sessions.reduce((sum,s)=>sum+s.durationMinutes,0);
-  const minSpan=(totalMinutes+minBreakMinutes*(sessions.length-1))*60000;
+  // Breaks are optional, so the shortest agenda is back to back.
+  const minSpan=totalMinutes*60000;
   const limitedIds=[...people.keys()].filter(id=>people.get(id).limited);
   const NONE={hours:new Set(),busy:new Set(),limits:new Set(),placement:new Set()};
   // Preserve the plan order and a single-day agenda inside one candidate window.
@@ -114,18 +120,21 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
   // fixed interviewer's remaining daily or weekly capacity. `dead` remembers
   // sub-problems already proven impossible; it only skips failures, so it never
   // changes which agenda is found first.
-  function search({relax=NONE,max=limit,cap=SEARCH_LIMIT,tally=null,gapMax=maxGapMinutes,tallyPlacement=null}={}){
+  function search({relax=NONE,max=limit,cap=SEARCH_LIMIT,tally=null,breaks=BREAKS,tallyPlacement=null,accepted=[]}={}){
     const proposals=[],seen=new Set(),dead=new Set();let examined=0;const reach={placed:-1,events:[]};
-    function assign(index,cursor,events,window,day){
+    // `used` is how many breaks this agenda has taken so far.
+    function assign(index,cursor,events,window,day,used=0){
       if(++examined>cap){if(cap===SEARCH_LIMIT)fail('Calendar search exceeded its limit. Narrow the availability range.');throw Object.assign(Error('relaxation search limit'),{relaxLimit:true});}
       if(index>reach.placed){reach.placed=index;reach.events=events;}
       if(index===sessions.length)return events;
-      const key=`${index}|${cursor}|${window.end}|${day}|${limitedIds.map(id=>events.filter(e=>e.interviewer.userId===id).length).join(',')}`;
+      const key=`${index}|${cursor}|${window.end}|${day}|${used}|${limitedIds.map(id=>events.filter(e=>e.interviewer.userId===id).length).join(',')}`;
       if(dead.has(key))return null;
       const s=sessions[index],duration=s.durationMinutes*60000;
       const eligible=s.eligibleInterviewers.slice().sort((a,b)=>events.filter(e=>e.interviewer.userId===a.userId).length-events.filter(e=>e.interviewer.userId===b.userId).length);
-      const first=index===0?cursor:cursor+minBreakMinutes*60000,latest=index===0?cursor:cursor+gapMax*60000;
-      for(let start=first;start<=latest;start+=STEP){
+      // Back to back first, then each allowed break length, shortest first.
+      const starts=[cursor];
+      if(index>0&&used<breaks.count)for(let g=breaks.min;g<=breaks.max;g+=5)starts.push(cursor+g*60000);
+      for(const start of starts){
         const end=start+duration;
         if(end>window.end||dateIn(end-1,timezone)!==day)break;
         // Pruned here, not filtered afterwards: a session outside its start
@@ -134,7 +143,7 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
         for(const person of eligible){
           const why=unavailable(person,s,start,end,events,relax);
           if(why){if(tally)tally(s,person,why);continue;}
-          const found=assign(index+1,end,[...events,{sessionId:s.sessionId,interviewId:s.interviewId,title:s.title,durationMinutes:s.durationMinutes,start:new Date(start).toISOString(),end:new Date(end).toISOString(),interviewer:person,eligibleInterviewers:s.eligibleInterviewers}],window,day);
+          const found=assign(index+1,end,[...events,{sessionId:s.sessionId,interviewId:s.interviewId,title:s.title,durationMinutes:s.durationMinutes,start:new Date(start).toISOString(),end:new Date(end).toISOString(),interviewer:person,eligibleInterviewers:s.eligibleInterviewers}],window,day,used+(start>cursor?1:0));
           if(found)return found;
         }
       }
@@ -148,7 +157,7 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
         if(dateIn(start,timezone)!==dateIn(start+minSpan-1,timezone))continue;
         const events=assign(0,start,[],window,dateIn(start,timezone));if(!events)continue;
         const option={start:events[0].start,end:events.at(-1).end,events};
-        if(variety&&!distinctFrom(proposals,option,timezone))continue;
+        if(variety&&!distinctFrom([...accepted,...proposals],option,timezone))continue;
         proposals.push(option);
         if(proposals.length>=max)break;
       }
@@ -160,10 +169,20 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
   const rejections=new Map();
   const tally=(s,person,why)=>{const key=`${s.sessionId}|${person.userId}`,row=rejections.get(key)||{sessionId:s.sessionId,userId:person.userId,hours:0,busy:0,limits:0};row[why]++;rejections.set(key,row);};
   const placementRejections=new Map(),tallyPlacement=s=>placementRejections.set(s.sessionId,(placementRejections.get(s.sessionId)||0)+1);
-  const {proposals,reach}=search({tally,tallyPlacement});
+  // Fewest breaks first: fill the options with back-to-back agendas, then ones
+  // with up to one break, and so on up to the budget, so an earlier start that
+  // needs breaks never outranks a compact agenda later the same day. Only the
+  // last, widest pass is tallied for the no-fit report, so nothing is counted
+  // twice. With no break budget this is the single original pass.
+  const proposals=[];let reach;
+  for(let count=0;count<=BREAKS.count;count++){
+    const last=count===BREAKS.count,pass=search({breaks:{...BREAKS,count},max:limit-proposals.length,accepted:proposals,...(last?{tally,tallyPlacement}:{})});
+    proposals.push(...pass.proposals);reach=pass.reach;
+    if(proposals.length>=limit)break;
+  }
   const checkedAt=Math.min(...[...people.keys()].map(id=>calendars.find(c=>c.userId===id).checkedAt));
   const assumedNote=hoursAssumed?' Meeting hours are assumed from client rules, not verified.':'';
-  const base={bookingEnabled:false,availabilityVerified:!hoursAssumed,meetingHoursAssumed:hoursAssumed,calendarCheckedAt:checkedAt,totalMinutes,timezone,minBreakMinutes,maxGapMinutes,proposals};
+  const base={bookingEnabled:false,availabilityVerified:!hoursAssumed,meetingHoursAssumed:hoursAssumed,calendarCheckedAt:checkedAt,totalMinutes,timezone,minBreakMinutes,maxGapMinutes,maxGapCount,proposals};
   if(proposals.length)return {...base,status:'calendar_checked',reason:'These agendas fit candidate availability, interviewer calendars, meeting hours and interview limits. Review remaining client rules before approval.'+assumedNote};
   const diagnosis=diagnose(reach);
   return {...base,status:'no_calendar_fit',diagnosis,reason:'No agenda in template order fits the calendars, meeting hours and interview limits.'+assumedNote};
@@ -187,7 +206,7 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
     // the candidate's own availability is what's too short.
     const everyone=new Set(people.keys()),fits=relax=>{try{return search({relax,max:1,cap:RELAX_LIMIT}).proposals.length>0;}catch(e){if(e.relaxLimit)return false;throw e;}};
     const base={furthest:{placed,of:sessions.length,placedTitles:reach.events.map(e=>e.title),blockedAt:placed<sessions.length?{sessionId:blocked.sessionId,title:blocked.title}:null},atBlocked,blockedPlacement,conflicts};
-    if(!fits({hours:everyone,busy:everyone,limits:everyone,placement:new Set(sessions.map(x=>x.sessionId))}))return {...base,unblock:[{kind:'availability',text:`The candidate's availability can't hold the whole ${totalMinutes}-minute agenda${minBreakMinutes?` with ${minBreakMinutes}-minute breaks`:''} on one day, even with every interviewer free.`}]};
+    if(!fits({hours:everyone,busy:everyone,limits:everyone,placement:new Set(sessions.map(x=>x.sessionId))}))return {...base,unblock:[{kind:'availability',text:`The candidate's availability can't hold the whole ${totalMinutes}-minute agenda on one day, even with every interviewer free.`}]};
     // One relaxation per (person, constraint) that rejected anything, most
     // rejections first; placeholder hours rank ahead because entering real
     // hours is the cheapest fix and the placeholder is likely wrong.
@@ -221,13 +240,23 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
     // With no gap allowed, a start window can only be met by moving the whole
     // agenda. Say so, and find the smallest gap that would fit on its own:
     // that's the evidence the breaks decision needs.
-    const gapFits=()=>{if(maxGapMinutes!==0)return null;for(const g of [15,30,60,90,120]){if(g<minBreakMinutes)continue;try{if(search({max:1,cap:RELAX_LIMIT,gapMax:g}).proposals.length)return g;}catch(e){if(!e.relaxLimit)throw e;}}return null;};
+    // Smallest break allowance beyond the current one that would fit: fewest
+    // breaks first, then shortest. "One break of up to 30 minutes" is more
+    // actionable than a per-gap number. Allowances no wider than the current
+    // one can't help and are skipped.
+    const gapFits=()=>{
+      for(let count=1;count<=Math.min(3,sessions.length-1);count++)for(const length of [15,30,45,60,90,120]){
+        if(length<BREAKS.min||(count<=BREAKS.count&&length<=BREAKS.max))continue;
+        try{if(search({max:1,cap:RELAX_LIMIT,breaks:{count,min:BREAKS.min,max:length}}).proposals.length)return {count,maxMinutes:length};}catch(e){if(!e.relaxLimit)throw e;}
+      }
+      return null;
+    };
     let gapTried=false,gapResult=null;
     const describe=o=>{
       if(o.kind!=='placement')return {kind:o.kind,...person(o.userId),dataGap:o.kind==='hours'&&people.get(o.userId).hoursSource==='default'};
       const x=sessions.find(y=>y.sessionId===o.sessionId);
       if(!gapTried){gapTried=true;gapResult=gapFits();}
-      return {kind:'placement',sessionId:x.sessionId,title:x.title,windows:windowOf(x),gapsZero:maxGapMinutes===0,fitsWithMaxGapMinutes:gapResult};
+      return {kind:'placement',sessionId:x.sessionId,title:x.title,windows:windowOf(x),currentBreaks:{count:BREAKS.count,minMinutes:BREAKS.count?BREAKS.min:0,maxMinutes:BREAKS.count?BREAKS.max:0},fitsWithBreaks:gapResult};
     };
     const unblock=found.map(group=>({kind:group.length>1?'combination':group[0].kind,changes:group.map(describe)}));
     return {...base,unblock,unblockSearched:candidates.length};

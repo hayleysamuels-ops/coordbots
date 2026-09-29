@@ -145,9 +145,13 @@ done and verified, in this order:
   assumed, never verified). Under `zero_only`, anyone with an Ashby limit of 0 is
   excluded and listed, and every other limit is ignored. Not checked: other
   calendars, bookable-over holds and non-zero limits.
-  - **Breaks between sessions work**, but Luminai stays at 0/0 until breaks are
-    agreed. `test/full-calendar-schedule-v1.test.js` holds 0/0 to the original
-    solver's exact output.
+  - **Breaks are now set for Luminai (rules revision 5).** They were previously
+    recorded here as not agreed with Luminai, with the gaps held at 0/0. This
+    sets them: at most two breaks per agenda (`maxGapCount: 2`), each 15–30
+    minutes (`minBreakMinutes: 15`, `maxGapMinutes: 30`); every other gap is 0.
+    The search tries back to back first, so a compact agenda still wins when one
+    fits. `maxGapCount` defaults to 0, and `test/full-calendar-schedule-v1.test.js`
+    still holds that default to the original solver's exact output.
   - **A no-fit comes with a report:** the furthest reach, then at most two changes
     that would produce a fit, then one line per interviewer at the blocking
     session. Placeholder (client-default) hours are labelled as a data gap, never
@@ -155,10 +159,11 @@ done and verified, in this order:
   - **Lunch has a start window.** `sessions.placementWindows` (rules revision 4)
     requires any session whose Ashby interview name contains "Lunch" to start
     between 12:00 and 13:30 America/Los_Angeles. The calendar-checked search
-    prunes by it as it places each session. **With gaps at 0/0 this is where the
-    breaks decision becomes load-bearing:** the only way to move lunch is to move
-    the whole agenda's start. When the window is what binds, the no-fit report
-    says so and tests how much gap would have let it fit (up to 120 minutes).
+    prunes by it as it places each session. With no breaks, the only way to move
+    lunch is to move the whole agenda's start; Luminai's two 15–30-minute breaks
+    give it some slack. When the window still binds, the no-fit report says so and
+    names the smallest break allowance that would fit, fewest breaks first ("one
+    break of up to 60 minutes"), up to three breaks of 120 minutes.
     Both previews apply start windows. "Preview agenda without calendar checks"
     applies start windows only, and its result lists what it doesn't check:
     calendars, meeting hours, limits and breaks.
@@ -209,7 +214,8 @@ Resolve production OAuth setup before relying on unattended long-term reads.
    from booking review. Confirm missing/inaccessible calendars stop the lookup.
 2. Add explicit Luminai onsite location/Pacific display and travel-aware coordinator
    inputs; preserve candidate availability timezone/instants. Confirm working hours,
-   buffers, breaks/order, room needs and candidate travel constraints before enforcing.
+   buffers, session order, room needs and candidate travel constraints before enforcing.
+   Breaks between sessions are set (rules revision 5: at most two, 15–30 minutes).
 3. Connect full-calendar-schedule.js to fresh verified primary/additional calendars,
    per-session working hours and Ashby interview limits with complete daily/weekly
    counts and verified week boundaries. Produce calendar-checked full agendas; keep

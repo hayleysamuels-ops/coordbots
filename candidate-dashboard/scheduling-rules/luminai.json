@@ -3,7 +3,7 @@
   "$comment": "Reproduces candidate-dashboard on feature/client-ashby-connection as of 2026-09-22, plus revision 2's assumed 9–5 Pacific meeting hours and interviewer attendance. The dashboard reads this file at runtime.",
   "schemaVersion": 2,
   "clientId": "luminai",
-  "rulesRevision": 4,
+  "rulesRevision": 5,
 
   "trial": {
     "stageTitleContains": null,
@@ -25,7 +25,7 @@
     ]
   },
 
-  "agenda": { "singleDay": true, "minBreakMinutes": 0, "maxGapMinutes": 0 },
+  "agenda": { "singleDay": true, "minBreakMinutes": 15, "maxGapMinutes": 30, "maxGapCount": 2 },
 
   "duration": {
     "fallbackMinutes": null,
