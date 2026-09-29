@@ -11,7 +11,7 @@ For Luminai's scheduling pilot (gated by `SCHEDULING_CLIENT_ID`), start with the
 | `candidate-dashboard/worker/` | Luminai scheduling worker | `scheduling-worker` in dashboard-luminai |
 | `ashby-scorecard-bot/` | Ashby → Slack scorecard reminders | `Feedback Reminder Bot` |
 | `scheduling-worker/` | Copy of the Poetic work-trial tracker (squashed from work-trial-tracker `feature/scheduling-discussion-approvals` at `bbb1052`) | none: nothing deploys from this directory |
-| `candidate-dashboard/scheduling-rules/` | Per-client scheduling policy config + JSON Schema. Moved from the repo root on 29 September 2026 so the deployed dashboard can read it. | not read yet; lives here so the dashboard whose `SCHEDULING_CLIENT_ID` matches can read it at runtime |
+| `candidate-dashboard/scheduling-rules/` | Per-client scheduling policy config + JSON Schema. Moved from the repo root on 29 September 2026 so the deployed dashboard can read it. | read at runtime by the dashboard whose `SCHEDULING_CLIENT_ID` matches (today Luminai, for interviewer attendance) |
 
 ## Railway projects
 

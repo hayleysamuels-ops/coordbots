@@ -1,6 +1,6 @@
 "use strict";
 const express = require("express");
-function bookingRoutes({ engine, store, clientId, discussion = null, facts, inspectDraft, inspectCalendar, inspectPlan, inspectFullCalendar, availability, googleCalendar, googleFreeBusy, capabilities = async () => ({ available: false, reason: "Ashby calendar and booking automation are not connected yet." }) }) {
+function bookingRoutes({ engine, store, clientId, discussion = null, rules = null, facts, inspectDraft, inspectCalendar, inspectPlan, inspectFullCalendar, availability, googleCalendar, googleFreeBusy, capabilities = async () => ({ available: false, reason: "Ashby calendar and booking automation are not connected yet." }) }) {
   const router = express.Router();
   router.use((req, res, next) => {
     res.set("Cache-Control", "no-store");
@@ -99,8 +99,12 @@ function bookingRoutes({ engine, store, clientId, discussion = null, facts, insp
     const {plan,result}=await suggestFull(req),option=result.proposals[index];
     if(!option||option.optionDigest!==req.body.optionDigest)throw Object.assign(Error('The schedule options changed. Suggest the full schedule again.'),{status:409});
     const {optionDigest:ref,...chosen}=option;
+    // Attendance comes from this client's rules; names are resolved to Ashby
+    // emails only when the rules list overrides (rules.js).
+    if(!rules)throw Object.assign(Error('Scheduling rules are not loaded, so interviewer attendance can\'t be confirmed.'),{status:503});
+    const clientRules=rules.get(),attendance=await require('./rules').attendanceForEvents(clientRules,chosen.events,facts?.resolveInterviewers);
     return discussion.postScheduleOption({applicationId:plan.applicationId,candidateId:plan.candidateId,timezone:result.timezone,option:chosen,optionNumber:index+1,
-      sourceRef:`full-schedule:${plan.scheduleId}:${ref}`,availabilitySource:req.body.availabilitySource},req.schedulingUser);
+      sourceRef:`full-schedule:${plan.scheduleId}:${ref}`,availabilitySource:req.body.availabilitySource,attendance,rulesRevision:clientRules.rulesRevision},req.schedulingUser);
   }));
   router.post("/application", handle(req => {
     if(!facts)throw Object.assign(new Error('Ashby details are not connected.'),{status:503});

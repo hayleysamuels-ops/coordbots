@@ -2,11 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/hayleysamuels-ops/coordbots/candidate-dashboard/scheduling-rules/schema.json",
   "title": "Client scheduling policy",
-  "description": "Policy rules the scheduling engines consume, one document per client. Defaults in the example documents reproduce behaviour as of 2026-09-22: poetic.json matches scheduling-worker/ (the tracker engine), luminai.json matches candidate-dashboard on feature/client-ashby-connection. null means that engine does not enforce the rule. No engine reads these files yet; they sit inside candidate-dashboard/ so the deployed dashboard can. Meeting hours are a client-level assumption with per-interviewer overrides, not collected schedules. Other coordinator-editable data (partner roster, identities, tracker assignments, desks, laptops) is deliberately out of scope.",
-  "$comment": "Schema 2 (2026-09-29) adds agenda gaps (row 19) and assumed meeting hours (row 30). Still deliberately absent: bookable-over event types (row 32), which needs client sign-off before any code because it requires wider Google Calendar access than the current free/busy-only connection. Until then every busy interval blocks. additionalProperties is false throughout so it cannot be added to a document ahead of that work.",
+  "description": "Policy rules the scheduling engines consume, one document per client. Defaults in the example documents reproduce behaviour as of 2026-09-22: poetic.json matches scheduling-worker/ (the tracker engine), luminai.json matches candidate-dashboard on feature/client-ashby-connection. null means that engine does not enforce the rule. The dashboard reads the file matching its SCHEDULING_CLIENT_ID at runtime (today only for interviewer attendance); nothing reads poetic.json. Meeting hours and attendance are client-level assumptions with per-interviewer overrides, not collected schedules. Other coordinator-editable data (partner roster, identities, tracker assignments, desks, laptops) is deliberately out of scope.",
+  "$comment": "Schema 2 (2026-09-29) adds agenda gaps (row 19), assumed meeting hours (row 30) and interviewer attendance. Still deliberately absent: bookable-over event types (row 32), which needs client sign-off before any code because it requires wider Google Calendar access than the current free/busy-only connection. Until then every busy interval blocks. additionalProperties is false throughout so it cannot be added to a document ahead of that work.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "clientId", "rulesRevision", "trial", "capacity", "sessions", "agenda", "duration", "assignment", "limits", "meetingHours", "busy", "communications", "conferencing", "rooms", "approval"],
+  "required": ["schemaVersion", "clientId", "rulesRevision", "trial", "capacity", "sessions", "agenda", "duration", "assignment", "limits", "meetingHours", "attendance", "busy", "communications", "conferencing", "rooms", "approval"],
   "properties": {
     "$schema": { "type": "string" },
     "$comment": { "type": "string" },
@@ -231,6 +231,22 @@
       }
     },
 
+    "attendance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default", "overrides"],
+      "description": "How each interviewer joins an interview: in person, or by video. Set per person, never derived from their time zone, since a remote interviewer in the client's own zone or a visiting one from another would both be wrong. Today this only labels the agenda: a session whose interviewer is video reads \"Video link required\" instead of \"Room / location to confirm\", in the draft and the Slack post. It books no room and creates no link.",
+      "properties": {
+        "$comment": { "type": "string" },
+        "default": { "$ref": "#/$defs/attendanceMode", "description": "Client-wide default for any interviewer without an override." },
+        "overrides": {
+          "type": "object",
+          "description": "Per interviewer, keyed by their Ashby login email in lowercase, the same key as meetingHours.overrides.",
+          "propertyNames": { "pattern": "^[^@\\sA-Z]+@[^@\\sA-Z]+\\.[^@\\sA-Z]+$" },
+          "additionalProperties": { "$ref": "#/$defs/attendanceMode" }
+        }
+      }
+    },
 
     "busy": {
       "type": "object",
@@ -334,6 +350,7 @@
   },
 
   "$defs": {
+    "attendanceMode": { "enum": ["in_person", "video"] },
     "weeklyHours": {
       "type": "object",
       "additionalProperties": false,

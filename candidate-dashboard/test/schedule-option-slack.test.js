@@ -17,7 +17,7 @@ const candidate = { applicationId: "app", candidateId: "candidate", candidateNam
 const option = { start: "2099-01-01T10:00:00.000Z", end: "2099-01-01T11:00:00.000Z", events: [
   { sessionId: "s", interviewId: "i", title: "Welcome", durationMinutes: 60, start: "2099-01-01T10:00:00.000Z", end: "2099-01-01T11:00:00.000Z",
     interviewer: { name: "Plan Interviewer" }, eligibleInterviewers: [{ name: "Plan Interviewer" }] }] };
-const post = (extra = {}) => ({ applicationId: "app", candidateId: "candidate", timezone: "UTC", option, optionNumber: 1, sourceRef: "full-schedule:request:abc", availabilitySource: "ashby", ...extra });
+const post = (extra = {}) => ({ applicationId: "app", candidateId: "candidate", timezone: "UTC", option, optionNumber: 1, sourceRef: "full-schedule:request:abc", availabilitySource: "ashby", attendance: ["in_person"], rulesRevision: 2, ...extra });
 
 function setup(t, options = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "coord-option-")); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -109,6 +109,7 @@ async function routeFixture(t) {
       load: async () => ({ stageId: "stage", timezone: "UTC", localWindows: [{ start: "2099-01-01T10:00", end: "2099-01-01T11:00" }] }) },
     inspectPlan: async input => ({ ...input, sessions: sessions.map(s => ({ ...s, assignmentVerified: true, requiredCount: 1, eligibleInterviewers: [{ name: "Plan Interviewer" }] })) }),
     discussion: { postScheduleOption: async (input, u) => { posted.push({ input, u }); return { state: "shared", channelName: "luminai-scheduling" }; } },
+    rules: { get: () => ({ rulesRevision: 2, hasAttendanceOverrides: false, attendanceFor: () => "in_person" }) },
   }));
   const server = await new Promise(resolve => { const s = app.listen(0, "127.0.0.1", () => resolve(s)); });
   t.after(() => new Promise(resolve => server.close(resolve)));
@@ -197,4 +198,83 @@ test("one line when both timezones match", async () => {
   const text = await render({ timezone: "America/Los_Angeles", timezoneSource: "candidate_submitted", sessions: [session] });
   assert.match(text, /Coordinator time \(America\/Los_Angeles\), same as the candidate's submitted timezone: Oct 1, 2026, 10:00 – 10:15 AM/);
   assert.equal((text.match(/10:00/g) || []).length, 1);
+});
+
+// ---- interviewer attendance (scheduling-rules attendance) -------------------
+
+test("a video interviewer's session reads Video link required, in the draft and the Slack post", async t => {
+  const two = { ...option, events: [option.events[0], { ...option.events[0], sessionId: "s2", title: "Second", start: "2099-01-01T11:00:00.000Z", end: "2099-01-01T12:00:00.000Z", interviewer: { name: "Remote Interviewer" } }] };
+  const { service, sent } = setup(t);
+  await service.postScheduleOption(post({ option: two, attendance: ["in_person", "video"] }), user);
+  assert.deepEqual(sent[0].plan.sessions.map(s => s.location), ["Room / location to confirm", "Video link required"]);
+  assert.equal(sent[0].plan.rulesRevision, 2);
+});
+
+test("attendance that doesn't match the events refuses before anything is drafted", async t => {
+  for (const attendance of [undefined, [], ["remote"], ["video", "video"]]) {
+    const { service, store, sent } = setup(t);
+    await assert.rejects(service.postScheduleOption(post({ attendance }), user), { status: 503 });
+    assert.equal(sent.length, 0);
+    assert.deepEqual(await store.list(), []);
+  }
+});
+
+test("the route takes attendance from the rules and ignores a browser-supplied one", async t => {
+  const { base, posted } = await routeFixture(t);
+  const suggested = await (await fetch(base + "/suggest-full-schedule", { method: "POST", headers, body: JSON.stringify(request) })).json();
+  await fetch(base + "/post-full-schedule-option", { method: "POST", headers, body: JSON.stringify({ ...request, optionIndex: 0, optionDigest: suggested.proposals[0].optionDigest, attendance: ["video"] }) });
+  assert.deepEqual(posted[0].input.attendance, ["in_person"]);
+  assert.equal(posted[0].input.rulesRevision, 2);
+});
+
+const rulesModule = require("../src/scheduling/rules");
+const liveRules = () => require("../scheduling-rules/luminai.json");
+const withRules = change => { const doc = JSON.parse(JSON.stringify(liveRules())); change(doc); return doc; };
+
+test("Luminai's committed rules load: in person by default, the listed interviewers by video", () => {
+  const rules = rulesModule.parseRules(liveRules(), "luminai");
+  assert.equal(rules.attendanceFor("mary@luminai.com"), "in_person");
+  assert.equal(rules.attendanceFor("shawn@luminai.com"), "video");
+  assert.equal(rules.hasAttendanceOverrides, true);
+  assert.equal(rules.rulesRevision, liveRules().rulesRevision);
+});
+
+test("attendance overrides are per interviewer email, case-insensitively", () => {
+  const rules = rulesModule.parseRules(withRules(d => { d.attendance.overrides["ana.silva@luminai.com"] = "video"; }), "luminai");
+  assert.equal(rules.attendanceFor("Ana.Silva@luminai.com"), "video");
+  assert.equal(rules.attendanceFor("tom.reyes@luminai.com"), "in_person");
+});
+
+test("invalid rules never fall back to a default", () => {
+  const bad = [
+    d => { d.attendance.default = "remote"; },
+    d => { d.attendance.overrides["Ana@Luminai.com"] = "video"; },
+    d => { d.agenda.minBreakMinutes = 30; d.agenda.maxGapMinutes = 10; },
+    d => { d.meetingHours.default.end = "08:00"; },
+    d => { d.meetingHours.default.timezone = "Mars/Olympus"; },
+    d => { d.clientId = "poetic"; },
+    d => { d.schemaVersion = 1; },
+  ];
+  for (const change of bad) assert.throws(() => rulesModule.parseRules(withRules(change), "luminai"), { status: 503 });
+});
+
+test("a missing rules file is reported on use, not guessed", () => {
+  const quiet = { log() {}, warn() {} };
+  const loaded = rulesModule.loadRules({ clientId: "no-such-client", log: quiet });
+  assert.throws(() => loaded.get(), { status: 503 });
+  assert.equal(rulesModule.loadRules({ clientId: "luminai", log: quiet }).get().clientId, "luminai");
+});
+
+test("names are resolved only when overrides exist, and only for the chosen interviewers", async () => {
+  const events = [{ interviewer: { name: "Ana Silva" } }, { interviewer: { name: "Tom Reyes" } }];
+  let calls = 0;
+  const none = rulesModule.parseRules(withRules(d => { d.attendance.overrides = {}; }), "luminai");
+  assert.deepEqual(await rulesModule.attendanceForEvents(none, events, async () => { calls++; }), ["in_person", "in_person"]);
+  assert.equal(calls, 0);
+  const some = rulesModule.parseRules(withRules(d => { d.attendance.overrides["ana.silva@luminai.com"] = "video"; }), "luminai");
+  let asked;
+  const resolve = async sessions => { asked = sessions.map(s => s.eligibleInterviewers.map(p => p.name)); return { sessions: sessions.map(s => ({ ...s, eligibleInterviewers: s.eligibleInterviewers.map(p => ({ ...p, email: p.name.toLowerCase().replace(" ", ".") + "@luminai.com" })) })) }; };
+  assert.deepEqual(await rulesModule.attendanceForEvents(some, events, resolve), ["video", "in_person"]);
+  assert.deepEqual(asked, [["Ana Silva"], ["Tom Reyes"]]);
+  await assert.rejects(rulesModule.attendanceForEvents(some, events, async () => { throw Object.assign(new Error("An eligible interviewer could not be uniquely matched to an active Ashby account."), { status: 409 }); }), { status: 409 });
 });

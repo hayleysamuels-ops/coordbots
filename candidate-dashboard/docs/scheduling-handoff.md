@@ -139,6 +139,18 @@ done and verified, in this order:
   is built but not configured or tested live.** It needs `SCHEDULING_SLACK_ROUTING=client`,
   `SCHEDULING_SLACK_CHANNEL_ID`, `SCHEDULING_SLACK_CHANNEL_NAME` and
   `SCHEDULING_SLACK_BOT_TOKEN` on Luminai, with the bot invited to that channel.
+- **Video interviewers inherit the wrong meeting hours.** Ten interviewers are set to
+  `attendance: "video"` in `scheduling-rules/luminai.json` (Ali Feldman, Aggelos
+  Arvanitakis, Alex Mavrogiannis, Anisha Tandon, Dmitriy Mekh, Harry Kirschner,
+  Jennifer Badash, Jordan Silvergleid, Sean O'Brien, Shawn Greenspan). None has a
+  `meetingHours.overrides` entry yet, so all ten inherit the 09:00–17:00 Pacific
+  default, which is wrong for them. Once the calendar-constrained solver is wired, it
+  will propose slots outside their real hours until their time zones and hours are
+  filled in. Mary Petrino (`mary@luminai.com`) needs her 09:00–17:00 Eastern override
+  too. Four more people named as video interviewers (Amelia, Chris Gonzalez, Daniel
+  Noguchi, Michael Carignan) have no active Luminai Ashby account, so they have no
+  override. If they do interview, Ashby's plan will name them and the post will stop
+  with "could not be uniquely matched".
 - **An uncertain Slack post has no reconcile button.** A `discussion_uncertain` draft
   blocks that candidate's next post, and the dashboard can only reject drafts in the
   `draft` state, so clearing one means editing `scheduling.json` on the volume.

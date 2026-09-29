@@ -69,6 +69,8 @@
 
   "meetingHours": { "default": null, "overrides": {} },
 
+  "attendance": { "default": "in_person", "overrides": {} },
+
   "busy": {
     "source": "none",
     "calendars": [],

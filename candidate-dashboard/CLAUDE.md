@@ -122,8 +122,8 @@ is normally still in Application Review and any status).
   dismissals at serve time (see below).
 - `public/` — plain HTML/CSS/JS dashboard, no framework.
 - `scheduling-rules/` — per-client scheduling policy (`<clientId>.json`) and its
-  JSON Schema, for the client named by `SCHEDULING_CLIENT_ID`. Nothing reads it
-  yet; the next change adds a runtime loader. **Never add it to a Railway watch-path exclusion**:
+  JSON Schema. Read at runtime by `src/scheduling/rules.js` for the client named
+  by `SCHEDULING_CLIENT_ID`. **Never add it to a Railway watch-path exclusion**:
   unlike `docs/`, a rules change must redeploy. It moved here from the repo root
   because Railway builds this directory only. `poetic.json` is kept for the
   tracker's future use; nothing here reads it.

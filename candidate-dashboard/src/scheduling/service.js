@@ -74,7 +74,7 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
         if (![s.start, s.end].every(v => typeof v === "string" && /T.*(?:Z|[+-]\d\d:\d\d)$/.test(v) && Number.isFinite(Date.parse(v))) || Date.parse(s.start) >= Date.parse(s.end)) fail(400, "Session times must include an offset and end after they start");
         return { title: text(s.title, "a session title"), start: new Date(s.start).toISOString(), end: new Date(s.end).toISOString(), interviewers: text(s.interviewers, "interviewers", 500), location: text(s.location, "a room or location") };
       });
-      const plan = { candidateId: c.candidateId, applicationId: c.applicationId, candidateName: c.candidateName, jobTitle: c.jobTitle, timezone, sessions, notes: typeof input.notes === "string" ? input.notes.slice(0, 2000) : "", source: meta.source || "coordinator_draft", timezoneSource: meta.timezoneSource || "coordinator_entered", ...(meta.sourceRef ? { sourceRef: meta.sourceRef } : {}) };
+      const plan = { candidateId: c.candidateId, applicationId: c.applicationId, candidateName: c.candidateName, jobTitle: c.jobTitle, timezone, sessions, notes: typeof input.notes === "string" ? input.notes.slice(0, 2000) : "", source: meta.source || "coordinator_draft", timezoneSource: meta.timezoneSource || "coordinator_entered", ...(meta.sourceRef ? { sourceRef: meta.sourceRef } : {}), ...(meta.rulesRevision ? { rulesRevision: meta.rulesRevision } : {}) };
       const row = { id: crypto.randomUUID(), clientId, revision: 1, state: "draft", plan, digest: digest(plan), bookingApproval: null,
         audit: [{ action: "drafted", by: user.id, at: new Date().toISOString() }] };
       if (!await store.insert(row)) fail(409, meta.sourceRef ? "This option was already posted to Slack, or another discussion draft for this candidate is still open. Check the channel and the Scheduling tab." : "An active discussion draft already exists. Review or reject it first."); return row;
@@ -84,7 +84,10 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
     // claim-before-posting, revision/digest and Ashby candidate checks. The
     // option has already been rebuilt server-side by the caller. The channel is
     // only ever destination()'s, from this client's config.
-    async postScheduleOption({ applicationId, candidateId, timezone, option, optionNumber, sourceRef, availabilitySource }, user) {
+    // `attendance` is one "in_person" | "video" per option event, from this
+    // client's scheduling rules (rules.js), never from the browser. It only
+    // labels the Location line; nothing books a room or creates a link.
+    async postScheduleOption({ applicationId, candidateId, timezone, option, optionNumber, sourceRef, availabilitySource, attendance, rulesRevision }, user) {
       actor(user);
       const c = await candidate(applicationId);
       if (c.candidateId !== candidateId) fail(409, "Candidate changed in Ashby. Suggest the full schedule again.");
@@ -93,12 +96,14 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
       // behind that blocks this candidate's next post.
       if (!clientId || !channelId || !slack) fail(503, "Configure this client's Slack destination first.");
       if ((await store.list()).some(r => r.clientId === clientId && r.plan.sourceRef === sourceRef && r.state !== "rejected")) fail(409, "This option was already posted to Slack. Check the channel.");
+      if (!Array.isArray(attendance) || attendance.length !== option.events.length || attendance.some(a => !["in_person", "video"].includes(a))) fail(503, "Interviewer attendance could not be confirmed from this client's scheduling rules.");
       const source = availabilitySource === "ashby" ? "candidate-submitted availability" : "coordinator-entered availability";
       const row = await this.draft({ applicationId, timezone,
         notes: `Full schedule option ${optionNumber} from booking review, built from ${source}. Not calendar-checked: suggested interviewers are eligible choices, not confirmed available. Nothing has been booked and no invitations have been sent.`,
-        sessions: option.events.map(e => ({ title: e.title, start: e.start, end: e.end,
-          interviewers: `${e.interviewer.name} (suggested, not calendar-checked)`.slice(0, 500), location: "Room / location to confirm" })) },
-        user, { source: "full_schedule_option", sourceRef, timezoneSource: availabilitySource === "ashby" ? "candidate_submitted" : "coordinator_entered" });
+        sessions: option.events.map((e, i) => ({ title: e.title, start: e.start, end: e.end,
+          interviewers: `${e.interviewer.name} (suggested, not calendar-checked)`.slice(0, 500),
+          location: attendance[i] === "video" ? "Video link required" : "Room / location to confirm" })) },
+        user, { source: "full_schedule_option", sourceRef, rulesRevision, timezoneSource: availabilitySource === "ashby" ? "candidate_submitted" : "coordinator_entered" });
       try {
         const shared = await this.share(row.id, { revision: row.revision, digest: row.digest, channelId }, user);
         return { id: shared.id, state: shared.state, issue: shared.issue || null, channelName: name };
