@@ -127,16 +127,47 @@
       </li>`;
   }
 
-  function card(entry) {
+  // One card per INTERVIEWER, with a row per path they're training on.
+  //
+  // Counts are never combined across paths: a shadow on the System Design
+  // interview says nothing about readiness for the Bug Bash one, so each row
+  // keeps its own requirement, its own progress and its own last-used date.
+  // Consolidating the CARD (not the counts) is what stops someone training on
+  // three interviews from occupying three separate places on the page.
+  function personCard(rows) {
+    const first = rows[0];
+    // The card's recency shading reflects the person's most recent interview
+    // on ANY path - the card-level question is "is this interviewer being
+    // used at all", while each row answers it per path.
+    const freshest = rows.reduce((a, b) => (a.daysSinceActivity <= b.daysSinceActivity ? a : b));
+    return `
+      <article class="training-card ${recencyClass(freshest)}" data-person="${esc(first.userId)}">
+        <div class="training-card-head">
+          <span class="training-name">${esc(first.userName || first.userEmail || "Unknown interviewer")}</span>
+          ${rows.length > 1 ? `<span class="training-path-count muted">${rows.length} paths</span>` : ""}
+        </div>
+        ${rows.map(pathRow).join("")}
+      </article>`;
+  }
+
+  // A state chip appears on a row only when that path is NOT plainly in
+  // progress. Without it, a person grouped under Paused because one path is
+  // paused would give no clue which of their paths it was.
+  function stateChip(entry) {
+    if (entry.state === "paused") return `<span class="training-badge badge-warn">Paused</span>`;
+    if (entry.state === "complete") return `<span class="training-badge badge-done">Complete</span>`;
+    if (entry.state === "archived") return `<span class="training-badge badge-quiet">Archived</span>`;
+    if (entry.stalled) return `<span class="training-badge badge-info">Stalled</span>`;
+    return "";
+  }
+
+  function pathRow(entry) {
     const isOpen = expanded.has(entry.key);
     const pause = entry.pause || {};
     return `
-      <article class="training-card ${recencyClass(entry)}" data-key="${esc(entry.key)}" data-user="${esc(entry.userId)}" data-path="${esc(entry.pathId)}">
-        <div class="training-card-top">
-          <div class="training-card-id">
-            <span class="training-name">${esc(entry.userName || entry.userEmail || "Unknown interviewer")}</span>
-            <span class="training-path muted">${esc(entry.pathLabel)}</span>
-          </div>
+      <div class="training-path-row ${isOpen ? "is-open" : ""}" data-key="${esc(entry.key)}" data-user="${esc(entry.userId)}" data-path="${esc(entry.pathId)}">
+        <div class="training-row-top">
+          <span class="training-path">${esc(entry.pathLabel)}</span>
           <div class="training-card-progress">
             ${progressBar(entry)}
             <span class="training-counts">${entry.shadows}/${entry.requirements.shadows} shadow · ${entry.reverseShadows}/${entry.requirements.reverseShadows} reverse</span>
@@ -144,6 +175,7 @@
         </div>
         <div class="training-card-meta">
           <span class="training-last">Last interview ${esc(dayLabel(entry.daysSinceActivity))}</span>
+          ${stateChip(entry)}
           ${badges(entry)}
           <button type="button" class="training-link training-toggle">${isOpen ? "hide detail" : "detail"}</button>
         </div>
@@ -160,7 +192,7 @@
             : ""
         }
         ${isOpen ? detail(entry) : ""}
-      </article>`;
+      </div>`;
   }
 
   function detail(entry) {
@@ -207,15 +239,18 @@
       </div>`;
   }
 
-  function group(el, title, note, entries) {
-    if (!entries.length) {
+  // `people` is an array of row-arrays, one per interviewer. The count in the
+  // heading is therefore people, not enrolments - someone on three paths is
+  // one person needing attention, not three.
+  function group(el, title, note, people) {
+    if (!people.length) {
       el.innerHTML = "";
       return;
     }
     el.innerHTML = `
-      <h3 class="training-group-title">${esc(title)} <span class="training-group-count">${entries.length}</span></h3>
+      <h3 class="training-group-title">${esc(title)} <span class="training-group-count">${people.length}</span></h3>
       ${note ? `<p class="training-group-note muted">${esc(note)}</p>` : ""}
-      <div class="training-cards">${entries.map(card).join("")}</div>`;
+      <div class="training-cards">${people.map(personCard).join("")}</div>`;
   }
 
   // ----------------------------------------------------------------- panels
@@ -361,49 +396,72 @@
 
   // ---------------------------------------------------------------- render
 
+  // Groups a person's rows into one bucket. A person can be paused on one
+  // path, actively training on another and finished with a third, so the card
+  // goes wherever its MOST attention-needing path belongs, and every row
+  // inside carries its own state chip so nothing is hidden by the choice.
+  //
+  // Order: a decision you have to make outranks a deliberate pause, which
+  // outranks accidental neglect, which outranks routine progress. "Complete"
+  // is last because a person only lands there when every path is finished -
+  // one finished path among several in flight isn't a finished interviewer.
+  function bucketFor(rows) {
+    const needsDecision = (e) => e.needsConfirmation || e.pendingDuringPause || (e.disagreements || []).length;
+    if (rows.some((e) => e.state === "active" && needsDecision(e))) return "attention";
+    if (rows.some((e) => e.state === "paused")) return "paused";
+    if (rows.some((e) => e.state === "active" && e.stalled)) return "stalled";
+    if (rows.some((e) => e.state === "active")) return "active";
+    if (rows.length && rows.every((e) => e.state === "complete")) return "complete";
+    return null;
+  }
+
+  // userId -> rows, preserving the server's ordering (name, then path).
+  function byPerson(entries) {
+    const people = new Map();
+    for (const e of entries) {
+      if (!people.has(e.userId)) people.set(e.userId, []);
+      people.get(e.userId).push(e);
+    }
+    return people;
+  }
+
   function render(data, hasError) {
     latest = data;
     const entries = data.interviewerTraining || [];
     const panelHost = document.getElementById("training-attention");
 
-    // Every card appears in exactly ONE group. "Needs a decision" is drawn
-    // only from active trainees and those are then excluded from In training
-    // and Stalled — listing the same person twice on a page tracking ~30
-    // people reads as a duplicate, not as emphasis. Paused and complete keep
-    // their own grouping regardless (pausing is the thing being surfaced, and
-    // those cards already carry the badge and pause note inline), so a paused
-    // trainee is never pulled out from under the Paused heading.
-    const needsDecision = (e) => e.needsConfirmation || e.pendingDuringPause || (e.disagreements || []).length;
-    const attention = entries.filter((e) => e.state === "active" && needsDecision(e));
-    const flagged = new Set(attention.map((e) => e.key));
-    const active = entries.filter((e) => e.state === "active" && !e.stalled && !flagged.has(e.key));
-    const stalled = entries.filter((e) => e.state === "active" && e.stalled && !flagged.has(e.key));
-    const paused = entries.filter((e) => e.state === "paused");
-    const complete = entries.filter((e) => e.state === "complete");
+    // Archived paths live on the History tab only, so they never drag a
+    // working card into a bucket or add a dead row to it.
+    const live = entries.filter((e) => e.state !== "archived");
+    const buckets = { attention: [], paused: [], stalled: [], active: [], complete: [] };
+    for (const rows of byPerson(live).values()) {
+      const bucket = bucketFor(rows);
+      if (bucket) buckets[bucket].push(rows);
+    }
 
     const panelHtml = openPanel === "enrol" ? enrolPanel(data) : openPanel === "paths" ? pathsPanel(data) : "";
 
-    group(panelHost, "Needs a decision", "Ashby can't resolve these on its own.", attention);
+    group(panelHost, "Needs a decision", "Ashby can't resolve these on its own.", buckets.attention);
     panelHost.insertAdjacentHTML("afterbegin", panelHtml);
 
     group(
       document.getElementById("training-paused"),
       "Paused",
-      "Progress is held. Interviews that happen anyway are recorded but not counted.",
-      paused
+      "Progress is held on the paused path. Interviews that happen anyway are recorded but not counted.",
+      buckets.paused
     );
     group(
       document.getElementById("training-stalled"),
       "Stalled",
       `Active, but no interview for ${(data.appConfig || {}).trainingStalledAfterDays || 30} days or more.`,
-      stalled
+      buckets.stalled
     );
-    group(document.getElementById("training-active"), "In training", "", active);
+    group(document.getElementById("training-active"), "In training", "", buckets.active);
     group(
       document.getElementById("training-complete"),
       "Complete — not yet in the Ashby pool",
       "This tracker never writes to Ashby, so adding them to the interviewer pool is still a manual step.",
-      complete
+      buckets.complete
     );
 
     const empty = document.getElementById("training-empty");
@@ -423,23 +481,34 @@
   function renderHistory(entries) {
     const host = document.getElementById("training-history");
     if (!host) return;
+    // Only the finished and archived ROWS, not every row belonging to a person
+    // who happens to have one - someone complete on one path and still
+    // training on another belongs here for the first path only.
     const done = entries.filter((e) => e.state === "complete" || e.state === "archived");
     if (!done.length) {
       host.innerHTML = `<p class="muted">Nobody has completed or been archived off a path yet.</p>`;
       return;
     }
-    const completed = done.filter((e) => e.state === "complete");
-    const archived = done.filter((e) => e.state === "archived");
-    host.innerHTML = `
-      ${completed.length ? `<h3 class="training-group-title">Completed <span class="training-group-count">${completed.length}</span></h3><div class="training-cards">${completed.map(card).join("")}</div>` : ""}
-      ${archived.length ? `<h3 class="training-group-title">Archived <span class="training-group-count">${archived.length}</span></h3><div class="training-cards">${archived.map(card).join("")}</div>` : ""}`;
+    const section = (title, rows) => {
+      const people = [...byPerson(rows).values()];
+      return people.length
+        ? `<h3 class="training-group-title">${esc(title)} <span class="training-group-count">${people.length}</span></h3>
+           <div class="training-cards">${people.map(personCard).join("")}</div>`
+        : "";
+    };
+    host.innerHTML =
+      section("Completed", done.filter((e) => e.state === "complete")) +
+      section("Archived", done.filter((e) => e.state === "archived"));
   }
 
   // --------------------------------------------------------------- events
 
+  // Scoped to the path ROW, not the card. A card can now hold several paths,
+  // each with its own requirement inputs and credit fields, so resolving from
+  // the card would always find the first row's controls.
   function cardContext(el) {
-    const article = el.closest(".training-card");
-    return article ? { userId: article.dataset.user, pathId: article.dataset.path, key: article.dataset.key, article } : null;
+    const row = el.closest(".training-path-row");
+    return row ? { userId: row.dataset.user, pathId: row.dataset.path, key: row.dataset.key, article: row } : null;
   }
 
   document.addEventListener("click", async (event) => {
