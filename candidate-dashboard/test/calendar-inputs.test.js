@@ -168,3 +168,14 @@ test("without the calendar flag the preview is today's unconstrained one", async
   assert.equal(result.availabilityVerified, false);
   assert.equal(result.calendarCheck, undefined);
 });
+
+test("start windows from the rules attach to sessions by Ashby interview name, case-insensitively", async () => {
+  const lunchPlan = { sessions: [...plan.sessions, { sessionId: "s3", interviewId: "i3", title: "  team LUNCH ", durationMinutes: 45, assignmentVerified: true, requiredCount: 1, eligibleInterviewers: [{ name: "Ana Silva" }] }] };
+  const { facts, freeBusy } = sources();
+  const inputs = await buildCalendarInputs({ plan: lunchPlan, windows, timezone, rules: rulesDoc(), facts, freeBusy });
+  assert.deepEqual(inputs.sessions.map(s => (s.placementWindows || []).map(w => `${w.earliestStart}-${w.latestStart} ${w.timezone}`)), [[], [], ["12:00-13:30 America/Los_Angeles"]]);
+  const exact = rulesDoc(d => { d.sessions.placementWindows = [{ match: "exact", value: "lunch", timezone: "UTC", earliestStart: "12:00", latestStart: "13:00" }]; });
+  assert.equal(exact.placementFor("Lunch").length, 1);
+  assert.equal(exact.placementFor("Team lunch").length, 0);
+  assert.throws(() => rulesDoc(d => { d.sessions.placementWindows[0].latestStart = "11:00"; }), { status: 503 });
+});

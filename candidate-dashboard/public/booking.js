@@ -100,16 +100,19 @@
   // as a data gap so they never read as a real conflict.
   function diagnosisHtml(d){
     const hours=c=>c.hoursSource==='default'?`the client's placeholder hours (${esc(c.hoursLabel)}), which aren't confirmed for them`:c.hoursSource==='verified'?'their verified meeting hours':`the hours set for them (${esc(c.hoursLabel)}), which are assumed`;
-    const change=c=>c.kind==='hours'?(c.dataGap?`<strong>Data gap:</strong> enter ${esc(c.name)}'s real meeting hours. Every slot that would fit is outside ${hours(c)}.`:`<strong>Assumed hours:</strong> ${esc(c.name)} could take it outside ${hours(c)}.`)
+    const win=w=>`${esc(w.earliestStart)}–${esc(w.latestStart)} ${esc(w.timezone)}`;
+    const change=c=>c.kind==='placement'?`<strong>Start window:</strong> ${esc(c.title)} must start ${c.windows.map(win).join(' and ')}, and that's what rules it out.${c.gapsZero?` With no gap allowed between sessions (0/0), the only way to meet it is moving the agenda's start time, so a non-zero maxGapMinutes would allow slack before it. ${c.fitsWithMaxGapMinutes?`Allowing up to ${c.fitsWithMaxGapMinutes} minutes between sessions would fit.`:'Even 120 minutes between sessions would not be enough on its own.'}`:''}`
+      :c.kind==='hours'?(c.dataGap?`<strong>Data gap:</strong> enter ${esc(c.name)}'s real meeting hours. Every slot that would fit is outside ${hours(c)}.`:`<strong>Assumed hours:</strong> ${esc(c.name)} could take it outside ${hours(c)}.`)
       :c.kind==='busy'?`<strong>Busy time:</strong> ${esc(c.name)}'s primary calendar is busy at every slot that would otherwise fit. If some of it is a hold that can be booked over, it could work; that isn't supported yet.`
       :`<strong>Interview limit:</strong> ${esc(c.name)}'s Ashby limit rules it out.`;
     const unblock=d.unblock.map(u=>u.kind==='availability'?`<li>${esc(u.text)}</li>`:u.kind==='combination'?`<li>Only both changes together would fit:<ul>${u.changes.map(c=>`<li>${change(c)}</li>`).join('')}</ul></li>`:`<li>${change(u.changes[0])}</li>`).join('');
-    const why=x=>x.reason==='hours'?`outside ${x.hoursSource==='default'?'placeholder hours, not confirmed for them':x.hoursSource==='verified'?'verified meeting hours':'assumed hours set for them'}`:x.reason==='busy'?'busy on their primary calendar':x.reason==='limits'?'Ashby interview limit':'no slot left once earlier sessions are placed';
+    const why=x=>x.reason==='placement'?'never reached: no start inside the session\'s start window':x.reason==='hours'?`outside ${x.hoursSource==='default'?'placeholder hours, not confirmed for them':x.hoursSource==='verified'?'verified meeting hours':'assumed hours set for them'}`:x.reason==='busy'?'busy on their primary calendar':x.reason==='limits'?'Ashby interview limit':'no slot left once earlier sessions are placed';
     const f=d.furthest,c=d.conflicts;
     return `<p><strong>Furthest reach:</strong> ${f.placed} of ${f.of} sessions placed in order${f.blockedAt?`; every path stopped at ${esc(f.blockedAt.title)}`:''}.</p>`
       +`<h3>What would unblock it</h3>${unblock?`<ul>${unblock}</ul>`:'<p>No single change, or pair of changes, to one interviewer\'s hours, busy time or limit produces a fit. More candidate availability or other interviewers would be needed.</p>'}`
       +(f.blockedAt?`<h3>At ${esc(f.blockedAt.title)}</h3><ul>${d.atBlocked.map(x=>`<li>${esc(x.name)}: ${why(x)}${x.hoursSource==='default'&&x.reason==='hours'?' <span class="sched-warning">data gap</span>':''}</li>`).join('')}</ul>`:'')
-      +`<p class="sched-status-line">Rejected slots: busy time ${c.busy} · outside placeholder hours ${c.hours.default} · outside hours set per person ${c.hours.override+c.hours.assumed} · outside verified hours ${c.hours.verified} · limits ${c.limits}</p>`;
+      +(d.blockedPlacement?`<p>${esc(d.blockedPlacement.title)} must start ${d.blockedPlacement.windows.map(win).join(' and ')}; ${d.blockedPlacement.rejectedStarts} candidate start${d.blockedPlacement.rejectedStarts===1?' was':'s were'} outside it.</p>`:'')
+      +`<p class="sched-status-line">Rejected slots: busy time ${c.busy} · outside placeholder hours ${c.hours.default} · outside hours set per person ${c.hours.override+c.hours.assumed} · outside verified hours ${c.hours.verified} · limits ${c.limits} · outside a start window ${c.placement||0}</p>`;
   }
   $('suggest-full').onclick=preview(false);
   $('suggest-calendar').onclick=preview(true);

@@ -3,7 +3,7 @@
   "$comment": "Reproduces candidate-dashboard on feature/client-ashby-connection as of 2026-09-22, plus revision 2's assumed 9–5 Pacific meeting hours and interviewer attendance. The dashboard reads this file at runtime.",
   "schemaVersion": 2,
   "clientId": "luminai",
-  "rulesRevision": 3,
+  "rulesRevision": 4,
 
   "trial": {
     "stageTitleContains": null,
@@ -18,7 +18,12 @@
     "bypassCandidateName": null
   },
 
-  "sessions": { "exclusions": [] },
+  "sessions": {
+    "exclusions": [],
+    "placementWindows": [
+      { "match": "contains", "value": "Lunch", "timezone": "America/Los_Angeles", "earliestStart": "12:00", "latestStart": "13:30", "reason": "Lunch sessions start at a lunch time in San Francisco." }
+    ]
+  },
 
   "agenda": { "singleDay": true, "minBreakMinutes": 0, "maxGapMinutes": 0 },
 

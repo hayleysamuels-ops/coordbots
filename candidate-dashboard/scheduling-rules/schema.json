@@ -132,6 +132,23 @@
               "decidedOn": { "type": ["string", "null"], "format": "date" }
             }
           }
+        },
+        "placementWindows": {
+          "type": "array",
+          "description": "When a session may start. Each rule matches sessions by their Ashby interview name (the interview's title in the job's interview plan, as shown in Ashby), case-insensitively and ignoring surrounding spaces, and allows a start only between earliestStart and latestStart, both inclusive, in its own time zone on the session's local date. A session matching several rules must satisfy all of them. The calendar-checked search applies these as it places each session, so a session never lands outside its window. Optional; absent means no session has a window.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["match", "value", "timezone", "earliestStart", "latestStart"],
+            "properties": {
+              "match": { "enum": ["exact", "contains"] },
+              "value": { "type": "string", "minLength": 1, "description": "The Ashby interview name, or part of it for contains." },
+              "timezone": { "type": "string", "pattern": "^(UTC|[A-Za-z]+(/[A-Za-z0-9_+-]+)+)$", "description": "IANA name. Explicit, never taken from the candidate's or interviewer's zone." },
+              "earliestStart": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$" },
+              "latestStart": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$", "description": "Inclusive. Must not be before earliestStart; the loader checks." },
+              "reason": { "type": ["string", "null"] }
+            }
+          }
         }
       }
     },

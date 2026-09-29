@@ -43,12 +43,24 @@ function parseRules(doc, clientId) {
   const busy = doc.busy || {};
   if (!["none", "google_freebusy"].includes(busy.source) || !Array.isArray(busy.calendars)) invalid("busy.source and busy.calendars are required.");
   const hourOverrides = hours.overrides || {};
+  const placement = doc.sessions?.placementWindows ?? [];
+  if (!Array.isArray(placement)) invalid("sessions.placementWindows must be a list.");
+  for (const w of placement) {
+    if (!["exact", "contains"].includes(w.match) || typeof w.value !== "string" || !w.value.trim()) invalid("Each placement window needs match (exact or contains) and a session name.");
+    if (!TIME.test(w.earliestStart || "") || !TIME.test(w.latestStart || "") || w.latestStart < w.earliestStart) invalid(`The placement window for "${w.value}" needs an earliest start no later than its latest start.`);
+    try { new Intl.DateTimeFormat("en", { timeZone: w.timezone }); } catch (_) { invalid(`The placement window for "${w.value}" has an invalid time zone.`); }
+  }
+  const norm = v => String(v || "").trim().toLowerCase();
   return {
     clientId, rulesRevision: doc.rulesRevision,
     agenda: { singleDay: doc.agenda.singleDay === true, minBreakMinutes, maxGapMinutes },
     limitsPolicy, busy: { source: busy.source, calendars: [...busy.calendars] },
     hasAttendanceOverrides: Object.keys(overrides).length > 0,
     attendanceFor: email => overrides[String(email || "").toLowerCase()] || attendance.default,
+    // Every placement window whose pattern matches this Ashby interview name
+    // (case-insensitive, surrounding spaces ignored); a session must satisfy all.
+    placementFor: title => placement.filter(w => w.match === "exact" ? norm(title) === norm(w.value) : norm(title).includes(norm(w.value)))
+      .map(w => ({ match: w.match, value: w.value, timezone: w.timezone, earliestStart: w.earliestStart, latestStart: w.latestStart })),
     // Always an assumption (schema: meetingHours). `source` says which rule
     // applied; null hours means the interviewer has none and can't be scheduled.
     meetingHoursFor: email => {

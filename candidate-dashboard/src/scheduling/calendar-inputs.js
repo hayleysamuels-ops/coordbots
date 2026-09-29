@@ -33,7 +33,10 @@ async function buildCalendarInputs({ plan, windows, timezone, rules, facts, free
     usable.set(person.userId, { person, hours, source, intervals: hoursIntervals(hours, rangeStart, rangeEnd) });
     hoursUsed.push({ name: person.name, email: person.email, source, timezone: hours.timezone, days: hours.days, start: hours.start, end: hours.end });
   }
-  const sessions = resolved.sessions.map(s => ({ ...s, eligibleInterviewers: s.eligibleInterviewers.filter(p => usable.has(p.userId)) }));
+  const sessions = resolved.sessions.map(s => {
+    const placementWindows = rules.placementFor(s.title);
+    return { ...s, eligibleInterviewers: s.eligibleInterviewers.filter(p => usable.has(p.userId)), ...(placementWindows.length ? { placementWindows } : {}) };
+  });
   const context = { excluded, meetingHours: hoursUsed, limitsPolicy: rules.limitsPolicy, rulesRevision: rules.rulesRevision, busySource: "Google free/busy, primary calendars" };
   const empty = sessions.find(s => !s.eligibleInterviewers.length);
   if (empty) return { ...context, blocked: `No eligible interviewer can take ${empty.title}: every one is excluded (see below).` };

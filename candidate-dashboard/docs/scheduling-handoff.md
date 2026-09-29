@@ -152,6 +152,15 @@ done and verified, in this order:
     that would produce a fit, then one line per interviewer at the blocking
     session. Placeholder (client-default) hours are labelled as a data gap, never
     as a conflict.
+  - **Lunch has a start window.** `sessions.placementWindows` (rules revision 4)
+    requires any session whose Ashby interview name contains "Lunch" to start
+    between 12:00 and 13:30 America/Los_Angeles. The calendar-checked search
+    prunes by it as it places each session. **With gaps at 0/0 this is where the
+    breaks decision becomes load-bearing:** the only way to move lunch is to move
+    the whole agenda's start. When the window is what binds, the no-fit report
+    says so and tests how much gap would have let it fit (up to 120 minutes).
+    The unverified "Preview agenda" doesn't apply start windows; only the
+    calendar-checked one does.
   - **Busy-time evidence for bookable-over.** Each no-fit logs
     `[calendar-check] no fit: ... rejected busy=N hours-default=N ...` (counts only,
     no names). Grep Luminai's logs for it to see how often busy time, rather than

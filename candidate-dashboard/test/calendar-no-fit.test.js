@@ -104,3 +104,53 @@ test('an agenda longer than the candidate can offer blames availability, not int
   const r=solve(s,[calendar(A,{sessions:s})]);
   assert.deepEqual(r.diagnosis.unblock.map(u=>u.kind),['availability']);
 });
+
+// ---- start windows (scheduling-rules sessions.placementWindows) -------------
+
+const LUNCH={match:'contains',value:'Lunch',timezone:'America/Los_Angeles',earliestStart:'12:00',latestStart:'13:30'};
+const pacific=(hh,mm=0)=>new Date(Date.parse(`${day}T00:00Z`)+((hh+7)*60+mm)*60000).toISOString(); // PDT wall time
+const lunch=(id,minutes,eligible)=>({...session(id,minutes,eligible),title:'Lunch with the team',placementWindows:[LUNCH]});
+
+test('a session with a start window is only ever placed inside it',()=>{
+  // New York candidate, 09:00-17:00 ET = 06:00-14:00 PT; lunch is third.
+  const s=[session('1',60,[A]),session('2',60,[A]),lunch('3',45,[A])];
+  const r=solve(s,[calendar(A,{sessions:s})]);
+  assert.equal(r.status,'calendar_checked');
+  for(const p of r.proposals){const t=p.events[2].start;assert.ok(t>=pacific(12)&&t<=pacific(13,30),t);}
+  // Pruned in the search: the first option starts the agenda so lunch lands at exactly 12:00 PT.
+  assert.equal(r.proposals[0].events[2].start,pacific(12));
+});
+
+test('when the start window binds, the report says so and tests how much gap would fit',()=>{
+  // Ana can only do 09:00-10:00 ET (06:00-07:00 PT), so the agenda must start then;
+  // back-to-back, lunch would start at 07:00 PT, far outside 12:00-13:30.
+  const s=[session('1',60,[A]),lunch('2',45,[B])];
+  const r=solve(s,[calendar(A,{hours:[[9,10]],sessions:s}),calendar(B,{sessions:s})]);
+  assert.equal(r.status,'no_calendar_fit');
+  const [first]=r.diagnosis.unblock;
+  assert.equal(first.kind,'placement');
+  const [change]=first.changes;
+  assert.equal(change.title,'Lunch with the team');
+  assert.equal(change.gapsZero,true);
+  assert.deepEqual(change.windows,[{value:'Lunch',timezone:'America/Los_Angeles',earliestStart:'12:00',latestStart:'13:30'}]);
+  // 07:00 PT to 12:00 PT needs a 300-minute gap: more than the 120 minutes tested.
+  assert.equal(change.fitsWithMaxGapMinutes,null);
+  assert.equal(r.diagnosis.blockedPlacement.title,'Lunch with the team');
+  assert.deepEqual(r.diagnosis.atBlocked.map(x=>x.reason),['placement']);
+  assert.ok(r.diagnosis.conflicts.placement>0);
+  assert.equal(r.diagnosis.conflicts.busy,0);
+});
+
+test('the gap test reports the smallest gap that would let lunch fit',()=>{
+  // Ana only 13:00-14:00 ET (10:00-11:00 PT); lunch must start 12:00-13:30 PT.
+  const s=[session('1',60,[A]),lunch('2',45,[B])];
+  const r=solve(s,[calendar(A,{hours:[[13,14]],sessions:s}),calendar(B,{sessions:s})]);
+  assert.equal(r.diagnosis.unblock[0].changes[0].fitsWithMaxGapMinutes,60);
+  // And the same agenda does fit once that gap is allowed.
+  assert.equal(solve(s,[calendar(A,{hours:[[13,14]],sessions:s}),calendar(B,{sessions:s})],{maxGapMinutes:60}).status,'calendar_checked');
+});
+
+test('an invalid start window is refused',()=>{
+  const bad=[{...LUNCH,latestStart:'11:00'},{...LUNCH,timezone:'Mars/Base'},{...LUNCH,earliestStart:'12'}];
+  for(const w of bad){const s=[{...session('1',30,[A]),placementWindows:[w]}];assert.throws(()=>solve(s,[calendar(A,{sessions:s})]),{status:422});}
+});
