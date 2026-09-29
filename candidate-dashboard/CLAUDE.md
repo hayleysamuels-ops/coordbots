@@ -121,6 +121,12 @@ is normally still in Application Review and any status).
 - `src/issues.js` — orchestrator + cache for the nine sections; applies
   dismissals at serve time (see below).
 - `public/` — plain HTML/CSS/JS dashboard, no framework.
+- `scheduling-rules/` — per-client scheduling policy (`<clientId>.json`) and its
+  JSON Schema, for the client named by `SCHEDULING_CLIENT_ID`. Nothing reads it
+  yet; the next change adds a runtime loader. **Never add it to a Railway watch-path exclusion**:
+  unlike `docs/`, a rules change must redeploy. It moved here from the repo root
+  because Railway builds this directory only. `poetic.json` is kept for the
+  tracker's future use; nothing here reads it.
 - `scripts/check-ashby-compatibility.js` — standalone, read-only pre-
   onboarding diagnostic for a new client's Ashby org (see § client-specific
   assumptions below and the script's own header comment). Zero dependency

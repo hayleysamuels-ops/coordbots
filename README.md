@@ -11,7 +11,7 @@ For Luminai's scheduling pilot (gated by `SCHEDULING_CLIENT_ID`), start with the
 | `candidate-dashboard/worker/` | Luminai scheduling worker | `scheduling-worker` in dashboard-luminai |
 | `ashby-scorecard-bot/` | Ashby → Slack scorecard reminders | `Feedback Reminder Bot` |
 | `scheduling-worker/` | Copy of the Poetic work-trial tracker (squashed from work-trial-tracker `feature/scheduling-discussion-approvals` at `bbb1052`) | none: nothing deploys from this directory |
-| `scheduling-rules/` | Per-client scheduling policy config + JSON Schema | read by nothing yet |
+| `candidate-dashboard/scheduling-rules/` | Per-client scheduling policy config + JSON Schema. Moved from the repo root on 29 September 2026 so the deployed dashboard can read it. | not read yet; lives here so the dashboard whose `SCHEDULING_CLIENT_ID` matches can read it at runtime |
 
 ## Railway projects
 
@@ -19,6 +19,11 @@ Build sources below were read from Railway on 25 September 2026; Luminai's two s
 push only redeploys the services whose directory changed. The dashboards exclude `candidate-dashboard/worker/`,
 which only the Luminai `scheduling-worker` service builds, and every `candidate-dashboard/` service excludes
 `candidate-dashboard/docs/`, so documentation-only changes redeploy nothing.
+
+**Never add `candidate-dashboard/scheduling-rules/` to a watch-path exclusion.** Unlike
+`docs/`, these files are read at runtime, so a rules change has to redeploy. A change
+redeploys all six dashboards; only the one whose `SCHEDULING_CLIENT_ID` matches a file
+reads it.
 
 | Project | Service | Builds from |
 |---|---|---|
@@ -48,4 +53,4 @@ service at the tracker worker breaks availability and interview-plan reads with
 "Could not confirm booking status." That happened on 25 September 2026; the service
 now builds `candidate-dashboard/worker/Dockerfile` again.
 
-Per-client config lives in environment variables and `scheduling-rules/`. Secrets never go in the repo.
+Per-client config lives in environment variables and `candidate-dashboard/scheduling-rules/`. Secrets never go in the repo.

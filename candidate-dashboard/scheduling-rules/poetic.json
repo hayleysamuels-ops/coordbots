@@ -1,9 +1,9 @@
 {
   "$schema": "./schema.json",
   "$comment": "Reproduces scheduling-worker/ behaviour as of 2026-09-22. Not yet read by any engine.",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "clientId": "poetic",
-  "rulesRevision": 1,
+  "rulesRevision": 2,
 
   "trial": {
     "stageTitleContains": "work trial",
@@ -54,7 +54,7 @@
     ]
   },
 
-  "agenda": { "singleDay": false },
+  "agenda": { "singleDay": false, "minBreakMinutes": 0, "maxGapMinutes": 0 },
 
   "duration": {
     "$comment": "fallbackMinutes 45 preserves the tracker's silent fallback. Probably accidental; the dashboard's refuse behaviour (null) is safer and is the intended end state.",
@@ -66,6 +66,8 @@
   "assignment": { "strategy": "lowest_confirmed_load" },
 
   "limits": { "ashbyInterviewerLimits": "ignore" },
+
+  "meetingHours": { "default": null, "overrides": {} },
 
   "busy": {
     "source": "none",

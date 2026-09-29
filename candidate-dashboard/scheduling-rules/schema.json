@@ -1,16 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/hayleysamuels-ops/coordbots/scheduling-rules/schema.json",
+  "$id": "https://github.com/hayleysamuels-ops/coordbots/candidate-dashboard/scheduling-rules/schema.json",
   "title": "Client scheduling policy",
-  "description": "Policy rules the scheduling engines consume, one document per client. Defaults in the example documents reproduce behaviour as of 2026-09-22: poetic.json matches scheduling-worker/ (the tracker engine), luminai.json matches candidate-dashboard on feature/client-ashby-connection. null means that engine does not enforce the rule. No engine reads these files yet; until one does, editing them changes nothing. Coordinator-editable data (partner roster, identities, tracker assignments, desks, laptops, working hours) is deliberately out of scope.",
-  "$comment": "Deliberately absent: breaks/buffers (row 19), Ashby meeting hours (row 30) and bookable-over event types (row 32). Each needs new engine logic, not just config, and row 32 also needs client sign-off before any code, because it requires wider Google Calendar access than the current free/busy-only connection. additionalProperties is false throughout so these cannot be added to a document ahead of that work.",
+  "description": "Policy rules the scheduling engines consume, one document per client. Defaults in the example documents reproduce behaviour as of 2026-09-22: poetic.json matches scheduling-worker/ (the tracker engine), luminai.json matches candidate-dashboard on feature/client-ashby-connection. null means that engine does not enforce the rule. No engine reads these files yet; they sit inside candidate-dashboard/ so the deployed dashboard can. Meeting hours are a client-level assumption with per-interviewer overrides, not collected schedules. Other coordinator-editable data (partner roster, identities, tracker assignments, desks, laptops) is deliberately out of scope.",
+  "$comment": "Schema 2 (2026-09-29) adds agenda gaps (row 19) and assumed meeting hours (row 30). Still deliberately absent: bookable-over event types (row 32), which needs client sign-off before any code because it requires wider Google Calendar access than the current free/busy-only connection. Until then every busy interval blocks. additionalProperties is false throughout so it cannot be added to a document ahead of that work.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "clientId", "rulesRevision", "trial", "capacity", "sessions", "agenda", "duration", "assignment", "limits", "busy", "communications", "conferencing", "rooms", "approval"],
+  "required": ["schemaVersion", "clientId", "rulesRevision", "trial", "capacity", "sessions", "agenda", "duration", "assignment", "limits", "meetingHours", "busy", "communications", "conferencing", "rooms", "approval"],
   "properties": {
     "$schema": { "type": "string" },
     "$comment": { "type": "string" },
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "clientId": {
       "type": "string",
       "pattern": "^[a-z0-9-]+$",
@@ -139,11 +139,25 @@
     "agenda": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["singleDay"],
+      "required": ["singleDay", "minBreakMinutes", "maxGapMinutes"],
       "properties": {
         "singleDay": {
           "type": "boolean",
           "description": "Row 24. The whole agenda must fall on one candidate-local date. The dashboard enforces this only in full-calendar-schedule.js, which no route calls yet; the tracker never checks it."
+        },
+        "minBreakMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 240,
+          "multipleOf": 5,
+          "description": "Row 19. Shortest allowed gap between one session's end and the next session's start, in template order. 0 with maxGapMinutes 0 is today's back-to-back agenda."
+        },
+        "maxGapMinutes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 480,
+          "multipleOf": 5,
+          "description": "Row 19. Longest allowed gap between consecutive sessions, so a candidate is never left waiting for hours. Must be at least minBreakMinutes; JSON Schema cannot check that, so the loader must. Both 0 reproduces today's contiguous solver exactly."
         }
       }
     },
@@ -192,10 +206,31 @@
       "properties": {
         "ashbyInterviewerLimits": {
           "enum": ["ignore", "zero_only", "enforce"],
-          "description": "Row 18. Use of Ashby's per-interviewer dailyLimit/weeklyLimit. zero_only = a limit of 0 blocks suggestions (live on the dashboard today); enforce = full counting, which exists only in solvers nothing calls yet."
+          "description": "Row 18. Use of Ashby's per-interviewer dailyLimit/weeklyLimit. ignore = limits are not read. zero_only = an interviewer whose dailyLimit or weeklyLimit is 0 is excluded; every other value is ignored, so no interview counts are needed and an interviewer already at a non-zero limit can still be suggested (live on the dashboard today). enforce = full counting against current day and week counts, which exists only in solvers nothing calls yet."
         }
       }
     },
+
+    "meetingHours": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default", "overrides"],
+      "description": "Row 30. Hours an interviewer may be scheduled, standing in for Ashby's own meeting hours, which the dashboard cannot read. Every value here is an assumption, not a verified schedule: engines must report agendas built from it as using assumed meeting hours, never as verified. An interviewer with neither a default nor an override is unverified and excluded, as today.",
+      "properties": {
+        "$comment": { "type": "string" },
+        "default": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/weeklyHours" }],
+          "description": "Client-wide assumed hours for any interviewer without an override. null means no default."
+        },
+        "overrides": {
+          "type": "object",
+          "description": "Per interviewer, keyed by their Ashby login email in lowercase (the key the dashboard resolves from Ashby's user record). Replaces the default entirely for that person, including its time zone. Coordinator-entered; still an assumption.",
+          "propertyNames": { "pattern": "^[^@\\sA-Z]+@[^@\\sA-Z]+\\.[^@\\sA-Z]+$" },
+          "additionalProperties": { "$ref": "#/$defs/weeklyHours" }
+        }
+      }
+    },
+
 
     "busy": {
       "type": "object",
@@ -294,6 +329,30 @@
           "type": ["string", "null"],
           "description": "Row 36. Email domain required to sign in (users.js ALLOWED_DOMAIN). null where the engine has no such check."
         }
+      }
+    }
+  },
+
+  "$defs": {
+    "weeklyHours": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timezone", "days", "start", "end"],
+      "description": "One daily block of hours on the listed weekdays, in the given IANA time zone. end must be after start; JSON Schema cannot check that, so the loader must.",
+      "properties": {
+        "timezone": {
+          "type": "string",
+          "pattern": "^(UTC|[A-Za-z]+(/[A-Za-z0-9_+-]+)+)$",
+          "description": "IANA name such as America/Los_Angeles. Fixed abbreviations like PST are rejected: they don't follow daylight saving."
+        },
+        "days": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] }
+        },
+        "start": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$", "description": "Local 24-hour time, inclusive." },
+        "end": { "type": "string", "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$", "description": "Local 24-hour time, exclusive." }
       }
     }
   }
