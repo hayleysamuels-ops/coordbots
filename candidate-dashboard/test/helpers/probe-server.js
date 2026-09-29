@@ -29,7 +29,7 @@ const PROBES = [
   ["GET", "/scheduling-review.js"],
   ["GET", "/scheduling-review.css"],
   ["GET", "/ready-scheduling.js"],
-  ["GET", "/scheduler-theme.css"],
+  ["GET", "/scheduling-pages.css"],
 ];
 
 const server = createServer().listen(0, "127.0.0.1", async () => {

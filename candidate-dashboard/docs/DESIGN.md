@@ -6,9 +6,9 @@ candidate swipe-review page. It then maps that system onto this dashboard's exis
 tokens in `public/style.css`. The values are approximate, because they were read from
 screenshots, not from CSS.
 
-Scope: the main dashboard (`index.html`, `style.css`). The booking and connection
-pages use their own palette (`scheduler-theme.css`) and are out of scope until
-decided separately.
+Scope: the main dashboard (`index.html`, `style.css`) and the scheduling pages
+(`booking.html`, `ashby-connection.html`, `google-calendar.html`), which share its tokens.
+See § Scheduling pages.
 
 ## Principles
 
@@ -158,10 +158,25 @@ the block around it.
 
 ## Loading, empty and error
 
-- **Loading:** a mono `--text-muted` status line where the content will appear, e.g.
-  "Loading availability submissions…". There are no spinners and no skeleton
-  shimmer. The section's header and title render immediately; only the content area
-  waits. This matches today's text-only loading lines.
+- **Loading depends on how long the wait is:**
+  - **Fast or local (under about a second):** a re-render, a cached read or the
+    dashboard's 60-second poll. A mono `--text-muted` status line where the content
+    will appear is enough, e.g. "Loading availability submissions…". The section's
+    header renders immediately; only the content area waits.
+  - **Multi-second remote calls** (Ashby, Google, Slack, the booking worker): the
+    **control that started the call shows the progress**, because that's where the
+    person is already looking. Its label becomes the active verb ("Loading plan…",
+    "Posting…"), an inline spinner appears inside it, `aria-busy="true"` is set, and
+    it stays disabled until the call settles, then its label is restored. A busy
+    button keeps its normal level (a primary stays ink) rather than the dashed
+    disabled look, so it reads as working, not unavailable. A status line can still
+    report the outcome where the result appears.
+  - **A button that didn't start the call** (an automatic reload triggered by
+    something else) is only disabled, with no label change. The spinner is reserved
+    for what the person just pressed.
+  - **Reduced motion:** with `prefers-reduced-motion`, the ring stays still and the
+    verb label carries the meaning.
+  - **No skeletons or page-level spinners** in either case.
 - **Empty, nothing to do:** centred, no border and no illustration. A sans 600
   heading at ~20px in `--text-secondary` ("Nothing left to review"), then one or two
   body sentences in `--text-muted`. The sentences say why it's empty and what happens
@@ -213,6 +228,56 @@ These already exist in `style.css` and stay:
 - **Focus.** The global `:focus-visible` outline.
 - **State pairs.** Every wash + ink pair must reach 4.5:1 for its text size, in both
   modes, before it ships.
+
+## Scheduling pages
+
+The booking, Ashby connection and Google Calendar pages use the same system. They load
+`style.css` for tokens, dark mode and focus, and `scheduling-pages.css` for their page
+layout. Their separate green palette (`scheduler-theme.css`) is retired, so there's one
+set of colours to maintain.
+
+- **Page shell:** one column, about 880px wide, on the tinted page. It has a back link,
+  a serif page title, then a status strip (`#message`) on `--surface-sunken`. The strip
+  is neutral, because the same element reports both readiness and errors.
+- **A workflow is a stack of step cards.** Each card does one job, has a mono "Step N"
+  eyebrow and a serif title, and has **exactly one primary action**; everything else in
+  it is secondary. Booking review is five steps: candidate and request, interview
+  plan, availability source, availability windows, then preview and post. The
+  pending request sits in step 1 because the plan can't load without it.
+- **Progressive disclosure: only the current step is open.** Each step is in one of
+  three states, derived from what the page already shows rather than stored:
+  - **Active:** the first incomplete step, fully expanded. There's only one, unless a
+    completed step was reopened.
+  - **Complete:** collapsed to its title and a one-line summary of what was chosen
+    ("TEST petrino · Forward Deployed Engineer · Updated 9/28…"), with a secondary
+    **Change** button that reopens it. Reopening collapses again automatically once
+    the active step moves on.
+  - **Locked:** a later step that isn't reachable yet. Only its title shows, on a
+    dashed transparent card.
+
+  Nothing is deleted: collapsed steps keep their controls in the page, only hidden.
+  With everything done, four one-line summaries sit above the open final step.
+- **One caption per card at most.** Controls don't carry explanatory prose. The only
+  sentences kept beside controls are warnings that prevent a mistake, shown in
+  `--warning`. For example: coordinator-entered times aren't a verified Ashby
+  submission, working-hours overrides don't override conflicts, and approving sends
+  real invitations.
+- **Advanced and rarely used tools** sit in one collapsed card at the end, not between
+  the steps.
+- **Loading.** Every Ashby, Google or Slack call is multi-second, so it follows
+  § Loading, empty and error's remote-call rule: the pressed button shows the verb and
+  spinner. Status lines stay mono `--text-muted` for outcomes. They're the one place
+  a mono line may be a full sentence, because they report the page's own state rather
+  than content.
+- **Fields.** Each label sits above its control as 13px 600 sans. Inputs and selects are
+  1px `--border-default` with `--radius-control`. Read-only and disabled fields use
+  `--surface-sunken` with dashed borders, so an imported value never looks editable.
+- **Repeated rows** like availability windows are compact From / Until / Remove rows.
+  Their fieldset legend stays for screen readers but is visually hidden.
+- **Results** (plans, agenda options, calendar reads) are tables with hairline rows and
+  mono times. An agenda option is an inner card with its own secondary Post button.
+- **The approval dialog** is a card-styled `<dialog>`. Its send button is the only
+  primary action; "Keep as draft" is secondary.
 
 ## Decisions (28 September 2026)
 

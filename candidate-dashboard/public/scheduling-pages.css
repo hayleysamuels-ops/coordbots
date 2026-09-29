@@ -1,0 +1,566 @@
+/* Scheduling pages (booking review, Ashby connection, Google Calendar),
+   loaded after style.css and built only from its tokens, so light/dark,
+   contrast and focus come from one place. See docs/DESIGN.md § Scheduling
+   pages. Replaces the retired scheduler-theme.css palette. */
+
+.sched-page {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 32px 32px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sched-page a {
+  color: var(--text-primary);
+  text-underline-offset: 3px;
+}
+
+.sched-page h1 {
+  font-family: var(--font-serif);
+  font-size: 32px;
+  line-height: 1.2;
+  margin: 8px 0 0;
+}
+
+/* The page's flex gap does the spacing; don't stack default margins on it. */
+.sched-page > :is(p, h1, form, section, div, details) {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.sched-page h2 {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  line-height: 1.2;
+  margin: 0 0 12px;
+}
+
+.sched-page h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 10px;
+}
+
+.sched-back {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* One neutral strip for readiness and errors alike (same element). */
+.sched-status {
+  margin: 0;
+  padding: 12px 16px;
+  background: var(--surface-sunken);
+  border-radius: var(--radius-control);
+  color: var(--text-primary);
+}
+
+/* ---- cards -------------------------------------------------------------- */
+.sched-card {
+  background: var(--surface);
+  border: 1px solid var(--gridline);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-xs);
+  padding: 20px 24px;
+  min-width: 0;
+}
+
+.sched-card > fieldset:not(.sched-group) {
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.sched-card > fieldset:not(.sched-group) > legend {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  font-weight: 700;
+  padding: 0;
+  margin-bottom: 12px;
+}
+
+.sched-step {
+  margin: 0 0 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.sched-caption {
+  margin: 0 0 16px;
+  color: var(--text-secondary);
+}
+
+.sched-warning {
+  margin: 0 0 12px;
+  color: var(--warning);
+  font-weight: 600;
+}
+
+/* The mono status line where a result will appear (loading pattern). */
+.sched-status-line {
+  margin: 0 0 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.sched-status-line:empty {
+  display: none;
+}
+
+.sched-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 16px;
+}
+
+.sched-toolbar p {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.sched-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+/* The outer disclosure is kept (booking.js opens it on a deep link); it
+   reads as a section heading above the step cards. */
+.sched-flow > summary {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+#prepare {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.sched-advanced > summary {
+  cursor: pointer;
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.sched-advanced[open] > summary {
+  margin-bottom: 12px;
+}
+
+.sched-group {
+  border: none;
+  border-top: 1px solid var(--gridline);
+  margin: 0;
+  padding: 16px 0 4px;
+  min-width: 0;
+}
+
+.sched-group > legend {
+  float: left; /* lets the legend sit inside the padding like an h3 */
+  width: 100%;
+  padding: 0;
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.sched-group > legend + * {
+  clear: both;
+}
+
+.sched-advanced-primary {
+  border-top: 1px solid var(--gridline);
+  padding-top: 16px;
+}
+
+.sched-drafts > h2 {
+  margin-top: 16px;
+}
+
+/* ---- fields ------------------------------------------------------------- */
+.sched-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.sched-page label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 0;
+}
+
+.sched-page :is(input, select, textarea) {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  padding: 8px 10px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.sched-page :is(input, textarea)::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+/* An imported or locked value must never look editable. */
+.sched-page :is(input, select, textarea):is(:disabled, [readonly]) {
+  background: var(--surface-sunken);
+  border-style: dashed;
+  color: var(--text-secondary);
+  -webkit-text-fill-color: var(--text-secondary);
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+/* Repeated From / Until / Remove rows (built by booking.js). */
+.sched-windows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.sched-windows:empty {
+  display: none;
+}
+
+.sched-windows > fieldset {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  border: 1px solid var(--gridline);
+  border-radius: var(--radius-control);
+  padding: 12px;
+  margin: 0;
+  min-width: 0;
+}
+
+/* Kept for screen readers; the card title already says what these are. */
+.sched-windows > fieldset > legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---- buttons (DESIGN.md § Buttons) --------------------------------------- */
+.sched-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.sched-page button {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.sched-page button:not(:disabled):hover {
+  border-color: var(--text-secondary);
+}
+
+/* The one primary action per card: ink fill (never the client accent). The
+   booking list's approve button is primary too (it's rendered by JS). */
+.sched-page :is(.btn-primary, [data-approve]) {
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+  color: var(--surface);
+}
+
+.sched-page :is(.btn-primary, [data-approve]):not(:disabled):hover {
+  border-color: var(--text-primary);
+  opacity: 0.88;
+}
+
+.sched-page button:disabled {
+  cursor: not-allowed;
+  background: var(--surface-sunken);
+  border-color: var(--border-default);
+  border-style: dashed;
+  color: var(--text-secondary);
+  opacity: 1;
+}
+
+/* ---- results ------------------------------------------------------------- */
+.sched-result {
+  min-width: 0;
+}
+
+.sched-result:not(:empty) {
+  margin-top: 12px;
+}
+
+.sched-page table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.sched-page th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 8px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.sched-page td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--gridline);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.sched-page pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--surface-sunken);
+  border-radius: var(--radius-control);
+  padding: 12px;
+}
+
+.sched-page details > summary {
+  cursor: pointer;
+}
+
+.sched-page td details summary {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* Agenda options, draft rows and calendar reads rendered by booking.js. */
+.sched-page .sched-result article,
+#drafts > article {
+  border: 1px solid var(--gridline);
+  border-radius: var(--radius-control);
+  padding: 16px;
+  margin: 12px 0 0;
+  background: var(--surface);
+}
+
+#drafts > article {
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-xs);
+}
+
+#drafts > article button {
+  margin-right: 8px;
+}
+
+.sched-page .sched-result h2 {
+  font-size: 18px;
+}
+
+.sched-page .sched-result h3,
+#drafts h3 {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.post-option-status {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-left: 8px;
+}
+
+[role="alert"] {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+/* ---- approval dialog ------------------------------------------------------ */
+.sched-dialog {
+  max-width: 680px;
+  width: calc(100% - 32px);
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
+  box-shadow: 0 12px 32px rgba(45, 42, 42, 0.28);
+  padding: 24px;
+}
+
+.sched-dialog::backdrop {
+  background: rgba(36, 33, 33, 0.55);
+}
+
+@media (max-width: 640px) {
+  .sched-page {
+    padding: 16px 16px 32px;
+  }
+
+  .sched-card {
+    padding: 16px;
+  }
+
+  .sched-windows > fieldset {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Buttons placed straight on the page (Ashby connection) keep their width. */
+.sched-page > button {
+  align-self: flex-start;
+}
+
+/* ---- step states (progressive disclosure, booking.js) --------------------- */
+.sched-step-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 16px;
+  align-items: center;
+}
+
+.sched-step-head > :not(.sched-step-edit) {
+  grid-column: 1;
+}
+
+.sched-step-edit {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+}
+
+.sched-card[data-state] .sched-step-head h2 {
+  margin-bottom: 12px;
+}
+
+/* Completed and not-yet-reachable steps show only their head. */
+.sched-card:is([data-state="complete"], [data-state="locked"]) > :not(.sched-step-head) {
+  display: none;
+}
+
+.sched-card:is([data-state="complete"], [data-state="locked"]) {
+  padding-top: 14px;
+  padding-bottom: 14px;
+  box-shadow: none;
+}
+
+.sched-card:is([data-state="complete"], [data-state="locked"]) .sched-step-head h2 {
+  font-size: 16px;
+  margin-bottom: 0;
+}
+
+.sched-step-summary {
+  margin: 2px 0 0;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sched-step-summary:empty {
+  display: none;
+}
+
+/* Not reachable yet: a dashed outline and a quieter title, like a disabled
+   control, so the active step is the only card that looks ready. */
+.sched-card[data-state="locked"] {
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--border-default);
+}
+
+.sched-card[data-state="locked"] .sched-step-head h2 {
+  color: var(--text-secondary);
+}
+
+.sched-card[data-state="active"] {
+  border-color: var(--border-default);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ---- in-button progress (DESIGN.md § Loading) ----------------------------- */
+/* A busy button keeps its own level (primary stays ink, secondary stays
+   outlined) instead of the dashed disabled look, so it reads as working,
+   not unavailable. The label already names the active verb. */
+.sched-page button[aria-busy="true"]:disabled {
+  cursor: progress;
+  border-style: solid;
+  background: var(--surface);
+  color: var(--text-primary);
+}
+
+.sched-page :is(.btn-primary, [data-approve])[aria-busy="true"]:disabled {
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+  color: var(--surface);
+}
+
+.sched-page button[aria-busy="true"]::before {
+  content: "";
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  margin-right: 8px;
+  vertical-align: -0.12em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: sched-spin 0.8s linear infinite;
+}
+
+@keyframes sched-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Without motion the ring stays still; the verb label still says it's working. */
+@media (prefers-reduced-motion: reduce) {
+  .sched-page button[aria-busy="true"]::before {
+    animation: none;
+    border-right-color: currentColor;
+    opacity: 0.6;
+  }
+}

@@ -19,7 +19,7 @@ const SCHEDULING_ONLY_ASSETS = new Set([
   "/scheduling-review.js",
   "/scheduling-review.css",
   "/ready-scheduling.js",
-  "/scheduler-theme.css",
+  "/scheduling-pages.css",
 ]);
 
 // Removes every marked block, including the marker lines. Unbalanced or
