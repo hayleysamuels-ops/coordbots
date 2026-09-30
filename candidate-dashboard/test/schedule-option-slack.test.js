@@ -287,3 +287,23 @@ test("a calendar-checked option says what was checked and what was assumed", asy
   assert.match(sent[0].plan.notes, /Checked against interviewers' primary Google calendars at 9:30 AM UTC\. Meeting hours are assumed from client rules, not verified\./);
   assert.doesNotMatch(sent[0].plan.notes, /Not calendar-checked/);
 });
+
+test("calendar-checked options record each interviewer's name for the Slack format; a browser draft can't", async t => {
+  const { service, sent } = setup(t);
+  const option2 = { ...option, events: option.events.map(e => ({ ...e, interviewer: { userId: "u", name: "Gabby Struckell", email: "gabby@luminai.com" } })) };
+  await service.postScheduleOption(post({ option: option2, calendarCheck: { checkedAt: Date.now(), meetingHoursAssumed: true } }), user);
+  assert.equal(sent[0].plan.format, "calendar_checked");
+  // Names only: interviewers are in the client's Slack workspace, so their emails aren't needed.
+  assert.deepEqual(sent[0].plan.sessions[0].people, [{ name: "Gabby Struckell" }]);
+  // Exactly the assigned interviewer: eligible alternatives never reach the post.
+  const option3 = { ...option, events: option.events.map(e => ({ ...e, interviewer: { userId: "u", name: "Assigned Person", email: "a@luminai.com" }, eligibleInterviewers: [{ name: "Assigned Person" }, { name: "Unchecked Alternative" }] })) };
+  const { service: s3, sent: sent3 } = setup(t);
+  await s3.postScheduleOption(post({ option: option3, calendarCheck: { checkedAt: Date.now(), meetingHoursAssumed: true } }), user);
+  assert.deepEqual(sent3[0].plan.sessions.map(x => x.people), [[{ name: "Assigned Person" }]]);
+  assert.doesNotMatch(JSON.stringify(sent3[0].plan), /Unchecked Alternative/);
+  const { service: s2 } = setup(t);
+  const browserInput = { applicationId: "app", timezone: "UTC", format: "calendar_checked", sessions: [{ title: "Welcome", start: "2099-01-01T10:00:00Z", end: "2099-01-01T11:00:00Z", interviewers: "X", location: "Room", people: [{ name: "X", email: "x@y.z" }] }] };
+  const draft = await s2.draft(browserInput, user);
+  assert.equal(draft.plan.format, undefined);
+  assert.equal(draft.plan.sessions[0].people, undefined);
+});

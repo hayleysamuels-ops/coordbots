@@ -199,6 +199,18 @@ done and verified, in this order:
   Noguchi, Michael Carignan) have no active Luminai Ashby account, so they have no
   override. If they do interview, Ashby's plan will name them and the post will stop
   with "could not be uniquely matched".
+- **Calendar-checked Slack posts name interviewers as plain text, by design.** The
+  format is a hyperlinked Ashby Link, then "Interview Schedule", the date, and one
+  bullet per session with a "Candidate time" line when the candidate's zone
+  differs, a "(video link required)" label, and small print saying nothing is
+  booked. Interviewer names are plain text. The channel (#luminai-rc-team) and the
+  bot are in Carrara's Slack workspace, while the interviewers are in Luminai's, so
+  `users.lookupByEmail` can never resolve them, and profile links and mentions
+  aren't available regardless of scopes. That's a property of the
+  one-app-in-Carrara's-workspace design, not a missing permission; don't add
+  `users:read.email` for it. The bot token has `chat:write` only (checked
+  2026-09-29), which is all posting needs. Other discussion posts keep the
+  plain-text format.
 - **An uncertain Slack post has no reconcile button.** A `discussion_uncertain` draft
   blocks that candidate's next post, and the dashboard can only reject drafts in the
   `draft` state, so clearing one means editing `scheduling.json` on the volume.

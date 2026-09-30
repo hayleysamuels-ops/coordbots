@@ -68,13 +68,18 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
       const timezone = text(input.timezone, "a timezone");
       try { new Intl.DateTimeFormat("en", { timeZone: timezone }); } catch (_) { fail(400, "Invalid timezone"); }
       if (!Array.isArray(input.sessions) || !input.sessions.length || input.sessions.length > 30) fail(400, "Add 1–30 sessions");
-      const sessions = input.sessions.map(s => {
+      // meta.people (server code only, like meta.source) is, per session, the
+      // one interviewer the calendar-checked solver assigned. Exactly one: an
+      // eligible alternative from the Ashby plan was never calendar-checked and
+      // must not appear in the post beside a checked name.
+      if (meta.people && (!Array.isArray(meta.people) || meta.people.length !== input.sessions.length || meta.people.some(list => !Array.isArray(list) || list.length !== 1 || typeof list[0]?.name !== "string" || !list[0].name.trim()))) fail(500, "Each calendar-checked session needs exactly one assigned interviewer.");
+      const sessions = input.sessions.map((s, i) => {
         // Explicit offsets make the reviewed instant unambiguous; the UI displays
         // the full selected timezone again before the separate approval action.
         if (![s.start, s.end].every(v => typeof v === "string" && /T.*(?:Z|[+-]\d\d:\d\d)$/.test(v) && Number.isFinite(Date.parse(v))) || Date.parse(s.start) >= Date.parse(s.end)) fail(400, "Session times must include an offset and end after they start");
-        return { title: text(s.title, "a session title"), start: new Date(s.start).toISOString(), end: new Date(s.end).toISOString(), interviewers: text(s.interviewers, "interviewers", 500), location: text(s.location, "a room or location") };
+        return { title: text(s.title, "a session title"), start: new Date(s.start).toISOString(), end: new Date(s.end).toISOString(), interviewers: text(s.interviewers, "interviewers", 500), location: text(s.location, "a room or location"), ...(meta.people ? { people: meta.people[i].map(p => ({ name: p.name.trim() })) } : {}) };
       });
-      const plan = { candidateId: c.candidateId, applicationId: c.applicationId, candidateName: c.candidateName, jobTitle: c.jobTitle, timezone, sessions, notes: typeof input.notes === "string" ? input.notes.slice(0, 2000) : "", source: meta.source || "coordinator_draft", timezoneSource: meta.timezoneSource || "coordinator_entered", ...(meta.sourceRef ? { sourceRef: meta.sourceRef } : {}), ...(meta.rulesRevision ? { rulesRevision: meta.rulesRevision } : {}) };
+      const plan = { candidateId: c.candidateId, applicationId: c.applicationId, candidateName: c.candidateName, jobTitle: c.jobTitle, timezone, sessions, notes: typeof input.notes === "string" ? input.notes.slice(0, 2000) : "", source: meta.source || "coordinator_draft", timezoneSource: meta.timezoneSource || "coordinator_entered", ...(meta.sourceRef ? { sourceRef: meta.sourceRef } : {}), ...(meta.rulesRevision ? { rulesRevision: meta.rulesRevision } : {}), ...(meta.format ? { format: meta.format } : {}) };
       const row = { id: crypto.randomUUID(), clientId, revision: 1, state: "draft", plan, digest: digest(plan), bookingApproval: null,
         audit: [{ action: "drafted", by: user.id, at: new Date().toISOString() }] };
       if (!await store.insert(row)) fail(409, meta.sourceRef ? "This option was already posted to Slack, or another discussion draft for this candidate is still open. Check the channel and the Scheduling tab." : "An active discussion draft already exists. Review or reject it first."); return row;
@@ -107,7 +112,11 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
         sessions: option.events.map((e, i) => ({ title: e.title, start: e.start, end: e.end,
           interviewers: `${e.interviewer.name} (${calendarCheck ? "free on primary calendar" : "suggested, not calendar-checked"})`.slice(0, 500),
           location: attendance[i] === "video" ? "Video link required" : "Room / location to confirm" })) },
-        user, { source: "full_schedule_option", sourceRef, rulesRevision, timezoneSource: availabilitySource === "ashby" ? "candidate_submitted" : "coordinator_entered" });
+        user, { source: "full_schedule_option", sourceRef, rulesRevision, timezoneSource: availabilitySource === "ashby" ? "candidate_submitted" : "coordinator_entered",
+          // Calendar-checked options use the Slack format with the Ashby link and
+          // the solver's assigned interviewer per session, by name (see
+          // slack.js for why plain). Never the eligible alternatives.
+          ...(calendarCheck ? { format: "calendar_checked", people: option.events.map(e => [{ name: e.interviewer.name }]) } : {}) });
       try {
         const shared = await this.share(row.id, { revision: row.revision, digest: row.digest, channelId }, user);
         return { id: shared.id, state: shared.state, issue: shared.issue || null, channelName: name };
