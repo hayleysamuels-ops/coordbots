@@ -221,6 +221,27 @@ done and verified, in this order:
   Repeated titles (the Applied AI Engineer onsite's two "One on One" sessions)
   pair up in page order. Both were reproduced on a simulated page, not Ashby's
   real one; the next live Step 2 read confirms or names the real difference.
+- **Step 2 counts event rows, not interviewer slots** (September 30, 2026).
+  - **What went wrong:** Tarishi Singh's Agency Recruiter Screen template has
+    one event, "Recruiter Screen" (30 min), with no interviewers configured.
+    Ashby shows "Configure: Interviewers | Room" there instead of an interviewer
+    slot. The reader had counted "Add Interviewer Slot" buttons as events, so it
+    reported a 0-interview mismatch.
+  - **Counting:** an event row is now the smallest block holding the title and
+    one duration field. The event count is the number of visible duration
+    fields, and the reader waits up to 30 seconds for them, as it did before
+    September 29.
+  - **Empty pages:** a page with no rows at all is a read failure (503), not a
+    mismatch.
+  - **Events with no interviewers:** these are refused by name (409,
+    `no_interviewers`), telling the user to add interviewers to the template in
+    Ashby. There is no fallback: the job's interview plan (`jobInterviewPlan.info`)
+    and the interview itself (`interview.info`) carry no interviewers, so the
+    template is the only source.
+  - **Not yet verified live:** the row markup (one visible duration field per
+    event, and "Configure" plus "Interviewers" text on an event with none) comes
+    from the user's reading of the live page, not a captured DOM. The next Step 2
+    read on Tarishi's schedule is the check.
 - **The Slack "Schedule" button (phase two, stage 1) is built but not configured.**
   - **What it does:** on calendar-checked posts, a Schedule button with Slack's
     own confirmation dialog records an approval of that exact option (state

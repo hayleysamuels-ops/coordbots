@@ -33,20 +33,28 @@ async function readPlan(page,input){
   const errorPage=async()=>/Something went wrong|An error occurred|Page not found/i.test(await page.evaluate(()=>document.body.innerText.slice(0,4000)).catch(()=>''));
   await step(()=>page.getByRole('heading',{name:'Events',exact:true}).waitFor({state:'visible',timeout:15000}),'The schedule template page opened, but its Events section never loaded. Ashby may be slow or showing an error; try again.').catch(async e=>{if(await errorPage())readFail('Ashby showed an error page instead of the schedule template. Try again, or open it in Ashby.');throw e;});
   await step(()=>page.waitForFunction(()=>!document.body.innerText.includes('Calculating matches...'),null,{timeout:30000}),'Ashby was still calculating interviewer matches after 30 seconds. Try again.');
-  // Give every event time to render. If the template has a different number of
-  // events this never settles; that's a mismatch, counted below, not a read failure.
-  try{await page.waitForFunction(count=>[...document.querySelectorAll('button')].filter(b=>/^\d+\s*Eligible\s*Match(?:es)?$/.test(b.innerText.trim())).length===count,sessions.length,{timeout:10000});}catch(e){if(!timedOut(e))throw e;}
-  // Every block that holds one duration box, an "Eligible Match" count and Slot #1,
-  // reached from a leaf whose text is the title. Only innermost blocks count: a
-  // page-level container that happens to enclose one event (say, reached from a
-  // stage heading with the same name as the session) isn't a second event.
+  // An event row is an interview-name dropdown and its duration field. Count
+  // those, not "Add Interviewer Slot" buttons: an event with no interviewers
+  // configured has no slot button but is still an event. Wait up to 30 seconds
+  // for every row to render; a different number that settles is a mismatch,
+  // counted below, but a page with no rows at all is a read failure.
+  const countRows=()=>[...document.querySelectorAll('input')].filter(x=>(x.type==='number'||x.getAttribute('role')==='spinbutton')&&x.getBoundingClientRect().width).length;
+  try{await page.waitForFunction(count=>[...document.querySelectorAll('input')].filter(x=>(x.type==='number'||x.getAttribute('role')==='spinbutton')&&x.getBoundingClientRect().width).length===count,sessions.length,{timeout:30000});}catch(e){if(!timedOut(e))throw e;}
+  const rows=await page.evaluate(countRows,{rows:true});
+  if(!rows)readFail("The schedule template's Events section loaded, but no event rows appeared within 30 seconds. Ashby may be slow; try again, or open the template in Ashby.");
+  // The row for a title: the smallest block that holds the title and exactly one
+  // duration field. Only innermost blocks count: a page-level container that
+  // happens to enclose one event (say, reached from a stage heading with the
+  // same name as the session) isn't a second event.
   const blocksFor=title=>page.evaluate(title=>{
+    const durations=e=>[...e.querySelectorAll('input')].filter(x=>x.type==='number'||x.getAttribute('role')==='spinbutton');
     const found=new Set();
     for(const leaf of [...document.querySelectorAll('*')].filter(e=>e.children.length===0&&e.textContent.trim()===title&&e.getBoundingClientRect().width)){
-      let e=leaf;for(let k=0;e&&k<25;k++,e=e.parentElement){const text=e.innerText||'',durations=[...e.querySelectorAll('input')].filter(x=>x.type==='number'||x.getAttribute('role')==='spinbutton');if(durations.length===1&&/Eligible\s*Match/.test(text)&&/Slot\s*#1/.test(text)){found.add(e);break;}if(durations.length>1)break;}
+      let e=leaf;for(let k=0;e&&k<25;k++,e=e.parentElement){const n=durations(e).length;if(n===1){found.add(e);break;}if(n>1)break;}
     }
     const blocks=[...found].filter(b=>![...found].some(o=>o!==b&&b.contains(o)));
-    return blocks.map(b=>({text:b.innerText,duration:Number([...b.querySelectorAll('input')].find(x=>x.type==='number'||x.getAttribute('role')==='spinbutton').value),top:b.getBoundingClientRect().top+window.scrollY})).sort((a,b)=>a.top-b.top);
+    return blocks.map(b=>{const text=b.innerText||'';return {text,duration:Number(durations(b)[0].value),top:b.getBoundingClientRect().top+window.scrollY,
+      slots:/Slot\s*#1/.test(text)||/Eligible\s*Match/.test(text),unconfigured:/Configure/.test(text)&&/Interviewers/.test(text)};}).sort((a,b)=>a.top-b.top);
   },title);
   const issues=[],matched=new Map(),byTitle=new Map();
   for(const s of sessions){const t=s.title.trim();if(!byTitle.has(t))byTitle.set(t,[]);byTitle.get(t).push(s);}
@@ -59,9 +67,13 @@ async function readPlan(page,input){
   }
   const placed=sessions.filter(s=>matched.has(s));
   for(let k=1;k<placed.length;k++)if(matched.get(placed[k]).top<matched.get(placed[k-1]).top){issues.push(`the order differs: the template has "${placed[k].title.trim()}" before "${placed[k-1].title.trim()}"`);break;}
-  const events=await page.getByRole('button',{name:'Add Interviewer Slot',exact:true}).count();
-  if(events!==sessions.length)issues.push(`the template has ${events} interview${events===1?'':'s'} and the plan has ${sessions.length}`);
+  if(rows!==sessions.length)issues.push(`the template has ${rows} interview${rows===1?'':'s'} and the plan has ${sessions.length}`);
   if(issues.length)throw Object.assign(Error(`The schedule template doesn't match the published plan: ${issues.join('; ')}. Update the template in Ashby, or reload the plan if it just changed.`),{status:409,kind:'mismatch',issues});
+  // The template is the only place Ashby says who can take an interview: the
+  // job's interview plan and the interview itself carry no interviewers, so
+  // there's nothing to fall back to. An event without them is refused by name.
+  const bare=placed.filter(s=>!matched.get(s).slots&&matched.get(s).unconfigured).map(s=>`"${s.title.trim()}"`);
+  if(bare.length)throw Object.assign(Error(`No interviewers are configured for ${bare.join(', ')} in this schedule's template: Ashby shows "Configure: Interviewers" instead of an interviewer slot. Add the interviewers to the template in Ashby, then load the plan again. Nothing else lists who can take ${bare.length===1?'it':'them'}, so no schedule can be proposed until then.`),{status:409,kind:'no_interviewers',sessions:bare});
   return {sessions:sessions.map(s=>({...s,...parseAssignment(matched.get(s).text)})),source:'ashby_schedule_template',bookingEnabled:false};
 }
 module.exports={readPlan,parseAssignment};
