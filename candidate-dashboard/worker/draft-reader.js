@@ -24,14 +24,23 @@ function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSan
         });
         const page=await context.newPage();
         const base=(mode==='plan'||mode==='availability')?'https://app.ashbyhq.com/schedules/'+input.scheduleId:'https://app.ashbyhq.com/schedules/drafts/'+input.draftId;
+        // Each step that can time out names its cause, so a read failure (session
+        // expired, Ashby unreachable, page never loaded) is never reported as a
+        // plan mismatch or as the generic "could not verify".
+        const timedOut=e=>e?.name==='TimeoutError'||/Timeout \d+ms exceeded/.test(e?.message||'');
+        const onLogin=()=>/\/(login|signin|sign-in|auth)\b/i.test(page.url()||'');
         async function open(suffix) {
-          await page.goto(base+suffix,{waitUntil:'domcontentloaded',timeout:30000});
-          await page.getByRole('button',{name:expectedIdentity,exact:true}).waitFor({state:'visible',timeout:15000});
+          try{await page.goto(base+suffix,{waitUntil:'domcontentloaded',timeout:30000});}
+          catch(e){fail(503,timedOut(e)?'Ashby took more than 30 seconds to respond. Try again.':'Ashby could not be reached from the scheduling worker. Try again.');}
+          if(onLogin())fail(409,'The saved Ashby session has expired. Reconnect Ashby on the Ashby connection page, then try again.');
+          try{await page.getByRole('button',{name:expectedIdentity,exact:true}).waitFor({state:'visible',timeout:15000});}
+          catch(e){if(!timedOut(e))throw e;fail(409,onLogin()?'The saved Ashby session has expired. Reconnect Ashby on the Ashby connection page, then try again.':`Ashby didn't load as ${expectedIdentity}. The saved session may have expired or belong to another account; reconnect Ashby.`);}
           if(page.url()!==base+suffix)fail(409,'Ashby did not open the requested unsent draft.');
           const candidate=page.getByRole('link',{name:input.candidateName.trim(),exact:true});
           // Ashby's account header renders before the draft's candidate link.
           // Wait for the requested draft content before evaluating its binding.
-          await candidate.first().waitFor({state:'visible',timeout:15000});
+          try{await candidate.first().waitFor({state:'visible',timeout:15000});}
+          catch(e){if(!timedOut(e))throw e;fail(503,`Ashby opened the page but not ${input.candidateName.trim()}'s details. The schedule may have been cancelled or replaced; check it in Ashby.`);}
           const links=await candidate.all();let bound=false;
           for(const link of links){const href=await link.getAttribute('href');if(href&&href.includes('/candidates/'+input.candidateId+'/applications/'+input.applicationId))bound=true;}
           if(!bound)fail(409,'The Ashby draft belongs to a different candidate or application.');

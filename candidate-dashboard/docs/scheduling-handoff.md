@@ -211,6 +211,16 @@ done and verified, in this order:
   `users:read.email` for it. The bot token has `chat:write` only (checked
   2026-09-29), which is all posting needs. Other discussion posts keep the
   plain-text format.
+- **Step 2 plan reads now tell read failures from mismatches** (`worker/plan-reader.js`,
+  `worker/draft-reader.js`). A read failure names its cause (session expired,
+  Ashby unreachable or erroring, wrong account, page or matches never loaded). A
+  mismatch lists every difference from the published plan: missing, repeated,
+  wrong duration, out of order, wrong count. Two matching fixes came with it.
+  Only the innermost event block counts, so a stage heading with the same name as
+  its only session (Bilal Munawar's "HM Screen") isn't read as a second event.
+  Repeated titles (the Applied AI Engineer onsite's two "One on One" sessions)
+  pair up in page order. Both were reproduced on a simulated page, not Ashby's
+  real one; the next live Step 2 read confirms or names the real difference.
 - **An uncertain Slack post has no reconcile button.** A `discussion_uncertain` draft
   blocks that candidate's next post, and the dashboard can only reject drafts in the
   `draft` state, so clearing one means editing `scheduling.json` on the volume.
