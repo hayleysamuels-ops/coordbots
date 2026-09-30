@@ -4,6 +4,43 @@ Status: analysis written 25 September 2026, based on `feature/client-ashby-conne
 at `ad5b592` (after the scheduling flag, PR #4). **Phase one is built** (see below);
 the interactive Slack button, its endpoint and approver mapping are phase two.
 
+## Phase two, stage 1: the Schedule button (built September 29, 2026)
+
+Built: the interactive button, the public endpoint, signature checks and the
+recorded approval. Not built: stages 2–4 (Ashby booking, calendar invites,
+candidate confirmation email). Approving books nothing, and the message says so.
+
+- **Button.** On calendar-checked posts only, and only when interactivity is
+  configured. It carries the draft id and digest, and uses Slack's `confirm`
+  dialog, which says nothing will be booked while booking is blocked, and that
+  approving will book once booking is live.
+- **Endpoint.** `POST /api/slack/interactions` (`slack-interactions.js`), mounted
+  ahead of Basic Auth with a 64 KB raw-body limit. On every request, before
+  parsing:
+  - The HMAC-SHA256 signature over `v0:<timestamp>:<raw body>` is checked with
+    the signing secret, in constant time.
+  - The timestamp must be within five minutes.
+  - A signature seen in that window is refused (replay).
+  - Then the workspace and app must be the configured ones. The dashboard
+    answers 200 within Slack's three seconds and does the work after.
+- **Approver.** The clicking user's email comes from Slack's `users.info` (bot
+  scopes `users:read`, `users:read.email`), never from the payload. It must be
+  on `SCHEDULING_SLACK_APPROVERS`. Anyone else gets a thread reply saying
+  they aren't an approver and nothing was recorded.
+- **Approval.** `service.approveInSlack()` checks everything against the stored
+  draft:
+  - It's this client's draft, calendar-checked, and currently `shared`.
+  - The digest is unchanged.
+  - The channel and message timestamp match the ones it was posted as.
+  - The application is still active, and the first session is still ahead.
+
+  It then moves the draft to `discussion_approved` with `slackApproval` (email,
+  Slack id, name, time, digest). `bookingApproval` stays `null`, and
+  `approveBooking` still refuses. A second click, or a race, is told who
+  already approved. The message is updated with `chat.update`: the button is
+  removed, and it adds "Approved by … at …" and "Not booked. Booking in Ashby is
+  blocked on IT permissions".
+
 ## Phase one: post an option for discussion (built September 28, 2026)
 
 - **Booking page.** Each Full schedule option has a **Post to Slack for discussion**

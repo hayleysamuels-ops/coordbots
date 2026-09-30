@@ -19,6 +19,7 @@ const PROBES = [
   ["POST", "/api/scheduling-review/drafts", {}],
   ["GET", "/api/scheduling-booking"],
   ["POST", "/api/scheduling-booking/post-full-schedule-option", {}],
+  ["POST", "/api/slack/interactions", {}],
   ["POST", "/api/ashby-connection/status", {}],
   ["GET", "/api/google-calendar/status"],
   ["GET", "/booking.html"],
@@ -42,6 +43,12 @@ const server = createServer().listen(0, "127.0.0.1", async () => {
       body: body ? JSON.stringify(body) : undefined,
     });
     out[method + " " + path] = { status: response.status, body: await response.text() };
+  }
+  // Without any credentials: the Slack route must answer before Basic Auth
+  // (404 until configured), and every other route must still demand a login.
+  for (const path of ["/api/slack/interactions", "/api/scheduling-booking"]) {
+    const response = await fetch(base + path, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "payload=%7B%7D" });
+    out["NOAUTH POST " + path] = { status: response.status, body: await response.text() };
   }
   // config.js logs to stdout at load, so the result goes on its own marked line.
   // Exit only after the write flushes; a pipe is asynchronous and exiting

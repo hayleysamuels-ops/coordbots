@@ -107,8 +107,17 @@ if (!Array.isArray(schedulingApprovers) || schedulingApprovers.some(a => !a || t
 const schedulingCandidateChannels = schedulingJson("SCHEDULING_CANDIDATE_CHANNELS_JSON", {});
 if (!schedulingCandidateChannels || Array.isArray(schedulingCandidateChannels) || typeof schedulingCandidateChannels !== "object") throw new Error("Candidate channel routing must be a JSON object");
 if (process.env.SCHEDULING_SLACK_ROUTING && !["candidate", "client"].includes(process.env.SCHEDULING_SLACK_ROUTING)) throw new Error("Scheduling Slack routing must be candidate or client");
+// Slack interactivity (the "Schedule" button). Approvers are identified by the
+// email Slack reports for the clicking user, so this is a list of emails. The
+// dashboard approver logins are shared username/password entries with no email.
+const slackApprovers = schedulingJson("SCHEDULING_SLACK_APPROVERS", []);
+if (!Array.isArray(slackApprovers) || slackApprovers.some(e => typeof e !== "string" || !/^[^@\sA-Z]+@[^@\sA-Z]+\.[^@\sA-Z]+$/.test(e))) throw new Error("SCHEDULING_SLACK_APPROVERS must be a JSON list of lowercase emails");
 const config = {
   schedulingApprovers,
+  schedulingSlackSigningSecret: process.env.SCHEDULING_SLACK_SIGNING_SECRET || "",
+  schedulingSlackTeamId: process.env.SCHEDULING_SLACK_TEAM_ID || "",
+  schedulingSlackAppId: process.env.SCHEDULING_SLACK_APP_ID || "",
+  schedulingSlackApprovers: slackApprovers,
   googleCalendarClientId: process.env.GOOGLE_CALENDAR_CLIENT_ID || "",
   googleCalendarClientSecret: process.env.GOOGLE_CALENDAR_CLIENT_SECRET || "",
   googleCalendarRedirectUri: process.env.GOOGLE_CALENDAR_REDIRECT_URI || "",

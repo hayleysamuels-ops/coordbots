@@ -13,13 +13,18 @@ const ASHBY_CANDIDATE = "https://app.ashbyhq.com/candidate-searches/new/right-si
 // Slack's mrkdwn control characters; everything we didn't write is escaped.
 const escape = v => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-function createSlack(token, request = fetch, { displayTimeZone = "America/New_York" } = {}) {
+// `interactive` (the signing secret, workspace, app and approvers are all
+// configured) adds the "Schedule" button to calendar-checked posts; without it
+// there's no endpoint to receive a click, so no button is shown.
+function createSlack(token, request = fetch, { displayTimeZone = "America/New_York", interactive = false } = {}) {
+  const api = async (method, payload) => {
+    const response = await request(`https://slack.com/api/${method}`, { method: "POST", signal: AbortSignal.timeout(15000),
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" }, body: JSON.stringify(payload) });
+    return { ok: response.ok, body: await response.json() };
+  };
   const post = async (channelId, payload) => {
-    const response = await request("https://slack.com/api/chat.postMessage", { method: "POST", signal: AbortSignal.timeout(15000),
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ channel: channelId, unfurl_links: false, unfurl_media: false, ...payload }) });
-    const body = await response.json();
-    if (!response.ok || body.ok !== true) throw new Error("Slack delivery unconfirmed");
+    const { ok, body } = await api("chat.postMessage", { channel: channelId, unfurl_links: false, unfurl_media: false, ...payload });
+    if (!ok || body.ok !== true) throw new Error("Slack delivery unconfirmed");
     return { ts: body.ts, channel: body.channel };
   };
 
@@ -42,7 +47,17 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
   };
   const dayOf = (tz, iso) => new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "long", year: "numeric", month: "long", day: "numeric" }).format(new Date(iso));
 
-  async function calendarChecked(plan, { proposalId, approver }) {
+  // The confirmation dialog is Slack's own: the click is only sent after
+  // "Approve", so an approval is never recorded by a stray tap. Its wording is
+  // deliberate: once booking is live, approving will book, so it says so now.
+  const scheduleButton = (proposalId, draftDigest) => ({ type: "actions", block_id: "schedule", elements: [{
+    type: "button", action_id: "schedule_option", style: "primary", text: { type: "plain_text", text: "Schedule" },
+    value: JSON.stringify({ d: proposalId, g: draftDigest }),
+    confirm: { title: { type: "plain_text", text: "Approve this schedule?" },
+      text: { type: "mrkdwn", text: "This records your approval of this exact schedule. *Nothing will be booked:* booking in Ashby is blocked on IT permissions, so no interviews are scheduled and no invitations or candidate email are sent.\n\nOnce booking is live, approving will book it, so only approve a schedule you mean to book." },
+      confirm: { type: "plain_text", text: "Approve" }, deny: { type: "plain_text", text: "Cancel" } } }] });
+
+  async function calendarChecked(plan, { proposalId, approver, digest: draftDigest }, approval = null) {
     // Interviewer names are plain text on purpose. Interviewers belong to the
     // client's Slack workspace and this bot to Carrara's, where the channel is,
     // so profile links and mentions aren't available regardless of scopes:
@@ -71,13 +86,39 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       ...sections.map(t => ({ type: "section", text: mrkdwn(t) })),
       { type: "context", elements: [mrkdwn(`${escape(plan.notes)} Posted for discussion by ${escape(approver)}. Draft reference: ${escape(proposalId)}`)] },
     ];
+    if (approval) blocks.push({ type: "section", text: mrkdwn(`*Approved* by ${escape(approval.name || approval.email)} (${escape(approval.email)}) at ${escape(new Intl.DateTimeFormat("en-US", { timeZone: displayTimeZone, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(approval.at)))}.\n*Not booked.* Booking in Ashby is blocked on IT permissions: no interviews are scheduled and no invitations or candidate email have been sent. Book this schedule in Ashby by hand.`) });
+    else if (interactive && draftDigest) blocks.push(scheduleButton(proposalId, draftDigest));
     // The fallback shows in notifications and has no names or links.
     const text = `Interview schedule draft for ${plan.candidateName} · ${plan.jobTitle}: for discussion, nothing booked.`;
     return { text, blocks, mrkdwn: false, parse: "none" };
   }
 
-  return async (plan, meta) => post(meta.channelId, plan.format === "calendar_checked"
+  const send = async (plan, meta) => post(meta.channelId, plan.format === "calendar_checked"
     ? await calendarChecked(plan, meta)
     : { text: plainText(plan, meta), mrkdwn: false, parse: "none" });
+
+  // After an approval: the same message, button removed, approval shown.
+  send.markApproved = async ({ channel, ts, row }) => {
+    const { blocks, text } = await calendarChecked(row.plan, { proposalId: row.id, approver: row.discussionApproval?.by || "a coordinator" }, row.slackApproval);
+    const { ok, body } = await api("chat.update", { channel, ts, blocks, text: `${text} Approved by ${row.slackApproval.name || row.slackApproval.email}; not booked.` });
+    if (!ok || body.ok !== true) throw new Error("The Slack message couldn't be updated");
+  };
+  // Refusals and problems are answered in the post's thread, visible to the channel.
+  send.threadReply = async ({ channel, threadTs, text }) => {
+    const { ok, body } = await api("chat.postMessage", { channel, thread_ts: threadTs, text, mrkdwn: false, parse: "none", unfurl_links: false });
+    if (!ok || body.ok !== true) throw new Error("The Slack reply couldn't be posted");
+  };
+  // The clicking user's email comes from Slack, never from the payload. Needs
+  // users:read and users:read.email. This works because approvers click from
+  // Carrara's own workspace, where the bot is (unlike interviewers).
+  send.userInfo = async userId => {
+    // Form-encoded: Slack accepts it on every method, JSON only on some.
+    const response = await request("https://slack.com/api/users.info", { method: "POST", signal: AbortSignal.timeout(5000),
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ user: userId }).toString() });
+    const body = await response.json();
+    if (body.ok !== true || body.user?.deleted || body.user?.is_bot) return null;
+    return { email: body.user.profile?.email || null, name: body.user.profile?.real_name || body.user.real_name || body.user.name || null };
+  };
+  return send;
 }
 module.exports = { createSlack };

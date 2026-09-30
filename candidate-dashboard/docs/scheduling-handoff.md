@@ -221,6 +221,32 @@ done and verified, in this order:
   Repeated titles (the Applied AI Engineer onsite's two "One on One" sessions)
   pair up in page order. Both were reproduced on a simulated page, not Ashby's
   real one; the next live Step 2 read confirms or names the real difference.
+- **The Slack "Schedule" button (phase two, stage 1) is built but not configured.**
+  - **What it does:** on calendar-checked posts, a Schedule button with Slack's
+    own confirmation dialog records an approval of that exact option (state
+    `discussion_approved`, with who, when and the draft's digest). It then updates
+    the message to show who approved it and that nothing is booked, because
+    booking in Ashby is still blocked on IT permissions. It is never booking
+    approval, and stages 2–4 (Ashby booking, calendar invites, candidate email)
+    aren't built.
+  - **The endpoint:** `POST /api/slack/interactions` is the only route outside
+    Basic Auth. Until configured it's a 404 on every dashboard.
+  - **To turn it on:**
+    - In the Slack app: enable Interactivity with the Request URL
+      `https://coordbots-production-f093.up.railway.app/api/slack/interactions`.
+      Add `users:read` and `users:read.email`, then reinstall; the `xoxb` token
+      doesn't change.
+    - On Luminai's `coordbots` service, set `SCHEDULING_SLACK_SIGNING_SECRET`,
+      `SCHEDULING_SLACK_TEAM_ID`, `SCHEDULING_SLACK_APP_ID` and
+      `SCHEDULING_SLACK_APPROVERS` (a JSON list of lowercase emails).
+  - **Why `users:read.email` is right here and wasn't for interviewers:** the
+    approvers click from Carrara's workspace, where the bot is, so Slack can
+    report their email. Interviewers are in Luminai's workspace, where it can't.
+    A Slack Connect guest from another workspace usually has no readable email,
+    so they're refused.
+  - **One app, one Request URL:** Slack sends every click from the app to one
+    URL, and today that's Luminai's dashboard. A second client using the same
+    app would need a router or its own app (see `slack-schedule-button.md` §2).
 - **An uncertain Slack post has no reconcile button.** A `discussion_uncertain` draft
   blocks that candidate's next post, and the dashboard can only reject drafts in the
   `draft` state, so clearing one means editing `scheduling.json` on the volume.

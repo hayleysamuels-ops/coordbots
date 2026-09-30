@@ -11,8 +11,17 @@ const { basicAuth } = require("./auth");
 function createServer() {
   const app = express();
 
-  // First, ahead of static files and every /api/* route — nothing on this
-  // server is reachable without valid credentials.
+  // The one route outside Basic Auth: Slack's interactivity callback for the
+  // "Schedule" button. Slack can't send dashboard credentials, so every request
+  // must instead carry a valid Slack signature over its raw body (checked in
+  // slack-interactions.js before anything is parsed). It exists only with the
+  // scheduling pilot on and interactivity configured; otherwise it's a 404.
+  let slackInteractions = null;
+  app.post("/api/slack/interactions", express.raw({ type: "application/x-www-form-urlencoded", limit: "64kb" }),
+    (req, res) => slackInteractions ? slackInteractions(req, res) : res.status(404).end());
+
+  // First, ahead of static files and every other /api/* route: nothing else
+  // on this server is reachable without valid credentials.
   app.use(basicAuth);
 
   app.use(express.json());
@@ -27,6 +36,14 @@ function createServer() {
       return Object.values(snapshot).filter(Array.isArray).flat().filter(c => c && c.applicationId);
     });
     app.use("/api/scheduling-review", require("./scheduling/routes").routes(scheduling));
+    const slackConfig = require("./config");
+    if (scheduling.slackApi && require("./scheduling/setup").slackInteractive(slackConfig)) {
+      slackInteractions = require("./scheduling/slack-interactions").createSlackInteractions({
+        service: scheduling, slackApi: scheduling.slackApi, signingSecret: slackConfig.schedulingSlackSigningSecret,
+        teamId: slackConfig.schedulingSlackTeamId, appId: slackConfig.schedulingSlackAppId,
+        channelId: slackConfig.schedulingChannelId, approvers: slackConfig.schedulingSlackApprovers });
+      console.log("[slack] Schedule button enabled: interactivity endpoint /api/slack/interactions is live.");
+    }
     const connectionConfig = require("./config");
     app.use("/api/ashby-connection", require("./scheduling/connection-routes").connectionRoutes({
       url: connectionConfig.ashbyWorkerUrl, secret: connectionConfig.ashbyWorkerSecret,

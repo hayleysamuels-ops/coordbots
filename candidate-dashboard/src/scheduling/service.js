@@ -146,11 +146,39 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
       row = await transition(row, "sharing", { discussionApproval: { by: user.id, digest: row.digest, channelId, at: new Date().toISOString() },
         audit: [...row.audit, { action: "approved_for_discussion", by: user.id, at: new Date().toISOString() }] });
       try {
-        const receipt = await slack(row.plan, { channelId, proposalId: row.id, approver: user.id });
+        const receipt = await slack(row.plan, { channelId, proposalId: row.id, approver: user.id, digest: row.digest });
         if (!receipt?.ts || receipt.channel !== channelId) throw new Error("Unverified Slack response");
         return await transition(row, "shared", { slack: receipt });
       } catch (_) {
         return transition(row, "discussion_uncertain", { issue: "Check Slack before trying again. The message may already have been delivered." });
+      }
+    },
+    // An approval from the Slack "Schedule" button (slack-interactions.js). It
+    // records who approved which exact posted option, and nothing else: it is
+    // never booking approval (bookingApproval stays null, and approveBooking
+    // below still refuses), and it sends nothing to candidates or interviewers.
+    // Every binding is checked against the stored draft, not the payload.
+    async approveInSlack({ draftId, digest: posted, channelId: clickedChannel, messageTs, approver }) {
+      if (!approver?.email || !approver.slackUserId) fail(403, "Only a listed approver can approve from Slack.");
+      const already = r => fail(409, `Already approved by ${r.slackApproval.name || r.slackApproval.email} at ${new Date(r.slackApproval.at).toISOString().replace("T", " ").slice(0, 16)} UTC.`);
+      let row = typeof draftId === "string" ? await store.get(draftId) : null;
+      if (!row || row.clientId !== clientId) fail(404, "This schedule's draft wasn't found.");
+      if (row.state === "discussion_approved") already(row);
+      if (row.state !== "shared" || row.plan.format !== "calendar_checked") fail(409, "This draft can't be approved from Slack.");
+      if (row.digest !== posted || digest(row.plan) !== row.digest) fail(409, "The draft changed after it was posted.");
+      const { channelId } = destination(row.plan.candidateId);
+      if (!channelId || clickedChannel !== channelId || row.slack?.channel !== channelId || row.slack?.ts !== messageTs) fail(409, "This isn't the message the draft was posted as.");
+      if (!(Date.parse(row.plan.sessions[0].start) > Date.now())) fail(409, "This schedule's start time has already passed.");
+      await candidate(row.plan.applicationId);
+      const at = new Date().toISOString();
+      try {
+        return await transition(row, "discussion_approved", { slackApproval: { email: approver.email, slackUserId: approver.slackUserId, name: approver.name || null, at, digest: row.digest },
+          audit: [...row.audit, { action: "approved_in_slack", by: approver.email, slackUserId: approver.slackUserId, at }] });
+      } catch (e) {
+        // Two approvers clicking at once: the second sees who won.
+        const latest = await store.get(draftId);
+        if (latest?.state === "discussion_approved") already(latest);
+        throw e;
       }
     },
     async reject(id, input, user) {

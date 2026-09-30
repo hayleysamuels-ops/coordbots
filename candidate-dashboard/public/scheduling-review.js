@@ -49,7 +49,7 @@
     root.querySelector("#scheduling-proposals").innerHTML = state.proposals.length ? state.proposals.slice().reverse().map(row => {
       const p = row.plan, destination = row.destination || {};
       return `<article class="scheduling-draft"><h3>${esc(p.candidateName)} · ${esc(p.jobTitle)}</h3>
-        <p><strong>${esc(({ draft: "Draft — ready for review", sharing: "Sending — check delivery before retrying", shared: "Shared for team discussion", discussion_uncertain: "Slack delivery needs review", rejected: "Rejected" })[row.state] || row.state)}</strong> · Revision ${row.revision}</p>
+        <p><strong>${esc(({ draft: "Draft — ready for review", sharing: "Sending — check delivery before retrying", discussion_approved: "Approved in Slack — not booked", shared: "Shared for team discussion", discussion_uncertain: "Slack delivery needs review", rejected: "Rejected" })[row.state] || row.state)}</strong> · Revision ${row.revision}</p>
         <p>Timezone: ${esc(p.timezone)} · Slack destination: <strong>${esc(destination.channelName)}</strong></p>
         <p>Coordinator-authored draft. Availability has not been verified.</p>
         <div class="scheduling-table-wrap"><table><thead><tr><th>Session</th><th>Start</th><th>End</th><th>Interviewers</th><th>Location</th></tr></thead><tbody>${p.sessions.map(s => `<tr><td>${esc(s.title)}</td><td>${esc(fmt(s.start, p.timezone))}</td><td>${esc(fmt(s.end, p.timezone))}</td><td>${esc(s.interviewers)}</td><td>${esc(s.location)}</td></tr>`).join("")}</tbody></table></div>

@@ -93,6 +93,17 @@ test("flag off: shared dashboard files are still served unchanged", () => {
 // 531dacf) with the same fictional shared login, so these hold the flagged
 // code to exactly that behaviour.
 
+test("the Slack interactivity route is a 404 without interactivity configured, with or without the flag", () => {
+  // It's the one route outside Basic Auth, so it must not ask for credentials
+  // or say anything else until the signing secret, workspace, app and approvers are set.
+  for (const state of [off, on]) {
+    assert.equal(state["POST /api/slack/interactions"].status, 404);
+    assert.equal(state["NOAUTH POST /api/slack/interactions"].status, 404);
+    // Every other route still demands a login.
+    assert.equal(state["NOAUTH POST /api/scheduling-booking"].status, 401);
+  }
+});
+
 test("flag on: scheduling API routes respond exactly as before the flag", () => {
   const expected = {
     "POST /api/scheduling-review/drafts": [403, { error: "Sign in with an individual scheduling approver account." }],
