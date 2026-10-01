@@ -97,6 +97,7 @@ test('an "Interviewers" control that is a submit button, a form field or plain t
   for(const [expander,pattern] of [
     ['<form><button class="exp">Interviewers</button></form>',/would submit a form/],
     ['<span class="exp">Interviewers</span>',/isn't a link or button \(span\)/],
+    ['<span class="exp" aria-label="Interviewers"><svg></svg></span>',/it has no "Interviewers" control\. The row holds: input "15"; span\[label="Interviewers"\] ""; svg ""; a\[href=\/schedules\/s1\/template\/events\] "Room"; span "Welcome"\./],
     ['<a class="exp" href="/jobs/elsewhere">Interviewers</a>',/leaves this template \(\/jobs\/elsewhere\)/],
   ]){
     const r=await read(t,templateHtml({expander}));if(!r)return;

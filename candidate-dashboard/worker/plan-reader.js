@@ -95,11 +95,17 @@ async function expandEvents(page,byTitle,matched,blocksFor,guard){
         }
         const rows=[...found].filter(b=>![...found].some(o=>o!==b&&b.contains(o))).sort((a,b)=>a.getBoundingClientRect().top-b.getBoundingClientRect().top);
         const row=rows[k];if(!row)return `its row could not be found again`;
+        // What's in the row, for the refusal: every interactive element and every
+        // piece of visible text, with its tag, role, accessible label and link.
+        const describe=e=>{const role=e.getAttribute('role'),aria=e.getAttribute('aria-label')||e.getAttribute('title'),href=e.tagName==='A'&&e.getAttribute('href');let path='';if(href){try{path=new URL(e.href).pathname;}catch(_){path=href;}}
+          return e.tagName.toLowerCase()+(role?`[role=${role}]`:'')+(e.getAttribute('tabindex')!==null?`[tabindex=${e.getAttribute('tabindex')}]`:'')+(path?`[href=${path}]`:'')+(aria?`[label="${aria.slice(0,40)}"]`:'')+` "${(e.innerText||e.value||'').replace(/\s+/g,' ').trim().slice(0,40)}"`;};
+        const inventory=()=>{const seen=[...row.querySelectorAll('a,button,input,select,textarea,[role],[tabindex],[aria-label],[title],svg')].concat([...row.querySelectorAll('*')].filter(e=>e.children.length===0&&(e.innerText||'').trim()));
+          return [...new Set(seen)].slice(0,25).map(describe).join('; ');};
         const labels=[...row.querySelectorAll('*')].filter(e=>(e.innerText||'').trim()==='Interviewers'&&![...e.children].some(c=>(c.innerText||'').trim()==='Interviewers'));
-        if(labels.length!==1)return labels.length?`it has ${labels.length} "Interviewers" controls`:`it has no "Interviewers" control`;
+        if(labels.length!==1)return (labels.length?`it has ${labels.length} "Interviewers" controls`:`it has no "Interviewers" control`)+`. The row holds: ${inventory()}`;
         const target=labels[0].closest('a,button,[role="button"],[role="tab"],[role="link"]');
         const tag=e=>e.tagName.toLowerCase()+(e.getAttribute('role')?`[role=${e.getAttribute('role')}]`:'');
-        if(!target||!row.contains(target))return `its "Interviewers" text isn't a link or button (${tag(labels[0])})`;
+        if(!target||!row.contains(target))return `its "Interviewers" text isn't a link or button (${tag(labels[0])}). The row holds: ${inventory()}`;
         if(target.matches('input,select,textarea,label,[contenteditable="true"]')||target.isContentEditable)return `its "Interviewers" control is a form field (${tag(target)})`;
         if(target.tagName==='BUTTON'&&target.form&&target.type==='submit')return 'its "Interviewers" control would submit a form';
         if(target.tagName==='A'&&target.getAttribute('href')&&!target.getAttribute('href').startsWith('#')){
@@ -110,7 +116,7 @@ async function expandEvents(page,byTitle,matched,blocksFor,guard){
       },{title,k});
       const element=handle.asElement();
       const label=`"${title}"${group.length>1?` (${k+1} of ${group.length})`:''}`;
-      if(!element)stop(`${label} couldn't be expanded safely: ${await handle.jsonValue()}.`);
+      if(!element){const why=await handle.jsonValue();console.warn(`[plan-reader] ${label} not expanded: ${why}`);stop(`${label} couldn't be expanded safely: ${why}.`);}
       if(await page.evaluate(FOCUSED_EDITABLE))stop(`A field in the template had the cursor before ${label} was expanded.`);
       await element.click({timeout:5000});clicks++;
       if(await page.evaluate(FOCUSED_EDITABLE))stop(`Expanding ${label} put the cursor in a field.`);
