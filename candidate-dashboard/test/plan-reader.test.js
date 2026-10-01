@@ -7,7 +7,8 @@ const {readPlan}=require('../worker/plan-reader');
 const slot=names=>`Slot #1 —\n${names.length} Eligible Matches\nSpecific Employees:\n${names.length} Employees\n${names.join('\nOR ')}\nAdd Interviewer Slot`;
 // blocks: { title: [{ duration, top, names, bare }] }, as the page would report
 // them; events is the number of event rows (interview dropdown plus duration).
-// A bare block has no interviewer slot, only Ashby's "Configure: Interviewers".
+// A bare block is a collapsed event: Ashby's "Configure: Interviewers | Room"
+// control, with its slots not yet on the page.
 const waits=[];
 function page({blocks,events,errors={}}){
   return {
@@ -17,7 +18,7 @@ function page({blocks,events,errors={}}){
       if(typeof arg==='number'){waits.push(opts.timeout);if(events!==arg)throw Object.assign(Error(`Timeout ${opts.timeout}ms exceeded.`),{name:'TimeoutError'});}
     },
     evaluate:async(fn,arg)=>arg===undefined?(errors.errorPage?'Something went wrong':'Events'):arg.rows?events
-      :(blocks[arg]||[]).map(b=>({text:b.bare?`${arg}\nConfigure: Interviewers | Room`:slot(b.names||['Pat Doe']),duration:b.duration,top:b.top,slots:!b.bare,unconfigured:!!b.bare})),
+      :(blocks[arg]||[]).map(b=>({text:b.bare?`${arg}\nConfigure: Interviewers | Room`:slot(b.names||['Pat Doe']),duration:b.duration,top:b.top,slots:!b.bare})),
   };
 }
 const plan=sessions=>({activities:[{sessions:sessions.map(([title,durationMinutes],i)=>({sessionId:'s'+i,interviewId:'i'+i,title,durationMinutes}))}]});
@@ -53,16 +54,22 @@ test('read failures say what failed, and are never reported as a mismatch',async
   }
 });
 
-test('rows are counted as events, so an event with no interviewer slot still counts, after a 30-second wait',async()=>{
+test('rows are counted as events, so a collapsed event still counts, after a 30-second wait',async()=>{
   waits.length=0;
   const e=await readPlan(page({events:1,blocks:{'Recruiter Screen':[{duration:30,top:0,bare:true}]}}),plan([['Recruiter Screen',30]])).then(()=>null,x=>x);
   assert.deepEqual(waits,[30000]);
-  // Not a mismatch: the template has the one event the plan has.
-  assert.equal(e.kind,'no_interviewers');
-  assert.equal(e.status,409);
-  assert.deepEqual(e.sessions,['"Recruiter Screen"']);
-  assert.match(e.message,/^No interviewers are configured for "Recruiter Screen" in this schedule's template: Ashby shows "Configure: Interviewers"/);
-  assert.match(e.message,/Add the interviewers to the template in Ashby, then load the plan again/);
+  // Not a mismatch, and not "no interviewers": the slots just weren't shown.
+  assert.equal(e.status,503);
+  assert.equal(e.kind,'read');
+  assert.match(e.message,/^Ashby's schedule template showed every event collapsed, so the interviewer slots weren't on the page/);
+  assert.match(e.message,/doesn't mean the template has no interviewers/);
+  assert.doesNotMatch(e.message,/No interviewers are configured|Add the interviewers/);
+});
+
+test('only the collapsed events are named when some are expanded',async()=>{
+  const e=await readPlan(page({events:2,blocks:{Welcome:[{duration:15,top:0}],Lunch:[{duration:30,top:50,bare:true}]}}),plan([['Welcome',15],['Lunch',30]])).then(()=>null,x=>x);
+  assert.equal(e.kind,'read');
+  assert.match(e.message,/showed "Lunch" collapsed/);
 });
 
 test('a template with no event rows is a read failure, not a 0-interview mismatch',async()=>{

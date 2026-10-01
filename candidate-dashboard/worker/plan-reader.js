@@ -85,7 +85,7 @@ async function readPlan(page,input){
     }
     const blocks=[...found].filter(b=>![...found].some(o=>o!==b&&b.contains(o)));
     return blocks.map(b=>{const text=b.innerText||'';return {text,duration:Number(durations(b)[0].value),top:b.getBoundingClientRect().top+window.scrollY,
-      slots:/Slot\s*#1/.test(text)||/Eligible\s*Match/.test(text),unconfigured:/Configure/.test(text)&&/Interviewers/.test(text)};}).sort((a,b)=>a.top-b.top);
+      slots:/Slot\s*#1/.test(text)||/Eligible\s*Match/.test(text)};}).sort((a,b)=>a.top-b.top);
   },title);
   const issues=[],matched=new Map(),byTitle=new Map();
   for(const s of sessions){const t=s.title.trim();if(!byTitle.has(t))byTitle.set(t,[]);byTitle.get(t).push(s);}
@@ -100,11 +100,12 @@ async function readPlan(page,input){
   for(let k=1;k<placed.length;k++)if(matched.get(placed[k]).top<matched.get(placed[k-1]).top){issues.push(`the order differs: the template has "${placed[k].title.trim()}" before "${placed[k-1].title.trim()}"`);break;}
   if(rows!==sessions.length)issues.push(`the template has ${rows} interview${rows===1?'':'s'} and the plan has ${sessions.length}`);
   if(issues.length)throw Object.assign(Error(`The schedule template doesn't match the published plan: ${issues.join('; ')}. Update the template in Ashby, or reload the plan if it just changed.`),{status:409,kind:'mismatch',issues});
-  // The template is the only place Ashby says who can take an interview: the
-  // job's interview plan and the interview itself carry no interviewers, so
-  // there's nothing to fall back to. An event without them is refused by name.
-  const bare=placed.filter(s=>!matched.get(s).slots&&matched.get(s).unconfigured).map(s=>`"${s.title.trim()}"`);
-  if(bare.length)throw Object.assign(Error(`No interviewers are configured for ${bare.join(', ')} in this schedule's template: Ashby shows "Configure: Interviewers" instead of an interviewer slot. Add the interviewers to the template in Ashby, then load the plan again. Nothing else lists who can take ${bare.length===1?'it':'them'}, so no schedule can be proposed until then.`),{status:409,kind:'no_interviewers',sessions:bare});
+  // An event without slot text is collapsed, not empty: "Configure: Interviewers
+  // | Room" is the control that expands it, and the slots aren't on the page
+  // until it's opened. Whether the editor shows them expanded depends on Ashby's
+  // UI state, so this is a read failure; it says nothing about the template.
+  const collapsed=placed.filter(s=>!matched.get(s).slots).map(s=>`"${s.title.trim()}"`);
+  if(collapsed.length)readFail(`Ashby's schedule template showed ${collapsed.length===placed.length?'every event':collapsed.join(', ')} collapsed, so the interviewer slots weren't on the page and couldn't be read. This doesn't mean the template has no interviewers. Try again; if it keeps happening, check the eligible interviewers in Ashby.`);
   // Every unsupported slot is reported at once, not just the first.
   const read=[],refused=[];
   for(const s of sessions){try{read.push({...s,...parseAssignment(matched.get(s).text,s.title)});}catch(e){if(e.status!==409)throw e;refused.push(e.message);}}

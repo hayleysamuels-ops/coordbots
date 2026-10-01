@@ -222,26 +222,47 @@ done and verified, in this order:
   pair up in page order. Both were reproduced on a simulated page, not Ashby's
   real one; the next live Step 2 read confirms or names the real difference.
 - **Step 2 counts event rows, not interviewer slots** (September 30, 2026).
-  - **What went wrong:** Tarishi Singh's Agency Recruiter Screen template has
-    one event, "Recruiter Screen" (30 min), with no interviewers configured.
-    Ashby shows "Configure: Interviewers | Room" there instead of an interviewer
-    slot. The reader had counted "Add Interviewer Slot" buttons as events, so it
-    reported a 0-interview mismatch.
+  - **What went wrong:** Tarishi Singh's Agency Recruiter Screen template has one
+    event, "Recruiter Screen" (30 min). The reader counted "Add Interviewer Slot"
+    buttons as events and found none, so it reported a 0-interview mismatch.
   - **Counting:** an event row is now the smallest block holding the title and
     one duration field. The event count is the number of visible duration
     fields, and the reader waits up to 30 seconds for them, as it did before
     September 29.
   - **Empty pages:** a page with no rows at all is a read failure (503), not a
     mismatch.
-  - **Events with no interviewers:** these are refused by name (409,
-    `no_interviewers`), telling the user to add interviewers to the template in
-    Ashby. There is no fallback: the job's interview plan (`jobInterviewPlan.info`)
-    and the interview itself (`interview.info`) carry no interviewers, so the
-    template is the only source.
-  - **Not yet verified live:** the row markup (one visible duration field per
-    event, and "Configure" plus "Interviewers" text on an event with none) comes
-    from the user's reading of the live page, not a captured DOM. The next Step 2
-    read on Tarishi's schedule is the check.
+- **Correction (October 1, 2026): those events weren't missing interviewers.**
+  - **What the September 30 note got wrong:** it said Tarishi's event had no
+    interviewers configured, and the reader told coordinators to add some. Both
+    were wrong. "Configure: Interviewers | Room" is the collapsed control that
+    expands an event, and the interviewer slots aren't on the page until it's
+    opened.
+  - **Same cause elsewhere:** an Applied AI Engineer onsite read the same way,
+    "no interviewer slot could be found" on all seven sessions. Ashby's summary
+    view showed eligible interviewers on every one: Welcome 2, Applied AI
+    Interview 2, System Design 2, Lunch 3, HM Check-In 1, and 5 on each One on
+    One. Tarishi's "unsupported interviewer-slot rule" was most likely the same
+    thing; her slot was never read.
+  - **What the reader says now:** a collapsed event is a read failure (503)
+    naming the collapsed events. The message says this doesn't mean the template
+    has no interviewers.
+  - **The fallback claim:** the job's interview plan (`jobInterviewPlan.info`)
+    and `interview.info` do carry no interviewers. But "nothing to fall back to"
+    was never the issue: the templates have interviewers.
+- **The template editor isn't a reliable source for interviewer slots.** How it
+  renders them depends on per-user UI state in Ashby. Earlier live reads saw
+  expanded slots ("Slot #1 — 2 Eligible Matches…", the text `parseAssignment`
+  was built from); current reads with the same saved session see every event
+  collapsed. That holds whichever replacement is chosen:
+  - Clicking "Interviewers" on each event to expand it.
+  - Reading the schedule's summary view, which lists eligible interviewers
+    already resolved, with counts and avatars per session, and needs no clicks.
+    It appeared on a schedule that wasn't yet booked. Still unchecked: whether
+    each avatar carries the full name in its markup (only single-interviewer
+    sessions show a name in text), and how a two-slot panel appears there.
+
+  Until one is built, Step 2 can't read interviewers for any template Ashby shows
+  collapsed.
 - **The Slack "Schedule" button (phase two, stage 1) is built but not configured.**
   - **What it does:** on calendar-checked posts, a Schedule button with Slack's
     own confirmation dialog records an approval of that exact option (state
