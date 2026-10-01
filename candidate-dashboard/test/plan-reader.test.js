@@ -58,18 +58,12 @@ test('rows are counted as events, so a collapsed event still counts, after a 30-
   waits.length=0;
   const e=await readPlan(page({events:1,blocks:{'Recruiter Screen':[{duration:30,top:0,bare:true}]}}),plan([['Recruiter Screen',30]])).then(()=>null,x=>x);
   assert.deepEqual(waits,[30000]);
-  // Not a mismatch, and not "no interviewers": the slots just weren't shown.
+  // Not a mismatch, and not "no interviewers": without the write guard the
+  // reader won't expand anything, so nothing is clicked.
   assert.equal(e.status,503);
   assert.equal(e.kind,'read');
-  assert.match(e.message,/^Ashby's schedule template showed every event collapsed, so the interviewer slots weren't on the page/);
-  assert.match(e.message,/doesn't mean the template has no interviewers/);
+  assert.match(e.message,/showed its events collapsed, and expanding them needs the write guard, which isn't active\. Nothing was clicked\./);
   assert.doesNotMatch(e.message,/No interviewers are configured|Add the interviewers/);
-});
-
-test('only the collapsed events are named when some are expanded',async()=>{
-  const e=await readPlan(page({events:2,blocks:{Welcome:[{duration:15,top:0}],Lunch:[{duration:30,top:50,bare:true}]}}),plan([['Welcome',15],['Lunch',30]])).then(()=>null,x=>x);
-  assert.equal(e.kind,'read');
-  assert.match(e.message,/showed "Lunch" collapsed/);
 });
 
 test('a template with no event rows is a read failure, not a 0-interview mismatch',async()=>{

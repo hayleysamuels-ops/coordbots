@@ -261,8 +261,40 @@ done and verified, in this order:
     each avatar carries the full name in its markup (only single-interviewer
     sessions show a name in text), and how a two-slot panel appears there.
 
-  Until one is built, Step 2 can't read interviewers for any template Ashby shows
-  collapsed.
+  The summary view was ruled out (October 1). Its avatars carry no name in
+  their markup and have no tooltip; the stack shows at most three; and
+  initials avatars have no image to identify anyone by.
+- **Step 2 expands collapsed events, under a write guard** (October 1, 2026). The
+  template editor is a live client's configuration, and this is the first part
+  of the system that interacts with a write-capable page.
+  - **Clicks:** the only thing ever clicked is an event's own "Interviewers"
+    control, and only if it's a link, button or tab. It's never a form field,
+    label or submit button, and never a link out of the template. Nothing is
+    typed and no key is pressed.
+  - **Focus:** if anything editable has focus before a click, or gets it after
+    one (a blur can save), reading stops at once.
+  - **Write guard** (`worker/template-guard.js`, plan reads only):
+    - Any request that isn't GET, HEAD or OPTIONS is aborted inside the browser
+      unless it is GraphQL whose every operation is a query. That covers
+      mutations, persisted operations it can't classify, form posts and beacons.
+    - WebSockets are never connected, and service workers are blocked.
+    - A mutation at any point, or any write while expanding, fails the read.
+    - Unclassifiable requests during page load are blocked and logged, but don't
+      fail the read.
+  - **After reading:** every field that was on the page must still hold its
+    starting value, and every row its title and duration. The worker logs one
+    line per read: events expanded, fields compared, writes blocked, sockets
+    held closed. There's no reload to compare against; the guard is the stronger
+    check, since nothing it blocks can reach Ashby.
+  - **Not yet verified live:**
+    - The expander's markup.
+    - Where the expanded slots render.
+    - How Ashby's page loads its data. If it reads through requests the guard
+      can't classify, the page won't load ("Events section never loaded") and
+      the log names each blocked request.
+
+    The first live Step 2 read settles all three. The tests run a real browser
+    against a page written for them, so they test the safeguards, not Ashby.
 - **The Slack "Schedule" button (phase two, stage 1) is built but not configured.**
   - **What it does:** on calendar-checked posts, a Schedule button with Slack's
     own confirmation dialog records an approval of that exact option (state
