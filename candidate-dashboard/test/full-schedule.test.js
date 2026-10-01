@@ -12,3 +12,15 @@ test('specific employee rule preserves eligible alternatives',()=>{const r=parse
 test('advanced explicit identity rule checks resolved eligible count',()=>{assert.equal(parseAssignment("Welcome\nSlot #1 —\n2 Eligible Matches\nEmployee's Employee\nAll are true:\nis Person One\nPerson Two\nSearch for user...\nSelect matcher...\nAdd Interviewer Slot").eligibleInterviewers.length,2);assert.throws(()=>parseAssignment('Slot #1 —\n3 Eligible Matches\nSpecific Employees:\n3 Employees\nPerson One\nAdd Interviewer Slot'));});
 test('rendered line breaks do not drop eligible employees',()=>{const r=parseAssignment('Coding\nSlot #1 —\n2\nEligible\nMatches\nSpecific\nEmployees:\n2\nEmployees\nPerson One\nOR Person Two\nAdd\nInterviewer\nSlot');assert.equal(r.eligibleInterviewers.length,2);});
 test('employee names ending in is are not mistaken for matcher syntax',()=>{const r=parseAssignment('Welcome\nSlot #1 —\n2 Eligible Matches\nSpecific Employees:\n2 Employees\nChris\nOR Person Two\nAdd Interviewer Slot');assert.equal(r.eligibleInterviewers[0].name,'Chris');});
+
+// Each unsupported slot rule is named, with what to change instead.
+test('unsupported slot rules say what was found and what is supported',()=>{
+  const refused=(text,pattern)=>assert.throws(()=>parseAssignment(text,'Recruiter Screen'),e=>{assert.equal(e.status,409);assert.match(e.message,pattern);assert.doesNotMatch(e.message,/Review it in Ashby/);return true;});
+  refused('Recruiter Screen\nSlot #1 —\n1 Eligible Match\nSpecific Employees:\n1 Employees\nPerson One\nAND\nSlot #2 —\n1 Eligible Match\nSpecific Employees:\n1 Employees\nPerson Two\nAdd Interviewer Slot',
+    /^"Recruiter Screen": it has 2 interviewer slots, so it needs 2 interviewers on the panel, which isn't supported\. Only single-interviewer events are supported: use one slot that lists every eligible interviewer\.$/);
+  refused('Recruiter Screen\nSlot #1 —\n4 Eligible Matches\nEmployees from Pool:\nSupport Interviewers Pool\nQualified only\nAdd Interviewer Slot',/^"Recruiter Screen": Slot #1 draws from an interviewer pool \(Ashby shows "Employees from Pool:"\), which isn't supported\. Only named interviewers are supported: use Specific Employees in the template\.$/);
+  refused('Recruiter Screen\nSlot #1 —\n1 Eligible Match\nHiring Team Role:\nRecruiter\nAdd Interviewer Slot',/Slot #1 is filled by the candidate's hiring team role \("Hiring Team Role:"\)/);
+  refused("Recruiter Screen\nSlot #1 —\n6 Eligible Matches\nEmployee's Department\nAll are true:\nis Support\nSelect matcher...\nAdd Interviewer Slot",/Slot #1 uses an Advanced matcher on the employee's department/);
+  refused('Recruiter Screen\nSlot #1 —\nSomething new\nAdd Interviewer Slot',/Slot #1 shows no eligible-match count \(Ashby shows "Something new"\)/);
+  refused('Recruiter Screen\nSlot #1 —\n3 Eligible Matches\nSpecific Employees:\n3 Employees\nPerson One\nAdd Interviewer Slot',/Slot #1 says 3 eligible matches but 1 name was read from it/);
+});
