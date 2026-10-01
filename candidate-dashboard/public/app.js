@@ -751,6 +751,17 @@
   function renderInterviewerTraining(items, hasError) {
     const container = document.getElementById("cards-interviewerTraining");
     const toggleContainer = document.getElementById("interviewerTraining-toggle");
+    // Both of these live inside index.html's training-legacy block, which is
+    // stripped where the training tracker is on (TRAINING_TRACKER_CLIENT_ID).
+    // Normally the caller hands off to window.renderTrainingTracker instead
+    // and never reaches here — but if training.js fails to load for any
+    // reason (a 401, a cache miss, a network blip) that global is undefined,
+    // execution falls through to this function, and writing to a missing
+    // element throws out of render() entirely. That would take down EVERY
+    // section on the page over one missing script, so degrade to an empty
+    // training section instead. Confirmed live: a 401 on training.js left
+    // the whole dashboard blank until this guard was added.
+    if (!container || !toggleContainer) return;
     const pausedCount = items.filter((item) => item.isPaused).length;
 
     toggleContainer.innerHTML = pausedCount

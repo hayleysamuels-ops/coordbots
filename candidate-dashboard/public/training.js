@@ -77,7 +77,12 @@
   function badges(entry) {
     const out = [];
     if (entry.needsConfirmation) {
-      out.push(`<span class="training-badge badge-warn">${entry.needsConfirmation} to confirm</span>`);
+      out.push(
+        `<span class="training-badge badge-warn">${entry.needsConfirmation} to confirm</span>` +
+          // The badge alone told you a decision existed but not where it lived;
+          // the detail panel is the only place it can be made.
+          `<button type="button" class="training-link training-toggle-confirm">confirm now</button>`
+      );
     }
     if (entry.pendingDuringPause) {
       out.push(`<span class="training-badge badge-warn">${entry.pendingDuringPause} while paused</span>`);
@@ -93,13 +98,36 @@
     return out.join("");
   }
 
+  // A session the rules can't settle gets its own prompt with named buttons,
+  // instead of the ordinary row's controls.
+  //
+  // The ordinary row offers a role dropdown whose first option reads
+  // "auto (Shadow)" — meaning the sequence rule picked Shadow. Confirming
+  // therefore meant changing that to "Shadow", which looks like choosing the
+  // value it already shows, i.e. like doing nothing. The old hint even said
+  // "confirm or discount" while offering no control called either. So an
+  // unconfirmed session now asks a plain question and answers it with
+  // buttons that say what they do.
+  function unconfirmedSessionRow(entry, s) {
+    return `
+      <li class="training-session is-unconfirmed">
+        <span class="training-session-when">${esc(dateLabel(s.at))}</span>
+        <span class="training-confirm-q">Only interviewer — was this training?</span>
+        <span class="training-confirm-actions">
+          <button type="button" class="training-btn training-btn-quiet training-confirm" data-event="${esc(s.eventId)}" data-role="Shadow">Shadow</button>
+          <button type="button" class="training-btn training-btn-quiet training-confirm" data-event="${esc(s.eventId)}" data-role="ReverseShadow">Reverse shadow</button>
+          <button type="button" class="training-link training-not-training" data-event="${esc(s.eventId)}">No — they ran it</button>
+        </span>
+      </li>`;
+  }
+
   function sessionRow(entry, s) {
+    if (s.needsConfirmation) return unconfirmedSessionRow(entry, s);
+
     const when = dateLabel(s.at);
     const who = (s.coInterviewers || []).map((c) => c.name).join(", ");
     const reason = s.discounted
-      ? "discounted"
-      : s.needsConfirmation
-      ? "they were the only interviewer — confirm or discount"
+      ? "not counted"
       : s.duringPause
       ? "happened while paused — not counted"
       : "";
@@ -257,8 +285,13 @@
 
   function enrolPanel(data) {
     const paths = data.trainingPaths || [];
+    const loaded = Boolean(((data.sectionStatus || {}).interviewerTraining || {}).lastUpdated);
     if (!paths.length) {
-      return `<div class="training-panel"><p>Add a path first — an interviewer is always training on one specific interview for one specific role.</p></div>`;
+      return `<div class="training-panel"><p>${
+        loaded
+          ? "Add a path first — an interviewer is always training on one specific interview for one specific role."
+          : "Still loading training data — give it a moment before adding anyone."
+      }</p></div>`;
     }
     // A datalist, not a select: this org has 788 enabled Ashby users and a
     // dropdown that long is unusable. Typing filters natively, and the
@@ -466,8 +499,18 @@
 
     const empty = document.getElementById("training-empty");
     if (!entries.length) {
+      // Before the first refresh cycle finishes, the snapshot's training keys
+      // are empty even when the store is full - progress is computed inside
+      // listIssues(), which takes tens of seconds against a large org. Saying
+      // "no paths configured" then is actively misleading: someone would
+      // reasonably go and create paths that already exist. Distinguish "not
+      // loaded yet" from "genuinely empty" using this section's own
+      // lastUpdated, the same timestamp the section header renders from.
+      const status = (data.sectionStatus || {}).interviewerTraining || {};
       empty.innerHTML = hasError
         ? `<p class="muted">Couldn't load training data on the last refresh.</p>`
+        : !status.lastUpdated
+        ? `<p class="muted">Loading training data…</p>`
         : (data.trainingPaths || []).length
         ? `<p class="muted">No interviewers are training yet. Use "Add interviewer" to start one.</p>`
         : `<p class="muted">No training paths configured yet. Open "Paths" to add the first one.</p>`;
@@ -527,7 +570,9 @@
       return;
     }
 
-    if (t.classList.contains("training-toggle")) {
+    // "confirm now" on the badge just opens the detail panel, where the
+    // prompt lives - the same thing the row's own "detail" link does.
+    if (t.classList.contains("training-toggle-confirm") || t.classList.contains("training-toggle")) {
       const ctx = cardContext(t);
       if (!ctx) return;
       if (expanded.has(ctx.key)) expanded.delete(ctx.key);
@@ -550,6 +595,18 @@
       }
       if (t.classList.contains("training-unarchive")) return act("unarchive", { userId: ctx.userId, pathId: ctx.pathId });
 
+      if (t.classList.contains("training-confirm")) {
+        return act("session", { userId: ctx.userId, pathId: ctx.pathId, eventId: t.dataset.event, role: t.dataset.role });
+      }
+      if (t.classList.contains("training-not-training")) {
+        return act("session", {
+          userId: ctx.userId,
+          pathId: ctx.pathId,
+          eventId: t.dataset.event,
+          discounted: true,
+          note: "ran it rather than shadowed it",
+        });
+      }
       if (t.classList.contains("training-save-req")) {
         const shadows = parseInt(ctx.article.querySelector(".training-req-shadows").value, 10);
         const reverseShadows = parseInt(ctx.article.querySelector(".training-req-reverse").value, 10);
