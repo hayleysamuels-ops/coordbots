@@ -445,3 +445,43 @@
   font-size: 12px;
   margin: 6px 0 0;
 }
+
+/* An unconfirmed session asks a question and answers it with named buttons.
+   The ordinary row's role dropdown shows "auto (Shadow)" as its first option,
+   so confirming by picking "Shadow" looked like selecting the value already
+   displayed — i.e. like doing nothing. These rows get the prompt instead. */
+.training-session.is-unconfirmed {
+  background: var(--lemon-wash);
+  border-left: 3px solid var(--lemon);
+  align-items: center;
+  row-gap: 6px;
+}
+
+.training-confirm-q {
+  flex: 1 1 220px;
+  font-weight: 600;
+  color: var(--lemon);
+  min-width: 0;
+}
+
+.training-confirm-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.training-confirm-actions .training-btn {
+  padding: 3px 10px;
+}
+
+/* Sits right after the "N to confirm" badge, so the badge names the problem
+   and the link leads to where it is fixed. */
+.training-toggle-confirm {
+  font-weight: 600;
+  color: var(--lemon);
+}
+
+.training-toggle-confirm:hover {
+  color: var(--ember);
+}
