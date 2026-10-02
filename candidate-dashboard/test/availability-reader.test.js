@@ -14,8 +14,12 @@ test('an unreadable availability grid is described: headers, timezone labels and
   if(!browser)return t.skip('no Chromium available');
   try{
     const page=await browser.newPage();
-    await page.setContent('<h1>Candidate Availability</h1><div>THU 10/8/2026</div><div>FRI 10/9/2026</div><div>America/Los_Angeles</div><div class="x_cell_1"></div>');
     const {describeGrid}=require('../worker/availability-reader');
-    assert.equal(await page.evaluate(describeGrid),'2 day headers (THU 10/8/2026, FRI 10/9/2026); timezone labels: America/Los_Angeles; 0 grid cells; grid-like classes: x_cell_1');
+    // Headers as Ashby renders them now, with no grid body: "not found", not "empty".
+    await page.setContent('<h1>Candidate Availability</h1><input placeholder="Set date to view..." value="09/27/2026"><div style="display:flex"><div style="width:80px">Sun 27</div><div style="width:80px">Mon 28</div></div><div>America/Denver</div>');
+    assert.equal(await page.evaluate(describeGrid),'2 day headers (Sun 27, Mon 28); week picker shows "09/27/2026"; timezone labels: America/Denver; 0 cells with the class the reader expects; grid body: no cells found under "Sun 27"');
+    // A grid body found by position, two cells, one selected by its fill.
+    await page.setContent('<div style="display:flex"><div style="width:80px">Sun 27</div></div><div style="width:80px;height:10px;background:rgb(1, 2, 3)" data-q="0"></div><div style="width:80px;height:10px" data-q="1"></div>');
+    assert.match(await page.evaluate(describeGrid),/grid body: 2 cells under "Sun 27", e\.g\. div\[data-q\] class="" and div\[data-q\] class=""; background colours: rgb\(1, 2, 3\) ×1, rgba\(0, 0, 0, 0\) ×1$/);
   }finally{await browser.close();}
 });

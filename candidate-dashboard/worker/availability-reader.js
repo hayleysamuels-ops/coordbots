@@ -13,14 +13,29 @@ function parseGrid({timezone,columns}){
   return {timezone,windows,start:columns[0].date,end:columns[6].date};
 }
 // What the page held when the grid couldn't be read, for the refusal and the
-// worker log: day headers, timezone labels, grid cells per column.
+// worker log. Says separately whether the grid body was found at all (cells
+// under the day headers) and, if it was, whether any cell looked selected, so
+// "couldn't be read" is never confused with "no availability this week".
+// Cells are found by position (small boxes under a header), not class names.
 function describeGrid(){
   const leaves=[...document.querySelectorAll('*')].filter(e=>e.children.length===0&&e.getBoundingClientRect().width);
-  const headers=leaves.map(e=>e.textContent.trim()).filter(t=>/^(SUN|MON|TUE|WED|THU|FRI|SAT)\b/i.test(t));
+  const headerEls=leaves.filter(e=>/^(SUN|MON|TUE|WED|THU|FRI|SAT)\b/i.test(e.textContent.trim()));
+  const headers=headerEls.map(e=>e.textContent.trim());
   const zones=[...new Set(leaves.map(e=>e.textContent.trim()).filter(t=>/^[A-Za-z_]+\/[A-Za-z_]+(?:[ /][A-Za-z_]+)*$/.test(t)))];
-  const slices=[...document.querySelectorAll('[class*="_slice_"]')].filter(e=>e.getBoundingClientRect().width>0);
-  const classes=[...new Set([...document.querySelectorAll('[class]')].flatMap(e=>[...e.classList]).filter(c=>/slice|selected|cell|slot/i.test(c)))].slice(0,8);
-  return `${headers.length} day header${headers.length===1?'':'s'} (${headers.slice(0,8).join(', ')||'none'}); timezone labels: ${zones.join(', ')||'none'}; ${slices.length} grid cells${classes.length?`; grid-like classes: ${classes.join(', ')}`:''}`;
+  const picker=document.querySelector('input[placeholder="Set date to view..."]')?.value||'none';
+  const slices=[...document.querySelectorAll('[class*="_slice_"]')].filter(e=>e.getBoundingClientRect().width>0).length;
+  let body='no day header to measure under';
+  if(headerEls.length){
+    const h=headerEls[0].getBoundingClientRect(),cx=h.x+h.width/2;
+    const cells=[...document.querySelectorAll('body *')].filter(e=>{const r=e.getBoundingClientRect();return r.top>=h.bottom&&r.height>=4&&r.height<=40&&r.width>=h.width*0.5&&r.width<=h.width*3&&r.left<=cx&&r.right>=cx&&!e.querySelector('*');});
+    if(!cells.length)body=`no cells found under "${headers[0]}"`;
+    else{
+      const describe=e=>{const attrs=[...e.attributes].map(a=>a.name).filter(n=>n!=='class'&&n!=='style').join(',');return `${e.tagName.toLowerCase()}${e.getAttribute('role')?`[role=${e.getAttribute('role')}]`:''}${attrs?`[${attrs}]`:''} class="${(e.getAttribute('class')||'').slice(0,60)}"`;};
+      const fills=new Map();for(const c of cells){const f=getComputedStyle(c).backgroundColor;fills.set(f,(fills.get(f)||0)+1);}
+      body=`${cells.length} cells under "${headers[0]}", e.g. ${describe(cells[0])}${cells[cells.length>1?1:0]!==cells[0]?` and ${describe(cells[1])}`:''}; background colours: ${[...fills].map(([f,n])=>`${f} ×${n}`).join(', ')}`;
+    }
+  }
+  return `${headers.length} day header${headers.length===1?'':'s'} (${headers.slice(0,8).join(', ')||'none'}); week picker shows "${picker}"; timezone labels: ${zones.join(', ')||'none'}; ${slices} cells with the class the reader expects; grid body: ${body}`;
 }
 function collectGrid(){
   const leaves=[...document.querySelectorAll('*')].filter(e=>e.children.length===0&&e.getBoundingClientRect().width);
@@ -47,7 +62,7 @@ async function readAvailability(page){
     await step(()=>page.getByText('Fetching...',{exact:true}).waitFor({state:'hidden',timeout:15000}),`Ashby was still fetching week ${week+1} of the availability after 15 seconds. Try again.`);
     let data;try{const handle=await page.waitForFunction(collectGrid,null,{timeout:15000});data=await handle.jsonValue();}
     catch(_){const seen=await page.evaluate(describeGrid).catch(()=>'nothing readable');console.warn(`[availability-reader] Week ${week+1} grid unreadable: ${seen}`);
-      fail(`The submitted-availability grid for week ${week+1} couldn't be read: the reader needs 7 day headers, one timezone label and 96 cells per day, and found ${seen}.`);}
+      fail(`The submitted-availability grid for week ${week+1} couldn't be read, so it isn't known whether the candidate has availability that week. The reader needs 7 day headers like "SUN 9/27/2026", one timezone label and 96 cells per day, and found ${seen}.`);}
     const parsed=parseGrid(data);
     if(expected&&parsed.start!==expected)fail('The availability week did not finish changing.');
     if(weeks.length&&parsed.timezone!==weeks[0].timezone)fail('The availability timezone changed while reading.');

@@ -152,12 +152,23 @@
     finally{for(const b of buttons)if(!(b===button&&posted)&&b.textContent==='Post to Slack for discussion')b.disabled=false;}
   });
   function clearAvailability(){clearFullPlan();$('windows').replaceChildren();$('calendar-preview').replaceChildren();$('availability-status').textContent='';$('prepare').scheduleId.innerHTML='<option value="">Loading requests…</option>';}
-  function applyAvailabilityMode(){const imported=$('prepare').availabilitySource.value==='ashby';$('add-window').disabled=imported;for(const el of $('windows').querySelectorAll('input'))el.readOnly=imported;for(const el of $('windows').querySelectorAll('button'))el.disabled=imported;$('prepare').timezone.disabled=imported;$('prepare').scheduleId.disabled=!imported;$('reload-availability').disabled=!imported;}
+  // For an Ashby submission the zone is whatever Ashby's grid reports, and the
+  // server re-reads it from Ashby (suggestFull); the selector is only a display.
+  // Until an import succeeds it says so, rather than showing a default zone
+  // Ashby never reported. Coordinator entry picks a real zone.
+  function showAshbyZone(zone){
+    const select=$('prepare').timezone;let blank=select.querySelector('option[value=""]');
+    if(zone===null){if(!blank){blank=document.createElement('option');blank.value='';blank.textContent='Set by the Ashby submission';select.prepend(blank);}select.value='';return;}
+    if(blank)blank.remove();
+    if(zone){if(![...select.options].some(o=>o.value===zone)){const o=document.createElement('option');o.value=o.textContent=zone;select.append(o);}select.value=zone;}
+  }
+  function applyAvailabilityMode(){const imported=$('prepare').availabilitySource.value==='ashby';if(!imported&&$('prepare').timezone.value==='')showAshbyZone(undefined);$('add-window').disabled=imported;for(const el of $('windows').querySelectorAll('input'))el.readOnly=imported;for(const el of $('windows').querySelectorAll('button'))el.disabled=imported;$('prepare').timezone.disabled=imported;$('prepare').scheduleId.disabled=!imported;$('reload-availability').disabled=!imported;}
   const importAvailability=e=>$('prepare').availabilitySource.value==='ashby'?whileBusy(['reload-availability'],importAvailabilityNow,e instanceof Event):importAvailabilityNow();
   async function importAvailabilityNow(){
     const f=$('prepare'),applicationId=f.applicationId.value,scheduleId=f.scheduleId.value,version=sessionVersion;
     if(f.availabilitySource.value!=='ashby')return;
     $('windows').replaceChildren();$('calendar-preview').replaceChildren();$('full-suggestions').replaceChildren();$('full-calendar-preview').replaceChildren();$('google-calendar-preview').replaceChildren();
+    showAshbyZone(null);
     if(!scheduleId){$('availability-status').textContent='Choose a pending request to import its availability.';return;}
     // Every outcome ends in a message here: windows loaded, none found, or
     // the read failed and why. A running clock shows it's still working.
@@ -167,7 +178,7 @@
     try{const data=await api('/availability',{applicationId,scheduleId});clearInterval(clock);
       if(!current()||!credentials)return;
       if(f.availabilitySource.value!=='ashby'){$('availability-status').textContent='Coordinator-entered availability. These times are not a verified Ashby submission.';return;}
-      if(![...f.timezone.options].some(o=>o.value===data.timezone)){const option=document.createElement('option');option.value=option.textContent=data.timezone;f.timezone.append(option);}f.timezone.value=data.timezone;
+      showAshbyZone(data.timezone);
       for(const w of data.localWindows)addWindow(w);
       $('availability-status').textContent=data.localWindows.length?`Imported ${data.localWindows.length} submitted window${data.localWindows.length===1?'':'s'} from Ashby (${data.timezone}).`:'No future availability was found in the candidate’s submission.';
       if(data.scope)$('availability-status').textContent+=' Checked '+data.scope.start+' through '+data.scope.end+'.';
