@@ -275,10 +275,30 @@ done and verified, in this order:
     - Another run that same deploy got past "Welcome" and read every slot's names
       (Lunch read 4 for 3 eligible).
   - **Runs on `0c77cb5`:** 22:59 and 23:00 MDT, "Welcome" was refused again.
-  - **Cause still open:** either the editor's per-user UI state differs between
-    loads, or the slots load after the reader looks. The worker now logs an
-    event's whole stretch whenever it has no slots ("has no slots on the page;
-    its stretch reads: ..."), which tells the two apart.
+  - **Cause: load timing** (settled by the stretch logging, October 2). The
+    slots load after the page itself:
+    - "Interviewers 1 | Loading filters... | Add Interviewer Slot" first;
+    - then "Slot #1 — Calculating matches...";
+    - then the eligible-match count.
+
+    The reader had looked once, so its result depended on which stage it caught
+    (three of four runs caught "Loading filters..."). The section was never
+    collapsed on these reads, and no click was ever needed.
+  - **Fix:**
+    - The reader waits once for the page as a whole to stop showing either
+      loading message, two quiet checks half a second apart, before deciding
+      anything about an event.
+    - It considers a click only when an "Interviewers" pill is actually there.
+      Without one, a section with no slot is a read failure, and nothing is
+      clicked.
+  - **Time limit:** the whole plan read, page opening included, has one 80-second
+    budget that every wait comes out of, so seven events can't add up to minutes.
+    The dashboard's request timeout for it is 90 seconds (it was 55). Step 2
+    shows a running clock while it reads, including when the plan loads by
+    itself.
+  - **Matcher text split across lines:** Ashby renders "All are true:" as "All"
+    and "are true:" on separate lines. These are joined before the matcher type
+    is checked, so an "Any are true" matcher can't slip past the refusal.
 - **Step 2 expands collapsed events, under a write guard** (October 1, 2026). The
   template editor is a live client's configuration, and this is the first part
   of the system that interacts with a write-capable page.

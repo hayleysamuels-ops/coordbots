@@ -67,17 +67,23 @@
   $('prepare').applicationId.onchange=async()=>{$('prepare').interviewId.innerHTML='<option value="">Load a plan first</option>';clearAvailability();await $('load-plan').onclick();};
   let fullPlanVersion=0;
   function clearFullPlan(){fullPlanVersion++;$('full-plan').replaceChildren();$('full-suggestions').replaceChildren();$('full-calendar-preview').replaceChildren();$('google-calendar-preview').replaceChildren();$('full-plan-status').textContent='Load the full plan for this availability request.';}
-  const loadFullPlan=e=>whileBusy(['reload-full-plan'],loadFullPlanNow,e instanceof Event);
+  // Always shows progress, including when the plan loads by itself after a
+  // request is chosen: the read can take most of a minute.
+  const loadFullPlan=()=>whileBusy(['reload-full-plan'],loadFullPlanNow,true);
   async function loadFullPlanNow(){
     const f=$('prepare'),applicationId=f.applicationId.value,scheduleId=f.scheduleId.value,version=++fullPlanVersion,session=sessionVersion;
     $('full-plan').replaceChildren();$('full-suggestions').replaceChildren();$('full-calendar-preview').replaceChildren();$('google-calendar-preview').replaceChildren();
     if(!scheduleId){$('full-plan-status').textContent='Choose a pending request to load its full interview template.';return;}
-    $('full-plan-status').textContent='Reading all interviews and eligible interviewers from Ashby…';
-    try{const plan=await api('/full-plan',{applicationId,scheduleId});if(version!==fullPlanVersion||session!==sessionVersion||!credentials)return;
+    // A running clock, so a slow read looks like work rather than a dead button.
+    // Ashby loads interviewer slots after the page itself; the worker gives up
+    // by itself at 80 seconds, and the dashboard at 90.
+    const started=Date.now(),reading=()=>{if(version!==fullPlanVersion)return;const s=Math.round((Date.now()-started)/1000);$('full-plan-status').textContent=`Reading all interviews and eligible interviewers from Ashby… ${s}s. Ashby loads interviewer slots after the page, so this can take up to a minute; it stops by itself if it takes longer.`;};
+    reading();const clock=setInterval(reading,1000);
+    try{const plan=await api('/full-plan',{applicationId,scheduleId});clearInterval(clock);if(version!==fullPlanVersion||session!==sessionVersion||!credentials)return;
       const minutes=plan.sessions.reduce((n,s)=>n+s.durationMinutes,0);
       $('full-plan-status').textContent=`${plan.sessions.length} interviews · ${Math.floor(minutes/60)}h ${minutes%60}m · Interviewers from the linked Ashby template. Calendars have not been checked.`;
       $('full-plan').innerHTML='<table><thead><tr><th>Interview</th><th>Duration</th><th>Eligible interviewers</th></tr></thead><tbody>'+plan.sessions.map(s=>`<tr><td>${esc(s.title)}</td><td>${s.durationMinutes} min</td><td>${s.eligibleInterviewers.map(i=>esc(i.name)).join(', ')}${s.eligibleInterviewers.length>1?' (choose one)':' (fixed)'}</td></tr>`).join('')+'</tbody></table>';
-    }catch(e){if(version===fullPlanVersion&&session===sessionVersion)$('full-plan-status').textContent=e.message;}
+    }catch(e){clearInterval(clock);if(version===fullPlanVersion&&session===sessionVersion)$('full-plan-status').textContent=e.message;}
   }
   $('reload-full-plan').onclick=loadFullPlan;
   // Both previews render the same way. The calendar-checked one asks the server

@@ -24,3 +24,11 @@ test('unsupported slot rules say what was found and what is supported',()=>{
   refused('Recruiter Screen\nSlot #1 —\nSomething new\nAdd Interviewer Slot',/Slot #1 shows no eligible-match count \(Ashby shows "Something new"\)/);
   refused('Recruiter Screen\nSlot #1 —\n3 Eligible Matches\nSpecific Employees:\n3 Employees\nPerson One\nAdd Interviewer Slot',/Slot #1 says 3 eligible matches but 1 name was read from it \("Person One"\)/);
 });
+
+test('Advanced matcher text split across lines, as Ashby renders it, is read and checked',()=>{
+  // Exactly as the live worker log showed the Welcome slot.
+  const live="Welcome\nmin\nConfigure\nRoom\nInterviewers\n1\nSlot #1\n—\n2 Eligible Matches\nAdvanced\nEmployee's Employee\n:\nAll\nare true:\nis\nGabrielle Struckell\nGrace Buckingham\nSearch for user...\nAdd Field to Match\nAdd Interviewer Slot";
+  assert.deepEqual(parseAssignment(live,'Welcome').eligibleInterviewers,[{name:'Gabrielle Struckell'},{name:'Grace Buckingham'}]);
+  assert.throws(()=>parseAssignment(live.replace('All\nare true:','Any\nare true:'),'Welcome'),/an Advanced matcher where any condition can match/);
+  assert.throws(()=>parseAssignment(live.replace('Interviewers\n1','Interviewers\n2'),'Welcome'),/Ashby shows "Interviewers 2" but 1 slot was read/);
+});

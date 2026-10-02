@@ -17,7 +17,8 @@ function page({blocks,events,errors={}}){
       if(arg===null&&errors.calculating)throw Object.assign(Error('Timeout 30000ms exceeded.'),{name:'TimeoutError'});
       if(typeof arg==='number'){waits.push(opts.timeout);if(events!==arg)throw Object.assign(Error(`Timeout ${opts.timeout}ms exceeded.`),{name:'TimeoutError'});}
     },
-    evaluate:async(fn,arg)=>arg===undefined?(errors.errorPage?'Something went wrong':'Events'):arg.rows?events
+    waitForTimeout:async()=>{},
+    evaluate:async(fn,arg)=>arg===undefined?(errors.errorPage?'Something went wrong':'Events'):arg.loading?!!errors.loading:arg.rows?events
       :(blocks[arg.title]||[]).map(b=>({text:b.bare?`${arg.title}\nConfigure: Interviewers | Room`:slot(b.names||['Pat Doe']),duration:b.duration,top:b.top,slots:!b.bare})),
   };
 }
@@ -46,8 +47,8 @@ test('a mismatch names every difference: missing, repeated, duration, order and 
 
 test('read failures say what failed, and are never reported as a mismatch',async()=>{
   const ok={events:1,blocks:{Welcome:[{duration:15,top:0}]}};
-  for(const [errors,pattern] of [[{events:true},/Events section never loaded/],[{events:true,errorPage:true},/Ashby showed an error page/],[{calculating:true},/still calculating interviewer matches/]]){
-    const e=await readPlan(page({...ok,errors}),plan([['Welcome',15]])).then(()=>null,x=>x);
+  for(const [errors,pattern] of [[{events:true},/Events section never loaded/],[{events:true,errorPage:true},/Ashby showed an error page/],[{loading:true},/still loading the interviewer slots after 1 second /]]){
+    const e=await readPlan(page({...ok,errors}),plan([['Welcome',15]]),{budgetMs:1000}).then(()=>null,x=>x);
     assert.equal(e.status,503,String(pattern));
     assert.equal(e.kind,'read');
     assert.match(e.message,pattern);

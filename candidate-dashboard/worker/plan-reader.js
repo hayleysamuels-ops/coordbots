@@ -12,7 +12,7 @@ const fail=message=>{throw Object.assign(Error(message),{status:409});};
 const HIRING_ROLES=['Hiring Manager','Recruiter','Recruiting Coordinator','Sourcer'];
 const quote=v=>`"${String(v).replace(/\s+/g,' ').trim().slice(0,80)}"`;
 function parseAssignment(text,title='This interview'){
-  text=text.replace(/Specific\s+Employees\s*:/g,'Specific Employees:').replace(/(\d+)\s+Employees?/g,'$1 Employees').replace(/Add\s+Interviewer\s+Slot/g,'Add Interviewer Slot').replace(/Search\s+for\s+user\s*\.\.\./g,'Search for user...').replace(/Select\s+matcher\s*\.\.\./g,'Select matcher...').replace(/(\d+)\s*Eligible\s*Match(es)?/g,'$1 Eligible Match$2').replace(/\bis\s*\n\s*/g,'is ').replace(/^Interviewers\s*\n\s*(\d+)$/m,'Interviewers $1');
+  text=text.replace(/Specific\s+Employees\s*:/g,'Specific Employees:').replace(/(\d+)\s+Employees?/g,'$1 Employees').replace(/Add\s+Interviewer\s+Slot/g,'Add Interviewer Slot').replace(/Search\s+for\s+user\s*\.\.\./g,'Search for user...').replace(/Select\s+matcher\s*\.\.\./g,'Select matcher...').replace(/(\d+)\s*Eligible\s*Match(es)?/g,'$1 Eligible Match$2').replace(/\bis\s*\n\s*/g,'is ').replace(/^Interviewers\s*\n\s*(\d+)$/m,'Interviewers $1').replace(/\b(All|Any)\s*\n\s*are\s+true\s*:/g,'$1 are true:');
   const lines=text.split('\n').map(s=>s.trim()).filter(Boolean);
   const name=quote(title).slice(1,-1);
   const refuse=(found,fix)=>fail(`"${name}": ${found}, which isn't supported. ${fix}`);
@@ -86,7 +86,18 @@ const FOCUSED_EDITABLE=()=>{const a=document.activeElement;return !!a&&(a.isCont
 const FIELD_VALUES=els=>els.map(e=>!e.isConnected?null:e.isContentEditable?e.textContent:(e.type==='checkbox'||e.type==='radio')?String(e.checked):e.value);
 const stop=message=>readFail(`${message} Reading stopped before anything else was clicked, and no change could have been saved: every write is blocked while the template is open. Check the template in Ashby if in doubt.`);
 
-async function expandEvents(page,byTitle,matched,blocksFor,guard){
+// Waits until nothing on the page says it's loading, twice in a row half a
+// second apart, or until the read's deadline, then names what was still loading.
+const LOADING=()=>/Loading filters\.\.\.|Calculating matches\.\.\./.test(document.body.innerText);
+async function settle(page,deadline,seconds,stillLoading){
+  for(let quiet=0;quiet<2;){
+    if(Date.now()>=deadline){const titles=await stillLoading();readFail(`Ashby was still loading the interviewer slots${titles.length?` for ${titles.join(', ')}`:''} after ${seconds} second${seconds===1?'':'s'} ("Loading filters..." or "Calculating matches..." was still showing). Try again; nothing was clicked or saved.`);}
+    quiet=await page.evaluate(LOADING,{loading:true})?0:quiet+1;
+    if(quiet<2)await page.waitForTimeout(Math.max(0,Math.min(500,deadline-Date.now())));
+  }
+}
+
+async function expandEvents(page,byTitle,matched,blocksFor,guard,{deadline,seconds,titlesStillLoading}){
   if(!guard)readFail("Ashby's schedule template showed its events collapsed, and expanding them needs the write guard, which isn't active. Nothing was clicked.");
   const fields=await page.evaluateHandle(()=>[...document.querySelectorAll('input,select,textarea,[contenteditable="true"]')]);
   const before=await fields.evaluate(FIELD_VALUES);
@@ -130,15 +141,22 @@ async function expandEvents(page,byTitle,matched,blocksFor,guard){
       },{title,k});
       const element=handle.asElement();
       const label=`"${title}"${group.length>1?` (${k+1} of ${group.length})`:''}`;
-      if(!element){const why=await handle.jsonValue();console.warn(`[plan-reader] ${label} not expanded: ${why}`);stop(`${label} couldn't be expanded safely: ${why}.`);}
+      if(!element){
+        const why=await handle.jsonValue();console.warn(`[plan-reader] ${label} not expanded: ${why}`);
+        // Only an "Interviewers" pill means the section is hidden. Without one,
+        // the section loaded and simply has no slot the reader can see.
+        if(/^it has no "Interviewers" control/.test(why))readFail(`${label}: its interviewer section loaded, but no interviewer slot is on the page and there's no "Interviewers" control to show one. Nothing was clicked. Check the event in Ashby.`);
+        stop(`${label} couldn't be expanded safely: ${why}.`);
+      }
       if(await page.evaluate(FOCUSED_EDITABLE))stop(`A field in the template had the cursor before ${label} was expanded.`);
       await element.click({timeout:5000});clicks++;
       if(await page.evaluate(FOCUSED_EDITABLE))stop(`Expanding ${label} put the cursor in a field.`);
-      let block=null;
-      for(let t=0;t<40&&!block;t++){const b=(await blocksFor(title))[k];if(b?.slots)block=b;else await page.waitForTimeout(250);}
-      if(!block)readFail(`${label} was expanded, but its interviewer slots didn't appear within 10 seconds. Try again.`);
-      await step(()=>page.waitForFunction(()=>!document.body.innerText.includes('Calculating matches...'),null,{timeout:30000}),'Ashby was still calculating interviewer matches after 30 seconds. Try again.');
-      matched.set(group[k],(await blocksFor(title))[k]);
+      // The expanded section loads like the rest of the page, within the same budget.
+      await page.waitForTimeout(Math.max(0,Math.min(500,deadline-Date.now())));
+      await settle(page,deadline,seconds,titlesStillLoading);
+      const block=(await blocksFor(title))[k];
+      if(!block?.slots)readFail(`${label} was expanded, but its interviewer slots didn't appear. Try again.`);
+      matched.set(group[k],block);
     }
   }
   const blockedWrite=guard.problem();
@@ -151,19 +169,22 @@ async function expandEvents(page,byTitle,matched,blocksFor,guard){
   console.log(`[plan-reader] Expanded ${clicks} event${clicks===1?'':'s'}; ${compared} of ${before.length} fields unchanged${compared<before.length?' (the rest were re-rendered, so not compared)':''}; rows unchanged; writes blocked: ${guard.blocked.length}; sockets held closed: ${guard.sockets}.`);
 }
 
-async function readPlan(page,input,{guard=null}={}){
+async function readPlan(page,input,{guard=null,budgetMs=60000}={}){
+  // One time budget for the whole read. Every wait takes what it needs from it,
+  // so Step 2 returns within budgetMs however many events the template has.
+  const deadline=Date.now()+budgetMs,seconds=Math.round(budgetMs/1000);
+  const left=cap=>{const ms=Math.min(cap,deadline-Date.now());if(ms<=0)readFail(`Ashby's schedule template was still loading when the read's ${seconds} seconds ran out. Try again; nothing was clicked or saved.`);return ms;};
   const sessions=input.activities?.flatMap(a=>a.sessions)||[];
   if(!sessions.length||sessions.length>30)fail('The current interview plan could not be verified.');
   const errorPage=async()=>/Something went wrong|An error occurred|Page not found/i.test(await page.evaluate(()=>document.body.innerText.slice(0,4000)).catch(()=>''));
-  await step(()=>page.getByRole('heading',{name:'Events',exact:true}).waitFor({state:'visible',timeout:15000}),'The schedule template page opened, but its Events section never loaded. Ashby may be slow or showing an error; try again.').catch(async e=>{if(await errorPage())readFail('Ashby showed an error page instead of the schedule template. Try again, or open it in Ashby.');throw e;});
-  await step(()=>page.waitForFunction(()=>!document.body.innerText.includes('Calculating matches...'),null,{timeout:30000}),'Ashby was still calculating interviewer matches after 30 seconds. Try again.');
+  await step(()=>page.getByRole('heading',{name:'Events',exact:true}).waitFor({state:'visible',timeout:left(15000)}),'The schedule template page opened, but its Events section never loaded. Ashby may be slow or showing an error; try again.').catch(async e=>{if(await errorPage())readFail('Ashby showed an error page instead of the schedule template. Try again, or open it in Ashby.');throw e;});
   // An event row is an interview-name dropdown and its duration field. Count
   // those, not "Add Interviewer Slot" buttons: an event with no interviewers
   // configured has no slot button but is still an event. Wait up to 30 seconds
   // for every row to render; a different number that settles is a mismatch,
   // counted below, but a page with no rows at all is a read failure.
   const countRows=()=>[...document.querySelectorAll('input')].filter(x=>(x.type==='number'||x.getAttribute('role')==='spinbutton')&&x.getBoundingClientRect().width).length;
-  try{await page.waitForFunction(count=>[...document.querySelectorAll('input')].filter(x=>(x.type==='number'||x.getAttribute('role')==='spinbutton')&&x.getBoundingClientRect().width).length===count,sessions.length,{timeout:30000});}catch(e){if(!timedOut(e))throw e;}
+  try{await page.waitForFunction(count=>[...document.querySelectorAll('input')].filter(x=>(x.type==='number'||x.getAttribute('role')==='spinbutton')&&x.getBoundingClientRect().width).length===count,sessions.length,{timeout:left(30000)});}catch(e){if(!timedOut(e))throw e;}
   const rows=await page.evaluate(countRows,{rows:true});
   if(!rows)readFail("The schedule template's Events section loaded, but no event rows appeared within 30 seconds. Ashby may be slow; try again, or open the template in Ashby.");
   // The row for a title: the smallest block that holds the title and exactly one
@@ -176,6 +197,7 @@ async function readPlan(page,input,{guard=null}={}){
   // — 2 Eligible Matches", the names) sit outside the row's own block. Read
   // that first; an event only needs expanding if its stretch has no slots.
   const titles=[...new Set(sessions.map(s=>s.title.trim()))];
+  const titlesStillLoading=async()=>{const out=[];for(const t of titles)for(const b of await blocksFor(t))if(b.loading)out.push(`"${t}"`);return out;};
   const blocksFor=title=>page.evaluate(({title,titles})=>{
     const durations=e=>[...e.querySelectorAll('input')].filter(x=>x.type==='number'||x.getAttribute('role')==='spinbutton');
     const rowsFor=t=>{
@@ -202,9 +224,13 @@ async function readPlan(page,input,{guard=null}={}){
     const mine=new Set(rowsFor(title));
     return events.map((row,i)=>({row,i})).filter(({row})=>mine.has(row)).map(({row,i})=>{
       const text=stretch(row,events[i+1]);
-      return {text,duration:Number(durations(row)[0].value),top:row.getBoundingClientRect().top+window.scrollY,slots:/Slot\s*#\d/.test(text)&&/Eligible\s*Match/.test(text)};
+      return {text,duration:Number(durations(row)[0].value),top:row.getBoundingClientRect().top+window.scrollY,slots:/Slot\s*#\d/.test(text)&&/Eligible\s*Match/.test(text),loading:/Loading filters\.\.\.|Calculating matches\.\.\./.test(text)};
     }).sort((a,b)=>a.top-b.top);
   },{title,titles});
+  // Slots load after the page: "Loading filters..." first, then "Slot #1 —
+  // Calculating matches...", then the eligible-match count. Wait once for the
+  // page as a whole to stop loading, not per event.
+  await settle(page,deadline,seconds,()=>titlesStillLoading());
   const issues=[],matched=new Map(),byTitle=new Map();
   for(const s of sessions){const t=s.title.trim();if(!byTitle.has(t))byTitle.set(t,[]);byTitle.get(t).push(s);}
   for(const [title,group] of byTitle){
@@ -222,7 +248,7 @@ async function readPlan(page,input,{guard=null}={}){
   // | Room" holds the expander, and the slots aren't on the page until it's
   // opened. Whether Ashby shows them expanded depends on per-user UI state, so
   // collapsed events are expanded here, under the safeguards in expandEvents.
-  if(placed.some(s=>!matched.get(s).slots))await expandEvents(page,byTitle,matched,blocksFor,guard);
+  if(placed.some(s=>!matched.get(s).slots))await expandEvents(page,byTitle,matched,blocksFor,guard,{deadline,seconds,titlesStillLoading});
   // Every unsupported slot is reported at once, not just the first.
   const read=[],refused=[];
   for(const s of sessions){try{read.push({...s,...parseAssignment(matched.get(s).text,s.title)});}catch(e){if(e.status!==409)throw e;refused.push(e.message);}}

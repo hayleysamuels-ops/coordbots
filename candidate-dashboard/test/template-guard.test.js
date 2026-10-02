@@ -98,7 +98,7 @@ test('an "Interviewers" control that is a submit button, a form field or plain t
   for(const [expander,pattern] of [
     ['<form><button class="exp">Interviewers</button></form>',/would submit a form/],
     ['<span class="exp">Interviewers</span>',/isn't a link or button \(span\)/],
-    ['<span class="exp" aria-label="Interviewers"><svg></svg></span>',/it has no "Interviewers" control\. The row holds: input "15"; span\[label="Interviewers"\] ""; svg ""; a\[href=\/schedules\/s1\/template\/events\] "Room"; span "Welcome"\./],
+
     ['<a class="exp" href="/jobs/elsewhere">Interviewers</a>',/leaves this template \(\/jobs\/elsewhere\)/],
   ]){
     const r=await read(t,templateHtml({expander}));if(!r)return;
@@ -107,6 +107,28 @@ test('an "Interviewers" control that is a submit button, a form field or plain t
     assert.equal(r.clicks,0,expander);
     assert.match(r.logs.join('\n')+'\n'+r.warnings.join('\n'),/"Welcome" has no slots on the page; its stretch reads: Welcome \| min \| Configure:/,expander);
   }
+});
+
+test('with no slot and no "Interviewers" control, nothing is clicked and the row is logged',async t=>{
+  const r=await read(t,templateHtml({expander:'<span class="exp" aria-label="Interviewers"><svg></svg></span>'}));if(!r)return;
+  assert.match(r.error?.message||'',/^"Welcome": its interviewer section loaded, but no interviewer slot is on the page and there's no "Interviewers" control to show one\. Nothing was clicked\./);
+  assert.equal(r.clicks,0);
+  assert.match(r.warnings.join('\n'),/it has no "Interviewers" control\. The row holds: input "15"; span\[label="Interviewers"\] ""; svg ""; a\[href=\/schedules\/s1\/template\/events\] "Room"; span "Welcome"/);
+});
+
+test('slots that load late are waited for once, page-wide, then read with no click',async t=>{
+  const event=(title,minutes,name)=>`<div class="row"><button type="button"><span>${title}</span></button><input type="number" value="${minutes}"><span>min</span><span>Configure</span><button type="button"><span>Room</span></button></div>
+    <section class="s"><h4>Interviewers <span>1</span></h4><div class="body">Loading filters...</div></section>`;
+  const slot=name=>`<div>Slot #1 —</div><div>1 Eligible Match</div><div>Specific Employees:</div><div>1 Employees</div><div>${name}</div><button type="button">Add Interviewer Slot</button>`;
+  const html=`<!doctype html><h2>Events</h2><div>${event('Welcome',15)}${event('Lunch',30)}</div>
+    <script>window.clicks=0;document.addEventListener('click',()=>window.clicks++,true);const b=[...document.querySelectorAll('.body')];
+    setTimeout(()=>b.forEach(x=>x.innerHTML='<div>Slot #1 —</div><div>Calculating matches...</div>'),1500);
+    setTimeout(()=>{b[0].innerHTML=${JSON.stringify(slot('Pat Doe'))};b[1].innerHTML=${JSON.stringify(slot('Sam Roe'))};},3000);</script>`;
+  const started=Date.now(),r=await read(t,html);if(!r)return;
+  assert.equal(r.error,undefined,r.error?.message);
+  assert.deepEqual(r.ok.sessions.map(s=>s.eligibleInterviewers[0].name),['Pat Doe','Sam Roe']);
+  assert.equal(r.clicks,0);
+  assert.ok(Date.now()-started<15000);
 });
 
 test('WebSockets are held closed',async t=>{

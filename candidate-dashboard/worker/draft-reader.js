@@ -52,8 +52,11 @@ function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSan
           if(!bound)fail(409,'The Ashby draft belongs to a different candidate or application.');
         }
         if(mode==='plan'){
+          // The whole plan read, page opening included, fits inside the dashboard's
+          // 90-second request timeout for it (booking-worker-client.js).
+          const planDeadline=Date.now()+80000;
           await open('/template/events');
-          return {...await require('./plan-reader').readPlan(page,input,{guard}),scheduleId:input.scheduleId,applicationId:input.applicationId,candidateId:input.candidateId,checkedAt:now()};
+          return {...await require('./plan-reader').readPlan(page,input,{guard,budgetMs:Math.max(15000,planDeadline-Date.now())}),scheduleId:input.scheduleId,applicationId:input.applicationId,candidateId:input.candidateId,checkedAt:now()};
         }
         if(mode==='availability'){
           await open('/candidate-availability');
