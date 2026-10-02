@@ -1,55 +1,137 @@
 'use strict';
+// Reads a candidate's submitted availability from Ashby's Candidate
+// Availability page, one week at a time, for six weeks.
+//
+// The grid, as measured on the live page (October 2, 2026). Class names are
+// "_<name>_<build hash>_<n>" and the hash changes with every build, so
+// everything here matches by prefix ("_grid_", "_column_", ...) or by role,
+// never by a full class name:
+//   _grid_ > _headerRow_ (day headers: "Sun 27", dated from the week picker)
+//          > button._expander_          "Show 12 AM – 6 AM" / "Hide …"
+//          > _bodyRow_ > _body_ > _column_[role=group] ×7
+//                aria-label "Availability for Thursday Oct 8"
+//                > _block_ per submitted window,
+//                  aria-label "Thursday Oct 8 11:00 AM – 5:00 PM",
+//                  with its own Remove button (never clicked)
+//          > button._expander_._bottom_ "Show 8 PM – 12 AM" / "Hide …"
+// Each week opens collapsed to 6 AM–8 PM. Both expanders are clicked first
+// (only while they say "Show", under the write guard) so no window is hidden.
+//
+// The hour scale is 48px an hour and linear: every interior hour label sits
+// exactly on the line. The first and last labels are clamped 8px inward,
+// which is why 6 AM–7 AM measured 40px; once 8 PM stopped being the last label
+// it moved exactly onto its line. So positions come from the column (height
+// divided by the hours shown), never from the edge labels.
+//
+// A window's times come from the block's own label. Its position in the
+// column must agree with them, or the read refuses: a misread scale would
+// otherwise shift every window by the same amount and still look consistent.
 const {instant}=require('../src/scheduling/booking-planner');
 const fail=message=>{throw Object.assign(Error(message),{status:409});};
-function parseGrid({timezone,columns}){
-  try{if(!timezone)throw Error();new Intl.DateTimeFormat('en-US',{timeZone:timezone}).format();}catch(_){fail('The availability display timezone could not be verified.');}
-  if(!Array.isArray(columns)||columns.length!==7)fail('The availability week could not be read completely.');
-  const windows=[];
-  for(const column of columns){
-    if(!/^\d{4}-\d{2}-\d{2}$/.test(column.date)||column.selected.length!==96||column.selected.some(v=>typeof v!=='boolean'))fail('The availability grid layout changed. Review it in Ashby.');
-    const wall=quarter=>{if(quarter===96)return new Date(Date.parse(column.date+'T12:00:00Z')+86400000).toISOString().slice(0,10)+'T00:00';return column.date+'T'+String(Math.floor(quarter/4)).padStart(2,'0')+':'+String(quarter%4*15).padStart(2,'0');};
-    for(let i=0;i<96;i++){if(!column.selected[i])continue;const start=i;while(i+1<96&&column.selected[i+1])i++;windows.push({start:new Date(instant(wall(start),timezone)).toISOString(),end:new Date(instant(wall(i+1),timezone)).toISOString()});}
-  }
-  return {timezone,windows,start:columns[0].date,end:columns[6].date};
+const POSITION_TOLERANCE_PX=3; // a block is drawn 1px short of its height for its border
+
+// In the page. Ready once the grid has its 7 day columns and nothing is loading.
+function gridReady(){
+  const grid=[...document.querySelectorAll('div')].find(e=>[...e.classList].some(c=>c.startsWith('_grid_'))&&e.getBoundingClientRect().width);
+  if(!grid||/Loading|Fetching/.test(grid.innerText||''))return false;
+  return [...grid.querySelectorAll('[role=group]')].filter(e=>[...e.classList].some(c=>c.startsWith('_column_'))).length===7;
 }
-// What the page holds under the day headers, for the refusal and the worker log:
-// what's there, not only what's missing. For the first and last day of the week
-// (a past day may render differently from a future one) it reports:
-//   - the header's own element and its parents;
-//   - the column, the smallest ancestor of the header reaching well below it:
-//     its child count and the child element types and classes;
-//   - every element under the header's centre line, by type and class, any size;
-//   - leaf boxes of cell size (4-40px tall) there, and their background colours.
-function describeGrid(){
+
+// In the page. Returns the week's days and blocks, or {error} saying exactly
+// what didn't match. Self-contained: Playwright runs it by its source.
+function collectBlocks(){
+  const pre=(e,n)=>[...e.classList].some(c=>c.startsWith(`_${n}_`));
+  const DAYS=['SUN','MON','TUE','WED','THU','FRI','SAT'],MONTHS=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+  const iso=ms=>new Date(ms).toISOString().slice(0,10);
+  const grid=[...document.querySelectorAll('div')].find(e=>pre(e,'grid')&&e.getBoundingClientRect().width);
+  if(!grid)return {error:'there is no availability grid on the page'};
   const leaves=[...document.querySelectorAll('*')].filter(e=>e.children.length===0&&e.getBoundingClientRect().width);
-  const headerEls=leaves.filter(e=>/^(SUN|MON|TUE|WED|THU|FRI|SAT)\b/i.test(e.textContent.trim()));
-  const headers=headerEls.map(e=>e.textContent.trim());
-  const zones=[...new Set(leaves.map(e=>e.textContent.trim()).filter(t=>/^[A-Za-z_]+\/[A-Za-z_]+(?:[ /][A-Za-z_]+)*$/.test(t)))];
-  const picker=document.querySelector('input[placeholder="Set date to view..."]')?.value||'none';
-  const name=e=>{const c=(e.getAttribute('class')||'').trim().split(/\s+/).filter(Boolean).slice(0,2).join('.');const role=e.getAttribute('role');return e.tagName.toLowerCase()+(c?'.'+c:'')+(role?`[role=${role}]`:'');};
-  const tally=list=>{const m=new Map();for(const e of list){const k=name(e);m.set(k,(m.get(k)||0)+1);}return [...m].sort((a,b)=>b[1]-a[1]).slice(0,8).map(([k,n])=>`${k} ×${n}`).join(', ')||'none';};
-  const under=el=>{
-    const h=el.getBoundingClientRect(),cx=h.x+h.width/2;
-    const chain=[];for(let e=el,k=0;e&&k<4;e=e.parentElement,k++)chain.push(name(e));
-    let column=el;while(column.parentElement&&column.getBoundingClientRect().bottom<h.bottom+h.height*3)column=column.parentElement;
-    const below=[...document.querySelectorAll('body *')].filter(e=>{const r=e.getBoundingClientRect();return r.top>=h.bottom&&r.width>0&&r.left<=cx&&r.right>=cx;});
-    const cellish=below.filter(e=>{const r=e.getBoundingClientRect();return r.height>=4&&r.height<=40&&!e.querySelector('*');});
-    const fills=new Map();for(const c of cellish){const f=getComputedStyle(c).backgroundColor;fills.set(f,(fills.get(f)||0)+1);}
-    return `"${el.textContent.trim()}": header ${chain.join(' < ')}; column ${name(column)} with ${column.children.length} children (${tally([...column.children])}) and ${column.querySelectorAll('*').length} descendants; ${below.length} elements below its centre (${tally(below)}); ${cellish.length} cell-sized leaves${cellish.length?` (fills ${[...fills].map(([f,n])=>`${f} ×${n}`).join(', ')})`:''}`;
-  };
-  const days=headerEls.length?[...new Set([headerEls[0],headerEls[headerEls.length-1]])].map(under).join(' | '):'no day header to measure under';
-  const slices=[...document.querySelectorAll('[class*="_slice_"]')].filter(e=>e.getBoundingClientRect().width>0).length;
-  return `${headers.length} day header${headers.length===1?'':'s'} (${headers.slice(0,8).join(', ')||'none'}); week picker shows "${picker}"; timezone labels: ${zones.join(', ')||'none'}; ${slices} cells with the class the reader expects; under the headers: ${days}`;
+  const zones=[...new Set(leaves.map(e=>e.textContent.trim()).filter(t=>/^[A-Za-z_]+\/[A-Za-z_]+(?:[ /][A-Za-z_]+)*$/.test(t)).map(t=>t.replace(/ /g,'_')))];
+  if(zones.length!==1)return {error:`expected one timezone label, found ${zones.length?zones.join(', '):'none'}`};
+  // Day headers: "Sun 27" dated from the week picker ("Sep 27, 2026"), or the
+  // older "SUN 9/27/2026". Each must match its weekday, and the seven must be
+  // consecutive days.
+  let picked=null;
+  const p=(document.querySelector('input[placeholder="Set date to view..."]')?.value||'').trim().match(/^([A-Za-z]{3})[a-z]*\.? (\d{1,2}), (\d{4})$/);
+  if(p&&MONTHS.includes(p[1].toLowerCase()))picked=Date.UTC(Number(p[3]),MONTHS.indexOf(p[1].toLowerCase()),Number(p[2]),12);
+  const found=leaves.filter(e=>grid.contains(e)).map(e=>({e,m:e.textContent.trim().match(/^(SUN|MON|TUE|WED|THU|FRI|SAT)\s+(?:(\d{1,2})\/(\d{1,2})\/(\d{4})|(\d{1,2}))$/i)})).filter(x=>x.m).sort((a,b)=>a.e.getBoundingClientRect().x-b.e.getBoundingClientRect().x);
+  if(found.length!==7)return {error:`expected 7 day headers, found ${found.length}`};
+  const dates=[];
+  for(const {m} of found){
+    const weekday=DAYS.indexOf(m[1].toUpperCase());
+    if(m[2]){const ms=Date.UTC(Number(m[4]),Number(m[2])-1,Number(m[3]),12);if(new Date(ms).getUTCDay()!==weekday)return {error:`the header "${m[0]}" isn't that weekday`};dates.push(iso(ms));continue;}
+    if(picked===null)return {error:'the week picker\'s date could not be read, so the day headers can\'t be dated'};
+    const matches=[];for(let d=-7;d<=7;d++){const t=new Date(picked+d*86400000);if(t.getUTCDate()===Number(m[5])&&t.getUTCDay()===weekday)matches.push(iso(t.getTime()));}
+    if(matches.length!==1)return {error:`the header "${m[0]}" doesn't match the week picker (${p?p[0]:'none'})`};
+    dates.push(matches[0]);
+  }
+  for(let i=1;i<7;i++)if(Date.parse(dates[i])-Date.parse(dates[i-1])!==86400000)return {error:`the day headers aren't consecutive days (${dates.join(', ')})`};
+  // Hour labels down the side, outside the day columns.
+  const columns=[...grid.querySelectorAll('[role=group]')].filter(e=>pre(e,'column')).sort((a,b)=>a.getBoundingClientRect().x-b.getBoundingClientRect().x);
+  if(columns.length!==7)return {error:`expected 7 day columns, found ${columns.length}`};
+  const hour=t=>{const m=t.match(/^(\d{1,2})\s*(AM|PM)$/i);return m?Number(m[1])%12+(m[2].toUpperCase()==='PM'?12:0):null;};
+  const labels=[...grid.querySelectorAll('*')].filter(e=>e.children.length===0&&!columns.some(c=>c.contains(e))&&hour((e.textContent||'').trim())!==null)
+    .map(e=>({h:hour(e.textContent.trim()),y:e.getBoundingClientRect().top})).sort((a,b)=>a.y-b.y);
+  if(labels.length<3)return {error:`expected hour labels beside the columns, found ${labels.length}`};
+  const startHour=labels[0].h,endHour=labels.at(-1).h===0&&labels.length>1?24:labels.at(-1).h;
+  const colHeight=columns[0].getBoundingClientRect().height,pxPerHour=colHeight/(endHour-startHour);
+  // Linearity, measured rather than assumed: interior labels must be exactly
+  // one hour apart at the column's scale. The end labels are clamped inward.
+  const inner=labels.slice(1,-1);
+  for(let i=1;i<inner.length;i++){if(inner[i].h-inner[i-1].h!==1||Math.abs(inner[i].y-inner[i-1].y-pxPerHour)>1)return {error:`the hour scale isn't linear: ${inner[i-1].h}:00 to ${inner[i].h}:00 is ${Math.round(inner[i].y-inner[i-1].y)}px, against ${pxPerHour.toFixed(1)}px an hour from the column`};}
+  const days=columns.map((c,i)=>{
+    const r=c.getBoundingClientRect();
+    const blocks=[...c.querySelectorAll('*')].filter(e=>pre(e,'block')).map(b=>{const br=b.getBoundingClientRect();
+      return {label:(b.getAttribute('aria-label')||b.innerText||'').replace(/\s+/g,' ').trim(),top:br.top-r.top,height:br.height};});
+    return {date:dates[i],label:c.getAttribute('aria-label')||'',height:r.height,blocks};
+  });
+  return {timezone:zones[0],startHour,endHour,pxPerHour,days};
 }
-// The current grid, found by class-name prefix only: Ashby's class names are
-// "_column_<build hash>_<n>", and the hash changes with every build.
-//   _grid_ > _headerRow_ (day headers)
-//          > button._expander_          (top: earlier hours?)
-//          > _bodyRow_ > _body_ > _column_[role=group] ×7 (one per day)
-//          > button._expander_._bottom_ (bottom: later hours?)
-// What marks a selected time inside a column isn't known yet, so this measures
-// it: every element in each day column with its position in the column, fill,
-// text and labels, plus the hour labels beside the columns and the expanders.
+
+// In Node. Turns one week's collected blocks into windows, checking each
+// block's label against its day and against its position in the column.
+function parseBlocks({timezone,startHour,endHour,pxPerHour,days}){
+  try{if(!timezone)throw Error();new Intl.DateTimeFormat('en-US',{timeZone:timezone}).format();}catch(_){fail('The availability display timezone could not be verified.');}
+  if(!Array.isArray(days)||days.length!==7)fail('The availability week could not be read completely.');
+  if(startHour!==0||endHour!==24)fail(`The availability grid showed only ${startHour}:00 to ${endHour}:00 after its hours were expanded, so windows outside that range could be missing.`);
+  const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],WEEKDAYS=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const minutes=(h,m,ap)=>{let x=Number(h)%12+(ap.toUpperCase()==='PM'?12:0);return x*60+Number(m);};
+  const wall=(date,mins)=>mins===1440?new Date(Date.parse(date+'T12:00:00Z')+86400000).toISOString().slice(0,10)+'T00:00':`${date}T${String(Math.floor(mins/60)).padStart(2,'0')}:${String(mins%60).padStart(2,'0')}`;
+  const windows=[];
+  for(const day of days){
+    const d=new Date(day.date+'T12:00:00Z'),name=`${WEEKDAYS[d.getUTCDay()]} ${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`;
+    if(day.label&&!day.label.endsWith(name))fail(`The availability column "${day.label}" doesn't match its header date (${day.date}).`);
+    for(const b of day.blocks){
+      const m=b.label.match(/^(?:(\w+) (\w{3}) (\d{1,2}) )?(\d{1,2}):(\d{2}) (AM|PM) [–-] (\d{1,2}):(\d{2}) (AM|PM)/i);
+      if(!m)fail(`An availability block on ${name} couldn't be read ("${b.label.slice(0,60)}").`);
+      if(m[1]&&`${m[1]} ${m[2]} ${Number(m[3])}`!==name)fail(`An availability block in ${name}'s column is labelled for ${m[1]} ${m[2]} ${m[3]}.`);
+      const start=minutes(m[4],m[5],m[6]);let end=minutes(m[7],m[8],m[9]);if(end===0)end=1440;
+      if(end<=start)fail(`An availability block on ${name} ends before it starts ("${b.label.slice(0,60)}").`);
+      const top=(start/60-startHour)*pxPerHour,height=(end-start)/60*pxPerHour;
+      if(Math.abs(b.top-top)>POSITION_TOLERANCE_PX||Math.abs(b.height-height)>POSITION_TOLERANCE_PX)
+        fail(`An availability block on ${name} is labelled "${b.label.slice(0,60)}" but drawn at ${Math.round(b.top)}px, ${Math.round(b.height)}px tall, where that time would be ${Math.round(top)}px, ${Math.round(height)}px tall. The grid may have changed; check it in Ashby.`);
+      windows.push({start:new Date(instant(wall(day.date,start),timezone)).toISOString(),end:new Date(instant(wall(day.date,end),timezone)).toISOString()});
+    }
+  }
+  return {timezone,windows,start:days[0].date,end:days[6].date};
+}
+
+// What the page holds under the day headers when a week can't be read, for the
+// worker log. Class names are reduced to their prefix name ("_column_sochl_142"
+// becomes "column"), so no build hash reaches the log or Step 3.
+function describeGrid(){
+  const short=e=>[...e.classList].map(c=>c.match(/^_([A-Za-z]+)_/)?.[1]||c).slice(0,2).join('.');
+  const name=e=>{const c=short(e),role=e.getAttribute('role');return e.tagName.toLowerCase()+(c?'.'+c:'')+(role?`[role=${role}]`:'');};
+  const leaves=[...document.querySelectorAll('*')].filter(e=>e.children.length===0&&e.getBoundingClientRect().width);
+  const headers=leaves.map(e=>e.textContent.trim()).filter(t=>/^(SUN|MON|TUE|WED|THU|FRI|SAT)\b/i.test(t));
+  const grid=[...document.querySelectorAll('div')].find(e=>[...e.classList].some(c=>c.startsWith('_grid_'))&&e.getBoundingClientRect().width);
+  const picker=document.querySelector('input[placeholder="Set date to view..."]')?.value||'none';
+  return `${headers.length} day header${headers.length===1?'':'s'} (${headers.slice(0,8).join(', ')||'none'}); week picker shows "${picker}"; ${grid?`grid ${name(grid)} with children ${[...grid.children].map(name).join(', ')}`:'no grid'}`;
+}
+
+// In the page. Every element in each day column with its position, fill, text
+// and labels, plus the hour labels and expanders. Logged when a week can't be
+// read, so the next fix starts from the markup.
 function measureGrid(){
   const pre=(e,name)=>[...e.classList].some(c=>c.startsWith(`_${name}_`));
   const names=e=>[...e.classList].map(c=>c.match(/^_([A-Za-z]+)_/)?.[1]||c).join('.');
@@ -59,7 +141,6 @@ function measureGrid(){
   const g=grid.getBoundingClientRect();
   const labelOf=e=>[e.getAttribute('aria-label'),e.getAttribute('title'),e.getAttribute('aria-expanded')!==null?`expanded=${e.getAttribute('aria-expanded')}`:null].filter(Boolean).join(' ');
   const expanders=[...grid.querySelectorAll('button')].filter(e=>pre(e,'expander')).map(b=>`button.${names(b)} "${(b.innerText||'').replace(/\s+/g,' ').trim().slice(0,40)}"${labelOf(b)?` [${labelOf(b)}]`:''}${b.disabled?' disabled':''}`);
-  // Hour labels: short time-like text inside the grid but outside the day columns.
   const times=[...grid.querySelectorAll('*')].filter(e=>e.children.length===0&&!columns.some(c=>c.contains(e))&&/^\d{1,2}(:\d{2})?\s*(AM|PM|am|pm)?$|^\d{1,2}\s*(AM|PM|am|pm)$/.test((e.textContent||'').trim()))
     .map(e=>`${e.textContent.trim()}@${Math.round(e.getBoundingClientRect().top-g.top)}`);
   const day=c=>{
@@ -70,69 +151,39 @@ function measureGrid(){
   };
   return `${columns.length} day columns; hour labels: ${times.join(', ')||'none found'}; expanders: ${expanders.join(' | ')||'none'}; columns: ${columns.map(day).join(' || ')}`;
 }
-function collectGrid(){
-  const leaves=[...document.querySelectorAll('*')].filter(e=>e.children.length===0&&e.getBoundingClientRect().width);
-  // Day headers come in two forms. The older "SUN 9/27/2026" carries its own
-  // date. The current "Sun 27" carries only the day of the month, so its date
-  // comes from the week picker ("Sep 27, 2026"): each header takes the one date
-  // within a week of the picker whose day of the month and weekday both match,
-  // and the seven must then be consecutive days. Anything else is unreadable.
-  const DAYS=['SUN','MON','TUE','WED','THU','FRI','SAT'],MONTHS=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
-  const found=leaves.map(e=>({e,m:e.textContent.trim().match(/^(SUN|MON|TUE|WED|THU|FRI|SAT)\s+(?:(\d{1,2})\/(\d{1,2})\/(\d{4})|(\d{1,2}))$/i)})).filter(x=>x.m).sort((a,b)=>a.e.getBoundingClientRect().x-b.e.getBoundingClientRect().x);
-  if(found.length!==7)return null;
-  const iso=ms=>new Date(ms).toISOString().slice(0,10);
-  let picked=null;
-  const p=(document.querySelector('input[placeholder="Set date to view..."]')?.value||'').trim().match(/^([A-Za-z]{3})[a-z]*\.? (\d{1,2}), (\d{4})$/);
-  if(p&&MONTHS.includes(p[1].toLowerCase()))picked=Date.UTC(Number(p[3]),MONTHS.indexOf(p[1].toLowerCase()),Number(p[2]),12);
-  const headers=[];
-  for(const {e,m} of found){
-    const weekday=DAYS.indexOf(m[1].toUpperCase());
-    if(m[2]){const ms=Date.UTC(Number(m[4]),Number(m[2])-1,Number(m[3]),12);if(new Date(ms).getUTCDay()!==weekday||new Date(ms).getUTCDate()!==Number(m[3]))return null;headers.push({e,date:iso(ms)});continue;}
-    if(picked===null)return null;
-    const matches=[];for(let d=-7;d<=7;d++){const ms=picked+d*86400000,t=new Date(ms);if(t.getUTCDate()===Number(m[5])&&t.getUTCDay()===weekday)matches.push(ms);}
-    if(matches.length!==1)return null;
-    headers.push({e,date:iso(matches[0])});
-  }
-  for(let i=1;i<7;i++)if(Date.parse(headers[i].date)-Date.parse(headers[i-1].date)!==86400000)return null;
-  const zones=[...new Set(leaves.map(e=>e.textContent.trim()).filter(t=>/^[A-Za-z_]+\/[A-Za-z_]+(?:[ /][A-Za-z_]+)*$/.test(t)).map(t=>t.replace(/ /g,'_')))];
-  if(zones.length!==1)return null;
-  const slices=[...document.querySelectorAll('[class*="_slice_"]')].filter(e=>e.getBoundingClientRect().width>0);
-  const columns=headers.map(({e,date})=>{const x=e.getBoundingClientRect().x,w=e.getBoundingClientRect().width;const cells=slices.filter(s=>{const r=s.getBoundingClientRect();return Math.abs(r.x-x)<2&&Math.abs(r.width-w)<2;}).sort((a,b)=>a.getBoundingClientRect().y-b.getBoundingClientRect().y);return {date,selected:cells.map(s=>[...s.classList].some(c=>c.startsWith('_selected_')))};});
-  if(columns.some(c=>c.selected.length!==96))return null;
-  return {timezone:zones[0],columns};
-}
-// Works out what the two expanders do: each is clicked once, under the write
-// guard, and the hour labels and column heights are measured before and after.
-// Only a button inside the grid whose class starts "_expander_" is clicked:
-// never a form field or submit button, never with an editable field focused.
-// Without the guard nothing is clicked. A blocked write stops the read.
-async function exploreExpanders(page,guard){
-  if(!guard){console.warn('[availability-reader] Expanders not explored: no write guard.');return;}
-  guard.expanding();
+
+// Shows all 24 hours by clicking each expander that still says "Show", under
+// the write guard. Only a button inside the grid whose class starts
+// "_expander_" is clicked: never a block's Remove button, a submit button or
+// a disabled one, never while a field has focus, and never without the guard.
+// Returns null when every hour is showing, or why it couldn't be.
+async function showAllHours(page,guard){
   const editableFocused=()=>{const a=document.activeElement;return !!a&&(a.isContentEditable||['INPUT','SELECT','TEXTAREA'].includes(a.tagName));};
-  const span=()=>{const grid=[...document.querySelectorAll('div')].find(e=>[...e.classList].some(c=>c.startsWith('_grid_'))&&e.getBoundingClientRect().width);if(!grid)return 'no grid';
-    const col=[...grid.querySelectorAll('[role=group]')].find(e=>[...e.classList].some(c=>c.startsWith('_column_')));
-    const t=[...grid.querySelectorAll('*')].filter(e=>e.children.length===0&&!(col&&col.closest('[class*="_body_"]')?.contains(e))&&/^\d{1,2}(:\d{2})?\s*(AM|PM|am|pm)$/.test((e.textContent||'').trim())).map(e=>e.textContent.trim());
-    return `hours ${t[0]||'?'} to ${t.at(-1)||'?'} (${t.length} labels), column height ${col?Math.round(col.getBoundingClientRect().height):'?'}`;};
-  for(const which of ['top','bottom']){
-    const handle=await page.evaluateHandle(which=>{
+  for(let attempt=0;attempt<2;attempt++){
+    const handle=await page.evaluateHandle(()=>{
       const grid=[...document.querySelectorAll('div')].find(e=>[...e.classList].some(c=>c.startsWith('_grid_'))&&e.getBoundingClientRect().width);
-      const buttons=grid?[...grid.querySelectorAll('button')].filter(b=>[...b.classList].some(c=>c.startsWith('_expander_'))):[];
-      const b=buttons.find(b=>[...b.classList].some(c=>c.startsWith('_bottom_'))===(which==='bottom'));
-      if(!b)return 'not found';if(b.disabled)return 'disabled';if(b.form&&b.type==='submit')return 'would submit a form';
+      const b=grid&&[...grid.querySelectorAll('button')].find(b=>[...b.classList].some(c=>c.startsWith('_expander_'))&&/^Show\b/.test((b.innerText||'').trim()));
+      if(!b)return 'none';
+      if(b.disabled)return 'an hour-range expander is disabled';
+      if(b.form&&b.type==='submit')return 'an hour-range expander would submit a form';
       return b;
-    },which);
+    });
     const el=handle.asElement();
-    if(!el){console.warn(`[availability-reader] ${which} expander not clicked: ${await handle.jsonValue()}`);continue;}
-    if(await page.evaluate(editableFocused)){console.warn('[availability-reader] Expanders not explored: a field had focus.');return;}
-    const before=await page.evaluate(span);
-    await el.click({timeout:5000});await page.waitForTimeout(800);
-    if(await page.evaluate(editableFocused)){console.warn(`[availability-reader] Clicking the ${which} expander put the cursor in a field; stopped.`);fail('Reading the availability grid put the cursor in a field, so reading stopped. Nothing was saved: writes are blocked while the page is open.');}
-    console.warn(`[availability-reader] ${which} expander: before ${before}; after ${await page.evaluate(span)}; now measured: ${await page.evaluate(measureGrid)}`);
+    if(!el){const why=await handle.jsonValue();return why==='none'?null:why;}
+    if(!guard)return 'the hidden hours need an expander clicked, and the write guard isn\'t active, so nothing was clicked';
+    if(await page.evaluate(editableFocused))return 'a field had the cursor, so the hour-range expanders weren\'t clicked';
+    const text=(await el.innerText()).trim();
+    guard.expanding();
+    await el.click({timeout:5000});
+    if(await page.evaluate(editableFocused))fail('Showing the availability grid\'s hidden hours put the cursor in a field, so reading stopped. Nothing was saved: writes are blocked while the page is open.');
+    try{await page.waitForFunction(t=>{const grid=[...document.querySelectorAll('div')].find(e=>[...e.classList].some(c=>c.startsWith('_grid_'))&&e.getBoundingClientRect().width);return !!grid&&![...grid.querySelectorAll('button')].some(b=>(b.innerText||'').trim()===t);},text,{timeout:3000});}
+    catch(_){return `clicking "${text}" didn't show those hours`;}
     const blocked=guard.problem();
     if(blocked)fail(`Ashby tried to send a change while the availability grid was being read (${blocked.summary}), and it was blocked. Nothing was saved.`);
   }
+  return null;
 }
+
 async function readAvailability(page,input,{guard=null}={}){
   // Every wait that can run out names what didn't load; none surfaces as the
   // generic "could not read" from the worker.
@@ -143,28 +194,38 @@ async function readAvailability(page,input,{guard=null}={}){
   if(await page.getByRole('checkbox',{name:'Show All Availability?',exact:true}).isChecked())fail('Select availability for this request only.');
   // A week that can't be read is skipped, not fatal: its availability is
   // unknown, and the result says which weeks those are, so "none found" never
-  // covers them. The read fails only if no week at all can be read.
-  const weeks=[],unread=[];let anchor=null,explored=false;
+  // covers them. The read fails only if no week at all can be read. A week
+  // that reads but contradicts itself (a block whose label and position
+  // disagree) fails the whole read: that's a misread, not a gap.
+  const weeks=[],unread=[];let anchor=null;
   for(let week=0;week<6;week++){
     await page.waitForTimeout(1000);
     await step(()=>page.getByText('Fetching...',{exact:true}).waitFor({state:'hidden',timeout:15000}),`Ashby was still fetching week ${week+1} of the availability after 15 seconds. Try again.`);
     const shown=await dateControl.inputValue().catch(()=>'');
+    const skip=async reason=>{console.warn(`[availability-reader] Week ${week+1} (${shown}) not read: ${reason}. Page: ${await page.evaluate(describeGrid).catch(()=>'nothing readable')}`);
+      console.warn(`[availability-reader] Week ${week+1} grid measured: ${await page.evaluate(measureGrid).catch(e=>'measuring failed: '+e.message)}`);
+      unread.push({week:week+1,shown,reason});};
     // 15 seconds for the first week; once a week has failed, 5 for each later
     // one, so six unreadable weeks still finish inside the dashboard's
     // 120-second limit for this read (booking-worker-client.js).
-    let data=null;try{const handle=await page.waitForFunction(collectGrid,null,{timeout:unread.length?5000:15000});data=await handle.jsonValue();}
-    catch(_){const seen=await page.evaluate(describeGrid).catch(()=>'nothing readable');console.warn(`[availability-reader] Week ${week+1} grid unreadable: ${seen}`);
-      console.warn(`[availability-reader] Week ${week+1} grid measured: ${await page.evaluate(measureGrid).catch(e=>'measuring failed: '+e.message)}`);
-      if(!explored){explored=true;await exploreExpanders(page,guard);}
-      unread.push({week:week+1,shown,reason:`The reader needs 7 consecutive day headers ("Sun 27", dated from the week picker), one timezone label and 96 cells per day, and found ${seen}.`});}
-    if(data){
-      const parsed=parseGrid(data);
-      // Weeks advance by exactly seven days from the last one read, so a click
-      // that didn't land can't pass for the next week.
-      const expected=anchor&&new Date(Date.parse(anchor.start+'T12:00:00Z')+7*(week-anchor.week)*86400000).toISOString().slice(0,10);
-      if(expected&&parsed.start!==expected)fail('The availability week did not finish changing.');
-      if(weeks.length&&parsed.timezone!==weeks[0].timezone)fail('The availability timezone changed while reading.');
-      weeks.push(parsed);anchor={start:parsed.start,week};
+    let ready=true;try{await page.waitForFunction(gridReady,null,{timeout:unread.length?5000:15000});}catch(_){ready=false;}
+    if(!ready)await skip('its grid of 7 day columns didn\'t load');
+    else{
+      const hidden=await showAllHours(page,guard);
+      if(hidden)await skip(hidden);
+      else{
+        const data=await page.evaluate(collectBlocks);
+        if(data.error)await skip(data.error);
+        else{
+          const parsed=parseBlocks(data);
+          // Weeks advance by exactly seven days from the last one read, so a click
+          // that didn't land can't pass for the next week.
+          const expected=anchor&&new Date(Date.parse(anchor.start+'T12:00:00Z')+7*(week-anchor.week)*86400000).toISOString().slice(0,10);
+          if(expected&&parsed.start!==expected)fail('The availability week did not finish changing.');
+          if(weeks.length&&parsed.timezone!==weeks[0].timezone)fail('The availability timezone changed while reading.');
+          weeks.push(parsed);anchor={start:parsed.start,week};
+        }
+      }
     }
     if(week===5)break;
     const old=await dateControl.inputValue();
@@ -173,8 +234,8 @@ async function readAvailability(page,input,{guard=null}={}){
     await page.locator('button').nth(nextIndex).click();
     await step(()=>page.waitForFunction(old=>document.querySelector('input[placeholder="Set date to view..."]')?.value!==old,old,{timeout:5000}),`The availability page didn't move to week ${week+2} within 5 seconds. Try again.`);
   }
-  if(!weeks.length)fail(`None of the 6 weeks of submitted availability could be read, so it isn't known whether the candidate has any. Week 1: ${unread[0].reason}`);
+  if(!weeks.length)fail(`None of the 6 weeks of submitted availability could be read, so it isn't known whether the candidate has any. Week 1 (${unread[0].shown||'first week'}): ${unread[0].reason}.`);
   return {complete:true,timezone:weeks[0].timezone,windows:weeks.flatMap(w=>w.windows),scope:{start:weeks[0].start,end:weeks.at(-1).end},
     unreadWeeks:unread.map(({week,shown})=>({week,shown})),notes:'',bookingEnabled:false};
 }
-module.exports={readAvailability,parseGrid,collectGrid,describeGrid,measureGrid,exploreExpanders};
+module.exports={readAvailability,parseBlocks,collectBlocks,gridReady,showAllHours,describeGrid,measureGrid};
