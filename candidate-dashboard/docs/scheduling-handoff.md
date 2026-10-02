@@ -299,6 +299,27 @@ done and verified, in this order:
   - **Matcher text split across lines:** Ashby renders "All are true:" as "All"
     and "are true:" on separate lines. These are joined before the matcher type
     is checked, so an "Any are true" matcher can't slip past the refusal.
+- **A slot can list someone Ashby no longer counts as eligible** (October 2,
+  2026).
+  - **What happened:** on the Applied AI Engineer onsite, Lunch read 4 names
+    against "3 Eligible Matches" and both One on Ones read 6 against 5. The
+    extra names were real people, not controls or alternates; the slot text
+    marks nobody differently. Each slot lists one more person ("4 Employees",
+    "6 Employees") than Ashby counts. The one listed in all three is Patrick Lii,
+    whose Ashby account is deactivated (`isEnabled: false`).
+  - **Worker:** the names read must equal the slot's own "N Employees". When
+    they outnumber "N Eligible Matches", every name goes on with Ashby's count.
+  - **Dashboard:** `excludeDeactivated` in `booking-facts.js` runs in
+    `/full-plan`, before anything uses the plan. It looks each name up in
+    Ashby's directory, including deactivated accounts, and drops a name whose
+    only accounts are deactivated. The active people left must equal Ashby's
+    count exactly. A name with no account, two active accounts, or a count still
+    off refuses, naming who was read.
+  - **In Step 2:** the plan shows "Listed in Ashby but not eligible: Patrick Lii
+    (deactivated in Ashby)".
+  - **Still not detected:** alternates. Other reasons Ashby might exclude a
+    listed person (such as a paused interviewer) would refuse rather than be
+    guessed at.
 - **Step 2 expands collapsed events, under a write guard** (October 1, 2026). The
   template editor is a live client's configuration, and this is the first part
   of the system that interacts with a write-capable page.

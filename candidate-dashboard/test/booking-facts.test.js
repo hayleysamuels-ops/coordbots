@@ -19,3 +19,25 @@ test('direct application lookup loads active current plan without an issue-list 
 
 test('changed interviewer limits invalidate the source fingerprint',async()=>{const s=setup();const a=await s.reader.load(input);assert.equal(a.interviewerLimits.dailyLimit,2);s.data['user.interviewerSettings'].dailyLimit=1;assert.notEqual(a.sourceFingerprint,(await s.reader.load(input)).sourceFingerprint);s.data['user.interviewerSettings']={};await assert.rejects(()=>s.reader.load(input),/limits could not be verified/);});
 test('interviewer directory pagination resolves exact unique identities and rejects duplicate names',async()=>{let ambiguous=false;const reader=createBookingFacts({key:'key',clientId:'client',request:async(url,options)=>{const body=JSON.parse(options.body);return {ok:true,json:async()=>({success:true,results:body.cursor==='start'?[{id:id(10),firstName:'Mary',lastName:'Petrino',email:'mary@example.com',isEnabled:true}]:ambiguous?[{id:id(11),firstName:'Mary',lastName:'Petrino',email:'other@example.com',isEnabled:true}]:[],moreDataAvailable:body.cursor==='start',nextCursor:body.cursor==='start'?'next':undefined})};}});const sessions=[{assignmentVerified:true,eligibleInterviewers:[{name:'Mary Petrino'}]}];assert.equal((await reader.resolveInterviewers(sessions)).interviewers[0].email,'mary@example.com');ambiguous=true;await assert.rejects(reader.resolveInterviewers(sessions),/uniquely/);});
+
+// Luminai's Lunch slot lists four people and Ashby counts three eligible:
+// Patrick Lii's account is deactivated. He's dropped; the count holds exactly.
+test('a listed interviewer with only a deactivated account is excluded, and the eligible count must then match exactly',async()=>{
+  const people=[['Upasna','Madhok',true],['Patrick','Lii',false],['Kathryn','Wicks',true],['Ariel','Perez Chavez',true]];
+  let directory=people,calls=[];
+  const reader=createBookingFacts({key:'key',clientId:'client',request:async(url,options)=>{const body=JSON.parse(options.body);calls.push(body);
+    return {ok:true,json:async()=>({success:true,results:directory.filter(p=>body.includeDeactivated||p[2]).map(([firstName,lastName,isEnabled],i)=>({id:id(20+i),firstName,lastName,email:`${firstName}@example.com`,isEnabled})),moreDataAvailable:false})};}});
+  const lunch=(eligibleCount,names=people.map(p=>`${p[0]} ${p[1]}`))=>[{title:'Lunch',assignmentVerified:true,eligibleCount,eligibleInterviewers:names.map(name=>({name}))}];
+  const [s]=await reader.excludeDeactivated(lunch(3));
+  assert.deepEqual(s.eligibleInterviewers.map(p=>p.name),['Upasna Madhok','Kathryn Wicks','Ariel Perez Chavez']);
+  assert.deepEqual(s.excludedInterviewers,[{name:'Patrick Lii',reason:'deactivated in Ashby'}]);
+  assert.equal(s.eligibleCount,undefined);
+  assert.equal(calls[0].includeDeactivated,true);
+  // Not loosened: if the active people still don't equal Ashby's count, refuse.
+  await assert.rejects(reader.excludeDeactivated(lunch(2)),/"Lunch": Ashby shows 2 eligible but 3 of the listed interviewers are active \(Upasna Madhok, Kathryn Wicks, Ariel Perez Chavez; Patrick Lii is deactivated in Ashby\)/);
+  // A listed name with no account at all is never silently dropped.
+  await assert.rejects(reader.excludeDeactivated(lunch(3,['Upasna Madhok','Kathryn Wicks','Ariel Perez Chavez','Nobody Here'])),/Nobody Here is listed in the interviewer slot but has no Ashby account/);
+  // Sessions whose counts already agreed are untouched, with no directory call.
+  calls=[];const plain=[{title:'Welcome',assignmentVerified:true,eligibleInterviewers:[{name:'Upasna Madhok'}]}];
+  assert.deepEqual(await reader.excludeDeactivated(plain),plain);assert.equal(calls.length,0);
+});

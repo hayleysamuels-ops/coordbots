@@ -82,7 +82,7 @@
     try{const plan=await api('/full-plan',{applicationId,scheduleId});clearInterval(clock);if(version!==fullPlanVersion||session!==sessionVersion||!credentials)return;
       const minutes=plan.sessions.reduce((n,s)=>n+s.durationMinutes,0);
       $('full-plan-status').textContent=`${plan.sessions.length} interviews · ${Math.floor(minutes/60)}h ${minutes%60}m · Interviewers from the linked Ashby template. Calendars have not been checked.`;
-      $('full-plan').innerHTML='<table><thead><tr><th>Interview</th><th>Duration</th><th>Eligible interviewers</th></tr></thead><tbody>'+plan.sessions.map(s=>`<tr><td>${esc(s.title)}</td><td>${s.durationMinutes} min</td><td>${s.eligibleInterviewers.map(i=>esc(i.name)).join(', ')}${s.eligibleInterviewers.length>1?' (choose one)':' (fixed)'}</td></tr>`).join('')+'</tbody></table>';
+      $('full-plan').innerHTML='<table><thead><tr><th>Interview</th><th>Duration</th><th>Eligible interviewers</th></tr></thead><tbody>'+plan.sessions.map(s=>`<tr><td>${esc(s.title)}</td><td>${s.durationMinutes} min</td><td>${s.eligibleInterviewers.map(i=>esc(i.name)).join(', ')}${s.eligibleInterviewers.length>1?' (choose one)':' (fixed)'}${(s.excludedInterviewers||[]).length?`<br><span class="sched-excluded">Listed in Ashby but not eligible: ${s.excludedInterviewers.map(x=>`${esc(x.name)} (${esc(x.reason)})`).join(', ')}</span>`:''}</td></tr>`).join('')+'</tbody></table>';
     }catch(e){clearInterval(clock);if(version===fullPlanVersion&&session===sessionVersion)$('full-plan-status').textContent=e.message;}
   }
   $('reload-full-plan').onclick=loadFullPlan;

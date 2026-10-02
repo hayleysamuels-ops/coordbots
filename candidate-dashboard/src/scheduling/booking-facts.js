@@ -60,18 +60,48 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
     if(!stage)fail(409,'The current interview stage could not be found.');
     return {applicationId:a.id,candidateId:a.candidate?.id,stageId:stage.id,templateRevision:digest(stage),candidateName:a.candidate?.name,jobTitle:a.job.title,activities:(stage.activities||[]).map(activity=>({id:activity.id,title:activity.title,sessions:(activity.interviews||[]).filter(i=>i.isSchedulable===true).map(i=>({sessionId:i.id,interviewId:i.interviewId,title:i.title,durationMinutes:i.interviewDurationMinutes}))})).filter(a=>a.sessions.length)};
   }
-  async function resolveInterviewers(sessions) {
-    if(!Array.isArray(sessions)||!sessions.length||sessions.some(s=>s.assignmentVerified!==true||!s.eligibleInterviewers?.length))fail(422,'Load the verified interviewer lists first.');
+  async function listUsers(includeDeactivated){
     const users=[],cursors=new Set();let cursor='start';
     while(cursor){
-      const page=await read('user.list',{cursor,limit:100,includeDeactivated:false},true);
+      const page=await read('user.list',{cursor,limit:100,includeDeactivated},true);
       if(!Array.isArray(page.results))fail(503,'The interviewer directory could not be read.');
       users.push(...page.results);
       cursor=page.moreDataAvailable?page.nextCursor:null;
       if(page.moreDataAvailable&&(!cursor||cursors.has(cursor)))fail(503,'The interviewer directory is incomplete.');
       cursors.add(cursor);if(cursors.size>50)fail(503,'The interviewer directory is too large.');
     }
-    const normalize=s=>String(s||'').replace(/\s+/g,' ').trim().toLowerCase(),people=new Map(),resolved=[];
+    return users;
+  }
+  const normalizeName=s=>String(s||'').replace(/\s+/g,' ').trim().toLowerCase();
+  // A slot can list someone Ashby no longer counts as eligible: on Luminai's
+  // Lunch and One on One, Patrick Lii is listed but his account is deactivated,
+  // so Ashby shows 3 and 5 eligible for 4 and 6 listed. The page doesn't mark
+  // who, so it's settled here against Ashby's directory. A name whose only
+  // accounts are deactivated is dropped; then the active people left must equal
+  // Ashby's eligible count exactly. Anything else (a name with no account, two
+  // active accounts, a count still off) refuses, naming who was read.
+  async function excludeDeactivated(sessions) {
+    if(!sessions.some(s=>Number.isInteger(s.eligibleCount)))return sessions;
+    const users=await listUsers(true);
+    return sessions.map(session=>{
+      if(!Number.isInteger(session.eligibleCount))return session;
+      const kept=[],excluded=[];
+      for(const person of session.eligibleInterviewers){
+        const named=users.filter(u=>normalizeName([u.firstName,u.lastName].filter(Boolean).join(' '))===normalizeName(person.name));
+        const active=named.filter(u=>u.isEnabled===true);
+        if(active.length===1)kept.push(person);
+        else if(!active.length&&named.length)excluded.push({name:person.name,reason:'deactivated in Ashby'});
+        else fail(409,`"${session.title}": ${person.name} is listed in the interviewer slot but ${active.length?'matches more than one active Ashby account':'has no Ashby account'}. Check the slot in Ashby.`);
+      }
+      if(kept.length!==session.eligibleCount)fail(409,`"${session.title}": Ashby shows ${session.eligibleCount} eligible but ${kept.length} of the listed interviewers are active (${kept.map(p=>p.name).join(', ')||'none'}${excluded.length?`; ${excluded.map(p=>`${p.name} is ${p.reason}`).join('; ')}`:''}). Check the slot in Ashby, then load the plan again.`);
+      const {eligibleCount,...rest}=session;
+      return {...rest,eligibleInterviewers:kept,excludedInterviewers:excluded};
+    });
+  }
+  async function resolveInterviewers(sessions) {
+    if(!Array.isArray(sessions)||!sessions.length||sessions.some(s=>s.assignmentVerified!==true||!s.eligibleInterviewers?.length))fail(422,'Load the verified interviewer lists first.');
+    const users=await listUsers(false);
+    const normalize=normalizeName,people=new Map(),resolved=[];
     for(const session of sessions){
       const eligible=[];
       for(const person of session.eligibleInterviewers){
@@ -100,6 +130,6 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
     }
     return out;
   }
-  return { load, application, resolveInterviewers, interviewerLimits };
+  return { load, application, resolveInterviewers, excludeDeactivated, interviewerLimits };
 }
 module.exports = { createBookingFacts };

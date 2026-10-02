@@ -49,7 +49,10 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     if(latest.stageId!==plan.stageId||!latest.requests.some(r=>r.scheduleId===request.scheduleId&&r.updatedAt===request.updatedAt))throw Object.assign(Error('The pending schedule changed. Reload its plan.'),{status:409});
     const after=await facts.application(plan.applicationId);
     if(after.templateRevision!==plan.templateRevision)throw Object.assign(Error('The interview plan changed. Reload it.'),{status:409});
-    return {...plan,scheduleId:request.scheduleId,sessions:observed.sessions,checkedAt:observed.checkedAt,bookingEnabled:false};
+    // Before anything uses the plan: drop listed interviewers Ashby no longer
+    // counts as eligible (deactivated accounts), holding the exact count.
+    const sessions=facts.excludeDeactivated?await facts.excludeDeactivated(observed.sessions):observed.sessions;
+    return {...plan,scheduleId:request.scheduleId,sessions,checkedAt:observed.checkedAt,bookingEnabled:false};
   }
   router.post('/full-plan',handle(fullPlan));
   router.post('/calendar-availability',handle(async req=>{

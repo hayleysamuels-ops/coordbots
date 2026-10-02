@@ -53,6 +53,14 @@ function parseAssignment(text,title='This interview'){
   // Never loosened: a name that isn't a real eligible interviewer would go to
   // the solver and could be proposed for a real interview. The names read are
   // listed (and logged) so the stray one can be identified.
+  // Specific Employees states how many it lists ("N Employees"); the names read
+  // must match that exactly. Ashby's eligible count can be lower when a listed
+  // person can't be booked (a deactivated account). The page doesn't mark who,
+  // so every name goes on with Ashby's count, and the dashboard settles it
+  // against Ashby's directory, holding the count exactly (excludeDeactivated).
+  const listed=employees>=0&&slot.includes('Specific Employees:')?Number(slot[employees].match(/^(\d+)/)[1]):null;
+  if(listed!==null&&names.length!==listed)fail(`"${name}": Slot #1 lists ${listed} employee${listed===1?'':'s'} but ${names.length} name${names.length===1?' was':'s were'} read from it (${names.map(quote).join(', ')||'none'}). Check the slot in Ashby, then load the plan again.`);
+  if(count&&names.length>count)return {requiredCount:1,eligibleInterviewers:names.map(name=>({name})),eligibleCount:count,assignmentVerified:true};
   if(!count||names.length!==count){
     const read=names.map(quote).join(', ')||'none';
     console.warn(`[plan-reader] "${name}" Slot #1: ${count} eligible, read ${names.length}: ${read}. Slot lines: ${slot.map(quote).join(' | ')}`);

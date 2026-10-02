@@ -22,7 +22,7 @@ test('unsupported slot rules say what was found and what is supported',()=>{
   refused('Recruiter Screen\nSlot #1 —\n1 Eligible Match\nHiring Team Role:\nRecruiter\nAdd Interviewer Slot',/Slot #1 is filled by the candidate's hiring team role \("Hiring Team Role:"\)/);
   refused("Recruiter Screen\nSlot #1 —\n6 Eligible Matches\nEmployee's Department\nAll are true:\nis Support\nSelect matcher...\nAdd Interviewer Slot",/Slot #1 uses an Advanced matcher on the employee's department/);
   refused('Recruiter Screen\nSlot #1 —\nSomething new\nAdd Interviewer Slot',/Slot #1 shows no eligible-match count \(Ashby shows "Something new"\)/);
-  refused('Recruiter Screen\nSlot #1 —\n3 Eligible Matches\nSpecific Employees:\n3 Employees\nPerson One\nAdd Interviewer Slot',/Slot #1 says 3 eligible matches but 1 name was read from it \("Person One"\)/);
+  refused('Recruiter Screen\nSlot #1 —\n3 Eligible Matches\nSpecific Employees:\n3 Employees\nPerson One\nAdd Interviewer Slot',/Slot #1 lists 3 employees but 1 name was read from it \("Person One"\)/);
 });
 
 test('Advanced matcher text split across lines, as Ashby renders it, is read and checked',()=>{
@@ -31,4 +31,16 @@ test('Advanced matcher text split across lines, as Ashby renders it, is read and
   assert.deepEqual(parseAssignment(live,'Welcome').eligibleInterviewers,[{name:'Gabrielle Struckell'},{name:'Grace Buckingham'}]);
   assert.throws(()=>parseAssignment(live.replace('All\nare true:','Any\nare true:'),'Welcome'),/an Advanced matcher where any condition can match/);
   assert.throws(()=>parseAssignment(live.replace('Interviewers\n1','Interviewers\n2'),'Welcome'),/Ashby shows "Interviewers 2" but 1 slot was read/);
+});
+
+test('a slot listing more employees than Ashby counts eligible passes every name on with Ashby\'s count',()=>{
+  // The Lunch slot exactly as logged.
+  const lunch='Lunch\nSlot #1\n—\n3 Eligible Matches\nAdvanced\nSpecific Employees:\n4 Employees\nUpasna Madhok\nOR\nPatrick Lii\nOR\nKathryn Wicks\nOR\nAriel Perez Chavez';
+  const r=parseAssignment(lunch,'Lunch');
+  assert.equal(r.eligibleCount,3);
+  assert.deepEqual(r.eligibleInterviewers.map(p=>p.name),['Upasna Madhok','Patrick Lii','Kathryn Wicks','Ariel Perez Chavez']);
+  // More eligible than listed is never possible, so it still refuses.
+  assert.throws(()=>parseAssignment(lunch.replace('3 Eligible','5 Eligible'),'Lunch'),/says 5 eligible matches but 4 names were read/);
+  // Names read must match the slot's own "N Employees".
+  assert.throws(()=>parseAssignment(lunch.replace('4 Employees','5 Employees'),'Lunch'),/lists 5 employees but 4 names were read/);
 });
