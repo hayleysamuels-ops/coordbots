@@ -1,4 +1,5 @@
 "use strict";
+const { validFlags } = require("./flags");
 const crypto = require("crypto");
 // Immutable content digests and revision checks use the existing work-trial
 // shell's approval model. Slack review never creates booking approval.
@@ -73,11 +74,15 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
       // eligible alternative from the Ashby plan was never calendar-checked and
       // must not appear in the post beside a checked name.
       if (meta.people && (!Array.isArray(meta.people) || meta.people.length !== input.sessions.length || meta.people.some(list => !Array.isArray(list) || list.length !== 1 || typeof list[0]?.name !== "string" || !list[0].name.trim()))) fail(500, "Each calendar-checked session needs exactly one assigned interviewer.");
+      // meta.flags (server code only): per session, the advisory clashes the
+      // calendar check found for its assigned interviewer. Stored with the plan,
+      // so the digest covers them and the Slack post shows exactly these.
+      if (meta.flags && (!Array.isArray(meta.flags) || meta.flags.length !== input.sessions.length || !meta.flags.every(validFlags))) fail(500, "Calendar flags don't match the sessions.");
       const sessions = input.sessions.map((s, i) => {
         // Explicit offsets make the reviewed instant unambiguous; the UI displays
         // the full selected timezone again before the separate approval action.
         if (![s.start, s.end].every(v => typeof v === "string" && /T.*(?:Z|[+-]\d\d:\d\d)$/.test(v) && Number.isFinite(Date.parse(v))) || Date.parse(s.start) >= Date.parse(s.end)) fail(400, "Session times must include an offset and end after they start");
-        return { title: text(s.title, "a session title"), start: new Date(s.start).toISOString(), end: new Date(s.end).toISOString(), interviewers: text(s.interviewers, "interviewers", 500), location: text(s.location, "a room or location"), ...(meta.people ? { people: meta.people[i].map(p => ({ name: p.name.trim() })) } : {}) };
+        return { title: text(s.title, "a session title"), start: new Date(s.start).toISOString(), end: new Date(s.end).toISOString(), interviewers: text(s.interviewers, "interviewers", 500), location: text(s.location, "a room or location"), ...(meta.people ? { people: meta.people[i].map(p => ({ name: p.name.trim() })) } : {}), ...(meta.flags?.[i]?.length ? { flags: meta.flags[i].map(f => ({ kind: f.kind, name: f.name, start: new Date(f.start).toISOString(), end: new Date(f.end).toISOString(), minutes: f.minutes, ...(f.kind === "hours" ? { hoursSource: f.hoursSource, hoursLabel: f.hoursLabel || null } : {}) })) } : {}) };
       });
       const plan = { candidateId: c.candidateId, applicationId: c.applicationId, candidateName: c.candidateName, jobTitle: c.jobTitle, timezone, sessions, notes: typeof input.notes === "string" ? input.notes.slice(0, 2000) : "", source: meta.source || "coordinator_draft", timezoneSource: meta.timezoneSource || "coordinator_entered", ...(meta.sourceRef ? { sourceRef: meta.sourceRef } : {}), ...(meta.rulesRevision ? { rulesRevision: meta.rulesRevision } : {}), ...(meta.format ? { format: meta.format } : {}) };
       const row = { id: crypto.randomUUID(), clientId, revision: 1, state: "draft", plan, digest: digest(plan), bookingApproval: null,
@@ -106,17 +111,19 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
       if ((await store.list()).some(r => r.clientId === clientId && r.plan.sourceRef === sourceRef && r.state !== "rejected")) fail(409, "This option was already posted to Slack. Check the channel.");
       if (!Array.isArray(attendance) || attendance.length !== option.events.length || attendance.some(a => !["in_person", "video"].includes(a))) fail(503, "Interviewer attendance could not be confirmed from this client's scheduling rules.");
       const source = availabilitySource === "ashby" ? "candidate-submitted availability" : "coordinator-entered availability";
-      const checked = calendarCheck ? `Checked against interviewers' primary Google calendars at ${new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(calendarCheck.checkedAt))}.${calendarCheck.meetingHoursAssumed ? " Meeting hours are assumed from client rules, not verified." : ""} Other calendars, breaks and non-zero interview limits were not checked.` : "Not calendar-checked: suggested interviewers are eligible choices, not confirmed available.";
+      const checked = calendarCheck ? `Checked against interviewers' primary Google calendars at ${new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(calendarCheck.checkedAt))}.${calendarCheck.meetingHoursAssumed ? " Meeting hours are assumed from client rules, not verified." : ""} Other calendars and non-zero interview limits were not checked.` : "Not calendar-checked: suggested interviewers are eligible choices, not confirmed available.";
+      const flags = calendarCheck?.flags || option.events.map(() => []), flagged = flags.reduce((n, f) => n + f.length, 0);
+      const attention = flagged ? `NEEDS ATTENTION: ${flagged} calendar clash${flagged === 1 ? "" : "es"} flagged below. Each must be moved by the interviewer, or booked over, before this schedule can go ahead. ` : "";
       const row = await this.draft({ applicationId, timezone,
-        notes: `Full schedule option ${optionNumber} from booking review, built from ${source}. ${checked} Nothing has been booked and no invitations have been sent.`,
+        notes: `${attention}Full schedule option ${optionNumber} from booking review, built from ${source}. ${checked} Nothing has been booked and no invitations have been sent.`,
         sessions: option.events.map((e, i) => ({ title: e.title, start: e.start, end: e.end,
-          interviewers: `${e.interviewer.name} (${calendarCheck ? "free on primary calendar" : "suggested, not calendar-checked"})`.slice(0, 500),
+          interviewers: `${e.interviewer.name} (${!calendarCheck ? "suggested, not calendar-checked" : flags[i].length ? "calendar clash flagged" : "free on primary calendar"})`.slice(0, 500),
           location: attendance[i] === "video" ? "Video link required" : "Room / location to confirm" })) },
         user, { source: "full_schedule_option", sourceRef, rulesRevision, timezoneSource: availabilitySource === "ashby" ? "candidate_submitted" : "coordinator_entered",
           // Calendar-checked options use the Slack format with the Ashby link and
           // the solver's assigned interviewer per session, by name (see
           // slack.js for why plain). Never the eligible alternatives.
-          ...(calendarCheck ? { format: "calendar_checked", people: option.events.map(e => [{ name: e.interviewer.name }]) } : {}) });
+          ...(calendarCheck ? { format: "calendar_checked", people: option.events.map(e => [{ name: e.interviewer.name }]), ...(flagged ? { flags } : {}) } : {}) });
       try {
         const shared = await this.share(row.id, { revision: row.revision, digest: row.digest, channelId }, user);
         return { id: shared.id, state: shared.state, issue: shared.issue || null, channelName: name };

@@ -97,6 +97,19 @@
   color: var(--text-secondary);
 }
 
+/* Advisory calendar clashes on a needs-attention agenda: state colour only
+   (DESIGN.md § Colour for state), no severity border. */
+.sched-flag {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--warning);
+}
+.sched-flag-detail {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+
 /* A step's outcome sits under its own action (DESIGN.md § Scheduling pages). */
 .sched-actions + .sched-status-line {
   margin-top: 12px;

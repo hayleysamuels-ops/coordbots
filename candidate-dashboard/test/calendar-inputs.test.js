@@ -119,8 +119,8 @@ test("hours that are neither verified nor marked assumed still refuse", () => {
 
 // ---- the booking route ----------------------------------------------------------
 
-async function route(t, { busy } = {}) {
-  const planSessions = plan.sessions.map(s => ({ ...s }));
+async function route(t, { busy, sessions } = {}) {
+  const planSessions = (sessions || plan.sessions).map(s => ({ ...s }));
   const posted = [], state = { busy: busy || {} };
   const { facts: base } = sources();
   const facts = { ...base, application: async () => ({ applicationId: "app", candidateId: "cand", stageId: "stage", templateRevision: "v1", activities: [{ sessions: planSessions }] }),
@@ -180,4 +180,28 @@ test("start windows from the rules attach to sessions by Ashby interview name, c
   assert.equal(exact.placementFor("Lunch").length, 1);
   assert.equal(exact.placementFor("Team lunch").length, 0);
   assert.throws(() => rulesDoc(d => { d.sessions.placementWindows[0].latestStart = "11:00"; }), { status: 503 });
+});
+
+// The calendar-checked preview is advisory: a busy interviewer is flagged, not
+// a reason to refuse, and the flags travel with the post.
+test("a busy interviewer makes the preview need attention, and the post carries the clash", async t => {
+  const { call, posted } = await route(t, { busy: { "tom@luminai.com": [{ start: "2099-01-05T17:00:00.000Z", end: "2099-01-06T01:00:00.000Z" }] } });
+  const result = await (await call("/suggest-full-schedule", request)).json();
+  assert.equal(result.status, "needs_attention");
+  const [first] = result.proposals;
+  assert.ok(first.flagCount > 0);
+  // Ana is free and takes "Flexible"; Tom, busy all day, is the only one who
+  // can take "Fixed", so that session alone is flagged, with his name.
+  assert.deepEqual(first.events.map(e => [e.title, e.interviewer.name, e.flags.map(f => `${f.kind} ${f.name}`)]), [["Flexible", "Ana Silva", []], ["Fixed", "Tom Reyes", ["busy Tom Reyes"]]]);
+  const r = await call("/post-full-schedule-option", { ...request, optionIndex: 0, optionDigest: first.optionDigest });
+  assert.equal(r.status, 200);
+  assert.deepEqual(posted[0].calendarCheck.flags, first.events.map(e => e.flags));
+});
+
+test("Welcome must come first: a template with it elsewhere is refused, not rearranged", async t => {
+  const sessions = [...plan.sessions.slice(1), { ...plan.sessions[0], title: "Welcome" }];
+  const { call } = await route(t, { sessions });
+  const r = await call("/suggest-full-schedule", request);
+  assert.equal(r.status, 409);
+  assert.match((await r.json()).error, /^The template has "Welcome" as session 2, but Welcome must come first\./);
 });

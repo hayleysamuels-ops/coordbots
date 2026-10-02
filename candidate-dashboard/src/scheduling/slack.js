@@ -8,6 +8,7 @@
 // Each session is shown in the dashboard's DISPLAY_TIMEZONE first (the
 // coordinators reading the channel), then in the plan's own timezone when it
 // differs, labelled by where it came from.
+const { describeFlag } = require("./flags");
 const ASHBY_CANDIDATE = "https://app.ashbyhq.com/candidate-searches/new/right-side/candidates/";
 
 // Slack's mrkdwn control characters; everything we didn't write is escaped.
@@ -64,6 +65,7 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     // users.lookupByEmail can never find them. That's a property of the
     // one-app-in-Carrara's-workspace design, not a missing permission.
     const name = p => escape(p.name);
+    const clashes = plan.sessions.reduce((n, s) => n + (s.flags || []).length, 0);
     const secondLabel = plan.timezoneSource === "candidate_submitted" ? "Candidate time" : "Entered time";
     const lines = [];
     let day = null;
@@ -73,6 +75,8 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       const video = s.location === "Video link required" ? " (video link required)" : "";
       lines.push(`• ${clock(displayTimeZone, s)} – ${escape(s.title)}${video}  ${(s.people || []).map(name).join(" ")}`);
       if (plan.timezone !== displayTimeZone) lines.push(`      ${secondLabel}: ${clock(plan.timezone, s)}`);
+      // Advisory clashes from the calendar check, under the session they affect.
+      for (const f of s.flags || []) lines.push(`      ⚠️ ${escape(describeFlag(f, displayTimeZone))}`);
     }
     // Section text is capped at 3000 characters; split on line boundaries.
     const sections = [], body = lines.join("\n");
@@ -82,14 +86,16 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     const mrkdwn = text => ({ type: "mrkdwn", text, verbatim: true });
     const blocks = [
       { type: "section", text: mrkdwn(`<${ASHBY_CANDIDATE}${encodeURIComponent(plan.candidateId)}|Ashby Link>`) },
-      { type: "section", text: mrkdwn(`*Interview Schedule*\n${escape(plan.candidateName)} · ${escape(plan.jobTitle)}`) },
+      // A flagged agenda says so first, before any time is read as settled.
+      ...(clashes ? [{ type: "section", text: mrkdwn(`⚠️ *Needs attention: ${clashes} calendar clash${clashes === 1 ? "" : "es"}.* This schedule is not ready to send. Each flagged session needs the interviewer to move the clash, or to accept booking over it.`) }] : []),
+      { type: "section", text: mrkdwn(`*Interview Schedule${clashes ? " — needs attention" : ""}*\n${escape(plan.candidateName)} · ${escape(plan.jobTitle)}`) },
       ...sections.map(t => ({ type: "section", text: mrkdwn(t) })),
       { type: "context", elements: [mrkdwn(`${escape(plan.notes)} Posted for discussion by ${escape(approver)}. Draft reference: ${escape(proposalId)}`)] },
     ];
     if (approval) blocks.push({ type: "section", text: mrkdwn(`*Approved* by ${escape(approval.name || approval.email)} (${escape(approval.email)}) at ${escape(new Intl.DateTimeFormat("en-US", { timeZone: displayTimeZone, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(approval.at)))}.\n*Not booked.* Booking in Ashby is blocked on IT permissions: no interviews are scheduled and no invitations or candidate email have been sent. Book this schedule in Ashby by hand.`) });
     else if (interactive && draftDigest) blocks.push(scheduleButton(proposalId, draftDigest));
     // The fallback shows in notifications and has no names or links.
-    const text = `Interview schedule draft for ${plan.candidateName} · ${plan.jobTitle}: for discussion, nothing booked.`;
+    const text = `Interview schedule draft for ${plan.candidateName} · ${plan.jobTitle}: ${clashes ? `needs attention (${clashes} calendar clash${clashes === 1 ? "" : "es"}), ` : ""}for discussion, nothing booked.`;
     return { text, blocks, mrkdwn: false, parse: "none" };
   }
 

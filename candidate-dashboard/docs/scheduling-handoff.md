@@ -299,6 +299,31 @@ done and verified, in this order:
   - **Matcher text split across lines:** Ashby renders "All are true:" as "All"
     and "are true:" on separate lines. These are joined before the matcher type
     is checked, so an "Any are true" matcher can't slip past the refusal.
+- **The calendar-checked preview is advisory** (October 2, 2026).
+  - **What it does:** it always proposes agendas in template order, at the
+    earliest start that fits.
+    - **Hard:** the candidate's submitted availability, start windows (Lunch
+      12:00–13:30 PT), the break budget, zero interview limits (excluded
+      upstream), and Welcome first. A template with Welcome elsewhere is
+      refused, not rearranged.
+    - **Advisory, flagged per session:** busy time on the primary calendar, and
+      time outside assumed or verified meeting hours. Each flag names the
+      interviewer, the clashing time and the minutes (`flags.js` holds the
+      wording).
+  - **Not done on purpose:** sessions are never reordered and times never moved
+    to avoid a conflict. At a session's fixed time a free eligible interviewer
+    is preferred to a busy one, which changes who, never when.
+  - **Status and posting:**
+    - A flagged result is `needs_attention`. The page heads it "⚠️
+      Calendar-checked options need attention" and marks each clash.
+    - The Slack post opens with "⚠️ Needs attention: N calendar clashes. This
+      schedule is not ready to send" and lists each clash under its session.
+  - **When there's no fit:** if the start windows or availability can't be met
+    even with everyone treated as free, the existing no-fit report comes back.
+    That includes the cheapest break allowance that would fit ("one break of up
+    to 30 minutes").
+  - **Unchanged:** the default solver (`advisory: false`), held to the original
+    by `full-calendar-schedule-v1.test.js`.
 - **Step 3's availability refresh failed silently** (October 2, 2026).
   - **What happened:** "Refresh submitted availability" returned 409 after about
     20 seconds on every attempt (six since 22:42 MDT, per Railway's HTTP log),

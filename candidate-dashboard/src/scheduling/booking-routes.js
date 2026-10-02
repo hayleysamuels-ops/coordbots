@@ -110,7 +110,13 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     const startWindowsApplied=(inputs.sessions||[]).flatMap(s=>(s.placementWindows||[]).map(w=>({title:s.title,earliestStart:w.earliestStart,latestStart:w.latestStart,timezone:w.timezone})));
     const context={calendarCheck:{excluded:inputs.excluded,meetingHours:inputs.meetingHours,limitsPolicy:inputs.limitsPolicy,busySource:inputs.busySource,rulesRevision:inputs.rulesRevision,startWindowsApplied}};
     if(inputs.blocked){const totalMinutes=plan.sessions.reduce((n,s)=>n+s.durationMinutes,0);return {status:'no_calendar_fit',bookingEnabled:false,availabilityVerified:false,meetingHoursAssumed:true,totalMinutes,timezone,proposals:[],reason:inputs.blocked,...context};}
-    const result=require('./full-calendar-schedule').proposeCalendarSchedule({sessions:inputs.sessions,windows,timezone,calendars:inputs.calendars,...inputs.agenda});
+    // Hard rule: Welcome opens the day. Sessions are never reordered, so a
+    // template with Welcome elsewhere is refused rather than rearranged.
+    const welcome=plan.sessions.findIndex(s=>/^welcome\b/i.test(String(s.title||'').trim()));
+    if(welcome>0)throw Object.assign(Error(`The template has "${plan.sessions[welcome].title}" as session ${welcome+1}, but Welcome must come first. Move it to the start of the template in Ashby, then load the plan again.`),{status:409});
+    // Advisory: busy time and meeting hours are flagged, not enforced; the
+    // candidate's availability, start windows and breaks stay hard.
+    const result=require('./full-calendar-schedule').proposeCalendarSchedule({sessions:inputs.sessions,windows,timezone,calendars:inputs.calendars,...inputs.agenda,advisory:true});
     // One line per no-fit, reason counts only (no names): the running evidence
     // for how often busy time, rather than hours or limits, is what binds.
     if(result.diagnosis){const d=result.diagnosis,c=d.conflicts;console.log(`[calendar-check] no fit: placed ${d.furthest.placed}/${d.furthest.of}; unblock=${d.unblock.map(u=>u.kind==='combination'?u.changes.map(x=>x.kind).join('+'):u.kind==='hours'?`hours-${u.changes[0].hoursSource}`:u.kind==='placement'?`placement-breaks${u.changes[0].currentBreaks.count}x${u.changes[0].currentBreaks.maxMinutes}-fits${u.changes[0].fitsWithBreaks?`${u.changes[0].fitsWithBreaks.count}x${u.changes[0].fitsWithBreaks.maxMinutes}`:'none'}`:u.kind).join(',')||'none'}; rejected busy=${c.busy} hours-default=${c.hours.default} hours-override=${c.hours.override} hours-verified=${c.hours.verified} limits=${c.limits} placement=${c.placement}`);}
@@ -133,7 +139,7 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     const clientRules=rules.get(),attendance=await require('./rules').attendanceForEvents(clientRules,chosen.events,facts?.resolveInterviewers);
     return discussion.postScheduleOption({applicationId:plan.applicationId,candidateId:plan.candidateId,timezone:result.timezone,option:chosen,optionNumber:index+1,
       sourceRef:`full-schedule:${plan.scheduleId}:${ref}`,availabilitySource:req.body.availabilitySource,attendance,rulesRevision:clientRules.rulesRevision,
-      calendarCheck:result.status==='calendar_checked'?{checkedAt:result.calendarCheckedAt,meetingHoursAssumed:result.meetingHoursAssumed===true}:null},req.schedulingUser);
+      calendarCheck:['calendar_checked','needs_attention'].includes(result.status)?{checkedAt:result.calendarCheckedAt,meetingHoursAssumed:result.meetingHoursAssumed===true,flags:chosen.events.map(e=>e.flags||[])}:null},req.schedulingUser);
   }));
   router.post("/application", handle(req => {
     if(!facts)throw Object.assign(new Error('Ashby details are not connected.'),{status:503});

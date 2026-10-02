@@ -307,3 +307,33 @@ test("calendar-checked options record each interviewer's name for the Slack form
   assert.equal(draft.plan.format, undefined);
   assert.equal(draft.plan.sessions[0].people, undefined);
 });
+
+// A calendar-checked option with advisory clashes posts as needing attention,
+// with each clash stored on its session (so the digest covers it) and shown in
+// the Slack post under that session.
+test("a flagged calendar-checked option posts as needing attention, with each clash under its session", async t => {
+  const { service, sent } = setup(t);
+  const flag = { kind: "busy", name: "Gabrielle Struckell", userId: "u1", start: "2099-01-01T10:00:00.000Z", end: "2099-01-01T10:30:00.000Z", minutes: 30 };
+  await service.postScheduleOption(post({ calendarCheck: { checkedAt: Date.parse("2098-12-31T09:00:00Z"), meetingHoursAssumed: true, flags: [[flag]] } }), user);
+  const plan = sent[0].plan;
+  assert.match(plan.notes, /^NEEDS ATTENTION: 1 calendar clash flagged below\. Each must be moved by the interviewer, or booked over, before this schedule can go ahead\./);
+  assert.match(plan.sessions[0].interviewers, /\(calendar clash flagged\)$/);
+  assert.deepEqual(plan.sessions[0].flags, [{ kind: "busy", name: "Gabrielle Struckell", start: flag.start, end: flag.end, minutes: 30 }]);
+  // Rendered through the real Slack formatter.
+  const posts = [];
+  const send = require("../src/scheduling/slack").createSlack("xoxb-test", async (url, init) => { posts.push(JSON.parse(init.body)); return { ok: true, json: async () => ({ ok: true, ts: "1.2", channel: "C1" }) }; }, { displayTimeZone: "UTC" });
+  await send(plan, { channelId: "C1", proposalId: "draft-1", approver: "Coordinator" });
+  const text = posts[0].blocks.flatMap(b => b.text ? [b.text.text] : b.elements.map(e => e.text)).join("\n");
+  assert.match(text, /^⚠️ \*Needs attention: 1 calendar clash\.\* This schedule is not ready to send\./m);
+  assert.match(text, /\*Interview Schedule — needs attention\*/);
+  assert.match(text, /\n {6}⚠️ Gabrielle Struckell is busy 10:00 AM–10:30 AM \(UTC\) on their primary calendar\. The meeting needs moving, or booking over\./);
+  assert.match(posts[0].text, /needs attention \(1 calendar clash\)/);
+});
+
+test("a clear calendar-checked option still posts as free, with no attention banner", async t => {
+  const { service, sent } = setup(t);
+  await service.postScheduleOption(post({ calendarCheck: { checkedAt: Date.parse("2098-12-31T09:00:00Z"), meetingHoursAssumed: true, flags: [[]] } }), user);
+  assert.doesNotMatch(sent[0].plan.notes, /NEEDS ATTENTION/);
+  assert.match(sent[0].plan.sessions[0].interviewers, /\(free on primary calendar\)$/);
+  assert.equal(sent[0].plan.sessions[0].flags, undefined);
+});

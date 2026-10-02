@@ -30,7 +30,16 @@ function dateIn(ms,timezone){
 // variety (default on) keeps only options that differ from every earlier one by
 // day, by an hour or more, or by interviewer (option-variety.js). The first
 // option is always the one the search finds first, variety or not.
-function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.now(),limit=5,minBreakMinutes=0,maxGapMinutes=0,maxGapCount=0,variety=true}){
+// advisory: interviewer busy time and meeting hours (assumed or verified) stop
+// being constraints. The agenda is built as if calendars were clear: template
+// order, the earliest start that fits the candidate's availability, the start
+// windows (Lunch 12:00–13:30) and the break budget, which all stay hard. Each
+// session whose interviewer has a conflict is then flagged with who, what and
+// by how much. Sessions are never reordered and times never moved to avoid a
+// conflict. At a session's fixed time, an eligible interviewer who is free is
+// preferred over one who isn't; that changes who, never when. Zero interview
+// limits stay hard upstream (calendar-inputs excludes those people).
+function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.now(),limit=5,minBreakMinutes=0,maxGapMinutes=0,maxGapCount=0,variety=true,advisory=false}){
   if(!Array.isArray(sessions)||!sessions.length||sessions.length>30)fail('Load a complete interview plan first.');
   if(!Number.isInteger(limit)||limit<1||limit>5)fail('Invalid proposal limit.');
   if(![minBreakMinutes,maxGapMinutes].every(m=>Number.isInteger(m)&&m>=0&&m%5===0)||maxGapMinutes<minBreakMinutes||maxGapMinutes>480)fail('Breaks must be whole 5-minute steps, with the maximum gap at least the minimum break.');
@@ -115,12 +124,17 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
   const minSpan=totalMinutes*60000;
   const limitedIds=[...people.keys()].filter(id=>people.get(id).limited);
   const NONE={hours:new Set(),busy:new Set(),limits:new Set(),placement:new Set()};
+  const everyoneIds=new Set(people.keys());
+  // What a search always relaxes: nothing normally; every interviewer
+  // constraint in advisory mode, leaving availability, start windows and breaks.
+  const BASE=advisory?{hours:everyoneIds,busy:everyoneIds,limits:everyoneIds,placement:new Set()}:NONE;
+  const withBase=r=>({hours:new Set([...BASE.hours,...r.hours]),busy:new Set([...BASE.busy,...r.busy]),limits:new Set([...BASE.limits,...r.limits]),placement:new Set([...BASE.placement,...r.placement])});
   // Preserve the plan order and a single-day agenda inside one candidate window.
   // Backtracking matters: an early flexible assignment must not consume a later
   // fixed interviewer's remaining daily or weekly capacity. `dead` remembers
   // sub-problems already proven impossible; it only skips failures, so it never
   // changes which agenda is found first.
-  function search({relax=NONE,max=limit,cap=SEARCH_LIMIT,tally=null,breaks=BREAKS,tallyPlacement=null,accepted=[]}={}){
+  function search({relax=BASE,max=limit,cap=SEARCH_LIMIT,tally=null,breaks=BREAKS,tallyPlacement=null,accepted=[]}={}){
     const proposals=[],seen=new Set(),dead=new Set();let examined=0;const reach={placed:-1,events:[]};
     // `used` is how many breaks this agenda has taken so far.
     function assign(index,cursor,events,window,day,used=0){
@@ -140,7 +154,9 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
         // Pruned here, not filtered afterwards: a session outside its start
         // window is never placed. A later start may still be inside it.
         if(!relax.placement.has(s.sessionId)&&!placementOk(s,start)){if(tallyPlacement)tallyPlacement(s);continue;}
-        for(const person of eligible){
+        // Advisory: at this fixed time, a free interviewer before a busy one.
+        const order=advisory?eligible.map((p,i)=>({p,i,c:unavailable(p,s,start,end,events,NONE)?1:0})).sort((a,b)=>a.c-b.c||a.i-b.i).map(x=>x.p):eligible;
+        for(const person of order){
           const why=unavailable(person,s,start,end,events,relax);
           if(why){if(tally)tally(s,person,why);continue;}
           const found=assign(index+1,end,[...events,{sessionId:s.sessionId,interviewId:s.interviewId,title:s.title,durationMinutes:s.durationMinutes,start:new Date(start).toISOString(),end:new Date(end).toISOString(),interviewer:person,eligibleInterviewers:s.eligibleInterviewers}],window,day,used+(start>cursor?1:0));
@@ -175,7 +191,9 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
   // last, widest pass is tallied for the no-fit report, so nothing is counted
   // twice. With no break budget this is the single original pass.
   const proposals=[];let reach;
-  for(let count=0;count<=BREAKS.count;count++){
+  // Advisory: one pass with the whole break budget, so the first agenda is the
+  // earliest that fits (back to back is still tried first at every step).
+  for(let count=advisory?BREAKS.count:0;count<=BREAKS.count;count++){
     const last=count===BREAKS.count,pass=search({breaks:{...BREAKS,count},max:limit-proposals.length,accepted:proposals,...(last?{tally,tallyPlacement}:{})});
     proposals.push(...pass.proposals);reach=pass.reach;
     if(proposals.length>=limit)break;
@@ -183,9 +201,31 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
   const checkedAt=Math.min(...[...people.keys()].map(id=>calendars.find(c=>c.userId===id).checkedAt));
   const assumedNote=hoursAssumed?' Meeting hours are assumed from client rules, not verified.':'';
   const base={bookingEnabled:false,availabilityVerified:!hoursAssumed,meetingHoursAssumed:hoursAssumed,calendarCheckedAt:checkedAt,totalMinutes,timezone,minBreakMinutes,maxGapMinutes,maxGapCount,proposals};
+  if(proposals.length&&advisory){
+    for(const p of proposals){for(const e of p.events)e.flags=flagsFor(e);p.flagCount=p.events.reduce((n,e)=>n+e.flags.length,0);}
+    const flagged=proposals.filter(p=>p.flagCount).length;
+    if(flagged)return {...base,availabilityVerified:false,status:'needs_attention',flaggedOptions:flagged,
+      reason:`These agendas follow the template order at the earliest times the candidate's availability and the start windows allow. ${flagged===proposals.length?'Every option':`${flagged} of ${proposals.length} options`} has sessions that clash with an interviewer's calendar or meeting hours, flagged below. Each clash needs the interviewer to move it, or to accept a booking over it, before this goes anywhere.`+assumedNote};
+    return {...base,status:'calendar_checked',reason:'These agendas follow the template order at the earliest times that fit, and every interviewer is free on their primary calendar and within their meeting hours. Review remaining client rules before approval.'+assumedNote};
+  }
   if(proposals.length)return {...base,status:'calendar_checked',reason:'These agendas fit candidate availability, interviewer calendars, meeting hours and interview limits. Review remaining client rules before approval.'+assumedNote};
   const diagnosis=diagnose(reach);
-  return {...base,status:'no_calendar_fit',diagnosis,reason:'No agenda in template order fits the calendars, meeting hours and interview limits.'+assumedNote};
+  return {...base,status:'no_calendar_fit',diagnosis,reason:advisory?'No agenda in template order fits the candidate\'s availability and the start windows, even with every interviewer treated as free.'+assumedNote:'No agenda in template order fits the calendars, meeting hours and interview limits.'+assumedNote};
+
+  // A session's clashes for its assigned interviewer: each busy period that
+  // overlaps it, and each part of it outside their meeting hours, clipped to
+  // the session, with minutes. Times are ISO; the page and Slack format them.
+  function flagsFor(e){
+    const p=people.get(e.interviewer.userId),start=Date.parse(e.start),end=Date.parse(e.end),out=[];
+    const merged=[];for(const b of p.busy.filter(b=>b.start<end&&b.end>start).map(b=>({start:Math.max(b.start,start),end:Math.min(b.end,end)})).sort((a,b)=>a.start-b.start)){const last=merged.at(-1);if(last&&b.start<=last.end)last.end=Math.max(last.end,b.end);else merged.push({...b});}
+    for(const b of merged)out.push({kind:'busy',name:p.name,userId:e.interviewer.userId,start:new Date(b.start).toISOString(),end:new Date(b.end).toISOString(),minutes:Math.round((b.end-b.start)/60000)});
+    // Parts of [start,end) no meeting-hours interval covers.
+    let cursor=start;const hours=p.hours.get(e.sessionId).filter(h=>h.end>start&&h.start<end).sort((a,b)=>a.start-b.start);
+    const gaps=[];for(const h of hours){if(h.start>cursor)gaps.push({start:cursor,end:Math.min(h.start,end)});cursor=Math.max(cursor,h.end);if(cursor>=end)break;}
+    if(cursor<end)gaps.push({start:cursor,end});
+    for(const g of gaps)out.push({kind:'hours',name:p.name,userId:e.interviewer.userId,start:new Date(g.start).toISOString(),end:new Date(g.end).toISOString(),minutes:Math.round((g.end-g.start)/60000),hoursSource:p.hoursSource,hoursLabel:p.hoursLabel});
+    return out;
+  }
 
   // What would unblock a no-fit, ranked, instead of every rejected slot.
   function diagnose(reach){
@@ -204,7 +244,7 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
     const blockedPlacement=blocked.placementWindows&&placementRejections.get(blocked.sessionId)?{title:blocked.title,windows:windowOf(blocked),rejectedStarts:placementRejections.get(blocked.sessionId)}:null;
     // Would the agenda fit if no interviewer constraint applied at all? If not,
     // the candidate's own availability is what's too short.
-    const everyone=new Set(people.keys()),fits=relax=>{try{return search({relax,max:1,cap:RELAX_LIMIT}).proposals.length>0;}catch(e){if(e.relaxLimit)return false;throw e;}};
+    const everyone=new Set(people.keys()),fits=relax=>{try{return search({relax:withBase(relax),max:1,cap:RELAX_LIMIT}).proposals.length>0;}catch(e){if(e.relaxLimit)return false;throw e;}};
     const base={furthest:{placed,of:sessions.length,placedTitles:reach.events.map(e=>e.title),blockedAt:placed<sessions.length?{sessionId:blocked.sessionId,title:blocked.title}:null},atBlocked,blockedPlacement,conflicts};
     if(!fits({hours:everyone,busy:everyone,limits:everyone,placement:new Set(sessions.map(x=>x.sessionId))}))return {...base,unblock:[{kind:'availability',text:`The candidate's availability can't hold the whole ${totalMinutes}-minute agenda on one day, even with every interviewer free.`}]};
     // One relaxation per (person, constraint) that rejected anything, most
