@@ -17,7 +17,7 @@ const escape = v => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;")
 // `interactive` (the signing secret, workspace, app and approvers are all
 // configured) adds the "Schedule" button to calendar-checked posts; without it
 // there's no endpoint to receive a click, so no button is shown.
-function createSlack(token, request = fetch, { displayTimeZone = "America/New_York", interactive = false } = {}) {
+function createSlack(token, request = fetch, { displayTimeZone = "America/New_York", interactive = false, clientName = "" } = {}) {
   const api = async (method, payload) => {
     const response = await request(`https://slack.com/api/${method}`, { method: "POST", signal: AbortSignal.timeout(15000),
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" }, body: JSON.stringify(payload) });
@@ -84,11 +84,18 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     for (const line of body.split("\n")) { if ((chunk + "\n" + line).length > 2900) { sections.push(chunk); chunk = line; } else chunk = chunk ? chunk + "\n" + line : line; }
     if (chunk) sections.push(chunk);
     const mrkdwn = text => ({ type: "mrkdwn", text, verbatim: true });
+    // What to do first, then who it's for: the two things a coordinator needs
+    // before reading any time. "Schedule" is only mentioned when the button is
+    // on the post, and "flags" only when there are any.
+    const forClient = clientName ? ` for ${escape(clientName)}` : "", button = interactive && draftDigest && !approval;
+    const instruction = `This is the proposed interview schedule${forClient}. Please review ${clashes ? "all flags" : "it"}, then post to the client channel for discussion${button ? " or press Schedule" : ""}.`;
     const blocks = [
-      { type: "section", text: mrkdwn(`<${ASHBY_CANDIDATE}${encodeURIComponent(plan.candidateId)}|Ashby Link>`) },
-      // A flagged agenda says so first, before any time is read as settled.
+      { type: "section", text: mrkdwn(instruction) },
+      { type: "section", text: mrkdwn(`*${escape(plan.candidateName)}* · ${escape(plan.jobTitle)}`) },
+      // A flagged agenda says so before any time is read as settled.
       ...(clashes ? [{ type: "section", text: mrkdwn(`⚠️ *Needs attention: ${clashes} calendar clash${clashes === 1 ? "" : "es"}.* This schedule is not ready to send. Each flagged session needs the interviewer to move the clash, or to accept booking over it.`) }] : []),
-      { type: "section", text: mrkdwn(`*Interview Schedule${clashes ? " — needs attention" : ""}*\n${escape(plan.candidateName)} · ${escape(plan.jobTitle)}`) },
+      { type: "section", text: mrkdwn(`<${ASHBY_CANDIDATE}${encodeURIComponent(plan.candidateId)}|Ashby Link>`) },
+      { type: "section", text: mrkdwn(`*Interview Schedule${clashes ? " — needs attention" : ""}*`) },
       ...sections.map(t => ({ type: "section", text: mrkdwn(t) })),
       { type: "context", elements: [mrkdwn(`${escape(plan.notes)} Posted for discussion by ${escape(approver)}. Draft reference: ${escape(proposalId)}`)] },
     ];

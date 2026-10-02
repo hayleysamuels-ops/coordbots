@@ -203,6 +203,10 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
   const base={bookingEnabled:false,availabilityVerified:!hoursAssumed,meetingHoursAssumed:hoursAssumed,calendarCheckedAt:checkedAt,totalMinutes,timezone,minBreakMinutes,maxGapMinutes,maxGapCount,proposals};
   if(proposals.length&&advisory){
     for(const p of proposals){for(const e of p.events)e.flags=flagsFor(e);p.flagCount=p.events.reduce((n,e)=>n+e.flags.length,0);}
+    // Fewest clashes first, then earliest start. The page and the Slack post
+    // both number options from this array (posting rebuilds it and takes the
+    // option by index), so "option 1" is the same agenda in both.
+    proposals.sort((a,b)=>a.flagCount-b.flagCount||Date.parse(a.start)-Date.parse(b.start));
     const flagged=proposals.filter(p=>p.flagCount).length;
     if(flagged)return {...base,availabilityVerified:false,status:'needs_attention',flaggedOptions:flagged,
       reason:`These agendas follow the template order at the earliest times the candidate's availability and the start windows allow. ${flagged===proposals.length?'Every option':`${flagged} of ${proposals.length} options`} has sessions that clash with an interviewer's calendar or meeting hours, flagged below. Each clash needs the interviewer to move it, or to accept a booking over it, before this goes anywhere.`+assumedNote};

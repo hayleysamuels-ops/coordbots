@@ -316,14 +316,25 @@ test("a flagged calendar-checked option posts as needing attention, with each cl
   const flag = { kind: "busy", name: "Gabrielle Struckell", userId: "u1", start: "2099-01-01T10:00:00.000Z", end: "2099-01-01T10:30:00.000Z", minutes: 30 };
   await service.postScheduleOption(post({ calendarCheck: { checkedAt: Date.parse("2098-12-31T09:00:00Z"), meetingHoursAssumed: true, flags: [[flag]] } }), user);
   const plan = sent[0].plan;
-  assert.match(plan.notes, /^NEEDS ATTENTION: 1 calendar clash flagged below\. Each must be moved by the interviewer, or booked over, before this schedule can go ahead\./);
+  // The count is on the banner and each session, not repeated in the notes.
+  assert.match(plan.notes, /^Full schedule option 1 from booking review, built from candidate-submitted availability\. Checked against interviewers' primary Google calendars at /);
+  assert.doesNotMatch(plan.notes, /clash|NEEDS ATTENTION/i);
   assert.match(plan.sessions[0].interviewers, /\(calendar clash flagged\)$/);
   assert.deepEqual(plan.sessions[0].flags, [{ kind: "busy", name: "Gabrielle Struckell", start: flag.start, end: flag.end, minutes: 30 }]);
   // Rendered through the real Slack formatter.
   const posts = [];
-  const send = require("../src/scheduling/slack").createSlack("xoxb-test", async (url, init) => { posts.push(JSON.parse(init.body)); return { ok: true, json: async () => ({ ok: true, ts: "1.2", channel: "C1" }) }; }, { displayTimeZone: "UTC" });
-  await send(plan, { channelId: "C1", proposalId: "draft-1", approver: "Coordinator" });
-  const text = posts[0].blocks.flatMap(b => b.text ? [b.text.text] : b.elements.map(e => e.text)).join("\n");
+  const send = require("../src/scheduling/slack").createSlack("xoxb-test", async (url, init) => { posts.push(JSON.parse(init.body)); return { ok: true, json: async () => ({ ok: true, ts: "1.2", channel: "C1" }) }; }, { displayTimeZone: "UTC", interactive: true, clientName: "Luminai" });
+  await send(plan, { channelId: "C1", proposalId: "draft-1", approver: "Coordinator", digest: "d".repeat(64) });
+  const text = posts[0].blocks.flatMap(b => b.text ? [b.text.text] : b.elements ? b.elements.map(e => e.text?.text ?? e.text) : []).join("\n");
+  // Instruction first, candidate and role straight under it.
+  assert.equal(posts[0].blocks[0].text.text, "This is the proposed interview schedule for Luminai. Please review all flags, then post to the client channel for discussion or press Schedule.");
+  assert.equal(posts[0].blocks[1].text.text, "*Fictional Candidate* · Test Role");
+  // The count is stated once, on the banner; each clash is under its session;
+  // the trailing paragraph carries only the caveats.
+  assert.equal((text.match(/\d+ calendar clash/g) || []).length, 1);
+  const trailing = posts[0].blocks.find(b => b.type === "context").elements[0].text;
+  assert.doesNotMatch(trailing, /clash|attention/i);
+  assert.match(trailing, /Checked against interviewers' primary Google calendars at .* Nothing has been booked and no invitations have been sent\. Posted for discussion by Coordinator\. Draft reference: draft-1$/);
   assert.match(text, /^⚠️ \*Needs attention: 1 calendar clash\.\* This schedule is not ready to send\./m);
   assert.match(text, /\*Interview Schedule — needs attention\*/);
   assert.match(text, /\n {6}⚠️ Gabrielle Struckell is busy 10:00 AM–10:30 AM \(UTC\) on their primary calendar\. The meeting needs moving, or booking over\./);

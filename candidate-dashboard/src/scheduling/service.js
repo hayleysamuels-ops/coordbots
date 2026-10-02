@@ -113,9 +113,8 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
       const source = availabilitySource === "ashby" ? "candidate-submitted availability" : "coordinator-entered availability";
       const checked = calendarCheck ? `Checked against interviewers' primary Google calendars at ${new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(calendarCheck.checkedAt))}.${calendarCheck.meetingHoursAssumed ? " Meeting hours are assumed from client rules, not verified." : ""} Other calendars and non-zero interview limits were not checked.` : "Not calendar-checked: suggested interviewers are eligible choices, not confirmed available.";
       const flags = calendarCheck?.flags || option.events.map(() => []), flagged = flags.reduce((n, f) => n + f.length, 0);
-      const attention = flagged ? `NEEDS ATTENTION: ${flagged} calendar clash${flagged === 1 ? "" : "es"} flagged below. Each must be moved by the interviewer, or booked over, before this schedule can go ahead. ` : "";
       const row = await this.draft({ applicationId, timezone,
-        notes: `${attention}Full schedule option ${optionNumber} from booking review, built from ${source}. ${checked} Nothing has been booked and no invitations have been sent.`,
+        notes: `Full schedule option ${optionNumber} from booking review, built from ${source}. ${checked} Nothing has been booked and no invitations have been sent.`,
         sessions: option.events.map((e, i) => ({ title: e.title, start: e.start, end: e.end,
           interviewers: `${e.interviewer.name} (${!calendarCheck ? "suggested, not calendar-checked" : flags[i].length ? "calendar clash flagged" : "free on primary calendar"})`.slice(0, 500),
           location: attendance[i] === "video" ? "Video link required" : "Room / location to confirm" })) },

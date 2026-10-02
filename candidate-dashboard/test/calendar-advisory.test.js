@@ -22,9 +22,12 @@ test('a busy interviewer is flagged, not routed around: template order at the ea
   const s=[session('1',15,[A],'Welcome'),session('2',60,[A])];
   const r=solve(s,[calendar(A,{busy:[[[9,0],[9,30]]],sessions:s})]);
   assert.equal(r.status,'needs_attention');
-  const [first]=r.proposals;
-  // Not moved to 09:30 to dodge the meeting: the earliest fit is 09:00.
+  // The earliest fit is still offered at 09:00, not nudged to 09:30 to dodge
+  // the meeting; it's flagged. A clash-free option ranks above it.
+  const first=r.proposals.find(p=>p.start===at(9));
+  assert.ok(first,'the earliest-fit agenda is missing');
   assert.deepEqual(first.events.map(e=>[e.title,e.start]),[['Welcome',at(9)],['Session 2',at(9,15)]]);
+  assert.equal(r.proposals[0].flagCount,0);
   assert.deepEqual(first.events[0].flags,[{kind:'busy',name:'Gabrielle Struckell',userId:'a',start:at(9),end:at(9,15),minutes:15}]);
   assert.deepEqual(first.events[1].flags,[{kind:'busy',name:'Gabrielle Struckell',userId:'a',start:at(9,15),end:at(9,30),minutes:15}]);
   assert.equal(first.flagCount,2);
@@ -44,12 +47,12 @@ test('time outside meeting hours is flagged with how much, and whether the hours
   const s=[session('1',60,[A])];
   // Hours 09:30-17:00; the earliest fit is 09:00, so 30 minutes fall outside.
   let r=solve(s,[calendar(A,{source:'default',sessions:s})].map(c=>{c.sessionWorkingWindows['1']=[{start:at(9,30),end:at(17)}];return c;}));
-  const [flag]=r.proposals[0].events[0].flags;
+  const [flag]=r.proposals.find(p=>p.start===at(9)).events[0].flags;
   assert.deepEqual([flag.kind,flag.start,flag.end,flag.minutes,flag.hoursSource],['hours',at(9),at(9,30),30,'default']);
   assert.equal(describeFlag(flag,'America/New_York'),"30 minutes of this session (9:00 AM–9:30 AM (EDT)) is outside Gabrielle Struckell's assumed meeting hours (09:00–17:00 America/New_York, client default).");
   const cal=calendar(A,{verified:true,sessions:s});cal.sessionWorkingWindows['1']=[{start:at(9,30),end:at(17)}];
   r=solve(s,[cal]);
-  assert.match(describeFlag(r.proposals[0].events[0].flags[0],'America/New_York'),/outside Gabrielle Struckell's verified meeting hours\.$/);
+  assert.match(describeFlag(r.proposals.find(p=>p.start===at(9)).events[0].flags[0],'America/New_York'),/outside Gabrielle Struckell's verified meeting hours\.$/);
 });
 
 test('the lunch start window stays hard while busy time is only flagged',()=>{
@@ -91,4 +94,12 @@ test('the default (non-advisory) solver still refuses busy time',()=>{
   const s=[session('1',60,[A])];
   const cal=calendar(A,{busy:[[[9],[17]]],sessions:s});
   assert.equal(proposeCalendarSchedule({sessions:s,windows:[{start:`${day}T09:00`,end:`${day}T17:00`}],timezone:'America/New_York',now,calendars:[cal]}).status,'no_calendar_fit');
+});
+
+test('options are ordered fewest clashes first, then earliest start',()=>{
+  const s=[session('1',60,[A],'Welcome')];
+  // Busy 09:00-10:30 and 13:00-13:30: options at 09:00 and 10:00 clash, 11:00 doesn't.
+  const r=solve(s,[calendar(A,{busy:[[[9],[10,30]],[[13],[13,30]]],sessions:s})]);
+  // Found earliest first an hour apart (09, 10, 11, 12, 13), then ranked.
+  assert.deepEqual(r.proposals.map(p=>[p.flagCount,p.start]),[[0,at(11)],[0,at(12)],[1,at(9)],[1,at(10)],[1,at(13)]]);
 });

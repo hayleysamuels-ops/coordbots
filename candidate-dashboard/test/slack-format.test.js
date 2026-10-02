@@ -30,9 +30,12 @@ const meta = { channelId: "C1", proposalId: "draft-1", approver: "Luminai Schedu
 const allText = payload => payload.blocks.flatMap(b => b.text ? [b.text.text] : b.elements.map(e => e.text)).join("\n");
 const post = async (p = plan()) => { const api = slackApi(); await createSlack("xoxb-test", api.request, { displayTimeZone: "America/Los_Angeles" })(p, meta); return api; };
 
-test("calendar-checked posts lead with the Ashby link and a dated schedule", async () => {
+test("calendar-checked posts open with what to do and who it's for, then the Ashby link and a dated schedule", async () => {
   const { posts } = await post(), [p] = posts, text = allText(p);
-  assert.equal(p.blocks[0].text.text, "<https://app.ashbyhq.com/candidate-searches/new/right-side/candidates/cand-1|Ashby Link>");
+  // No client name configured and no Schedule button here: neither is mentioned.
+  assert.equal(p.blocks[0].text.text, "This is the proposed interview schedule. Please review it, then post to the client channel for discussion.");
+  assert.equal(p.blocks[1].text.text, "*TEST petrino* · Forward Deployed Engineer");
+  assert.equal(p.blocks[2].text.text, "<https://app.ashbyhq.com/candidate-searches/new/right-side/candidates/cand-1|Ashby Link>");
   assert.match(text, /\*Interview Schedule\*/);
   assert.match(text, /\*Tuesday, September 29, 2026\*/);
   assert.match(text, /^• 11:00 AM – 11:15 AM \(PDT\) – Welcome  Gabby Struckell$/m);
