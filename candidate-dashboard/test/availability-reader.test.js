@@ -78,3 +78,36 @@ test('"Sun 27" day headers are dated from the week picker, and mismatches are re
     assert.equal((await page.evaluate(collectGrid)).columns[0].date,'2026-09-27');
   }finally{await browser.close();}
 });
+
+// The live grid's structure (from the worker log), with hashed class names that
+// must only ever be matched by prefix. Measures it, then explores both
+// expanders under the write guard; without the guard nothing is clicked.
+test('the grid is found by class prefix, measured, and its expanders explored only under the guard',async t=>{
+  let chromium;try{chromium=require('../worker/node_modules/playwright').chromium;}catch(_){return t.skip('no Playwright');}
+  let browser=null;for(const o of [{},{channel:'chrome'}]){try{browser=await chromium.launch({headless:true,...o});break;}catch(_){}}
+  if(!browser)return t.skip('no Chromium available');
+  const {measureGrid}=require('../worker/availability-reader');
+  const html=`<div class="_grid_zz9q1_2 _weekGrid_k3j_14"><div class="_headerRow_zz9q1_12">${['Thu 8','Fri 9'].map(d=>`<div class="_dayHeader_zz9q1_26"><span><span class="_dayLabel_zz9q1_41">${d}</span></span></div>`).join('')}</div>
+    <button class="_expander_zz9q1_61" aria-label="Show earlier hours" onclick="window.clicks=(window.clicks||0)+1;document.querySelector('.hours').insertAdjacentHTML('afterbegin','<div>7 AM</div>')"></button>
+    <div class="_bodyRow_zz9q1_86"><div class="hours"><div>8 AM</div><div>9 AM</div></div><div class="_body_zz9q1_86">
+      <div class="_column_zz9q1_142" role="group" aria-label="Thursday" style="height:440px;position:relative"><div class="_block_zz9q1_3" style="position:absolute;top:40px;height:240px;background:rgb(10, 20, 30)">9:00 AM – 3:00 PM</div></div>
+      <div class="_column_zz9q1_142" role="group" aria-label="Friday" style="height:440px"></div></div></div>
+    <button class="_expander_zz9q1_61 _bottom_zz9q1_81" aria-label="Show later hours" onclick="window.clicks=(window.clicks||0)+1"></button></div>`;
+  try{
+    const page=await browser.newPage();await page.setContent(html);
+    const seen=await page.evaluate(measureGrid);
+    assert.match(seen,/^2 day columns; hour labels: 8 AM@\d+, 9 AM@\d+; expanders: button\.expander "" \[Show earlier hours\] \| button\.expander\.bottom "" \[Show later hours\]; columns: Thursday height 440, 1 descendants: div\.block@40\+240 fill rgb\(10, 20, 30\) "9:00 AM – 3:00 PM" style "position:absolute;top:40px;height:240px;background:rgb\(10, 2" \|\| Friday height 440, 0 descendants: nothing with a fill or text$/);
+    assert.doesNotMatch(seen,/zz9q1/,'a build hash leaked into the measurement');
+    const {exploreExpanders}=require('../worker/availability-reader');
+    const logs=[],warn=console.warn;console.warn=m=>logs.push(String(m));
+    try{
+      await exploreExpanders(page,null);
+      assert.equal(await page.evaluate(()=>window.clicks||0),0,'clicked without the guard');
+      await exploreExpanders(page,{expanding(){},problem:()=>null});
+      assert.equal(await page.evaluate(()=>window.clicks),2);
+      assert.match(logs.join('\n'),/top expander: before hours 8 AM to 9 AM \(2 labels\), column height 440; after hours 7 AM to 9 AM \(3 labels\)/);
+      // A write Ashby sends while expanding stops the read.
+      await assert.rejects(exploreExpanders(page,{expanding(){},problem:()=>({summary:'POST /api/graphql mutation Save'})}),/Ashby tried to send a change while the availability grid was being read \(POST \/api\/graphql mutation Save\), and it was blocked\. Nothing was saved\./);
+    }finally{console.warn=warn;}
+  }finally{await browser.close();}
+});

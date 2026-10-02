@@ -20,6 +20,9 @@ test('only reads get through: GET, and GraphQL whose every operation is a query'
   assert.equal(classify({method:'POST',url,postData:gql({operationName:'Thing',extensions:{persistedQuery:{sha256Hash:'abc'}}})}).allow,false);
   assert.equal(classify({method:'POST',url,postData:'name=x&save=1'}).summary,'POST /api/graphql (not GraphQL)');
   for(const method of ['PUT','PATCH','DELETE'])assert.equal(classify({method,url}).allow,false);
+  // Writes to Ashby itself are told apart from telemetry to other hosts.
+  assert.equal(classify({method:'POST',url,postData:'x'}).ashby,true);
+  assert.equal(classify({method:'POST',url:'https://api.segment.io/v1/page',postData:'x'}).ashby,false);
 });
 
 let chromium=null;

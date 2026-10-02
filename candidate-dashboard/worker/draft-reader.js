@@ -16,10 +16,12 @@ function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSan
       reading=true;let browser;
       try {
         browser=await chromium.launch({headless:true,chromiumSandbox});
-        // The plan read is the one that clicks (expanding collapsed events in the
-        // template editor), so its context blocks service workers, whose requests
-        // would bypass the write guard below.
-        const context=await browser.newContext({storageState:saved.storageState,acceptDownloads:false,...(mode==='plan'?{serviceWorkers:'block'}:{})});
+        // The plan and availability reads are the ones that may click (expanding
+        // template events; the availability grid's hour-range expanders), so their
+        // contexts block service workers, whose requests would bypass the write
+        // guard below.
+        const guarded=mode==='plan'||mode==='availability';
+        const context=await browser.newContext({storageState:saved.storageState,acceptDownloads:false,...(guarded?{serviceWorkers:'block'}:{})});
         await context.route('**/*',async route=>{
           if(route.request().isNavigationRequest()) {
             try {if(new URL(route.request().url()).origin!=='https://app.ashbyhq.com')return route.abort();}catch(_){return route.abort();}
@@ -27,7 +29,7 @@ function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSan
           return route.continue();
         });
         // Registered after the origin check, so it runs first and falls back to it.
-        const guard=mode==='plan'?await guardWrites(context):null;
+        const guard=guarded?await guardWrites(context):null;
         const page=await context.newPage();
         const base=(mode==='plan'||mode==='availability')?'https://app.ashbyhq.com/schedules/'+input.scheduleId:'https://app.ashbyhq.com/schedules/drafts/'+input.draftId;
         // Each step that can time out names its cause, so a read failure (session
@@ -60,7 +62,7 @@ function createDraftReader({chromium,vault,clientId,expectedIdentity,chromiumSan
         }
         if(mode==='availability'){
           await open('/candidate-availability');
-          const availability=await availabilityReader(page,input);
+          const availability=await availabilityReader(page,input,{guard});
           return {...availability,scheduleId:input.scheduleId,applicationId:input.applicationId,candidateId:input.candidateId,checkedAt:now()};
         }
         if(mode==='full-calendar'){

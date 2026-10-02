@@ -29,8 +29,8 @@ function classify({method,url,postData}){
   if(READS.has(method))return {allow:true};
   const ops=operations(postData||'');
   if(ops&&ops.every(o=>o.kind==='query'))return {allow:true};
-  let path;try{path=new URL(url).pathname;}catch(_){path='(unreadable URL)';}
-  return {allow:false,mutation:!!ops?.some(o=>o.kind==='mutation'),
+  let path,ashby=false;try{const u=new URL(url);path=u.pathname;ashby=u.origin==='https://app.ashbyhq.com';}catch(_){path='(unreadable URL)';}
+  return {allow:false,mutation:!!ops?.some(o=>o.kind==='mutation'),ashby,
     summary:`${method} ${path} ${ops?ops.map(o=>o.kind+(o.name?' '+o.name:'')).join(', '):'(not GraphQL)'}`};
 }
 
@@ -40,7 +40,7 @@ async function guardWrites(context,log=console){
     const r=route.request(),verdict=classify({method:r.method(),url:r.url(),postData:r.postData()});
     if(verdict.allow)return route.fallback();
     blocked.push({...verdict,phase});
-    log.warn(`[plan-reader] Blocked a write during ${phase}: ${verdict.summary}`);
+    log.warn(`[write-guard] Blocked a write during ${phase}: ${verdict.summary}`);
     return route.abort('blockedbyclient');
   });
   // Not connecting to the server leaves every socket inert.
@@ -49,10 +49,11 @@ async function guardWrites(context,log=console){
     blocked,
     get sockets(){return sockets;},
     expanding(){phase='expanding';},
-    // A mutation at any point, or any write while expanding, stops the read.
-    // Unclassifiable requests during page load are blocked and logged but don't
-    // fail the read: they're usually telemetry, and they never reached Ashby.
-    problem(){return blocked.find(b=>b.mutation||b.phase==='expanding')||null;},
+    // A mutation at any point, or a write to Ashby itself while expanding, stops
+    // the read. Other blocked requests (telemetry to Datadog, Segment or
+    // FullStory, which fires on clicks too) are logged but don't fail it; none
+    // of them reached anywhere.
+    problem(){return blocked.find(b=>b.mutation||(b.phase==='expanding'&&b.ashby))||null;},
   };
 }
 
