@@ -264,6 +264,21 @@ done and verified, in this order:
   The summary view was ruled out (October 1). Its avatars carry no name in
   their markup and have no tooltip; the stack shows at most three; and
   initials avatars have no image to identify anyone by.
+- **The same template reads differently between runs** (October 1, 2026, the
+  Applied AI Engineer onsite). This is direct evidence that what the editor
+  renders isn't stable between reads.
+  - **Code:** no change that affects finding slots ran between these reads.
+    Worker `35522fc` and `0c77cb5` differ only in the count-mismatch message.
+  - **Runs on `35522fc`:**
+    - 22:47 and 22:48 MDT: "Welcome" was refused, with no slots in its stretch of
+      the page.
+    - Another run that same deploy got past "Welcome" and read every slot's names
+      (Lunch read 4 for 3 eligible).
+  - **Runs on `0c77cb5`:** 22:59 and 23:00 MDT, "Welcome" was refused again.
+  - **Cause still open:** either the editor's per-user UI state differs between
+    loads, or the slots load after the reader looks. The worker now logs an
+    event's whole stretch whenever it has no slots ("has no slots on the page;
+    its stretch reads: ..."), which tells the two apart.
 - **Step 2 expands collapsed events, under a write guard** (October 1, 2026). The
   template editor is a live client's configuration, and this is the first part
   of the system that interacts with a write-capable page.

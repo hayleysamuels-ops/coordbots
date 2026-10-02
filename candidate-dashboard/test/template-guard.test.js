@@ -53,8 +53,9 @@ async function read(t,html){
     const guard=await guardWrites(context,{warn:m=>logs.push(m)});
     const page=await context.newPage();
     await page.goto(URL);
-    const result=await readPlan(page,input,{guard}).then(r=>({ok:r}),e=>({error:e}));
-    return {...result,received,logs,clicks:await page.evaluate(()=>window.clicks),guard};
+    const warnings=[],warn=console.warn;console.warn=m=>warnings.push(String(m));
+    const result=await readPlan(page,input,{guard}).then(r=>({ok:r}),e=>({error:e})).finally(()=>{console.warn=warn;});
+    return {...result,received,logs,warnings,clicks:await page.evaluate(()=>window.clicks),guard};
   }finally{await browser.close();}
 }
 
@@ -104,6 +105,7 @@ test('an "Interviewers" control that is a submit button, a form field or plain t
     assert.match(r.error?.message||'',pattern,expander);
     assert.match(r.error.message,/^"Welcome" couldn't be expanded safely/);
     assert.equal(r.clicks,0,expander);
+    assert.match(r.logs.join('\n')+'\n'+r.warnings.join('\n'),/"Welcome" has no slots on the page; its stretch reads: Welcome \| min \| Configure:/,expander);
   }
 });
 

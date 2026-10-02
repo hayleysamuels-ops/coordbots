@@ -96,7 +96,11 @@ async function expandEvents(page,byTitle,matched,blocksFor,guard){
   events: for(const [title,group] of byTitle){
     for(let k=0;k<group.length;k++){
       if(guard.problem())break events;
-      if((await blocksFor(title))[k]?.slots){matched.set(group[k],(await blocksFor(title))[k]);continue;}
+      const current=(await blocksFor(title))[k];
+      if(current?.slots){matched.set(group[k],current);continue;}
+      // What the reader found in this event's stretch of the page instead of
+      // slots: the same template has read with and without them minutes apart.
+      console.warn(`[plan-reader] "${title}"${group.length>1?` (${k+1} of ${group.length})`:''} has no slots on the page; its stretch reads: ${current?current.text.split('\n').map(l=>l.replace(/\s+/g,' ').trim()).filter(Boolean).join(' | ').slice(0,1500):'(row not found)'}`);
       const handle=await page.evaluateHandle(({title,k})=>{
         const durations=e=>[...e.querySelectorAll('input')].filter(x=>x.type==='number'||x.getAttribute('role')==='spinbutton');
         const found=new Set();
