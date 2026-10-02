@@ -155,16 +155,22 @@
     if(f.availabilitySource.value!=='ashby')return;
     $('windows').replaceChildren();$('calendar-preview').replaceChildren();$('full-suggestions').replaceChildren();$('full-calendar-preview').replaceChildren();$('google-calendar-preview').replaceChildren();
     if(!scheduleId){$('availability-status').textContent='Choose a pending request to import its availability.';return;}
-    $('availability-status').textContent='Reading the candidate’s submitted availability…';
-    try{const data=await api('/availability',{applicationId,scheduleId});if(version!==sessionVersion||!credentials||applicationId!==f.applicationId.value||scheduleId!==f.scheduleId.value||f.availabilitySource.value!=='ashby')return;
+    // Every outcome ends in a message here: windows loaded, none found, or
+    // the read failed and why. A running clock shows it's still working.
+    const started=Date.now(),current=()=>version===sessionVersion&&applicationId===f.applicationId.value&&scheduleId===f.scheduleId.value;
+    const reading=()=>{if(current())$('availability-status').textContent=`Reading the candidate’s submitted availability from Ashby… ${Math.round((Date.now()-started)/1000)}s`;};
+    reading();const clock=setInterval(reading,1000);
+    try{const data=await api('/availability',{applicationId,scheduleId});clearInterval(clock);
+      if(!current()||!credentials)return;
+      if(f.availabilitySource.value!=='ashby'){$('availability-status').textContent='Coordinator-entered availability. These times are not a verified Ashby submission.';return;}
       if(![...f.timezone.options].some(o=>o.value===data.timezone)){const option=document.createElement('option');option.value=option.textContent=data.timezone;f.timezone.append(option);}f.timezone.value=data.timezone;
       for(const w of data.localWindows)addWindow(w);
-      $('availability-status').textContent=data.localWindows.length?`Imported ${data.localWindows.length} submitted windows from Ashby (${data.timezone}).`:'No future availability was found in the checked range.';
+      $('availability-status').textContent=data.localWindows.length?`Imported ${data.localWindows.length} submitted window${data.localWindows.length===1?'':'s'} from Ashby (${data.timezone}).`:'No future availability was found in the candidate’s submission.';
       if(data.scope)$('availability-status').textContent+=' Checked '+data.scope.start+' through '+data.scope.end+'.';
       if(data.expiredCount)$('availability-status').textContent+=` ${data.expiredCount} elapsed windows omitted.`;
       if(data.notes)$('availability-status').textContent+=' Candidate note: '+data.notes;
       applyAvailabilityMode();
-    }catch(e){if(version===sessionVersion&&applicationId===f.applicationId.value&&scheduleId===f.scheduleId.value)$('availability-status').textContent=e.message;}
+    }catch(e){clearInterval(clock);if(current())$('availability-status').textContent=`Couldn’t read the submitted availability: ${e.message||'no reason was given'} No windows were imported.`;}
   }
   async function loadAvailabilityRequests(){
     const f=$('prepare'),applicationId=f.applicationId.value,version=sessionVersion;
@@ -271,7 +277,8 @@
     const summary = {
       1: () => `${chosen(f.applicationId)} · ${chosen(f.scheduleId)}`,
       2: () => $('full-plan-status').textContent.split(' · ').slice(0, 2).join(' · '),
-      3: () => `${chosen(f.availabilitySource)} · ${chosen(f.timezone)}`,
+      // The import result stays visible once the step collapses.
+      3: () => [chosen(f.availabilitySource), chosen(f.timezone), $('availability-status').textContent.split('. ')[0].replace(/\.$/, '')].filter(Boolean).join(' · '),
       4: () => { const w = windowRows(); return `${w.length} window${w.length === 1 ? '' : 's'} · first ${when(w[0].start)} – ${when(w[0].end)}`; },
     };
     let reopened = null, lastActive = null;

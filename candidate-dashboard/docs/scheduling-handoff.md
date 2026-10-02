@@ -299,6 +299,24 @@ done and verified, in this order:
   - **Matcher text split across lines:** Ashby renders "All are true:" as "All"
     and "are true:" on separate lines. These are joined before the matcher type
     is checked, so an "Any are true" matcher can't slip past the refusal.
+- **Step 3's availability refresh failed silently** (October 2, 2026).
+  - **What happened:** "Refresh submitted availability" returned 409 after about
+    20 seconds on every attempt (six since 22:42 MDT, per Railway's HTTP log),
+    but nothing appeared. The status line was in Step 4's card, and Step 4 stays
+    locked, showing only its title, until Step 3 has windows. So every outcome
+    without windows, the failure and "none found" alike, was written somewhere
+    invisible.
+  - **Fix:**
+    - The status line now sits under the button in Step 3, with a running clock.
+    - Every outcome ends in a message: windows imported, none found, or
+      "Couldn't read the submitted availability: <reason>".
+    - The result also stays in Step 3's summary once it collapses.
+  - **Which 409:** the roughly 20-second timing fits the grid read (a 1-second
+    pause, then a 15-second wait for the week grid). That failure was never
+    logged, so it's unconfirmed. When the grid can't be read, the refusal and a
+    worker log line (`[availability-reader]`) now say what was found: day
+    headers, timezone labels, grid cells. Each other wait names what didn't load
+    instead of becoming the worker's generic "could not read".
 - **A slot can list someone Ashby no longer counts as eligible** (October 2,
   2026).
   - **What happened:** on the Applied AI Engineer onsite, Lunch read 4 names

@@ -12,6 +12,16 @@ function parseGrid({timezone,columns}){
   }
   return {timezone,windows,start:columns[0].date,end:columns[6].date};
 }
+// What the page held when the grid couldn't be read, for the refusal and the
+// worker log: day headers, timezone labels, grid cells per column.
+function describeGrid(){
+  const leaves=[...document.querySelectorAll('*')].filter(e=>e.children.length===0&&e.getBoundingClientRect().width);
+  const headers=leaves.map(e=>e.textContent.trim()).filter(t=>/^(SUN|MON|TUE|WED|THU|FRI|SAT)\b/i.test(t));
+  const zones=[...new Set(leaves.map(e=>e.textContent.trim()).filter(t=>/^[A-Za-z_]+\/[A-Za-z_]+(?:[ /][A-Za-z_]+)*$/.test(t)))];
+  const slices=[...document.querySelectorAll('[class*="_slice_"]')].filter(e=>e.getBoundingClientRect().width>0);
+  const classes=[...new Set([...document.querySelectorAll('[class]')].flatMap(e=>[...e.classList]).filter(c=>/slice|selected|cell|slot/i.test(c)))].slice(0,8);
+  return `${headers.length} day header${headers.length===1?'':'s'} (${headers.slice(0,8).join(', ')||'none'}); timezone labels: ${zones.join(', ')||'none'}; ${slices.length} grid cells${classes.length?`; grid-like classes: ${classes.join(', ')}`:''}`;
+}
 function collectGrid(){
   const leaves=[...document.querySelectorAll('*')].filter(e=>e.children.length===0&&e.getBoundingClientRect().width);
   const headers=leaves.map(e=>({e,m:e.textContent.trim().match(/^(SUN|MON|TUE|WED|THU|FRI|SAT)\s+(\d{1,2})\/(\d{1,2})\/(\d{4})$/i)})).filter(x=>x.m).sort((a,b)=>a.e.getBoundingClientRect().x-b.e.getBoundingClientRect().x);
@@ -24,15 +34,20 @@ function collectGrid(){
   return {timezone:zones[0],columns};
 }
 async function readAvailability(page){
-  await page.getByRole('heading',{name:'Candidate Availability',exact:true}).waitFor({state:'visible',timeout:15000});
+  // Every wait that can run out names what didn't load; none surfaces as the
+  // generic "could not read" from the worker.
+  const step=async(work,message)=>{try{return await work();}catch(e){if(e?.name==='TimeoutError'||/Timeout \d+ms exceeded/.test(e?.message||''))fail(message);throw e;}};
+  await step(()=>page.getByRole('heading',{name:'Candidate Availability',exact:true}).waitFor({state:'visible',timeout:15000}),"Ashby's Candidate Availability page didn't load within 15 seconds. Try again.");
   const dateControl=page.getByPlaceholder('Set date to view...',{exact:true});
-  await dateControl.waitFor({state:'visible',timeout:15000});
+  await step(()=>dateControl.waitFor({state:'visible',timeout:15000}),"The availability page loaded, but its week picker didn't appear within 15 seconds. Try again.");
   if(await page.getByRole('checkbox',{name:'Show All Availability?',exact:true}).isChecked())fail('Select availability for this request only.');
   const weeks=[];let expected=null;
   for(let week=0;week<6;week++){
     await page.waitForTimeout(1000);
-    await page.getByText('Fetching...',{exact:true}).waitFor({state:'hidden',timeout:15000});
-    let data;try{const handle=await page.waitForFunction(collectGrid,null,{timeout:15000});data=await handle.jsonValue();}catch(_){fail('The submitted-availability grid could not be read completely.');}
+    await step(()=>page.getByText('Fetching...',{exact:true}).waitFor({state:'hidden',timeout:15000}),`Ashby was still fetching week ${week+1} of the availability after 15 seconds. Try again.`);
+    let data;try{const handle=await page.waitForFunction(collectGrid,null,{timeout:15000});data=await handle.jsonValue();}
+    catch(_){const seen=await page.evaluate(describeGrid).catch(()=>'nothing readable');console.warn(`[availability-reader] Week ${week+1} grid unreadable: ${seen}`);
+      fail(`The submitted-availability grid for week ${week+1} couldn't be read: the reader needs 7 day headers, one timezone label and 96 cells per day, and found ${seen}.`);}
     const parsed=parseGrid(data);
     if(expected&&parsed.start!==expected)fail('The availability week did not finish changing.');
     if(weeks.length&&parsed.timezone!==weeks[0].timezone)fail('The availability timezone changed while reading.');
@@ -43,8 +58,8 @@ async function readAvailability(page){
     if(nextIndex<0)fail('The next availability week control could not be identified.');
     expected=new Date(Date.parse(parsed.start+'T12:00:00Z')+7*86400000).toISOString().slice(0,10);
     await page.locator('button').nth(nextIndex).click();
-    await page.waitForFunction(old=>document.querySelector('input[placeholder="Set date to view..."]')?.value!==old,old,{timeout:5000});
+    await step(()=>page.waitForFunction(old=>document.querySelector('input[placeholder="Set date to view..."]')?.value!==old,old,{timeout:5000}),`The availability page didn't move to week ${week+2} within 5 seconds. Try again.`);
   }
   return {complete:true,timezone:weeks[0].timezone,windows:weeks.flatMap(w=>w.windows),scope:{start:weeks[0].start,end:weeks.at(-1).end},notes:'',bookingEnabled:false};
 }
-module.exports={readAvailability,parseGrid,collectGrid};
+module.exports={readAvailability,parseGrid,collectGrid,describeGrid};
