@@ -82,14 +82,14 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
   const optionDigest=p=>require('./service').digest(p);
   async function suggestFull(req){
     const plan=await fullPlan(req);
-    let windows=req.body.windows,timezone=req.body.timezone;
+    let windows=req.body.windows,timezone=req.body.timezone,unreadWeeks=[];
     if(req.body.availabilitySource==='ashby'){
       const submission=await availability.load({applicationId:plan.applicationId,scheduleId:plan.scheduleId});
       if(submission.stageId!==plan.stageId)throw Object.assign(Error('The candidate stage changed. Reload the plan.'),{status:409});
-      windows=submission.localWindows;timezone=submission.timezone;
+      windows=submission.localWindows;timezone=submission.timezone;unreadWeeks=submission.unreadWeeks||[];
     }else if(req.body.availabilitySource!=='manual')throw Object.assign(Error('Choose an availability source.'),{status:422});
     const result=req.body.calendarCheck===true?await calendarChecked(plan,windows,timezone):unchecked(plan,windows,timezone);
-    return {plan,result:{...result,proposals:result.proposals.map(p=>({...p,optionDigest:optionDigest(p)})),candidateName:plan.candidateName,checkedAt:plan.checkedAt}};
+    return {plan,result:{...result,proposals:result.proposals.map(p=>({...p,optionDigest:optionDigest(p)})),candidateName:plan.candidateName,checkedAt:plan.checkedAt,unreadWeeks}};
   }
   // Without calendar checks: back-to-back agendas with this client's start
   // windows applied (never silently skipped, so rules must be loaded), and the

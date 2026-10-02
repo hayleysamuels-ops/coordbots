@@ -16,7 +16,9 @@ function normalizeSubmission(data,now=Date.now()){
   }
   windows.sort((a,b)=>Date.parse(a.start)-Date.parse(b.start));
   if(windows.length>20)fail(409,'This submission has more than 20 windows. Review it in Ashby.');
-  return {timezone:data.timezone,scope:data.scope||null,windows,localWindows:windows.map(w=>({start:local(Date.parse(w.start)),end:local(Date.parse(w.end))})),expiredCount,notes:typeof data.notes==='string'?data.notes:'',complete:true};
+  // Weeks the worker couldn't read: availability in them is unknown, not empty.
+  const unreadWeeks=Array.isArray(data.unreadWeeks)?data.unreadWeeks.filter(w=>Number.isInteger(w?.week)).map(w=>({week:w.week,shown:typeof w.shown==='string'?w.shown.slice(0,40):''})):[];
+  return {timezone:data.timezone,scope:data.scope||null,windows,localWindows:windows.map(w=>({start:local(Date.parse(w.start)),end:local(Date.parse(w.end))})),expiredCount,unreadWeeks,notes:typeof data.notes==='string'?data.notes:'',complete:true};
 }
 function createAvailabilitySource({key,clientId,inspect,request=fetch,now=()=>Date.now()}){
   async function read(endpoint,body){if(!key||!clientId)fail(503,'The client Ashby connection is not configured.');const r=await request('https://api.ashbyhq.com/'+endpoint,{method:'POST',redirect:'error',signal:AbortSignal.timeout(20000),headers:{Authorization:'Basic '+Buffer.from(key+':').toString('base64'),'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await r.json();if(!r.ok||d.success!==true)fail(503,'Could not refresh submitted availability from Ashby.');return d;}
