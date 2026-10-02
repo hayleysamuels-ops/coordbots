@@ -12,7 +12,7 @@ const fail=message=>{throw Object.assign(Error(message),{status:409});};
 const HIRING_ROLES=['Hiring Manager','Recruiter','Recruiting Coordinator','Sourcer'];
 const quote=v=>`"${String(v).replace(/\s+/g,' ').trim().slice(0,80)}"`;
 function parseAssignment(text,title='This interview'){
-  text=text.replace(/Specific\s+Employees\s*:/g,'Specific Employees:').replace(/(\d+)\s+Employees?/g,'$1 Employees').replace(/Add\s+Interviewer\s+Slot/g,'Add Interviewer Slot').replace(/Search\s+for\s+user\s*\.\.\./g,'Search for user...').replace(/Select\s+matcher\s*\.\.\./g,'Select matcher...').replace(/(\d+)\s*Eligible\s*Match(es)?/g,'$1 Eligible Match$2').replace(/\bis\s*\n\s*/g,'is ');
+  text=text.replace(/Specific\s+Employees\s*:/g,'Specific Employees:').replace(/(\d+)\s+Employees?/g,'$1 Employees').replace(/Add\s+Interviewer\s+Slot/g,'Add Interviewer Slot').replace(/Search\s+for\s+user\s*\.\.\./g,'Search for user...').replace(/Select\s+matcher\s*\.\.\./g,'Select matcher...').replace(/(\d+)\s*Eligible\s*Match(es)?/g,'$1 Eligible Match$2').replace(/\bis\s*\n\s*/g,'is ').replace(/^Interviewers\s*\n\s*(\d+)$/m,'Interviewers $1');
   const lines=text.split('\n').map(s=>s.trim()).filter(Boolean);
   const name=quote(title).slice(1,-1);
   const refuse=(found,fix)=>fail(`"${name}": ${found}, which isn't supported. ${fix}`);
@@ -20,6 +20,9 @@ function parseAssignment(text,title='This interview'){
   const slotStarts=lines.map((s,i)=>/^Slot\s*#\d+\b/.test(s)?i:-1).filter(i=>i>=0);
   if(!slotStarts.length)refuse(`no interviewer slot could be found (Ashby shows ${quote(lines.slice(1,4).join(' · ')||'nothing')})`,namedFix);
   if(slotStarts.length>1)refuse(`it has ${slotStarts.length} interviewer slots, so it needs ${slotStarts.length} interviewers on the panel`,'Only single-interviewer events are supported: use one slot that lists every eligible interviewer.');
+  // Ashby heads the section "Interviewers N", N being its slot count.
+  const heading=lines.map(l=>l.match(/^Interviewers (\d+)$/)).find(Boolean);
+  if(heading&&Number(heading[1])!==slotStarts.length)fail(`"${name}": Ashby shows "Interviewers ${heading[1]}" but ${slotStarts.length} slot${slotStarts.length===1?' was':'s were'} read. Load the plan again; if it persists, check the event in Ashby.`);
   const slot=lines.slice(slotStarts[0]+1,lines.includes('Add Interviewer Slot')?lines.lastIndexOf('Add Interviewer Slot'):undefined);
   const slotText=slot.join('\n');
   const pool=slot.find(s=>/\bpools?\b/i.test(s));
@@ -155,23 +158,42 @@ async function readPlan(page,input,{guard=null}={}){
   // The row for a title: the smallest block that holds the title and exactly one
   // duration field. Only innermost blocks count: a page-level container that
   // happens to enclose one event (say, reached from a stage heading with the
-  // same name as the session) isn't a second event. An expanded event's slots
-  // can sit outside that row, so its text is read from the largest block above
-  // the row that still holds only this one duration field.
-  const blocksFor=title=>page.evaluate(title=>{
+  // same name as the session) isn't a second event.
+  // An event's content is everything on the page from its row up to the next
+  // event's row, in document order, not whatever happens to share a parent
+  // with the row: on Ashby's live editor the slots ("Interviewers 1", "Slot #1
+  // — 2 Eligible Matches", the names) sit outside the row's own block. Read
+  // that first; an event only needs expanding if its stretch has no slots.
+  const titles=[...new Set(sessions.map(s=>s.title.trim()))];
+  const blocksFor=title=>page.evaluate(({title,titles})=>{
     const durations=e=>[...e.querySelectorAll('input')].filter(x=>x.type==='number'||x.getAttribute('role')==='spinbutton');
-    const slotText=t=>/Slot\s*#\d/.test(t)||/Eligible\s*Match/.test(t);
-    const found=new Set();
-    for(const leaf of [...document.querySelectorAll('*')].filter(e=>e.children.length===0&&e.textContent.trim()===title&&e.getBoundingClientRect().width)){
-      let e=leaf;for(let k=0;e&&k<25;k++,e=e.parentElement){const n=durations(e).length;if(n===1){found.add(e);break;}if(n>1)break;}
-    }
-    const rows=[...found].filter(b=>![...found].some(o=>o!==b&&b.contains(o)));
-    return rows.map(row=>{
-      let block=row;for(let e=row.parentElement,k=0;e&&k<12&&durations(e).length===1;e=e.parentElement,k++){if(slotText(e.innerText||'')){block=e;break;}}
-      const text=block.innerText||'';
-      return {text,duration:Number(durations(row)[0].value),top:row.getBoundingClientRect().top+window.scrollY,slots:slotText(text)};
+    const rowsFor=t=>{
+      const found=new Set();
+      for(const leaf of [...document.querySelectorAll('*')].filter(e=>e.children.length===0&&e.textContent.trim()===t&&e.getBoundingClientRect().width)){
+        let e=leaf;for(let k=0;e&&k<25;k++,e=e.parentElement){const n=durations(e).length;if(n===1){found.add(e);break;}if(n>1)break;}
+      }
+      return [...found].filter(b=>![...found].some(o=>o!==b&&b.contains(o)));
+    };
+    const all=[...new Set(titles.flatMap(rowsFor))].sort((a,b)=>a.compareDocumentPosition(b)&Node.DOCUMENT_POSITION_FOLLOWING?-1:1);
+    const events=all.filter(r=>!all.some(o=>o!==r&&r.contains(o)));
+    const stretch=(row,next)=>{
+      const range=document.createRange();range.setStartBefore(row);
+      if(next)range.setEndBefore(next);else range.setEndAfter(document.body.lastChild||document.body);
+      const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT),lines=[];
+      for(let n=walker.nextNode();n;n=walker.nextNode()){
+        if(!range.intersectsNode(n)||(next&&next.contains(n)))continue;
+        const t=n.textContent.trim(),p=n.parentElement;
+        if(!t||!p||p.closest('script,style,noscript')||!p.getBoundingClientRect().width||getComputedStyle(p).visibility==='hidden')continue;
+        lines.push(t);
+      }
+      return lines.join('\n');
+    };
+    const mine=new Set(rowsFor(title));
+    return events.map((row,i)=>({row,i})).filter(({row})=>mine.has(row)).map(({row,i})=>{
+      const text=stretch(row,events[i+1]);
+      return {text,duration:Number(durations(row)[0].value),top:row.getBoundingClientRect().top+window.scrollY,slots:/Slot\s*#\d/.test(text)&&/Eligible\s*Match/.test(text)};
     }).sort((a,b)=>a.top-b.top);
-  },title);
+  },{title,titles});
   const issues=[],matched=new Map(),byTitle=new Map();
   for(const s of sessions){const t=s.title.trim();if(!byTitle.has(t))byTitle.set(t,[]);byTitle.get(t).push(s);}
   for(const [title,group] of byTitle){

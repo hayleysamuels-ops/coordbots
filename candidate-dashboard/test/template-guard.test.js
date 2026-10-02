@@ -112,3 +112,21 @@ test('WebSockets are held closed',async t=>{
   assert.equal(r.error,undefined,r.error?.message);
   assert.ok(r.guard.sockets>=1);
 });
+
+// The live layout as far as it's known: the row holds the name button,
+// duration, "Configure" and a "Room" button, with no Interviewers pill because
+// that section is already showing. The section ("Interviewers 1", the slot and
+// its names) isn't inside the row's block; here it's a sibling in a list that
+// holds every event, so widening the row would swallow the next event. It must
+// be read in place, with nothing clicked.
+test('slots already on the page are read where they are, with no click',async t=>{
+  const event=(title,minutes,names)=>`<div class="row"><button type="button"><span>${title}</span><svg role="img"></svg></button>
+    <input type="number" value="${minutes}"><span>min</span><span>Configure</span><button type="button"><span>Room</span></button><button type="button"><svg role="img"></svg></button></div>
+    <section><h4>Interviewers <span>1</span></h4><div>Slot #1 —</div><div><span>${names.length}</span> Eligible Matches</div><div>Specific Employees:</div><div>${names.length} Employees</div>${names.map((n,i)=>`<div>${i?'OR ':''}${n}</div>`).join('')}<button type="button">Add Interviewer Slot</button></section>`;
+  const html=`<!doctype html><h2>Events</h2><div class="list">${event('Welcome',15,['Pat Doe','Lee Kim'])}${event('Lunch',30,['Sam Roe'])}</div>
+    <script>window.clicks=0;document.addEventListener('click',()=>window.clicks++,true);</script>`;
+  const r=await read(t,html);if(!r)return;
+  assert.equal(r.error,undefined,r.error?.message);
+  assert.deepEqual(r.ok.sessions.map(s=>[s.title,s.eligibleInterviewers.map(i=>i.name)]),[['Welcome',['Pat Doe','Lee Kim']],['Lunch',['Sam Roe']]]);
+  assert.equal(r.clicks,0);
+});
