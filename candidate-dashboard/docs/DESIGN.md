@@ -169,8 +169,9 @@ the block around it.
     "Posting…"), an inline spinner appears inside it, `aria-busy="true"` is set, and
     it stays disabled until the call settles, then its label is restored. A busy
     button keeps its normal level (a primary stays ink) rather than the dashed
-    disabled look, so it reads as working, not unavailable. A status line can still
-    report the outcome where the result appears.
+    disabled look, so it reads as working, not unavailable. A status line reports
+    the outcome **in the same card as that control**, never where the result will
+    appear (see § Scheduling pages, "Outcomes stay with the action").
   - **A button that didn't start the call** (an automatic reload triggered by
     something else) is only disabled, with no label change. The spinner is reserved
     for what the person just pressed.
@@ -257,6 +258,34 @@ set of colours to maintain.
 
   Nothing is deleted: collapsed steps keep their controls in the page, only hidden.
   With everything done, four one-line summaries sit above the open final step.
+- **Outcomes stay with the action.** A status message appears in the same card as the
+  control that triggered it, never in a downstream card. That covers progress, success,
+  "none found" and failure.
+  - **Why:** a downstream card opens only once its upstream step succeeds. A failure,
+    or an empty result, is exactly the case where it stays locked. So a message
+    written there is invisible by construction. The button spins, stops, and the
+    screen doesn't change, which looks the same as success, "nothing found" and
+    failure.
+  - **Every instance so far had this cause:** the outcome was written into the card
+    that would show the result, rather than the card where the action happened.
+    - Step 3's "Refresh submitted availability" reported into Step 4, which is locked
+      until windows exist. Its 409s were invisible on every attempt (fixed October 2,
+      2026).
+    - Step 1's "Load candidate from Ashby link" reports into the collapsed Advanced
+      card.
+    - Choosing a candidate in Step 1 loads its pending requests. "No current
+      submitted-availability request", and any failure, report into Step 3, which is
+      locked until a request is chosen.
+  - **How to apply:** put the status line under the card's own primary action. Once
+    the step completes and collapses, carry the outcome into its one-line summary,
+    so it stays visible.
+  - **Automatic follow-ons:** when one action starts another (choosing a request
+    reads its availability, then the plan), each reports in the card of the control
+    the person used. A downstream card may show the result itself, such as a table
+    or windows, but never the only copy of what went wrong.
+  - **An abandoned result must still end in a message:** if a result is dropped
+    because the inputs changed while it was loading, it must not leave the
+    "Reading…" line on screen. Say what happened and to run it again.
 - **One caption per card at most.** Controls don't carry explanatory prose. The only
   sentences kept beside controls are warnings that prevent a mistake, shown in
   `--warning`. For example: coordinator-entered times aren't a verified Ashby

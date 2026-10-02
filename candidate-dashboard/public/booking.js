@@ -47,7 +47,7 @@
   }
   async function refresh(){state=await api();render();}
   $('login').onsubmit=async e=>{e.preventDefault();const form=e.currentTarget,signIn=form.querySelector('button');if(signIn.disabled)return;busyStart(signIn,'Signing in…');credentials='Basic '+btoa(unescape(encodeURIComponent(form.username.value+':'+form.password.value)));try{await refresh();form.password.value='';form.hidden=true;$('workspace').hidden=false;const r=await fetch('/api/issues');if(!r.ok)throw Error('Candidate list unavailable');const snapshot=await r.json();const rows=[...new Map((snapshot.readyToSchedule||[]).filter(c=>c?.applicationId&&c.status==='Active').map(c=>[c.applicationId,c])).values()];$('prepare').applicationId.innerHTML='<option value="">Select candidate</option>'+rows.map(c=>`<option value="${esc(c.applicationId)}">${esc(c.candidateName)} · ${esc(c.jobTitle)}</option>`).join('');const target=new URLSearchParams(location.search).get('applicationId');if(target&&rows.some(c=>c.applicationId===target)){$('prepare').applicationId.value=target;$('prepare').closest('details').open=true;await $('load-plan').onclick();}}catch(err){credentials=null;form.hidden=false;$('workspace').hidden=true;$('message').textContent=err.message;}finally{busyEnd(signIn);}};
-  $('logout').onclick=()=>{sessionVersion++;clearFullPlan();$('source-details').textContent='';$('windows').replaceChildren();$('availability-status').textContent='';$('prepare').availabilitySource.value='ashby';applyAvailabilityMode();$('calendar-preview').replaceChildren();$('ashby-preview').replaceChildren();credentials=null;state=null;selected=null;$('approval').close();$('drafts').replaceChildren();$('workspace').hidden=true;$('login').hidden=false;$('message').textContent='Signed out.';};
+  $('logout').onclick=()=>{sessionVersion++;clearFullPlan();$('source-details').textContent='';$('candidate-status').textContent='';$('windows').replaceChildren();$('availability-status').textContent='';$('prepare').availabilitySource.value='ashby';applyAvailabilityMode();$('calendar-preview').replaceChildren();$('ashby-preview').replaceChildren();credentials=null;state=null;selected=null;$('approval').close();$('drafts').replaceChildren();$('workspace').hidden=true;$('login').hidden=false;$('message').textContent='Signed out.';};
   $('refresh').onclick=()=>whileBusy(['refresh'],refresh,true).catch(e=>$('message').textContent=e.message);
   $('load-application').onclick=async()=>{
     const version=sessionVersion;
@@ -60,8 +60,9 @@
       if(!option){option=document.createElement('option');option.value=data.applicationId;select.append(option);}
       option.textContent=`${data.candidateName} · ${data.jobTitle}`;select.value=data.applicationId;
       $('prepare').interviewId.innerHTML=data.activities.flatMap(a=>a.sessions.map(s=>`<option value="${esc(s.interviewId)}">${esc(a.title)}: ${esc(s.title)} (${s.durationMinutes} min)</option>`)).join('');
-      $('source-details').textContent=data.activities.length?'Candidate and current interview plan loaded from Ashby.':'This stage has no schedulable interviews.';$('ashby-preview').replaceChildren();await loadAvailabilityRequests();
-    }catch(err){if(version===sessionVersion)$('source-details').textContent=err.message;}finally{busyEnd('load-application');}
+      // Outcomes stay in Step 1, beside this button (docs/DESIGN.md § Scheduling pages).
+      $('candidate-status').textContent=data.activities.length?`Loaded ${data.candidateName} · ${data.jobTitle} from Ashby.`:`${data.candidateName}'s current stage has no schedulable interviews.`;$('ashby-preview').replaceChildren();await loadAvailabilityRequests();
+    }catch(err){if(version===sessionVersion)$('candidate-status').textContent=`Couldn’t load the candidate: ${err.message||'no reason was given'}`;}finally{busyEnd('load-application');}
   };
   $('load-plan').onclick=()=>whileBusy(['load-plan'],async()=>{try{const id=$('prepare').applicationId.value;if(!id)throw Error('Choose a candidate.');$('full-plan-status').textContent='Reading the interview plan from Ashby…';const response=await fetch('/api/scheduling-review/template/'+encodeURIComponent(id));const data=await response.json();if(!response.ok)throw Error(data.error);$('prepare').interviewId.innerHTML=data.activities.flatMap(a=>a.sessions.map(s=>`<option value="${esc(s.interviewId)}">${esc(a.title)}: ${esc(s.title)} (${s.durationMinutes} min)</option>`)).join('');await loadAvailabilityRequests();}catch(e){$('message').textContent=e.message;}},true);
   $('prepare').applicationId.onchange=async()=>{$('prepare').interviewId.innerHTML='<option value="">Load a plan first</option>';clearAvailability();await $('load-plan').onclick();};
@@ -93,7 +94,10 @@
     const button=calendarCheck?'suggest-calendar':'suggest-full';
     const f=$('prepare'),request={...requestDetails(),...(calendarCheck?{calendarCheck:true}:{})},version=fullPlanVersion,session=sessionVersion;
     busyStart(button);$('full-suggestions').textContent='Preparing the entire agenda from the current Ashby template and candidate availability…';
-    try{const result=await api('/suggest-full-schedule',request);const {calendarCheck:_,...plain}=request;if(version!==fullPlanVersion||session!==sessionVersion||!credentials||JSON.stringify(plain)!==JSON.stringify(requestDetails()))return;
+    try{const result=await api('/suggest-full-schedule',request);const {calendarCheck:_,...plain}=request;if(version!==fullPlanVersion||session!==sessionVersion||!credentials)return;
+      // Dropped because the inputs changed while it ran: say so, rather than
+      // leave "Preparing…" on screen with the spinner gone.
+      if(JSON.stringify(plain)!==JSON.stringify(requestDetails())){$('full-suggestions').textContent='The availability or plan changed while this agenda was being prepared, so it was discarded. Run it again.';return;}
       const fmt=value=>new Intl.DateTimeFormat('en-US',{timeZone:result.timezone,dateStyle:'medium',timeStyle:'short'}).format(new Date(value));
       const windowsLine=list=>list?.length?`<p>Start windows applied: ${[...new Map(list.map(w=>[w.title+w.earliestStart+w.latestStart+w.timezone,w])).values()].map(w=>`${esc(w.title)} starts ${esc(w.earliestStart)}–${esc(w.latestStart)} ${esc(w.timezone)}`).join('; ')}.</p>`:'';
       const cc=result.calendarCheck,checkedNote=cc?`<p>${result.status==='calendar_checked'?'Interviewers are free on their primary Google calendars':'Checked against primary Google calendars'}${result.calendarCheckedAt?' at '+esc(fmt(result.calendarCheckedAt)):''}. Meeting hours are assumed from client rules (${[...new Set(cc.meetingHours.map(h=>h.source==='override'?'individual overrides':`${h.start}–${h.end} ${h.timezone}`))].map(esc).join('; ')}), not verified.</p>${cc.excluded.length?`<p class="sched-warning">Excluded: ${cc.excluded.map(x=>esc(x.name)+' ('+esc(x.reason)+')').join('; ')}.</p>`:''}${windowsLine(cc.startWindowsApplied)}`:`${windowsLine(result.startWindowsApplied)}<p class="sched-warning">Not checked: ${(result.notChecked||['interviewer calendars']).map(esc).join(', ')}. Suggested interviewers are eligible choices, not confirmed available.</p>`;
@@ -174,14 +178,18 @@
   }
   async function loadAvailabilityRequests(){
     const f=$('prepare'),applicationId=f.applicationId.value,version=sessionVersion;
-    if(!applicationId)return;clearAvailability();$('availability-status').textContent='Reading availability requests from Ashby…';
+    // Reports in Step 1, where the candidate was chosen: Step 3 stays locked until
+    // a request is, so "none pending" or a failure written there was never seen.
+    if(!applicationId)return;clearAvailability();$('candidate-status').textContent='Reading pending availability requests from Ashby…';
     try{const data=await api('/availability-requests',{applicationId});if(version!==sessionVersion||!credentials||applicationId!==f.applicationId.value)return;
       f.scheduleId.innerHTML='<option value="">Select availability request</option>'+data.requests.map(r=>`<option value="${esc(r.scheduleId)}">Updated ${esc(new Date(r.updatedAt).toLocaleString())} · ${esc(r.scheduleId.slice(0,8))}</option>`).join('');
       const target=new URLSearchParams(location.search).get('scheduleId');
       if(data.requests.some(r=>r.scheduleId===target))f.scheduleId.value=target;else if(data.requests.length===1)f.scheduleId.value=data.requests[0].scheduleId;
-      if(f.availabilitySource.value==='ashby'){if(data.requests.length)await importAvailability();else $('availability-status').textContent='No current submitted-availability request. Use coordinator entry for times shared outside Ashby.';}else addWindow();
+      if(!data.requests.length)f.scheduleId.innerHTML='<option value="">No pending availability requests</option>';
+      $('candidate-status').textContent=data.requests.length?`${data.requests.length} pending availability request${data.requests.length===1?'':'s'} in the candidate’s current stage.`:'No pending availability request in the candidate’s current stage. Ask the candidate to submit availability in Ashby, then load them again.';
+      if(f.availabilitySource.value==='ashby'){if(data.requests.length)await importAvailability();}else addWindow();
       applyAvailabilityMode();await loadFullPlan();
-    }catch(e){if(version===sessionVersion&&applicationId===f.applicationId.value)$('availability-status').textContent=e.message;}
+    }catch(e){if(version===sessionVersion&&applicationId===f.applicationId.value){f.scheduleId.innerHTML='<option value="">Couldn’t load requests</option>';$('candidate-status').textContent=`Couldn’t read the candidate’s pending availability requests: ${e.message||'no reason was given'}`;}}
   }
   $('reload-availability').onclick=importAvailability;
   $('prepare').scheduleId.onchange=async()=>{clearFullPlan();await importAvailability();await loadFullPlan();};

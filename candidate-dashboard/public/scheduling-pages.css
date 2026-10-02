@@ -97,6 +97,11 @@
   color: var(--text-secondary);
 }
 
+/* A step's outcome sits under its own action (DESIGN.md § Scheduling pages). */
+.sched-actions + .sched-status-line {
+  margin-top: 12px;
+}
+
 /* Step 2: listed in the Ashby slot but not eligible (e.g. a deactivated account). */
 .sched-excluded {
   font-size: 13px;
