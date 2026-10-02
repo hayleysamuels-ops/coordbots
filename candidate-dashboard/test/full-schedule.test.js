@@ -22,5 +22,5 @@ test('unsupported slot rules say what was found and what is supported',()=>{
   refused('Recruiter Screen\nSlot #1 —\n1 Eligible Match\nHiring Team Role:\nRecruiter\nAdd Interviewer Slot',/Slot #1 is filled by the candidate's hiring team role \("Hiring Team Role:"\)/);
   refused("Recruiter Screen\nSlot #1 —\n6 Eligible Matches\nEmployee's Department\nAll are true:\nis Support\nSelect matcher...\nAdd Interviewer Slot",/Slot #1 uses an Advanced matcher on the employee's department/);
   refused('Recruiter Screen\nSlot #1 —\nSomething new\nAdd Interviewer Slot',/Slot #1 shows no eligible-match count \(Ashby shows "Something new"\)/);
-  refused('Recruiter Screen\nSlot #1 —\n3 Eligible Matches\nSpecific Employees:\n3 Employees\nPerson One\nAdd Interviewer Slot',/Slot #1 says 3 eligible matches but 1 name was read from it/);
+  refused('Recruiter Screen\nSlot #1 —\n3 Eligible Matches\nSpecific Employees:\n3 Employees\nPerson One\nAdd Interviewer Slot',/Slot #1 says 3 eligible matches but 1 name was read from it \("Person One"\)/);
 });

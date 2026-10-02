@@ -50,7 +50,14 @@ function parseAssignment(text,title='This interview'){
   names=[...new Set(names.filter(s=>s&&!/^OR$/.test(s)&&s!=='Select matcher...'))];
   const bad=names.find(n=>!/^\p{L}[\p{L} .’'\-]+$/u.test(n));
   if(bad)fail(`"${name}": Slot #1 lists ${quote(bad)}, which doesn't read as an employee's name. Check the slot in Ashby.`);
-  if(!count||names.length!==count)fail(`"${name}": Slot #1 says ${count} eligible match${count===1?'':'es'} but ${names.length} name${names.length===1?' was':'s were'} read from it. Check the slot in Ashby, then load the plan again.`);
+  // Never loosened: a name that isn't a real eligible interviewer would go to
+  // the solver and could be proposed for a real interview. The names read are
+  // listed (and logged) so the stray one can be identified.
+  if(!count||names.length!==count){
+    const read=names.map(quote).join(', ')||'none';
+    console.warn(`[plan-reader] "${name}" Slot #1: ${count} eligible, read ${names.length}: ${read}. Slot lines: ${slot.map(quote).join(' | ')}`);
+    fail(`"${name}": Slot #1 says ${count} eligible match${count===1?'':'es'} but ${names.length} name${names.length===1?' was':'s were'} read from it (${read}). Check the slot in Ashby, then load the plan again.`);
+  }
   return {requiredCount:1,eligibleInterviewers:names.map(name=>({name})),assignmentVerified:true};
 }
 // A read failure (Ashby didn't load what we need) is a different thing from a
