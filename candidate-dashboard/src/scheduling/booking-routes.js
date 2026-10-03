@@ -51,7 +51,10 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     if(after.templateRevision!==plan.templateRevision)throw Object.assign(Error('The interview plan changed. Reload it.'),{status:409});
     // Before anything uses the plan: drop listed interviewers Ashby no longer
     // counts as eligible (deactivated accounts), holding the exact count.
-    const sessions=facts.excludeDeactivated?await facts.excludeDeactivated(observed.sessions):observed.sessions;
+    let sessions=facts.excludeDeactivated?await facts.excludeDeactivated(observed.sessions):observed.sessions;
+    // Debriefs (Ashby isDebrief) are marked when the rules defer them until
+    // the onsite is confirmed; agendas then leave them out (agendaSessions).
+    if(rules&&rules.get().debriefs?.afterOnsiteConfirmed&&facts.debriefInterviewIds){const ids=await facts.debriefInterviewIds();sessions=sessions.map(s=>ids.has(s.interviewId)?{...s,isDebrief:true}:s);}
     return {...plan,scheduleId:request.scheduleId,sessions,checkedAt:observed.checkedAt,bookingEnabled:false};
   }
   router.post('/full-plan',handle(fullPlan));
@@ -80,8 +83,12 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
   // Each option carries a digest of itself, so posting one can prove the
   // server rebuilt exactly the option the coordinator saw.
   const optionDigest=p=>require('./service').digest(p);
+  // A deferred debrief is never proposed with the onsite agenda: it's left out
+  // here and listed with the result, to be scheduled once the onsite is confirmed.
+  const agendaSessions=plan=>({plan:{...plan,sessions:plan.sessions.filter(s=>!s.isDebrief)},deferred:plan.sessions.filter(s=>s.isDebrief).map(s=>s.title)});
   async function suggestFull(req){
-    const plan=await fullPlan(req);
+    const loaded=await fullPlan(req),{plan,deferred}=agendaSessions(loaded);
+    if(!plan.sessions.length)throw Object.assign(Error('Every session in this plan is a debrief, which is scheduled only once the onsite is confirmed.'),{status:409});
     let windows=req.body.windows,timezone=req.body.timezone,unreadWeeks=[];
     if(req.body.availabilitySource==='ashby'){
       const submission=await availability.load({applicationId:plan.applicationId,scheduleId:plan.scheduleId});
@@ -89,7 +96,7 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
       windows=submission.localWindows;timezone=submission.timezone;unreadWeeks=submission.unreadWeeks||[];
     }else if(req.body.availabilitySource!=='manual')throw Object.assign(Error('Choose an availability source.'),{status:422});
     const result=req.body.calendarCheck===true?await calendarChecked(plan,windows,timezone):unchecked(plan,windows,timezone);
-    return {plan,result:{...result,proposals:result.proposals.map(p=>({...p,optionDigest:optionDigest(p)})),candidateName:plan.candidateName,checkedAt:plan.checkedAt,unreadWeeks}};
+    return {plan,result:{...result,proposals:result.proposals.map(p=>({...p,optionDigest:optionDigest(p)})),candidateName:plan.candidateName,checkedAt:plan.checkedAt,unreadWeeks,debriefsDeferred:deferred}};
   }
   // Without calendar checks: back-to-back agendas with this client's start
   // windows applied (never silently skipped, so rules must be loaded), and the
@@ -98,7 +105,7 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     if(!rules)throw Object.assign(Error('Scheduling rules are not loaded.'),{status:503});
     const clientRules=rules.get();
     const sessions=plan.sessions.map(s=>{const w=clientRules.placementFor(s.title);return w.length?{...s,placementWindows:w}:s;});
-    return require('./full-schedule').proposeFullSchedule({sessions,windows,timezone});
+    return require('./full-schedule').proposeFullSchedule({sessions,windows,timezone,excludedWeekdays:clientRules.agenda?.excludedWeekdays||null});
   }
   // Calendar-constrained options: interviewers' primary Google calendars as a
   // hard constraint, meeting hours assumed from client rules, zero limits
@@ -137,7 +144,8 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     // emails only when the rules list overrides (rules.js).
     if(!rules)throw Object.assign(Error('Scheduling rules are not loaded, so interviewer attendance can\'t be confirmed.'),{status:503});
     const clientRules=rules.get(),attendance=await require('./rules').attendanceForEvents(clientRules,chosen.events,facts?.resolveInterviewers);
-    return discussion.postScheduleOption({applicationId:plan.applicationId,candidateId:plan.candidateId,timezone:result.timezone,option:chosen,optionNumber:index+1,
+    const linkedinUrl=facts?.candidateLinkedIn?await facts.candidateLinkedIn(plan.candidateId).catch(()=>null):null;
+    return discussion.postScheduleOption({applicationId:plan.applicationId,candidateId:plan.candidateId,timezone:result.timezone,option:chosen,optionNumber:index+1,linkedinUrl,
       sourceRef:`full-schedule:${plan.scheduleId}:${ref}`,availabilitySource:req.body.availabilitySource,attendance,rulesRevision:clientRules.rulesRevision,
       calendarCheck:['calendar_checked','needs_attention'].includes(result.status)?{checkedAt:result.calendarCheckedAt,meetingHoursAssumed:result.meetingHoursAssumed===true,flags:chosen.events.map(e=>e.flags||[])}:null},req.schedulingUser);
   }));

@@ -60,6 +60,31 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
     if(!stage)fail(409,'The current interview stage could not be found.');
     return {applicationId:a.id,candidateId:a.candidate?.id,stageId:stage.id,templateRevision:digest(stage),candidateName:a.candidate?.name,jobTitle:a.job.title,activities:(stage.activities||[]).map(activity=>({id:activity.id,title:activity.title,sessions:(activity.interviews||[]).filter(i=>i.isSchedulable===true).map(i=>({sessionId:i.id,interviewId:i.interviewId,title:i.title,durationMinutes:i.interviewDurationMinutes}))})).filter(a=>a.sessions.length)};
   }
+  // Ashby interview ids marked isDebrief, cached for ten minutes. Used to keep
+  // debriefs out of the onsite preview when the rules defer them. A read that
+  // fails refuses rather than guessing that nothing is a debrief.
+  let debriefCache=null;
+  async function debriefInterviewIds(){
+    if(debriefCache&&now()-debriefCache.at<600000)return debriefCache.ids;
+    const ids=new Set(),cursors=new Set();let cursor=null;
+    do{
+      const page=await read('interview.list',{limit:100,...(cursor?{cursor}:{})},true);
+      if(!Array.isArray(page.results))fail(503,'Ashby\'s interview list could not be read, so debriefs can\'t be told apart.');
+      for(const i of page.results)if(i?.isDebrief===true&&uuid(i.id))ids.add(i.id);
+      cursor=page.moreDataAvailable?page.nextCursor:null;
+      if(page.moreDataAvailable&&(!cursor||cursors.has(cursor)))fail(503,'Ashby\'s interview list is incomplete.');
+      cursors.add(cursor);if(cursors.size>50)fail(503,'Ashby\'s interview list is too large.');
+    }while(cursor);
+    debriefCache={at:now(),ids};return ids;
+  }
+  // The candidate's LinkedIn URL from their Ashby profile (socialLinks), for the
+  // Slack post's header line. null when none is on file; never guessed.
+  async function candidateLinkedIn(candidateId){
+    if(!uuid(candidateId))fail(422,'A verified candidate is required.');
+    const c=await read('candidate.info',{id:candidateId});
+    const url=(c?.socialLinks||[]).find(l=>/linkedin/i.test(l?.type||''))?.url;
+    try{const u=new URL(url);return u.protocol==='https:'&&/(^|\.)linkedin\.com$/i.test(u.hostname)?u.href:null;}catch(_){return null;}
+  }
   async function listUsers(includeDeactivated){
     const users=[],cursors=new Set();let cursor='start';
     while(cursor){
@@ -73,9 +98,9 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
     return users;
   }
   const normalizeName=s=>String(s||'').replace(/\s+/g,' ').trim().toLowerCase();
-  // A slot can list someone Ashby no longer counts as eligible: on Luminai's
-  // Lunch and One on One, Patrick Lii is listed but his account is deactivated,
-  // so Ashby shows 3 and 5 eligible for 4 and 6 listed. The page doesn't mark
+  // A slot can list someone Ashby no longer counts as eligible, for instance a
+  // person who has left and whose account is deactivated: Ashby then shows
+  // fewer eligible matches than the slot lists. The page doesn't mark
   // who, so it's settled here against Ashby's directory. A name whose only
   // accounts are deactivated is dropped; then the active people left must equal
   // Ashby's eligible count exactly. Anything else (a name with no account, two
@@ -130,6 +155,6 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
     }
     return out;
   }
-  return { load, application, resolveInterviewers, excludeDeactivated, interviewerLimits };
+  return { load, application, resolveInterviewers, excludeDeactivated, interviewerLimits, debriefInterviewIds, candidateLinkedIn };
 }
 module.exports = { createBookingFacts };

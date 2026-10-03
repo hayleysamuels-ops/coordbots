@@ -39,7 +39,12 @@ function dateIn(ms,timezone){
 // conflict. At a session's fixed time, an eligible interviewer who is free is
 // preferred over one who isn't; that changes who, never when. Zero interview
 // limits stay hard upstream (calendar-inputs excludes those people).
-function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.now(),limit=5,minBreakMinutes=0,maxGapMinutes=0,maxGapCount=0,variety=true,advisory=false}){
+// excludedWeekdays ({days,timezone}, from scheduling-rules agenda): no agenda
+// starts on these weekdays in that zone; hard in both modes (Luminai: WFH
+// Wednesdays). A session's preferredUserIds (sessions.preferredInterviewers)
+// are offered it first, in order: in advisory mode while they're free at its
+// time, falling back to the others only when none of them is.
+function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.now(),limit=5,minBreakMinutes=0,maxGapMinutes=0,maxGapCount=0,variety=true,advisory=false,excludedWeekdays=null}){
   if(!Array.isArray(sessions)||!sessions.length||sessions.length>30)fail('Load a complete interview plan first.');
   if(!Number.isInteger(limit)||limit<1||limit>5)fail('Invalid proposal limit.');
   if(![minBreakMinutes,maxGapMinutes].every(m=>Number.isInteger(m)&&m>=0&&m%5===0)||maxGapMinutes<minBreakMinutes||maxGapMinutes>480)fail('Breaks must be whole 5-minute steps, with the maximum gap at least the minimum break.');
@@ -53,6 +58,9 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
     // Optional start windows from scheduling-rules sessions.placementWindows.
     if(s.placementWindows!==undefined&&(!Array.isArray(s.placementWindows)||s.placementWindows.some(w=>!/^([01]\d|2[0-3]):[0-5]\d$/.test(w?.earliestStart||'')||!/^([01]\d|2[0-3]):[0-5]\d$/.test(w?.latestStart||'')||w.latestStart<w.earliestStart||(()=>{try{timeIn(0,w.timezone);return false;}catch(_){return true;}})())))fail(`The start window for ${s.title} is invalid.`);
   }
+  if(excludedWeekdays&&(!Array.isArray(excludedWeekdays.days)||excludedWeekdays.days.some(d=>!['sun','mon','tue','wed','thu','fri','sat'].includes(d))||(()=>{try{timeIn(0,excludedWeekdays.timezone);return false;}catch(_){return true;}})()))fail('The excluded weekdays are invalid.');
+  const weekdayOf=ms=>new Intl.DateTimeFormat('en-US',{timeZone:excludedWeekdays.timezone,weekday:'short'}).format(ms).toLowerCase();
+  const dayExcluded=ms=>!!excludedWeekdays&&excludedWeekdays.days.includes(weekdayOf(ms));
   const placementOk=(s,start)=>!s.placementWindows||s.placementWindows.every(w=>{const t=timeIn(start,w.timezone);return t>=w.earliestStart&&t<=w.latestStart;});
   // Meeting hours are either verified (workingHoursVerified) or explicitly
   // assumed from client rules (workingHoursSource "assumed"). Assumed hours are
@@ -134,7 +142,7 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
   // fixed interviewer's remaining daily or weekly capacity. `dead` remembers
   // sub-problems already proven impossible; it only skips failures, so it never
   // changes which agenda is found first.
-  function search({relax=BASE,max=limit,cap=SEARCH_LIMIT,tally=null,breaks=BREAKS,tallyPlacement=null,accepted=[]}={}){
+  function search({relax=BASE,max=limit,cap=SEARCH_LIMIT,tally=null,breaks=BREAKS,tallyPlacement=null,accepted=[],ignoreWeekdays=false}={}){
     const proposals=[],seen=new Set(),dead=new Set();let examined=0;const reach={placed:-1,events:[]};
     // `used` is how many breaks this agenda has taken so far.
     function assign(index,cursor,events,window,day,used=0){
@@ -144,7 +152,9 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
       const key=`${index}|${cursor}|${window.end}|${day}|${used}|${limitedIds.map(id=>events.filter(e=>e.interviewer.userId===id).length).join(',')}`;
       if(dead.has(key))return null;
       const s=sessions[index],duration=s.durationMinutes*60000;
-      const eligible=s.eligibleInterviewers.slice().sort((a,b)=>events.filter(e=>e.interviewer.userId===a.userId).length-events.filter(e=>e.interviewer.userId===b.userId).length);
+      // Preferred hosts first, in their order; then fewest sessions in this agenda.
+      const pref=s.preferredUserIds||[],rank=p=>{const i=pref.indexOf(p.userId);return i<0?pref.length:i;};
+      const eligible=s.eligibleInterviewers.slice().sort((a,b)=>rank(a)-rank(b)||events.filter(e=>e.interviewer.userId===a.userId).length-events.filter(e=>e.interviewer.userId===b.userId).length);
       // Back to back first, then each allowed break length, shortest first.
       const starts=[cursor];
       if(index>0&&used<breaks.count)for(let g=breaks.min;g<=breaks.max;g+=5)starts.push(cursor+g*60000);
@@ -154,7 +164,10 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
         // Pruned here, not filtered afterwards: a session outside its start
         // window is never placed. A later start may still be inside it.
         if(!relax.placement.has(s.sessionId)&&!placementOk(s,start)){if(tallyPlacement)tallyPlacement(s);continue;}
-        // Advisory: at this fixed time, a free interviewer before a busy one.
+        // Advisory: at this fixed time, a free interviewer before a busy one,
+        // and among each, the preferred host first (eligible is already in
+        // preference order). So a preferred host who clashes yields to a free
+        // colleague, and is only used, flagged, when nobody is free.
         const order=advisory?eligible.map((p,i)=>({p,i,c:unavailable(p,s,start,end,events,NONE)?1:0})).sort((a,b)=>a.c-b.c||a.i-b.i).map(x=>x.p):eligible;
         for(const person of order){
           const why=unavailable(person,s,start,end,events,relax);
@@ -171,6 +184,7 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
         // windowsToInstants permits <=24h windows; this solver intentionally
         // requires the complete agenda to stay on one candidate-local date.
         if(dateIn(start,timezone)!==dateIn(start+minSpan-1,timezone))continue;
+        if(!ignoreWeekdays&&dayExcluded(start))continue;
         const events=assign(0,start,[],window,dateIn(start,timezone));if(!events)continue;
         const option={start:events[0].start,end:events.at(-1).end,events};
         if(variety&&!distinctFrom([...accepted,...proposals],option,timezone))continue;
@@ -250,7 +264,14 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
     // the candidate's own availability is what's too short.
     const everyone=new Set(people.keys()),fits=relax=>{try{return search({relax:withBase(relax),max:1,cap:RELAX_LIMIT}).proposals.length>0;}catch(e){if(e.relaxLimit)return false;throw e;}};
     const base={furthest:{placed,of:sessions.length,placedTitles:reach.events.map(e=>e.title),blockedAt:placed<sessions.length?{sessionId:blocked.sessionId,title:blocked.title}:null},atBlocked,blockedPlacement,conflicts};
-    if(!fits({hours:everyone,busy:everyone,limits:everyone,placement:new Set(sessions.map(x=>x.sessionId))}))return {...base,unblock:[{kind:'availability',text:`The candidate's availability can't hold the whole ${totalMinutes}-minute agenda on one day, even with every interviewer free.`}]};
+    const allRelaxed={hours:everyone,busy:everyone,limits:everyone,placement:new Set(sessions.map(x=>x.sessionId))};
+    if(!fits(allRelaxed)){
+      // Say so plainly when the only days that would hold it are excluded ones.
+      let weekdayOnly=false;if(excludedWeekdays){try{weekdayOnly=search({relax:withBase(allRelaxed),max:1,cap:RELAX_LIMIT,ignoreWeekdays:true}).proposals.length>0;}catch(e){if(!e.relaxLimit)throw e;}}
+      if(weekdayOnly){const names={sun:'Sunday',mon:'Monday',tue:'Tuesday',wed:'Wednesday',thu:'Thursday',fri:'Friday',sat:'Saturday'};
+        return {...base,unblock:[{kind:'weekday',days:excludedWeekdays.days,text:`The candidate's availability only holds the whole agenda on ${excludedWeekdays.days.map(d=>names[d]).join(' or ')}, when no onsite is held${excludedWeekdays.reason?` (${excludedWeekdays.reason.replace(/\.$/,'')})`:''}. Ask the candidate for another day.`}]};}
+      return {...base,unblock:[{kind:'availability',text:`The candidate's availability can't hold the whole ${totalMinutes}-minute agenda on one day, even with every interviewer free.`}]};
+    }
     // One relaxation per (person, constraint) that rejected anything, most
     // rejections first; placeholder hours rank ahead because entering real
     // hours is the cheapest fix and the placeholder is likely wrong.

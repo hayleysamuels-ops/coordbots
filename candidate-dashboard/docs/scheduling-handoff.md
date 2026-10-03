@@ -299,6 +299,78 @@ done and verified, in this order:
   - **Matcher text split across lines:** Ashby renders "All are true:" as "All"
     and "are true:" on separate lines. These are joined before the matcher type
     is checked, so an "Any are true" matcher can't slip past the refusal.
+- **Luminai Scheduling SOP rules** (October 3, 2026, rules revision 6). All are
+  in `scheduling-rules/luminai.json`; none are hardcoded.
+  - **No onsite on Wednesdays** (`agenda.excludedWeekdays`: `wed`, judged in
+    America/Los_Angeles). This is hard in both previews. Availability that only
+    fits on a Wednesday gets its own no-fit line asking for another day.
+  - **Gabrielle Struckell hosts Welcome** (`sessions.preferredInterviewers`).
+    - The calendar-checked preview offers Welcome to Gabrielle first, while
+      Gabrielle is free at its time. Otherwise, an eligible colleague who is free
+      takes it, at the same time. Gabrielle is used, flagged, only when nobody
+      is free.
+    - This is a per-session ordered preference, not the general
+      free-interviewer-first rule. The unchecked preview has no interviewer
+      identities, so it doesn't apply this preference.
+  - **Debriefs** (`debriefs`). Sessions whose Ashby interview has `isDebrief` are
+    never proposed with the agenda. They're listed as "Not proposed here … once
+    the onsite is confirmed". `meetingHoursExempt: true` records that the SOP
+    allows debriefs before 9am or after 5pm Pacific. The step that schedules a
+    debrief after the onsite is confirmed isn't built yet; it would need a
+    confirmed-onsite signal (the schedule reaching `Scheduled` in Ashby). No
+    open Luminai job has a debrief in its plan today.
+  - **Meeting hours:** Sanjay Saraf (sanjay@luminai.com) 07:00–17:00 Pacific,
+    weekdays assumed. Shawn Greenspan's are still to come.
+  - **Post format.** Calendar-checked posts now follow the SOP:
+    - the instruction line, then the candidate and role;
+    - "LinkedIn - Ashby", with LinkedIn taken from the candidate's Ashby profile
+      and the line saying "(not in Ashby)" when there's none;
+    - `---- H:MM Break -----` between sessions with a gap;
+    - an Interview Plan / Shared Prompt / Shared Interview Prep / NDA Sent
+      block. Its four items are left "to add" or "to confirm", because the
+      dashboard has no source for them.
+  - **Event titles on busy flags (SOP item 2): blocked on Google Calendar
+    scope, not on implementation.** The SOP wants each clash to show the
+    clashing event's title, so a person can judge whether it's an internal
+    meeting that can move or an external one that can't.
+    - **Why it can't yet:** the dashboard reads interviewers' calendars through
+      Google free/busy, which returns only busy intervals, never titles.
+    - **What's needed:** titles require read access to events (for example
+      `calendar.events.readonly`, or `calendar.readonly`). That means Anna
+      reconnecting Google Calendar with the broader access.
+    - **Once she has:** the flag can carry the title beside the time it already
+      shows.
+  - **Patrick Lii** has left Luminai. Nothing in the code named him; the
+    deactivated-account handling is generic. He's still listed in Ashby slots
+    (Lunch and both One on Ones on the Applied AI Engineer onsite), where
+    removing him would make the template match what Ashby books.
+- **A per-candidate Slack channel: what it would take** (not built; posts still
+  go to #luminai-rc-team). The SOP wants `hiring-<candidate-name>-<role>` with
+  Joe, Mary, Kesava, Gabby and the hiring manager.
+  - **Scopes:**
+    - `channels:manage` (public) or `groups:write` (private) for
+      `conversations.create`;
+    - the same plus `conversations.invite` permission;
+    - `users:read.email` to find people. The bot has `chat:write`, `users:read`
+      and `users:read.email` today.
+  - **Workspace:** the channel would be created in Carrara's workspace, where the
+    bot is. Joe, Mary, Kesava, Gabby and the hiring managers are Luminai people.
+    They can only be invited if they're members of Carrara's workspace, or
+    through Slack Connect, which a bot can't set up on its own. That's the same
+    boundary that keeps interviewer names as plain text.
+  - **Naming:** a slug from the candidate's name and the job title (lowercase,
+    hyphens, 80 characters at most, Slack's allowed characters only). It also
+    needs a rule for an existing name (a second application, or the same
+    name), since names must be unique and archived channels still reserve
+    theirs.
+  - **Membership:**
+    - The fixed four come from config as emails.
+    - The hiring manager comes from the application's hiring team in Ashby
+      (role "Hiring Manager").
+    - Each person maps to a Slack user by email (`users.lookupByEmail`), and
+      anyone who can't be found is reported, not skipped.
+  - **Lifecycle:** when to archive the channel (hired, rejected, withdrawn), and
+    whether the Schedule button's approvers change per channel.
 - **The calendar-checked preview is advisory** (October 2, 2026).
   - **What it does:** it always proposes agendas in template order, at the
     earliest start that fits.
@@ -348,7 +420,7 @@ done and verified, in this order:
     against "3 Eligible Matches" and both One on Ones read 6 against 5. The
     extra names were real people, not controls or alternates; the slot text
     marks nobody differently. Each slot lists one more person ("4 Employees",
-    "6 Employees") than Ashby counts. The one listed in all three is Patrick Lii,
+    "6 Employees") than Ashby counts. The one listed in all three is Patrick Lii (who has since left Luminai),
     whose Ashby account is deactivated (`isEnabled: false`).
   - **Worker:** the names read must equal the slot's own "N Employees". When
     they outnumber "N Eligible Matches", every name goes on with Ashby's count.

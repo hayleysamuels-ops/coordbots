@@ -78,7 +78,7 @@ test("ignore doesn't read limits; enforce and other busy sources refuse; gaps pa
   await buildCalendarInputs({ plan, windows, timezone, rules: rulesDoc(d => { d.limits.ashbyInterviewerLimits = "ignore"; }), facts, freeBusy });
   assert.equal(calls.limits, 0);
   const gapped = await buildCalendarInputs({ plan, windows, timezone, rules: rulesDoc(d => { d.agenda.minBreakMinutes = 10; d.agenda.maxGapMinutes = 30; d.agenda.maxGapCount = 1; }), facts, freeBusy });
-  assert.deepEqual(gapped.agenda, { minBreakMinutes: 10, maxGapMinutes: 30, maxGapCount: 1 });
+  assert.deepEqual(gapped.agenda, { minBreakMinutes: 10, maxGapMinutes: 30, maxGapCount: 1, excludedWeekdays: { days: ["wed"], timezone: "America/Los_Angeles", reason: "Luminai works from home on Wednesdays, so no onsite is held then (Scheduling SOP)." } });
   const legacy = await buildCalendarInputs({ plan, windows, timezone, rules: rulesDoc(d => { delete d.agenda.maxGapCount; }), facts, freeBusy });
   assert.equal(legacy.agenda.maxGapCount, 0);
   assert.equal(gapped.calendars[0].hoursSource, "default");
@@ -119,12 +119,13 @@ test("hours that are neither verified nor marked assumed still refuse", () => {
 
 // ---- the booking route ----------------------------------------------------------
 
-async function route(t, { busy, sessions } = {}) {
+async function route(t, { busy, sessions, debriefIds } = {}) {
   const planSessions = (sessions || plan.sessions).map(s => ({ ...s }));
   const posted = [], state = { busy: busy || {} };
   const { facts: base } = sources();
   const facts = { ...base, application: async () => ({ applicationId: "app", candidateId: "cand", stageId: "stage", templateRevision: "v1", activities: [{ sessions: planSessions }] }),
-    interviewerLimits: async ids => new Map(ids.map(id => [id, { dailyLimit: null, weeklyLimit: null }])) };
+    interviewerLimits: async ids => new Map(ids.map(id => [id, { dailyLimit: null, weeklyLimit: null }])),
+    ...(debriefIds ? { debriefInterviewIds: async () => new Set(debriefIds) } : {}) };
   const freeBusy = { read: async ({ calendarIds, timeMin, timeMax }) => calendarIds.map(id => ({ calendarId: id, busy: state.busy[id] || [], coverage: [{ start: timeMin, end: timeMax }], coverageVerified: true, checkedAt: Date.now() })) };
   const app = express(); app.use(express.json()); app.use((req, res, next) => { req.schedulingUser = { id: "coordinator", canApprove: true }; next(); });
   app.use("/b", bookingRoutes({
@@ -204,4 +205,13 @@ test("Welcome must come first: a template with it elsewhere is refused, not rear
   const r = await call("/suggest-full-schedule", request);
   assert.equal(r.status, 409);
   assert.match((await r.json()).error, /^The template has "Welcome" as session 2, but Welcome must come first\./);
+});
+
+test("a debrief in the plan is never proposed with the onsite agenda; it's listed as deferred", async t => {
+  const sessions = [...plan.sessions, { sessionId: "s9", interviewId: "i9", title: "Debrief", durationMinutes: 30, assignmentVerified: true, requiredCount: 1, eligibleInterviewers: [{ name: "Ana Silva" }] }];
+  const { call } = await route(t, { sessions, debriefIds: ["i9"] });
+  const result = await (await call("/suggest-full-schedule", request)).json();
+  assert.deepEqual(result.debriefsDeferred, ["Debrief"]);
+  assert.ok(result.proposals.length > 0);
+  assert.ok(result.proposals.every(p => p.events.every(e => e.title !== "Debrief")));
 });

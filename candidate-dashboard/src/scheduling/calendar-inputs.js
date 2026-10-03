@@ -35,7 +35,10 @@ async function buildCalendarInputs({ plan, windows, timezone, rules, facts, free
   }
   const sessions = resolved.sessions.map(s => {
     const placementWindows = rules.placementFor(s.title);
-    return { ...s, eligibleInterviewers: s.eligibleInterviewers.filter(p => usable.has(p.userId)), ...(placementWindows.length ? { placementWindows } : {}) };
+    const eligibleInterviewers = s.eligibleInterviewers.filter(p => usable.has(p.userId));
+    // Preferred hosts by email, in order, kept only if eligible and usable.
+    const preferredUserIds = (rules.preferredFor ? rules.preferredFor(s.title) : []).map(email => eligibleInterviewers.find(p => p.email === email)?.userId).filter(Boolean);
+    return { ...s, eligibleInterviewers, ...(placementWindows.length ? { placementWindows } : {}), ...(preferredUserIds.length ? { preferredUserIds } : {}) };
   });
   const context = { excluded, meetingHours: hoursUsed, limitsPolicy: rules.limitsPolicy, rulesRevision: rules.rulesRevision, busySource: "Google free/busy, primary calendars" };
   const empty = sessions.find(s => !s.eligibleInterviewers.length);
@@ -57,7 +60,7 @@ async function buildCalendarInputs({ plan, windows, timezone, rules, facts, free
       limits: { dailyLimit: null, weeklyLimit: null },
     };
   });
-  return { ...context, sessions, calendars, agenda: { minBreakMinutes: rules.agenda.minBreakMinutes, maxGapMinutes: rules.agenda.maxGapMinutes, maxGapCount: rules.agenda.maxGapCount } };
+  return { ...context, sessions, calendars, agenda: { minBreakMinutes: rules.agenda.minBreakMinutes, maxGapMinutes: rules.agenda.maxGapMinutes, maxGapCount: rules.agenda.maxGapCount, excludedWeekdays: rules.agenda.excludedWeekdays || null } };
 }
 
 module.exports = { buildCalendarInputs };

@@ -35,10 +35,10 @@ test('Advanced matcher text split across lines, as Ashby renders it, is read and
 
 test('a slot listing more employees than Ashby counts eligible passes every name on with Ashby\'s count',()=>{
   // The Lunch slot exactly as logged.
-  const lunch='Lunch\nSlot #1\n—\n3 Eligible Matches\nAdvanced\nSpecific Employees:\n4 Employees\nUpasna Madhok\nOR\nPatrick Lii\nOR\nKathryn Wicks\nOR\nAriel Perez Chavez';
+  const lunch='Lunch\nSlot #1\n—\n3 Eligible Matches\nAdvanced\nSpecific Employees:\n4 Employees\nUpasna Madhok\nOR\nFormer Employee\nOR\nKathryn Wicks\nOR\nAriel Perez Chavez';
   const r=parseAssignment(lunch,'Lunch');
   assert.equal(r.eligibleCount,3);
-  assert.deepEqual(r.eligibleInterviewers.map(p=>p.name),['Upasna Madhok','Patrick Lii','Kathryn Wicks','Ariel Perez Chavez']);
+  assert.deepEqual(r.eligibleInterviewers.map(p=>p.name),['Upasna Madhok','Former Employee','Kathryn Wicks','Ariel Perez Chavez']);
   // More eligible than listed is never possible, so it still refuses.
   assert.throws(()=>parseAssignment(lunch.replace('3 Eligible','5 Eligible'),'Lunch'),/says 5 eligible matches but 4 names were read/);
   // Names read must match the slot's own "N Employees".

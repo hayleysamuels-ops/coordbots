@@ -52,10 +52,30 @@ function parseRules(doc, clientId) {
     if (!TIME.test(w.earliestStart || "") || !TIME.test(w.latestStart || "") || w.latestStart < w.earliestStart) invalid(`The placement window for "${w.value}" needs an earliest start no later than its latest start.`);
     try { new Intl.DateTimeFormat("en", { timeZone: w.timezone }); } catch (_) { invalid(`The placement window for "${w.value}" has an invalid time zone.`); }
   }
+  // No agenda on these weekdays, judged in their own time zone (Luminai: WFH Wednesdays).
+  const ex = doc.agenda.excludedWeekdays;
+  const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+  if (ex !== undefined) {
+    if (!ex || !Array.isArray(ex.days) || !ex.days.length || ex.days.length > 6 || ex.days.some(d => !WEEKDAYS.includes(d)) || new Set(ex.days).size !== ex.days.length) invalid("agenda.excludedWeekdays.days must list 1–6 distinct weekdays (sun–sat).");
+    try { new Intl.DateTimeFormat("en", { timeZone: ex.timezone }); } catch (_) { invalid("agenda.excludedWeekdays needs a valid time zone."); }
+  }
+  // An ordered host preference for named sessions (Luminai: Gabrielle hosts Welcome).
+  const preferred = doc.sessions?.preferredInterviewers ?? [];
+  if (!Array.isArray(preferred)) invalid("sessions.preferredInterviewers must be a list.");
+  for (const p of preferred) {
+    if (!["exact", "contains"].includes(p.match) || typeof p.value !== "string" || !p.value.trim()) invalid("Each preferred-interviewer rule needs match (exact or contains) and a session name.");
+    if (!Array.isArray(p.emails) || !p.emails.length || p.emails.some(e => !EMAIL.test(e))) invalid(`The preferred interviewers for "${p.value}" must be lowercase emails.`);
+  }
+  const debriefs = doc.debriefs;
+  if (debriefs !== undefined && (typeof debriefs?.afterOnsiteConfirmed !== "boolean" || typeof debriefs?.meetingHoursExempt !== "boolean")) invalid("debriefs needs afterOnsiteConfirmed and meetingHoursExempt, each true or false.");
   const norm = v => String(v || "").trim().toLowerCase();
+  const matches = (w, title) => w.match === "exact" ? norm(title) === norm(w.value) : norm(title).includes(norm(w.value));
   return {
     clientId, rulesRevision: doc.rulesRevision,
-    agenda: { singleDay: doc.agenda.singleDay === true, minBreakMinutes, maxGapMinutes, maxGapCount },
+    agenda: { singleDay: doc.agenda.singleDay === true, minBreakMinutes, maxGapMinutes, maxGapCount, excludedWeekdays: ex ? { days: [...ex.days], timezone: ex.timezone, reason: ex.reason || null } : null },
+    // Emails in preference order for this session name; [] when none applies.
+    preferredFor: title => [...new Set(preferred.filter(p => matches(p, title)).flatMap(p => p.emails))],
+    debriefs: debriefs ? { afterOnsiteConfirmed: debriefs.afterOnsiteConfirmed, meetingHoursExempt: debriefs.meetingHoursExempt } : { afterOnsiteConfirmed: false, meetingHoursExempt: false },
     limitsPolicy, busy: { source: busy.source, calendars: [...busy.calendars] },
     hasAttendanceOverrides: Object.keys(overrides).length > 0,
     attendanceFor: email => overrides[String(email || "").toLowerCase()] || attendance.default,

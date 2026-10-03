@@ -35,7 +35,8 @@ test("calendar-checked posts open with what to do and who it's for, then the Ash
   // No client name configured and no Schedule button here: neither is mentioned.
   assert.equal(p.blocks[0].text.text, "This is the proposed interview schedule. Please review it, then post to the client channel for discussion.");
   assert.equal(p.blocks[1].text.text, "*TEST petrino* · Forward Deployed Engineer");
-  assert.equal(p.blocks[2].text.text, "<https://app.ashbyhq.com/candidate-searches/new/right-side/candidates/cand-1|Ashby Link>");
+  // The SOP header line; this candidate has no LinkedIn in Ashby, and it says so.
+  assert.equal(p.blocks[2].text.text, "LinkedIn (not in Ashby) - <https://app.ashbyhq.com/candidate-searches/new/right-side/candidates/cand-1|Ashby>");
   assert.match(text, /\*Interview Schedule\*/);
   assert.match(text, /\*Tuesday, September 29, 2026\*/);
   assert.match(text, /^• 11:00 AM – 11:15 AM \(PDT\) – Welcome  Gabby Struckell$/m);
@@ -49,7 +50,7 @@ test("interviewer names are plain text: no profile links, no mentions, no lookup
   assert.deepEqual(calls, ["chat.postMessage"]);
   assert.doesNotMatch(JSON.stringify(p), /<@[UW]|slack\.com\/team\//);
   // The only link in the message is the Ashby one.
-  assert.deepEqual(allText(p).match(/<https?:[^>]+>/g), ["<https://app.ashbyhq.com/candidate-searches/new/right-side/candidates/cand-1|Ashby Link>"]);
+  assert.deepEqual(allText(p).match(/<https?:[^>]+>/g), ["<https://app.ashbyhq.com/candidate-searches/new/right-side/candidates/cand-1|Ashby>"]);
   assert.doesNotMatch(p.text, /Gabby|Aggelos/);
 });
 
@@ -73,4 +74,20 @@ test("other discussion posts keep the plain-text format", async () => {
   assert.equal(p.blocks, undefined);
   assert.equal(p.mrkdwn, false);
   assert.match(p.text, /^INTERVIEW SCHEDULE DRAFT — FOR DISCUSSION/);
+});
+
+// The Luminai SOP format: LinkedIn - Ashby header, "---- H:MM Break -----"
+// between sessions with a gap, and the checklist block after the schedule.
+test("SOP format: LinkedIn and Ashby on one line, break separators, and the checklist", async () => {
+  const p0 = plan({ linkedinUrl: "https://www.linkedin.com/in/example", sessions: [
+    { title: "Welcome", start: "2026-09-29T18:00:00.000Z", end: "2026-09-29T18:15:00.000Z", location: "Room / location to confirm", people: [{ name: "Gabby Struckell" }] },
+    { title: "Technical deep dive", start: "2026-09-29T18:30:00.000Z", end: "2026-09-29T19:30:00.000Z", location: "Room / location to confirm", people: [{ name: "Aggelos Arvanitakis" }] },
+    { title: "Lunch", start: "2026-09-29T19:30:00.000Z", end: "2026-09-29T20:00:00.000Z", location: "Room / location to confirm", people: [{ name: "Kathryn Wicks" }] },
+  ] });
+  const { posts } = await post(p0), [p] = posts, text = allText(p);
+  assert.equal(p.blocks[2].text.text, "<https://www.linkedin.com/in/example|LinkedIn> - <https://app.ashbyhq.com/candidate-searches/new/right-side/candidates/cand-1|Ashby>");
+  // A 15-minute gap gets a separator; back to back (Technical deep dive -> Lunch) doesn't.
+  assert.match(text, /Welcome  Gabby Struckell\n.*\n---- 0:15 Break -----\n• 11:30 AM/);
+  assert.equal((text.match(/Break -----/g) || []).length, 1);
+  assert.match(text, /\*Interview Plan:\* to add\n\*Shared Prompt:\* to add\n\*Shared Interview Prep:\* to add\n\*NDA Sent:\* to confirm/);
 });

@@ -149,7 +149,34 @@
               "reason": { "type": ["string", "null"] }
             }
           }
+        },
+        "preferredInterviewers": {
+          "type": "array",
+          "description": "An ordered host preference for named sessions, matched like placementWindows. The calendar-checked preview offers the session to these interviewers first, in order, while they're free at its time, and falls back to the other eligible interviewers only when none of them is. Only people in the session's eligible list in Ashby are ever used. Optional.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["match", "value", "emails"],
+            "properties": {
+              "match": { "enum": ["exact", "contains"] },
+              "value": { "type": "string", "minLength": 1 },
+              "emails": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[^@\\sA-Z]+@[^@\\sA-Z]+\\.[^@\\sA-Z]+$" } },
+              "reason": { "type": ["string", "null"] }
+            }
+          }
         }
+      }
+    },
+
+    "debriefs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["afterOnsiteConfirmed", "meetingHoursExempt"],
+      "description": "How debrief interviews (Ashby interview isDebrief) are handled. Optional; absent means debriefs are treated like any other session.",
+      "properties": {
+        "afterOnsiteConfirmed": { "type": "boolean", "description": "true: a debrief is never proposed with the onsite agenda. It's left out of the preview and scheduled once the onsite is confirmed." },
+        "meetingHoursExempt": { "type": "boolean", "description": "true: a debrief may be placed outside interviewers' meeting hours. Luminai's SOP allows before 9am or after 5pm Pacific." },
+        "reason": { "type": ["string", "null"] }
       }
     },
 
@@ -182,6 +209,17 @@
           "maximum": 29,
           "default": 0,
           "description": "Row 19. The break budget: how many gaps in one agenda may be non-zero. Every other gap is 0, so sessions run back to back. Optional; absent means 0, which is a back-to-back agenda whatever minBreakMinutes and maxGapMinutes say, and reproduces the original contiguous solver exactly."
+        },
+        "excludedWeekdays": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["days", "timezone"],
+          "description": "Days on which no agenda may be held, a hard constraint in both previews: an agenda whose start falls on one of these weekdays, in this time zone, is never proposed. Optional; absent means every day is allowed.",
+          "properties": {
+            "days": { "type": "array", "minItems": 1, "maxItems": 6, "uniqueItems": true, "items": { "enum": ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] } },
+            "timezone": { "type": "string", "pattern": "^(UTC|[A-Za-z]+(/[A-Za-z0-9_+-]+)+)$", "description": "IANA name the weekday is judged in, usually the office's." },
+            "reason": { "type": ["string", "null"] }
+          }
         }
       }
     },

@@ -3,7 +3,7 @@
   "$comment": "Reproduces candidate-dashboard on feature/client-ashby-connection as of 2026-09-22, plus revision 2's assumed 9–5 Pacific meeting hours and interviewer attendance. The dashboard reads this file at runtime.",
   "schemaVersion": 2,
   "clientId": "luminai",
-  "rulesRevision": 5,
+  "rulesRevision": 6,
 
   "trial": {
     "stageTitleContains": null,
@@ -22,10 +22,20 @@
     "exclusions": [],
     "placementWindows": [
       { "match": "contains", "value": "Lunch", "timezone": "America/Los_Angeles", "earliestStart": "12:00", "latestStart": "13:30", "reason": "Lunch sessions start at a lunch time in San Francisco." }
+    ],
+    "preferredInterviewers": [
+      { "match": "exact", "value": "Welcome", "emails": ["gabrielle@luminai.com"], "reason": "Luminai Scheduling SOP: Gabrielle Struckell hosts Welcome; another eligible interviewer only when Gabrielle is unavailable." }
     ]
   },
 
-  "agenda": { "singleDay": true, "minBreakMinutes": 15, "maxGapMinutes": 30, "maxGapCount": 2 },
+  "debriefs": {
+    "afterOnsiteConfirmed": true,
+    "meetingHoursExempt": true,
+    "reason": "Luminai Scheduling SOP: a debrief is scheduled only once the onsite is confirmed, never proposed with the agenda, and may fall before 9am or after 5pm Pacific."
+  },
+
+  "agenda": { "singleDay": true, "minBreakMinutes": 15, "maxGapMinutes": 30, "maxGapCount": 2,
+    "excludedWeekdays": { "days": ["wed"], "timezone": "America/Los_Angeles", "reason": "Luminai works from home on Wednesdays, so no onsite is held then (Scheduling SOP)." } },
 
   "duration": {
     "fallbackMinutes": null,
@@ -38,12 +48,13 @@
   "limits": { "ashbyInterviewerLimits": "zero_only" },
 
   "meetingHours": {
-    "$comment": "Assumed, not collected from interviewers. Luminai is San Francisco-based; the default's weekdays are an assumption too. Overrides added 2026-09-29 (revision 3). The other eight video interviewers under attendance still inherit the Pacific default, which is wrong for them; their hours are still to come.",
+    "$comment": "Assumed, not collected from interviewers. Luminai is San Francisco-based; the default's weekdays are an assumption too. Overrides added 2026-09-29 (revision 3); Sanjay Saraf's 07:00–17:00 Pacific added 2026-10-03 (revision 6), weekdays assumed. The other eight video interviewers under attendance still inherit the Pacific default, which is wrong for them; their hours are still to come.",
     "default": { "timezone": "America/Los_Angeles", "days": ["mon", "tue", "wed", "thu", "fri"], "start": "09:00", "end": "17:00" },
     "overrides": {
       "aggelos@luminai.com": { "timezone": "Europe/Athens", "days": ["mon", "tue", "wed", "thu", "fri"], "start": "19:00", "end": "22:00" },
       "alex.mavrogiannis@luminai.com": { "timezone": "Europe/Athens", "days": ["mon", "tue", "wed", "thu", "fri"], "start": "19:00", "end": "22:00" },
-      "mary@luminai.com": { "timezone": "America/New_York", "days": ["mon", "tue", "wed", "thu", "fri"], "start": "09:00", "end": "17:00" }
+      "mary@luminai.com": { "timezone": "America/New_York", "days": ["mon", "tue", "wed", "thu", "fri"], "start": "09:00", "end": "17:00" },
+      "sanjay@luminai.com": { "timezone": "America/Los_Angeles", "days": ["mon", "tue", "wed", "thu", "fri"], "start": "07:00", "end": "17:00" }
     }
   },
 

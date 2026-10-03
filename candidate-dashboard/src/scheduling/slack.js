@@ -68,10 +68,14 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     const clashes = plan.sessions.reduce((n, s) => n + (s.flags || []).length, 0);
     const secondLabel = plan.timezoneSource === "candidate_submitted" ? "Candidate time" : "Entered time";
     const lines = [];
-    let day = null;
+    let day = null, previous = null;
     for (const s of plan.sessions) {
       const d = dayOf(displayTimeZone, s.start);
-      if (d !== day) { if (day) lines.push(""); lines.push(`*${escape(d)}*`, ""); day = d; }
+      if (d !== day) { if (day) lines.push(""); lines.push(`*${escape(d)}*`, ""); day = d; previous = null; }
+      // The SOP's break separator between sessions with a gap: "---- 0:15 Break -----".
+      const gap = previous ? Math.round((Date.parse(s.start) - Date.parse(previous.end)) / 60000) : 0;
+      if (gap > 0) lines.push(`---- ${Math.floor(gap / 60)}:${String(gap % 60).padStart(2, "0")} Break -----`);
+      previous = s;
       const video = s.location === "Video link required" ? " (video link required)" : "";
       lines.push(`• ${clock(displayTimeZone, s)} – ${escape(s.title)}${video}  ${(s.people || []).map(name).join(" ")}`);
       if (plan.timezone !== displayTimeZone) lines.push(`      ${secondLabel}: ${clock(plan.timezone, s)}`);
@@ -94,9 +98,14 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       { type: "section", text: mrkdwn(`*${escape(plan.candidateName)}* · ${escape(plan.jobTitle)}`) },
       // A flagged agenda says so before any time is read as settled.
       ...(clashes ? [{ type: "section", text: mrkdwn(`⚠️ *Needs attention: ${clashes} calendar clash${clashes === 1 ? "" : "es"}.* This schedule is not ready to send. Each flagged session needs the interviewer to move the clash, or to accept booking over it.`) }] : []),
-      { type: "section", text: mrkdwn(`<${ASHBY_CANDIDATE}${encodeURIComponent(plan.candidateId)}|Ashby Link>`) },
+      // The SOP's header line. LinkedIn comes from the candidate's Ashby profile
+      // and is never guessed; without one the line says so.
+      { type: "section", text: mrkdwn(`${plan.linkedinUrl ? `<${plan.linkedinUrl}|LinkedIn>` : "LinkedIn (not in Ashby)"} - <${ASHBY_CANDIDATE}${encodeURIComponent(plan.candidateId)}|Ashby>`) },
       { type: "section", text: mrkdwn(`*Interview Schedule${clashes ? " — needs attention" : ""}*`) },
       ...sections.map(t => ({ type: "section", text: mrkdwn(t) })),
+      // The SOP's checklist. Nothing here is known to the dashboard, so each is
+      // left for the coordinator to complete rather than claimed.
+      { type: "section", text: mrkdwn("*Interview Plan:* to add\n*Shared Prompt:* to add\n*Shared Interview Prep:* to add\n*NDA Sent:* to confirm") },
       { type: "context", elements: [mrkdwn(`${escape(plan.notes)} Posted for discussion by ${escape(approver)}. Draft reference: ${escape(proposalId)}`)] },
     ];
     if (approval) blocks.push({ type: "section", text: mrkdwn(`*Approved* by ${escape(approval.name || approval.email)} (${escape(approval.email)}) at ${escape(new Intl.DateTimeFormat("en-US", { timeZone: displayTimeZone, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(approval.at)))}.\n*Not booked.* Booking in Ashby is blocked on IT permissions: no interviews are scheduled and no invitations or candidate email have been sent. Book this schedule in Ashby by hand.`) });
