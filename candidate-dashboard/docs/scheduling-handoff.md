@@ -474,8 +474,10 @@ done and verified, in this order:
     booking in Ashby is still blocked on IT permissions. It is never booking
     approval, and stages 2–4 (Ashby booking, calendar invites, candidate email)
     aren't built.
-  - **The endpoint:** `POST /api/slack/interactions` is the only route outside
-    Basic Auth. Until configured it's a 404 on every dashboard.
+  - **The endpoint:** `POST /api/slack/interactions` is one of two routes outside
+    Basic Auth; the other is `GET /privacy.html`, the Google OAuth privacy policy
+    (Luminai only, like the other scheduling pages; 404 elsewhere).
+    Until configured it's a 404 on every dashboard.
   - **To turn it on:**
     - In the Slack app: enable Interactivity with the Request URL
       `https://coordbots-production-f093.up.railway.app/api/slack/interactions`.

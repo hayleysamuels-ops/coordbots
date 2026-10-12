@@ -10,8 +10,24 @@ const { basicAuth } = require("./auth");
 
 function createServer() {
   const app = express();
+  const config = require("./config");
 
-  // The one route outside Basic Auth: Slack's interactivity callback for the
+  // Outside Basic Auth, scheduling pilot only: the privacy policy, which Google
+  // fetches without credentials for the OAuth consent screen. It names the
+  // Luminai Google app, so other dashboards don't serve it (page-gate lists it
+  // with the scheduling-only assets). An exact, case-sensitive match on
+  // GET/HEAD only. app.get() would also match "/PRIVACY.HTML" and
+  // "/privacy.html/". The page carries its own styles, since style.css stays
+  // behind auth.
+  if (config.schedulingEnabled) {
+    const privacyPage = path.join(__dirname, "..", "public", "privacy.html");
+    app.use((req, res, next) => {
+      if (req.path !== "/privacy.html" || (req.method !== "GET" && req.method !== "HEAD")) return next();
+      res.sendFile(privacyPage);
+    });
+  }
+
+  // The only other route outside Basic Auth: Slack's interactivity callback for the
   // "Schedule" button. Slack can't send dashboard credentials, so every request
   // must instead carry a valid Slack signature over its raw body (checked in
   // slack-interactions.js before anything is parsed). It exists only with the
@@ -20,12 +36,11 @@ function createServer() {
   app.post("/api/slack/interactions", express.raw({ type: "application/x-www-form-urlencoded", limit: "64kb" }),
     (req, res) => slackInteractions ? slackInteractions(req, res) : res.status(404).end());
 
-  // First, ahead of static files and every other /api/* route: nothing else
-  // on this server is reachable without valid credentials.
+  // Ahead of static files and every other /api/* route: nothing else on this
+  // server is reachable without valid credentials.
   app.use(basicAuth);
 
   app.use(express.json());
-  const config = require("./config");
   const pageGate = require("./scheduling/page-gate");
 
   // Scheduling pilot: mounted only where SCHEDULING_CLIENT_ID is set. Other

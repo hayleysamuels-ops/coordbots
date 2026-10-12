@@ -1,6 +1,6 @@
 "use strict";
 // Public endpoint for Slack's interactivity: the "Schedule" button on
-// calendar-checked posts. It's the only dashboard route outside Basic Auth, so
+// calendar-checked posts. It's the only dashboard API route outside Basic Auth, so
 // every request must prove it came from Slack before anything is parsed:
 //   1. X-Slack-Signature is HMAC-SHA256 of "v0:<timestamp>:<raw body>" with the
 //      app's signing secret, compared in constant time.

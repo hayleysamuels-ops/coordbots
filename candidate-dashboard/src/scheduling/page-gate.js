@@ -25,6 +25,8 @@ const SCHEDULING_ONLY_ASSETS = new Set([
   "/scheduling-review.css",
   "/ready-scheduling.js",
   "/scheduling-pages.css",
+  // Names the Luminai Google app; public where the pilot is on (server.js).
+  "/privacy.html",
 ]);
 
 // Removes every marked block, including the marker lines. Unbalanced or

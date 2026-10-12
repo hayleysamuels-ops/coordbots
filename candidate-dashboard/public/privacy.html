@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy</title>
+  <!-- Served outside Basic Auth (see server.js), so it can't link style.css,
+       which is behind it. The tokens below are copied from style.css's :root
+       and dark-mode blocks; keep them in step if those change. -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=Manrope:wght@400;600;700&family=PT+Serif:wght@700&display=swap">
+  <style>
+    :root {
+      --ember: #eb4e19;
+      --page: #f5f3f1;
+      --surface: #ffffff;
+      --text-primary: #2d2a2a;
+      --text-secondary: #59534f;
+      --border: #d3cfcc;
+      --font-serif: "PT Serif", Georgia, "Times New Roman", serif;
+      --font-sans: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+      --surface-sunken: #edebea;
+      --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+      --radius-card: 12px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --ember: #ffad89;
+        --page: #2d2a2a;
+        --surface: #3a3634;
+        --text-primary: #ffffff;
+        --text-secondary: #d3cfcb;
+        --border: rgba(255, 255, 255, 0.12);
+        --surface-sunken: #242121;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 48px 16px;
+      background: var(--page);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 15px;
+      line-height: 1.6;
+    }
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 32px 40px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-top: 3px solid var(--ember);
+      border-radius: var(--radius-card);
+    }
+    h1, h2 { font-family: var(--font-serif); letter-spacing: -0.01em; }
+    h1 { font-size: 28px; margin: 0 0 4px; }
+    h2 { font-size: 19px; margin: 32px 0 8px; }
+    .updated { color: var(--text-secondary); margin: 0 0 24px; }
+    a { color: var(--ember); overflow-wrap: anywhere; }
+    ul { padding-left: 22px; margin: 0 0 16px; }
+    li + li { margin-top: 4px; }
+    p { margin: 0 0 14px; }
+    code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surface-sunken); padding: 1px 5px; border-radius: 4px; }
+    @media (max-width: 600px) {
+      body { padding: 24px 16px; }
+      main { padding: 24px 20px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Privacy Policy — Luminai Scheduler</h1>
+    <p class="updated">Last updated: 12 October 2026</p>
+    <p>Luminai Scheduler is an internal tool operated by Carrara to coordinate interview scheduling on behalf of its clients. This policy describes what the application accesses through Google Calendar, why, and who can see it.</p>
+
+    <h2>What we access</h2>
+    <p>When a Carrara coordinator connects a Google account, the application requests a single Google Calendar permission: free/busy availability (<code>calendar.events.freebusy</code>). It also requests basic sign-in (<code>openid</code>, <code>email</code>) to confirm which account is connected, and stores that account's email address and Google account ID.</p>
+    <p>This returns only the start and end times of periods marked busy on a calendar. It does not return, and the application cannot read:</p>
+    <ul>
+      <li>event titles or descriptions</li>
+      <li>attendees or organisers</li>
+      <li>meeting locations, links or attachments</li>
+      <li>any other calendar content</li>
+    </ul>
+    <p>The application reads free/busy availability only for the interviewers involved in a specific interview, and only for the dates under consideration.</p>
+
+    <h2>What we do not do</h2>
+    <ul>
+      <li>We do not create, modify or delete calendar events.</li>
+      <li>We do not read Gmail messages, documents, contacts or any other Google data.</li>
+      <li>We do not use calendar data for advertising, profiling, training machine learning models, or any purpose unrelated to scheduling interviews.</li>
+      <li>We do not sell or share calendar data with third parties.</li>
+    </ul>
+
+    <h2>Why we access it</h2>
+    <p>Solely to propose interview schedules: to determine when the required interviewers are available, to flag conflicts for a human to resolve, and to present proposed schedules for review.</p>
+
+    <h2>Who can see it</h2>
+    <p>Busy intervals for named interviewers are shown to Carrara coordinators within the application, and appear in proposed schedules posted to a private Slack channel in Carrara's workspace. Those proposals are visible only to members of that channel. Proposed schedules are not sent to candidates by this application.</p>
+
+    <h2>How it is stored and for how long</h2>
+    <p>Raw availability responses from Google are never stored. Calendar availability retained with a schedule draft — an interviewer's name and the time of any conflict — is deleted 90 days after the interview date or the draft's last update, whichever is later.</p>
+    <p>Proposed schedules posted to Slack include interviewer names and conflict times, and are retained according to the Slack workspace's own retention settings.</p>
+    <p>Data is held on servers operated by Railway on Carrara's behalf. Access tokens are stored securely and used only to make the requests described above.</p>
+
+    <h2>Revoking access</h2>
+    <p>A connected account holder can revoke this application's access at any time from their Google Account permissions page at <a href="https://myaccount.google.com/permissions">https://myaccount.google.com/permissions</a>. Revoking access immediately prevents any further calendar reads.</p>
+
+    <h2>Google API Services User Data Policy</h2>
+    <p>The application's use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
+
+    <h2>Contact</h2>
+    <p>CARRARA<br>
+      <a href="mailto:hayley.samuels@carrara.is">hayley.samuels@carrara.is</a></p>
+  </main>
+</body>
+</html>

@@ -19,7 +19,8 @@ function timingSafeEqualString(a, b) {
 }
 
 // Applied in front of every route (including static files and /api/*) in
-// server.js. Credentials come from DASHBOARD_USER/DASHBOARD_PASSWORD — if
+// server.js, except the two mounted ahead of it there: GET /privacy.html (only
+// where the scheduling pilot is on) and POST /api/slack/interactions. Credentials come from DASHBOARD_USER/DASHBOARD_PASSWORD — if
 // either is unset, config's required() already warned at startup and every
 // request will simply fail auth (safer default than leaving the dashboard
 // open).

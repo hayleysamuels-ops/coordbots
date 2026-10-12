@@ -104,6 +104,45 @@ test("the Slack interactivity route is a 404 without interactivity configured, w
   }
 });
 
+test("flag on: the privacy page is public at exactly /privacy.html", () => {
+  // Google fetches it for the OAuth consent screen, without credentials.
+  const page = fs.readFileSync(path.join(PUBLIC, "privacy.html"), "utf8");
+  for (const route of ["NOAUTH GET /privacy.html", "NOAUTH GET /privacy.html?from=google"]) {
+    assert.equal(on[route].status, 200, route);
+    assert.match(on[route].type, /^text\/html/, route);
+    assert.equal(on[route].body, page, route);
+  }
+  assert.equal(on["NOAUTH HEAD /privacy.html"].status, 200);
+  // It can't link anything on this server, which is behind auth: only
+  // external https: pages and mailto: links.
+  assert.doesNotMatch(page, /(href|src)="(?!https:\/\/|mailto:)[^"]*"/);
+});
+
+test("flag off: the privacy page isn't served, with or without credentials", () => {
+  // It names the Luminai Google app. Without credentials it gets the same login
+  // demand as any other page; with them, the same 404 as the other
+  // scheduling-only pages (covered by the asset check above too).
+  for (const route of ["NOAUTH GET /privacy.html", "NOAUTH HEAD /privacy.html", "NOAUTH GET /privacy.html?from=google"]) {
+    assert.equal(off[route].status, 401, route);
+    assert.doesNotMatch(off[route].body, /Luminai/, route);
+  }
+  assert.equal(off["GET /privacy.html"].status, 404);
+  assert.doesNotMatch(off["GET /privacy.html"].body, /Luminai/);
+});
+
+test("nothing else is public: the exemption doesn't widen past /privacy.html and the Slack POST", () => {
+  const stillLocked = [
+    "POST /privacy.html", "GET /privacy.html/", "GET /PRIVACY.HTML", "GET /privacy%2Ehtml",
+    "GET /privacy.htm", "GET /privacy", "GET /", "GET /index.html", "GET /style.css", "GET /app.js",
+    "GET /booking.html", "GET /google-calendar.html", "GET /api/issues", "GET /api/google-calendar/status",
+    // Only POST is exempt on the Slack route.
+    "GET /api/slack/interactions",
+  ];
+  for (const state of [off, on]) {
+    for (const route of stillLocked) assert.equal(state["NOAUTH " + route].status, 401, route);
+  }
+});
+
 test("flag on: scheduling API routes respond exactly as before the flag", () => {
   const expected = {
     "POST /api/scheduling-review/drafts": [403, { error: "Sign in with an individual scheduling approver account." }],
