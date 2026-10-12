@@ -474,6 +474,36 @@ done and verified, in this order:
 
     The first live Step 2 read settles all three. The tests run a real browser
     against a page written for them, so they test the safeguards, not Ashby.
+- **Booking through Ashby's API sends nothing** (tested October 12, 2026). Don't repeat this test.
+  - **What was blocking it:** nothing in Ashby's permissions. "Blocked on IT permissions"
+    was never tied to a specific setting. Luminai's `ASHBY_API_KEY` has `interviews:write`
+    (checked with `apiKey.info`), and the dashboard mounts the booking engine with
+    `source: null, executor: null`. `ASHBY_SCHEDULING_KEY`, `SCHEDULING_EXECUTION_ENABLED`
+    and `DATABASE_URL` belong to the Poetic tracker, not this dashboard.
+  - **The test:** one approved `interviewSchedule.create` on the TEST candidate
+    (application `8dfd8f14…`, job TEST), "Initial" interview, `mary@luminai.com`, for
+    2026-10-15 17:00–17:30Z. Ashby returned `Scheduled` with `interviewerCalendarEventId`,
+    `location` and `meetingLink` all null. Mary received no invite, and the candidate
+    address (Hayley's own Gmail) received no invite or confirmation. The schedule
+    (`a8f06fd8…`) was then cancelled by hand in Ashby's UI, and no cancellation notice arrived
+    either.
+  - **No send endpoint exists.** None of Ashby's 205 API endpoints sends invitations or the
+    candidate confirmation. `candidate.addEmailMessage` only attaches an email sent
+    elsewhere, and `communicationTemplate.list` only lists templates. The SOP's "Send
+    Calendar Invites" step exists only in Ashby's UI.
+  - **Can't add to Ashby's own schedule:** `interviewSchedule.update` works only on
+    schedules created by the same API key, so it can't add events to an
+    availability-request schedule made in Ashby. Booking by API would leave that schedule
+    open beside the new one.
+  - **What's left for booking:** a person clicking Send in Ashby, or the worker automating
+    Ashby's scheduler (draft → Send), which reverses the write guard's design. Either way,
+    this app never writes to Google Calendar: its token only has the free/busy scope.
+  - **Key scope:** the same key also has `candidates:write`, `offers:write`,
+    `organization:write`, `apiKeys:write` and more. The dashboard only needs read access.
+    Split it before any booking work.
+  - **Separate from the "TEST petrino with Mary" records below.** The TEST application's
+    availability-request schedule (`69ffae5a…`) was still open after the test; close it in
+    Ashby.
 - **The Slack "Schedule" button (phase two, stage 1) is built but not configured.**
   - **What it does:** on calendar-checked posts, a Schedule button with Slack's
     own confirmation dialog records an approval of that exact option (state
