@@ -10,6 +10,7 @@
 // checks its age.
 const { windowsToInstants } = require("./booking-planner");
 const { hoursIntervals } = require("./meeting-hours");
+const { unreadableError } = require("./google-freebusy");
 
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 
@@ -44,7 +45,17 @@ async function buildCalendarInputs({ plan, windows, timezone, rules, facts, free
   const empty = sessions.find(s => !s.eligibleInterviewers.length);
   if (empty) return { ...context, blocked: `No eligible interviewer can take ${empty.title}: every one is excluded (see below).` };
 
-  const rows = await freeBusy.read({ calendarIds: [...usable.values()].map(u => u.person.email), timeMin: new Date(rangeStart).toISOString(), timeMax: new Date(rangeEnd).toISOString() });
+  // An unreadable calendar refuses the whole check. It's never counted as free
+  // or busy, and its interviewer isn't dropped. The refusal names every one,
+  // here by interviewer name, with what the coordinator can do about it.
+  let rows;
+  try {
+    rows = await freeBusy.read({ calendarIds: [...usable.values()].map(u => u.person.email), timeMin: new Date(rangeStart).toISOString(), timeMax: new Date(rangeEnd).toISOString() });
+  } catch (e) {
+    if (!e.unreadable) throw e;
+    const names = new Map([...usable.values()].map(u => [u.person.email.toLowerCase(), u.person.name]));
+    throw unreadableError(e.unreadable, { total: e.total, account: e.account, nameFor: id => names.get(String(id).toLowerCase()) });
+  }
   const byEmail = new Map(rows.map(r => [String(r.calendarId).toLowerCase(), r]));
   const calendars = [...usable.values()].map(({ person, hours, source, intervals }) => {
     const row = byEmail.get(person.email);

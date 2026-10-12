@@ -145,6 +145,14 @@ done and verified, in this order:
   assumed, never verified). Under `zero_only`, anyone with an Ashby limit of 0 is
   excluded and listed, and every other limit is ignored. Not checked: other
   calendars, bookable-over holds and non-zero limits.
+  - **An unreadable calendar refuses the whole check, naming whose** (October 12, 2026).
+    It's never counted as free or busy, and the interviewer isn't dropped. The refusal
+    lists every unreadable calendar by interviewer, with Google's reason and what to do:
+    `notFound` means not found *or* not shared with the connected account (Google's
+    free/busy reply doesn't distinguish them, and finding out would need a broader
+    scope); `internalError`/`backendError`, or a calendar missing from the reply, means
+    retry; 401, or a 403 that isn't rate limiting, means reconnect. All-temporary
+    failures are a 503, anything a coordinator must fix is a 409.
   - **Breaks are now set for Luminai (rules revision 5).** They were previously
     recorded here as not agreed with Luminai, with the gaps held at 0/0. This
     sets them: at most two breaks per agenda (`maxGapCount: 2`), each 15–30

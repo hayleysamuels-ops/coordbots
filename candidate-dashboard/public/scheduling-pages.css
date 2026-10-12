@@ -358,6 +358,12 @@
   margin-top: 12px;
 }
 
+/* Plain-text messages that list one item per line (e.g. unreadable calendars). */
+.sched-message {
+  white-space: pre-line;
+  margin: 0;
+}
+
 .sched-page table {
   width: 100%;
   table-layout: fixed;
