@@ -492,6 +492,14 @@ done and verified, in this order:
   - **One app, one Request URL:** Slack sends every click from the app to one
     URL, and today that's Luminai's dashboard. A second client using the same
     app would need a router or its own app (see `slack-schedule-button.md` §2).
+- **Google Calendar data in drafts expires after 90 days** (`src/scheduling/calendar-retention.js`).
+  Runs on startup and daily, Luminai only. Ninety days after the later of a draft's last
+  session end and its last audit entry, it removes each session's `busy` flags and the
+  "free on primary calendar" / "calendar clash flagged" label. The draft, its audit trail and
+  rules-based `hours` flags stay. The digest is recomputed, so an old Slack button is refused.
+  Logs are `[calendar-retention]` lines with draft ids and counts, no names.
+  Not covered: Slack messages already posted (they still show the clashes), and
+  `booking-ledger.json`, which has no calendar field and no deployed path that writes it.
 - **An uncertain Slack post has no reconcile button.** A `discussion_uncertain` draft
   blocks that candidate's next post, and the dashboard can only reject drafts in the
   `draft` state, so clearing one means editing `scheduling.json` on the volume.
