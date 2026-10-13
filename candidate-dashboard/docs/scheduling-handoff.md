@@ -474,6 +474,65 @@ done and verified, in this order:
 
     The first live Step 2 read settles all three. The tests run a real browser
     against a page written for them, so they test the safeguards, not Ashby.
+- **⚠️ Booking through Ashby's UI: "Manual Schedule" sits next to two items that email the
+  candidate.** The scheduling card's **Actions** menu reads, in order: "Send Direct Booking
+  Link" (sends the candidate a booking link), "Request Candidate Availability" (emails the
+  candidate), **"Manual Schedule"**, "View All Scheduling Options", "Cancel Candidate
+  Availability Link". The worker selects "Manual Schedule" by **exact name, exactly once**, and
+  runs under the write guard, which blocks every write not on the booking allowlist. **Both are
+  load-bearing. Neither can be relaxed:** without exact matching a layout change could select a
+  neighbour; without the guard, a mis-selection would email the candidate.
+- **Booking through Ashby's UI: what the guarded observation runs found** (October 12–13,
+  2026, TEST application, every write blocked unless listed). Booking is being built as UI
+  automation approved by the Slack Schedule button; the API route can't send (below).
+  - **Write sequence**, in order:
+    1. Actions → "Manual Schedule": `ApiCreateTemplateDraftScheduleForInterviewSchedule(interviewScheduleId)`
+       creates an unsent draft on the candidate's existing availability-request schedule.
+    2. Every edit: `ApiUpdateDraftSchedule`, carrying the **whole draft** (each event's times,
+       interview, selected interviewers, alternates, feedback, slot filter).
+    3. The communications screens: `ApiRefreshDraftInterviewScheduleCandidateConfirmationEmailPreview(draftInterviewScheduleId)`
+       regenerates the candidate email preview.
+    4. Calendar Invites → Send Now → **Schedule**: `ApiScheduleInterviewScheduleFromDraft(interviewScheduleId, draftInterviewScheduleId)`.
+       It carries only those two IDs and books into the existing schedule.
+    - `ApiUpdateDraftScheduleCalendarSettings` fires on page load and on edits; it's a view
+      preference, and the composer works with it blocked. Keep it blocked.
+  - **Checks built on that sequence:** each draft save may only move toward the approval
+    (every field unchanged or equal to its approved value, no interviewer or interview outside
+    the approval), and the final save must equal it exactly. Send has no content, so the draft
+    is re-read and compared immediately before Send is permitted.
+  - **The candidate email preview goes stale.** With the refresh blocked, the email still showed
+    an earlier date (Wed, Oct 14) after the draft moved to Mon, Oct 12. The refresh must run
+    after the final edit, and the pre-Send check reads the email's subject date and agenda
+    against the approval; a stale email stops the run.
+  - **Warnings:** a short allowlist of confirmable dialogs; everything else stops the run.
+    Never confirmed: "Heads up: The interview time is in the past." Dialogs are detected by
+    the worker after every action. An in-page observer missed this real dialog.
+  - **Entry:** load Ashby's shell, then navigate inside the app. Cold-loading a deep URL
+    (a draft, or the job pipeline's candidate panel) shows an error page under the guard.
+  - **Time zone:** the composer shows times in the signed-in account's zone (MDT for
+    hayley@luminai.com). Compare instants, never displayed text.
+  - **Accounts:** invites go out as Anna's account in production (intended, per the SOP).
+    The first real send uses hayleysamuels511@gmail.com as candidate and hayley@luminai.com as
+    interviewer. Development runs locally against TEST with Hayley's session first.
+  - **Discarding a draft:** `ApiDeleteDraftInterviewSchedule(draftInterviewScheduleId)`, from the
+    schedule's **Drafts** tab (`/schedules/<schedule>/drafts`), via the unlabelled icon button
+    beside the draft's link. It fires on one click with **no confirmation**. The worker finds
+    it only as the single button beside the single link to that exact draft, and the
+    permission is bound to that draft's ID. An unsent draft is visible: the schedule's header
+    reads "Draft · Waiting on Schedule", so dry runs and failed runs must delete theirs.
+  - **Never permitted:** `ApiCancelInterviewScheduleProcess`, which the activity feed's
+    "Delete Activity" sends. It cancels the candidate's whole scheduling activity, not a
+    draft (observed blocked, October 13). The schedule overview page also has
+    "Invalidate Availability Request" and "Email Candidate" beside its "Manual Schedule"
+    button; the worker never uses that page's buttons.
+  - **Times:** Start/End list quarter-hour times, but a typed time off that grid is offered
+    as its own option ("1:05pm" saved as `13:05`), so the solver's 5-minute times work. Typing
+    filters loosely ("1:00pm" also matched "11:00pm"), so the worker clicks the option whose
+    text is exactly the target time, never Enter. End moves with Start, keeping the length.
+    Saves carry exact instants with offset (`2026-10-12T13:00:00.000-06:00`).
+  - **Discard verified (October 13):** with only `ApiDeleteDraftInterviewSchedule` permitted, once,
+    bound to the TEST draft `28d21b6a…`, one click deleted it (`200`) and the Drafts tab then
+    listed no drafts. TEST's availability-request schedule (`69ffae5a…`) is still open.
 - **Booking through Ashby's API sends nothing** (tested October 12, 2026). Don't repeat this test.
   - **What was blocking it:** nothing in Ashby's permissions. "Blocked on IT permissions"
     was never tied to a specific setting. Luminai's `ASHBY_API_KEY` has `interviews:write`
