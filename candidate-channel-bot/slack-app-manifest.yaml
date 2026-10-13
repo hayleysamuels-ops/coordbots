@@ -1,0 +1,31 @@
+# Paste this at https://api.slack.com/apps -> Create New App -> From a manifest.
+# It sets exactly the six scopes the bot needs and nothing else. The bot takes
+# its input from Ashby webhooks, not from Slack, so there are no event
+# subscriptions, no slash commands and no interactivity.
+display_information:
+  name: Candidate Channel Archiver
+  description: Archives a candidate's channel when their Ashby application is archived or hired.
+  long_description: |-
+    When an application reaches a terminal outcome in Ashby, this app posts a short
+    closing notice in that candidate's channel and archives it. Nothing is deleted:
+    the history stays searchable and any member can unarchive the channel if the
+    process reopens. The app only ever touches channels whose name starts with the
+    configured candidate-channel prefix.
+  background_color: "#2c2d30"
+features:
+  bot_user:
+    display_name: Candidate Channel Archiver
+    always_online: false
+oauth_config:
+  scopes:
+    bot:
+      - channels:read   # see public channels, to find the candidate's channel
+      - groups:read     # see private channels the app has been invited to
+      - channels:manage # archive a public channel
+      - groups:write    # archive a private channel
+      - chat:write      # post the closing notice
+      - channels:join   # join a public candidate channel to post in it
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
