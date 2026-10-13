@@ -608,6 +608,44 @@ as test user. Verify its current publishing state on resume. If still Testing,
 Google refresh authorization expires after seven days; reauthorization may be needed.
 Resolve production OAuth setup before relying on unattended long-term reads.
 
+## Booking dry run in the worker (feature/booking-dry-run, October 13, 2026)
+
+`worker/booking-dry-run.js` runs the booking dry run inside the scheduling worker
+with the saved Ashby session: every step up to "Schedule", never clicked, then
+the draft is deleted. Send is never a permitted write, so the guard would block it
+even if clicked.
+
+- **A command, not a route.** Nothing the worker serves or the dashboard runs loads
+  it; `test/booking-dry-run-worker.test.js` fails if `worker/` or `src/` ever does.
+  The image still starts `bootstrap.js`.
+- **Two locks, checked before the session is read or a browser starts:**
+  `BOOKING_DRY_RUN=on` on the worker (unset by default; setting or removing a
+  variable redeploys the worker), and an allowlist of applications in the file
+  (only TEST, `8dfd8f14`, with its job, candidate, email and two schedules).
+  Adding an application takes a commit.
+- **Checks before any write:** the plan is complete, starts at least 15 minutes
+  out, and the saved session is for this client and `ASHBY_EXPECTED_IDENTITY`. In
+  Ashby, the run refuses if the session was signed out, then checks that the
+  account button reads exactly that identity (for example "Anna Jones Luminai").
+- **Running it:**
+  1. Build the plan locally from the dashboard's calendar-checked preview with
+     `src/scheduling/booking-plan.js`. Anna's account time zone is an input:
+     confirm it first.
+  2. Run `railway ssh -s scheduling-worker -- node worker/booking-dry-run.js
+     --plan-base64 <base64 plan JSON>`. It runs as the worker's user, has a
+     240-second deadline (exit 124, naming any draft left behind), and prints a
+     report without page contents.
+  3. Check the schedule's Drafts tab is empty.
+- **Not yet verified:**
+  - The command has not run in the container. Linux Chromium and Anna's session
+    are untested there.
+  - A session copied from a local Chrome profile into a fresh context is signed
+    out by Ashby about 3 seconds after load, so the worker's session path
+    couldn't be reproduced locally. The production session is saved from the
+    browser Anna signed in with, and the draft reader already uses it.
+  - It can't see whether the dashboard is reading Ashby at the same moment. Run
+    it when nobody is.
+
 ## Next work, in order
 
 1. Verify Google connection and read the complete plan's actual interviewer calendars

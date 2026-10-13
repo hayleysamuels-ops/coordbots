@@ -40,13 +40,25 @@ const NETWORK_ERROR=/problem with the network connection/;
 // Open the candidate's application panel. Read-only: it navigates and reads,
 // never clicks. One retry if Ashby's own network error appears; a second
 // failure is a refusal.
-async function openApplication(page,plan,{refuse,sleep,go,net,T}){
+// Once Ashby has settled it must still be signed in (a session Ashby rejects
+// renders the app, then moves to /signin about 3 seconds later), and with
+// `expectedIdentity` it must show exactly that account (its header button,
+// as connection.js checks).
+const SIGNED_OUT=/^\/(?:signin|login|sign-in)\b/;
+async function openApplication(page,plan,{refuse,sleep,go,net,T,expectedIdentity}){
   for(let attempt=1;attempt<=2;attempt++){
     net.mark();
     if(attempt===1){await page.goto(ORIGIN+'/home/upcoming',{waitUntil:'domcontentloaded'});
       await page.getByRole('link',{name:'Pipeline',exact:true}).waitFor({state:'visible',timeout:T.wait});}
     else await go('/home/upcoming');
-    if(!(await net.settled()))refuse('Ashby didn\'t finish loading.');
+    const settled=await net.settled();
+    if(SIGNED_OUT.test(new URL(page.url()).pathname))refuse('Ashby signed the saved session out. Reconnect Ashby on the connection page, then try again.');
+    if(!settled)refuse('Ashby didn\'t finish loading.');
+    if(expectedIdentity){
+      const me=page.getByRole('button',{name:expectedIdentity,exact:true});
+      await me.first().waitFor({state:'visible',timeout:T.wait}).catch(()=>{});
+      if(await me.count()!==1)refuse(`Ashby isn't signed in as ${expectedIdentity}.`);
+    }
     await go(`/jobs/${plan.jobId}/candidate-pipeline/active/right-side/candidates/${plan.candidateId}/applications/${plan.applicationId}/feed`);
     const panel=page.getByRole('dialog',{name:plan.candidate.name,exact:true});
     const d=Date.now()+T.wait;
@@ -63,7 +75,8 @@ async function openApplication(page,plan,{refuse,sleep,go,net,T}){
 
 // `respond` is for tests only: a stand-in for Ashby's replies to permitted writes.
 // `onRefusal(page)` runs before cleanup when the run stops (local debugging).
-async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal}){
+// `expectedIdentity` is the Ashby account the run must be signed in as.
+async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,expectedIdentity}){
   const T={settle:700,short:1500,wait:15000,...timing};
   const events=[];const note=e=>{events.push(e);log(e);};
   const guard=await guardWrites(context,{warn:m=>note({type:'blocked',detail:m.replace('[write-guard] ','')})});
@@ -108,7 +121,8 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal}
     // 1. Ashby's shell, then the application inside the app. A cold load of a
     // deep URL shows an error page under the guard.
     step='open the application';
-    const opened=await openApplication(page,plan,{refuse,sleep,go,net,T});
+    const opened=await openApplication(page,plan,{refuse,sleep,go,net,T,expectedIdentity});
+    if(expectedIdentity)pass(`signed in as ${expectedIdentity}`);
     pass('candidate panel shows the approved candidate',opened.attempts>1?{attempts:opened.attempts}:undefined);
     // 2. Start a manual schedule from the scheduling card. Ashby shows it two
     // ways, and exactly one must be present:
