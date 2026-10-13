@@ -93,19 +93,36 @@ test('display strings follow the account time zone, with off-grid minutes',()=>{
   assert.equal(c.formats('2026-11-03T19:05:00.000Z','America/Denver').zone,'MST');
 });
 
-test('the invite preview must show the approved date, agenda line and candidate',()=>{
+test('the candidate invite: the approved date, one agenda item per session, only the candidate',()=>{
   const ok='Invite for Initial Interview with Luminai Tue, Oct 20, 2026 1:05pm - 1:35pm MDT Agenda: 1:05 PM - 1:35 PM (MDT) - Initial - Hayley Samuels Invitees T TEST hayleysamuels511@gmail.com';
-  c.checkInvitePreview(ok,plan);
-  assert.throws(()=>c.checkInvitePreview(ok.replace('Hayley Samuels','Mary Petrino'),plan),/agenda doesn't read "1:05 PM - 1:35 PM \(MDT\) - Initial - Hayley Samuels"/);
-  assert.throws(()=>c.checkInvitePreview(ok.replace('hayleysamuels511@gmail.com','someone@example.com'),plan),/doesn't include hayleysamuels511@gmail.com.*also goes to someone@example.com/);
-  assert.throws(()=>c.checkInvitePreview(ok+' X extra@example.com',plan),/candidate invite also goes to extra@example.com, who wasn't approved/);
+  const items=['1:05 PM - 1:35 PM (MDT) - Initial - Hayley Samuels'];
+  c.checkInvitePreview(ok,plan,items);
+  assert.throws(()=>c.checkInvitePreview(ok,plan,['1:05 PM - 1:35 PM (MDT) - Initial - Mary Petrino']),/agenda item 1 doesn't name Hayley Samuels; agenda item 1 also names "Mary Petrino", who wasn't approved/);
+  assert.throws(()=>c.checkInvitePreview(ok,plan,[]),/its agenda has 0 items, but 1 session was approved/);
+  assert.throws(()=>c.checkInvitePreview(ok.replace('hayleysamuels511@gmail.com','someone@example.com'),plan,items),/doesn't include hayleysamuels511@gmail.com.*also goes to someone@example.com/);
+  assert.throws(()=>c.checkInvitePreview(ok+' X extra@example.com',plan,items),/candidate invite also goes to extra@example.com, who wasn't approved/);
 });
 
-test('the interviewer invite must go to exactly the approved interviewers: an alternate shows up',()=>{
-  c.checkInterviewerInvitePreview('Invite for Initial Invitees HS Hayley Samuels hayley@luminai.com',plan);
-  assert.throws(()=>c.checkInterviewerInvitePreview('Invitees Hayley Samuels hayley@luminai.com Mary Petrino mary@luminai.com',plan),/interviewer invite also goes to mary@luminai.com, who wasn't approved/);
-  assert.throws(()=>c.checkInterviewerInvitePreview('Invitees Mary Petrino mary@luminai.com',plan),/doesn't include hayley@luminai.com/);
-  assert.throws(()=>c.checkInterviewerInvitePreview('Invitees Hayley Samuels',plan),/no recipients could be read from the interviewer invite/);
+// The two-session First Round, as Ashby showed it on October 13.
+const MARY2={userId:'u-mary',name:'Mary Petrino',email:'mary@luminai.com'};
+const two={...plan,sessions:[{title:'First Round',interviewId:'i-1',start:'2026-10-15T19:00:00.000Z',end:'2026-10-15T19:30:00.000Z',interviewers:[HAYLEY]},
+  {title:'First Round',interviewId:'i-2',start:'2026-10-15T19:30:00.000Z',end:'2026-10-15T20:00:00.000Z',interviewers:[MARY2]}]};
+
+test('agenda items: a name on its own line with "(LinkedIn)" is accepted; a stray name is not',()=>{
+  const items=['1:00 PM - 1:30 PM (MDT) - First Round - Hayley Samuels','1:30 PM - 2:00 PM (MDT) - First Round\nMary Petrino (\nLinkedIn\n)'];
+  c.checkInvitePreview('Thu, Oct 15, 2026 1:00pm - 2:00pm MDT Invitees TEST hayleysamuels511@gmail.com',two,items);
+  assert.throws(()=>c.checkInvitePreview('Thu, Oct 15, 2026 TEST hayleysamuels511@gmail.com',two,[items[0],items[1]+'\nPatrick Lii']),/agenda item 2 also names "Patrick Lii", who wasn't approved/);
+  assert.throws(()=>c.checkInvitePreview('Thu, Oct 15, 2026 TEST hayleysamuels511@gmail.com',two,[items[1],items[0]]),/agenda item 1 reads "1:30 PM/);
+});
+
+test('interviewer invites: one per session, each to exactly that session\'s interviewers',()=>{
+  const hayley='First Round - TEST - TEST Thu, Oct 15, 2026 1:00pm - 1:30pm MDT Invitees & Rooms Hayley Samuels hayley@luminai.com No room...';
+  const mary='First Round - TEST - TEST Thu, Oct 15, 2026 1:30pm - 2:00pm MDT Invitees & Rooms Mary Petrino mary@luminai.com No room...';
+  c.checkInterviewerInvitePreviews([hayley,mary],two);
+  assert.throws(()=>c.checkInterviewerInvitePreviews([hayley,mary.replace('No room','Gabrielle gabby@luminai.com')],two),/interviewer invite for session 2 also goes to gabby@luminai.com, who wasn't approved/);
+  assert.throws(()=>c.checkInterviewerInvitePreviews([hayley],two),/there are 1 interviewer invite previews, but 2 sessions were approved/);
+  assert.throws(()=>c.checkInterviewerInvitePreviews([hayley,hayley],two),/0 interviewer invite previews are for session 2/);
+  assert.throws(()=>c.checkInterviewerInvitePreviews(['First Round Tue, Oct 20, 2026 1:05pm - 1:35pm MDT Invitees Hayley Samuels'],plan),/no recipients could be read from the interviewer invite for session 1/);
 });
 
 test('a stale confirmation email (an earlier date) refuses',()=>{

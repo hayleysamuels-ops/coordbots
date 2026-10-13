@@ -147,28 +147,50 @@ function exactly(found,expected,what){
   return why;
 }
 
-// The candidate's calendar invite preview: the date, each session's agenda
-// line ("11:00 AM - 11:30 AM (MDT) - Initial - Hayley Samuels") and exactly
-// the candidate as recipient.
-function checkInvitePreview(text,plan){
+// One agenda item per session, in order. Each starts "1:00 PM - 1:30 PM (MDT)
+// - First Round", and what follows may only be that session's approved
+// interviewers: Ashby puts a name inline, or on its own line with "(LinkedIn)"
+// when the profile has one (seen October 13). Anything else left over refuses.
+function agendaWhy(items,plan){
+  const why=[],norm=v=>v.replace(/\s+/g,' ').trim();
+  if(items.length!==plan.sessions.length)return [`its agenda has ${items.length} item${items.length===1?'':'s'}, but ${plan.sessions.length} session${plan.sessions.length===1?' was':'s were'} approved`];
+  plan.sessions.forEach((s,i)=>{
+    const a=formats(s.start,plan.timeZone),b=formats(s.end,plan.timeZone),prefix=`${a.upper} - ${b.upper} (${a.zone}) - ${s.title}`,item=norm(items[i]);
+    if(!item.startsWith(prefix)){why.push(`agenda item ${i+1} reads "${item.slice(0,80)}", not "${prefix}"`);return;}
+    let rest=item.slice(prefix.length);
+    for(const x of s.interviewers){if(!rest.includes(x.name))why.push(`agenda item ${i+1} doesn't name ${x.name}`);rest=rest.split(x.name).join(' ');}
+    rest=rest.replace(/\(\s*LinkedIn\s*\)/g,' ').replace(/[\s,\-–]+/g,' ').trim();
+    if(rest)why.push(`agenda item ${i+1} also names "${rest.slice(0,60)}", who wasn't approved`);
+  });
+  return why;
+}
+
+// The candidate's calendar invite preview: the date, the agenda (one item per
+// session, as above) and exactly the candidate as recipient.
+function checkInvitePreview(text,plan,agendaItems){
   const t=text.replace(/\s+/g,' '),why=[];
   const first=formats(plan.sessions[0].start,plan.timeZone);
   if(!t.includes(first.shortDate))why.push(`it doesn't show the date ${first.shortDate}`);
-  for(const s of plan.sessions){
-    const a=formats(s.start,plan.timeZone),b=formats(s.end,plan.timeZone);
-    const line=`${a.upper} - ${b.upper} (${a.zone}) - ${s.title} - ${s.interviewers.map(x=>x.name).join(', ')}`;
-    if(!t.includes(line))why.push(`its agenda doesn't read "${line}"`);
-  }
+  why.push(...agendaWhy(agendaItems,plan));
   why.push(...exactly(emailsIn(t),[plan.candidate.email],'candidate invite'));
   if(why.length)fail(`The candidate's calendar invite preview doesn't match the approval: ${why.join('; ')}.`,why);
 }
 
-// The interviewers' calendar invite preview: exactly the approved
-// interviewers, so anyone else Ashby would invite (an alternate, say) shows up
-// on every run rather than being assumed away.
-function checkInterviewerInvitePreview(text,plan){
-  const why=exactly(emailsIn(text.replace(/\s+/g,' ')),plan.sessions.flatMap(s=>s.interviewers.map(x=>x.email)),'interviewer invite');
-  if(why.length)fail(`The interviewers' calendar invite preview doesn't match the approval: ${why.join('; ')}.`,why);
+// The interviewers' invite previews: Ashby sends one per session (seen
+// October 13 with two sessions). Each is matched to its session by its
+// "Thu, Oct 15, 2026 1:00pm - 1:30pm MDT" line, exactly once, and must go to
+// exactly that session's approved interviewers, so anyone else Ashby would
+// invite (an alternate, say) shows up on every run.
+function checkInterviewerInvitePreviews(texts,plan){
+  const why=[],panels=texts.map(t=>t.replace(/\s+/g,' '));
+  if(panels.length!==plan.sessions.length)why.push(`there are ${panels.length} interviewer invite previews, but ${plan.sessions.length} session${plan.sessions.length===1?' was':'s were'} approved`);
+  else plan.sessions.forEach((s,i)=>{
+    const a=formats(s.start,plan.timeZone),b=formats(s.end,plan.timeZone),line=`${a.shortDate} ${a.lower} - ${b.lower} ${a.zone}`;
+    const matches=panels.filter(p=>p.includes(line));
+    if(matches.length!==1){why.push(`${matches.length} interviewer invite previews are for session ${i+1} ("${line}")`);return;}
+    why.push(...exactly(emailsIn(matches[0]),s.interviewers.map(x=>x.email),`interviewer invite for session ${i+1}`));
+  });
+  if(why.length)fail(`The interviewers' calendar invite previews don't match the approval: ${why.join('; ')}.`,why);
 }
 
 // The candidate confirmation email: the subject's date, the body's date, and
@@ -194,4 +216,4 @@ function classifyDialog(text){
   return {action:'stop',reason:`Ashby showed a dialog the booking doesn't recognise: "${t.slice(0,160)}". Nothing was confirmed.`};
 }
 
-module.exports={selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,emailsIn,checkInvitePreview,checkInterviewerInvitePreview,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};
+module.exports={selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};

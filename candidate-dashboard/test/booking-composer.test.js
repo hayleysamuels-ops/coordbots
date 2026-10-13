@@ -23,7 +23,9 @@ const plan={jobId:'job-1',candidateId:'cand-1',applicationId:'app-1',interviewSc
 // The stand-in app. `menu` lists the Actions menu items; `dialogAfterManual`
 // is a warning shown after "Manual Schedule"; `strayWrite` is a mutation the
 // named menu item sends.
-function app({menu=['Send Direct Booking Link','Request Candidate Availability','Manual Schedule','View All Scheduling Options'],dialogAfterManual=null,strayWrite=null}={}){
+// `submitted` shows the availability-submitted card instead: a bare "Schedule"
+// button (which must never be clicked) beside "Start Manual Schedule".
+function app({menu=['Send Direct Booking Link','Request Candidate Availability','Manual Schedule','View All Scheduling Options'],dialogAfterManual=null,strayWrite=null,submitted=false}={}){
   return `<!doctype html><html><body><nav><a href="/candidates/pipeline">Pipeline</a></nav><main id="m"></main><script>
   let deleted=false;
   const gql=(name,variables)=>fetch('/api/graphql',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operationName:name,query:'mutation '+name+' { x }',variables})}).then(r=>r.json());
@@ -31,7 +33,9 @@ function app({menu=['Send Direct Booking Link','Request Candidate Availability',
   function render(){fetch('/api/graphql',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operationName:'ApiLoad',query:'query ApiLoad { x }'})});
     const p=location.pathname,m=document.getElementById('m');m.innerHTML='';
     if(p.endsWith('/feed')){
-      m.innerHTML='<div role="dialog" aria-labelledby="cn"><h2 id="cn">TEST</h2><p>t@example.com</p><section><h2>Initial Screen Interview Schedule</h2><button id="act">Actions</button></section></div>';
+      m.innerHTML='<div role="dialog" aria-labelledby="cn"><h2 id="cn">TEST</h2><p>t@example.com</p><section><h2>Initial Screen Interview Schedule</h2>'+(${JSON.stringify(submitted)}?'<button id="sched">Schedule</button><button id="start">Start Manual Schedule</button>':'<button id="act">Actions</button>')+'</section></div>';
+      const create=async()=>{const r=await gql('${OP.create}',{interviewScheduleId:'sched-1'});history.pushState({},'','/schedules/drafts/'+r.data.draftInterviewSchedule.id);render();};
+      if(${JSON.stringify(submitted)}){document.getElementById('sched').onclick=()=>gql('ApiScheduleCandidateAutomatically',{interviewScheduleId:'sched-1'}).catch(()=>{});document.getElementById('start').onclick=create;return;}
       document.getElementById('act').onclick=()=>{const u=document.createElement('div');u.setAttribute('role','menu');u.setAttribute('aria-label','Actions');
         u.innerHTML=${JSON.stringify(menu)}.map(t=>'<div role="menuitem" tabindex="0">'+t+'</div>').join('');document.body.appendChild(u);
         u.querySelectorAll('[role=menuitem]').forEach(i=>i.onclick=async()=>{u.remove();
@@ -98,4 +102,12 @@ test('a write the booking doesn\'t permit is blocked and stops the run',async t=
   assert.equal(r.report.status,'refused');assert.match(r.report.reason,/doesn't permit: POST \/api\/graphql mutation ApiSendDirectBookingLink/);
   assert.ok(!r.received.includes('ApiSendDirectBookingLink'),'it never reached the stand-in');
   assert.deepEqual(r.report.cleanup,{deleted:true,draftId:'draft-1'});
+});
+
+test('availability submitted: starts from "Start Manual Schedule", never the bare "Schedule" beside it',async t=>{
+  const r=await run(t,{appOptions:{submitted:true},baseline:{id:'ev-1',title:'Other',startTimeISO:'2099-10-12T17:00:00.000Z',endTimeISO:'2099-10-12T17:30:00.000Z',interviewId:'int-9',interviewSlots:[{selected:null}]}});if(!r)return;
+  // The mismatched draft stops the run right after creation, which is all this needs.
+  assert.ok(r.report.checks.some(c=>c.name==='started from "Start Manual Schedule" (availability submitted)'));
+  assert.deepEqual(r.received,[OP.create,OP.discard],'only the create and the cleanup reached the stand-in');
+  assert.ok(!r.report.blocked.some(b=>/ApiScheduleCandidateAutomatically/.test(b)),'the bare "Schedule" was never clicked');
 });

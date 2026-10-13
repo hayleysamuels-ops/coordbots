@@ -14,7 +14,7 @@
 // load-bearing; neither may be relaxed.
 const {guardWrites}=require('./template-guard');
 const {installBookingPermits,ORIGIN,OP}=require('./booking-permit');
-const {checkFinal,formats,checkInvitePreview,checkInterviewerInvitePreview,checkConfirmationEmail,classifyDialog}=require('./booking-check');
+const {checkFinal,formats,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog}=require('./booking-check');
 
 class Refusal extends Error{constructor(step,message){super(message);this.step=step;this.status=409;}}
 const esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
@@ -103,22 +103,33 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal}
     seenRefusals=state.refusals.length;
   }
   const report={mode:'dry-run',status:'refused',step:null,reason:null,draftId:null,checks:[],wouldSend:null,cleanup:null};
-  const pass=(name,detail)=>{report.checks.push({name,ok:true,...(detail?{detail}:{})});note({type:'check',name});};
+  const pass=(name,detail)=>{report.checks.push({name,ok:true,...(detail?{detail}:{})});note({type:'check',name,...(detail?.draftId?{draftId:detail.draftId}:{})});};
   try{
     // 1. Ashby's shell, then the application inside the app. A cold load of a
     // deep URL shows an error page under the guard.
     step='open the application';
     const opened=await openApplication(page,plan,{refuse,sleep,go,net,T});
     pass('candidate panel shows the approved candidate',opened.attempts>1?{attempts:opened.attempts}:undefined);
-    // 2. The scheduling card's Actions menu, then exactly "Manual Schedule".
+    // 2. Start a manual schedule from the scheduling card. Ashby shows it two
+    // ways, and exactly one must be present:
+    //   availability submitted: a "Start Manual Schedule" button (beside a bare
+    //     "Schedule" button, which is never clicked);
+    //   waiting on availability: Actions, then "Manual Schedule" (between
+    //     items that email the candidate).
     step='open Manual Schedule';
     const heading=await one(page.getByRole('heading',{name:plan.activityTitle,exact:true}),`the "${plan.activityTitle}" card`);
-    const card=heading.locator('xpath=ancestor::*[.//button[normalize-space(.)="Actions"]][1]');
-    const actions=await one(card.getByRole('button',{name:'Actions',exact:true}),'the card\'s Actions button');
-    await after(()=>actions.click());
-    const menu=await one(page.getByRole('menu',{name:'Actions'}),'the Actions menu');
-    const manual=await one(menu.getByRole('menuitem',{name:'Manual Schedule',exact:true}),'"Manual Schedule" in the Actions menu');
-    await after(()=>manual.click());
+    await until(async()=>(await heading.locator('xpath=ancestor::*[.//button[normalize-space(.)="Start Manual Schedule" or normalize-space(.)="Actions"]][1]').count())>0,`the "${plan.activityTitle}" card's scheduling controls`);
+    const card=heading.locator('xpath=ancestor::*[.//button[normalize-space(.)="Start Manual Schedule" or normalize-space(.)="Actions"]][1]');
+    const startManual=card.getByRole('button',{name:'Start Manual Schedule',exact:true}),actions=card.getByRole('button',{name:'Actions',exact:true});
+    const [startCount,actionCount]=[await startManual.count(),await actions.count()];
+    if(startCount+actionCount!==1)refuse(`Expected exactly one way to start a manual schedule on the "${plan.activityTitle}" card; found ${startCount} "Start Manual Schedule" and ${actionCount} "Actions".`);
+    if(startCount){await after(()=>startManual.click());pass('started from "Start Manual Schedule" (availability submitted)');}
+    else{
+      await after(()=>actions.click());
+      const menu=await one(page.getByRole('menu',{name:'Actions'}),'the Actions menu');
+      const manual=await one(menu.getByRole('menuitem',{name:'Manual Schedule',exact:true}),'"Manual Schedule" in the Actions menu');
+      await after(()=>manual.click());pass('started from Actions > "Manual Schedule" (waiting on availability)');
+    }
     await until(()=>!!state.draftId||!!state.baselineError,'Ashby to create the draft');
     report.draftId=state.draftId;
     if(state.baselineError)refuse(state.baselineError.message);
@@ -134,17 +145,47 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal}
       const d=Date.now()+T.wait;while(Date.now()<d&&await loc.count()<plan.sessions.length)await sleep(250);
       if(await loc.count()!==plan.sessions.length)refuse(`The composer has ${await loc.count()} ${what}, but ${plan.sessions.length} session${plan.sessions.length===1?' was':'s were'} approved.`);
     }
+    // Each session's editor, found by its event ID, never by position: Ashby
+    // re-sorts the editors by time as they change (seen October 13: setting
+    // session 1 to 1pm moved session 2's 9:30am editor above it). The editor
+    // is the nearest ancestor of that event's slot link that holds a Start
+    // field, and it must hold exactly one date, Start and End field. It's
+    // found again before every edit.
+    async function editor(eventId,what){
+      // The slot links can render a moment after the fields; wait for them.
+      let tag,deadline=Date.now()+T.wait;
+      do{tag=await page.evaluate(({draftId,eventId})=>{
+        const link=document.querySelector(`a[href="/schedules/drafts/${draftId}/events/${eventId}/interviewers/0"]`);
+        if(!link)return {error:'no slot link'};
+        const named=(el,n)=>el.getAttribute('aria-label')===n||el.getAttribute('placeholder')===n;
+        const fields=(root,n)=>[...root.querySelectorAll('input,textarea,[role="combobox"],[role="textbox"]')].filter(el=>named(el,n));
+        let box=link.parentElement;while(box&&!fields(box,'Start...').length)box=box.parentElement;
+        if(!box)return {error:'no editor around the slot link'};
+        const found={start:fields(box,'Start...'),end:fields(box,'End...'),date:fields(box,'Set interview date...')};
+        if(Object.values(found).some(f=>f.length!==1))return {error:`its editor has ${found.date.length} date, ${found.start.length} Start and ${found.end.length} End fields`};
+        for(const k of Object.keys(found)){document.querySelectorAll(`[data-booking-${k}]`).forEach(el=>el.removeAttribute(`data-booking-${k}`));found[k][0].setAttribute(`data-booking-${k}`,eventId);}
+        return {ok:true};
+      },{draftId:state.draftId,eventId});if(!tag.ok)await sleep(250);}while(!tag.ok&&Date.now()<deadline);
+      if(!tag.ok)refuse(`Couldn't find the editor for ${what}: ${tag.error}.`);
+      // The tagged elements must be the same ones the accessibility tree names.
+      const get=(role,name,k)=>one(page.getByRole(role,{name,exact:true}).and(page.locator(`[data-booking-${k}="${eventId}"]`)),`${what}'s ${name.replace('...','')} field`);
+      return {date:await get('textbox','Set interview date...','date'),start:await get('combobox','Start...','start'),end:await get('combobox','End...','end')};
+    }
+    // Option text is the time, then for End fields the length ("1:30pm 4h").
+    const timeOption=want=>page.getByRole('option',{name:new RegExp(`^${esc(want)}(?: [0-9].*)?$`)});
     for(let i=0;i<plan.sessions.length;i++){
-      const s=plan.sessions[i],a=formats(s.start,plan.timeZone),b=formats(s.end,plan.timeZone);
-      step=`compose "${s.title}"`;
+      const s=plan.sessions[i],a=formats(s.start,plan.timeZone),b=formats(s.end,plan.timeZone),eventId=state.last[i].id,what=`session ${i+1} ("${s.title}")`;
+      step=`compose ${what}`;
       const zones=page.getByRole('button',{name:'Select a timezone',exact:true}).filter({hasText:new RegExp(`^${esc(a.zone)}$`)});
       if(!(await zones.count()))refuse(`The composer doesn't show times in ${a.zone}; the account's time zone must match the plan's (${plan.timeZone}).`);
       const wantDate=a.shortDate.replace(/, \d{4}$/,'');// "Tue, Oct 20"
-      if(await dates.nth(i).inputValue()!==wantDate){await after(async()=>{await dates.nth(i).click();await dates.nth(i).fill(wantDate);await page.keyboard.press('Enter');});}
-      for(const [field,want] of [[starts,a.lower],[ends,b.lower]]){
-        if(await field.nth(i).inputValue()===want)continue;
-        await after(async()=>{await field.nth(i).click();await field.nth(i).fill(want);
-          const option=await one(page.getByRole('option',{name:want,exact:true}),`the "${want}" option`);await option.click();});
+      {const {date}=await editor(eventId,what);
+        if(await date.inputValue()!==wantDate)await after(async()=>{await date.click();await date.fill(wantDate);await page.keyboard.press('Enter');});}
+      for(const [k,want] of [['start',a.lower],['end',b.lower]]){
+        const field=(await editor(eventId,what))[k];
+        if(await field.inputValue()===want)continue;
+        await after(async()=>{await field.click();await field.fill(want);
+          const option=await one(timeOption(want),`the "${want}" option for ${what}'s ${k}`);await option.click();});
       }
       for(let j=0;j<s.interviewers.length;j++){
         const p=s.interviewers[j];
@@ -181,18 +222,38 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal}
     step='configure communications';
     await after(async()=>(await one(page.getByRole('button',{name:'Configure Communications',exact:true}),'"Configure Communications"')).click());
     await until(async()=>new URL(page.url()).pathname===`/schedules/drafts/${state.draftId}/communication/calendar-invites`,'the Calendar Invites screen');
-    for(const name of ['Send Candidate Invite','Send Interviewer Invite'])
-      if(!(await (await one(page.getByRole('checkbox',{name,exact:true}),`"${name}"`)).isChecked()))refuse(`"${name}" is off; it must be on.`);
+    // "Send Interviewer Invite" for one session, "...Invites" for several.
+    const interviewerBox=page.getByRole('checkbox',{name:/^Send Interviewer Invites?$/});
+    for(const [box,name] of [[page.getByRole('checkbox',{name:'Send Candidate Invite',exact:true}),'Send Candidate Invite'],[interviewerBox,'Send Interviewer Invite(s)']])
+      if(!(await (await one(box,`"${name}"`)).isChecked()))refuse(`"${name}" is off; it must be on.`);
     pass('candidate and interviewer invites are on');
+    // Previews: the candidate's first, then one per session for interviewers.
     const previews=page.getByRole('tabpanel',{name:'Preview'});
-    if(await previews.count()!==2)refuse(`Expected the candidate and interviewer invite previews; found ${await previews.count()}.`);
-    // Ashby lists the candidate invite first, then the interviewers'.
+    // Ashby draws the previews after the screen opens: read until their
+    // content is present (bounded by T.wait), then check that read. If it
+    // never fills in, the checks below refuse, naming what was missing.
+    const readPreviews=async()=>{
+      const n=await previews.count();if(n!==1+plan.sessions.length)return {n};
+      // The agenda's top-level items, each as text (a name may sit in a nested list).
+      const agendaItems=await previews.nth(0).evaluate(panel=>{
+        const list=[...panel.querySelectorAll('ul,ol')].find(l=>[...l.children].length&&[...l.children].every(li=>/^\s*\d{1,2}:\d\d [AP]M - /.test(li.innerText)));
+        return list?[...list.children].map(li=>li.innerText):[];
+      });
+      const candidateText=await previews.nth(0).innerText();
+      const interviewerTexts=[];for(let k=1;k<=plan.sessions.length;k++)interviewerTexts.push(await previews.nth(k).innerText());
+      return {n,agendaItems,candidateText,interviewerTexts};
+    };
+    const present=r=>r.agendaItems?.length===plan.sessions.length&&r.candidateText.trim()&&r.interviewerTexts.every(t=>t.trim());
+    let read;const readBy=Date.now()+T.wait;
+    while(!present(read=await readPreviews())&&Date.now()<readBy)await sleep(250);
+    if(read.n!==1+plan.sessions.length)refuse(`Expected a candidate invite preview and ${plan.sessions.length} interviewer invite preview${plan.sessions.length===1?'':'s'}; found ${read.n} previews.`);
     const order=await page.getByRole('heading',{level:2}).allInnerTexts();
-    if(order.indexOf('Candidate Invite')<0||order.indexOf('Interviewer Invite')<order.indexOf('Candidate Invite'))refuse('Couldn\'t tell the candidate invite from the interviewer invite.');
-    checkInvitePreview(await previews.nth(0).innerText(),plan);
+    const ci=order.indexOf('Candidate Invite'),ii=order.findIndex(h=>/^Interviewer Invites?$/.test(h));
+    if(ci<0||ii<ci)refuse('Couldn\'t tell the candidate invite from the interviewer invites.');
+    checkInvitePreview(read.candidateText,plan,read.agendaItems);
     pass('candidate invite preview shows the approved date, agenda and only the candidate');
-    checkInterviewerInvitePreview(await previews.nth(1).innerText(),plan);
-    pass('interviewer invite preview goes to exactly the approved interviewers');
+    checkInterviewerInvitePreviews(read.interviewerTexts,plan);
+    pass('each session\'s interviewer invite goes to exactly its approved interviewers');
     step='candidate confirmation email';
     await after(async()=>(await one(page.getByRole('link',{name:'Candidate Confirmation Email On',exact:true}),'"Candidate Confirmation Email On"')).click());
     if(!(await (await one(page.getByRole('checkbox',{name:'Send Candidate Confirmation Email',exact:true}),'"Send Candidate Confirmation Email"')).isChecked()))refuse('"Send Candidate Confirmation Email" is off; it must be on.');
