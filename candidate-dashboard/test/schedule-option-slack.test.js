@@ -108,7 +108,8 @@ async function routeFixture(t) {
     availability: { requests: async () => ({ stageId: "stage", requests: [{ scheduleId: "request", updatedAt: "version" }] }),
       load: async () => ({ stageId: "stage", timezone: "UTC", localWindows: [{ start: "2099-01-01T10:00", end: "2099-01-01T11:00" }] }) },
     inspectPlan: async input => ({ ...input, sessions: sessions.map(s => ({ ...s, assignmentVerified: true, requiredCount: 1, eligibleInterviewers: [{ name: "Plan Interviewer" }] })) }),
-    discussion: { postScheduleOption: async (input, u) => { posted.push({ input, u }); return { state: "shared", channelName: "luminai-scheduling" }; } },
+    discussion: { postScheduleOption: async (input, u) => { posted.push({ input, u }); return { state: "shared", channelName: "luminai-scheduling" }; },
+      reconcileSlack: async (id, body, u) => { posted.push({ reconcile: { id, outcome: body.outcome, revision: body.revision }, u }); return { state: "rejected" }; } },
     rules: { get: () => ({ rulesRevision: 2, hasAttendanceOverrides: false, attendanceFor: () => "in_person", placementFor: () => [] }) },
   }));
   const server = await new Promise(resolve => { const s = app.listen(0, "127.0.0.1", () => resolve(s)); });
@@ -347,4 +348,19 @@ test("a clear calendar-checked option still posts as free, with no attention ban
   assert.doesNotMatch(sent[0].plan.notes, /NEEDS ATTENTION/);
   assert.match(sent[0].plan.sessions[0].interviewers, /\(free on primary calendar\)$/);
   assert.equal(sent[0].plan.sessions[0].flags, undefined);
+});
+
+test("the booking page's Check Slack reconciles through its own signed-in API, with the coordinator's identity", async t => {
+  const { base, posted } = await routeFixture(t);
+  const r = await fetch(base + "/reconcile-slack", { method: "POST", headers, body: JSON.stringify({ id: "d1", revision: 3, digest: "g", outcome: "not_posted" }) });
+  assert.equal(r.status, 200);assert.equal((await r.json()).state, "rejected");
+  assert.deepEqual(posted.at(-1), { reconcile: { id: "d1", outcome: "not_posted", revision: 3 }, u: user });
+  // Every write from the page goes through api(), which sends the coordinator
+  // sign-in and the request header; a bare POST to /api/ would be refused.
+  // (Its two bare fetches are reads: the issue list and the plan template.)
+  const page = require("fs").readFileSync(require("path").join(__dirname, "../public/booking.js"), "utf8");
+  const bare = [...page.matchAll(/fetch\(\s*['"`](\/api\/[^'"`]*)['"`][^;]*/g)];
+  assert.deepEqual(bare.filter(m => /POST/.test(m[0])).map(m => m[1]), ["/api/scheduling-booking"]);
+  assert.doesNotMatch(page, /fetch\([^;]*reconcile-slack/);
+  assert.match(page, /api\('\/reconcile-slack'/);
 });

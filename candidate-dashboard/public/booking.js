@@ -182,9 +182,7 @@
     const box=b.closest('.reconcile'),status=box.closest('.post-option-status');
     for(const x of box.querySelectorAll('button'))x.disabled=true;
     try{
-      const r=await fetch(`/api/scheduling-review/${encodeURIComponent(box.dataset.id)}/reconcile-slack`,{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({revision:Number(box.dataset.revision),digest:box.dataset.digest,outcome:b.dataset.reconcile,permalink:box.querySelector('.reconcile-link')?.value||''})});
-      const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'The draft couldn’t be reconciled.');
+      const d=await api('/reconcile-slack',{id:box.dataset.id,revision:Number(box.dataset.revision),digest:box.dataset.digest,outcome:b.dataset.reconcile,permalink:box.querySelector('.reconcile-link')?.value||''});
       const check=status.parentElement.querySelector('.check-slack');
       if(d.state==='shared'){if(check){check.textContent='Posted';check.disabled=true;}status.textContent='Recorded as posted in Slack. Its Schedule button will work.';}
       else{if(check)check.remove();status.textContent='Cleared. Suggest the full schedule again to post this option again.';}

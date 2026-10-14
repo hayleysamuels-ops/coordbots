@@ -152,6 +152,13 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
       sourceRef:`full-schedule:${plan.scheduleId}:${ref}`,availabilitySource:req.body.availabilitySource,attendance,rulesRevision:clientRules.rulesRevision,
       calendarCheck:['calendar_checked','needs_attention'].includes(result.status)?{checkedAt:result.calendarCheckedAt,meetingHoursAssumed:result.meetingHoursAssumed===true,flags:chosen.events.map(e=>e.flags||[])}:null},req.schedulingUser);
   }));
+  // "Check Slack" on the booking page: settle a post Slack didn't confirm
+  // (service.reconcileSlack). Here because the booking page signs coordinators
+  // in for these routes; the Scheduling tab calls the same service directly.
+  router.post('/reconcile-slack',handle(req=>{
+    if(!discussion)throw Object.assign(Error('Slack discussion posting is not connected.'),{status:503});
+    return discussion.reconcileSlack(req.body.id,req.body,req.schedulingUser);
+  }));
   router.post("/application", handle(req => {
     if(!facts)throw Object.assign(new Error('Ashby details are not connected.'),{status:503});
     return facts.application(req.body.applicationId);
