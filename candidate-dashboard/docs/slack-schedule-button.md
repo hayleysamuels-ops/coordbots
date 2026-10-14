@@ -38,8 +38,8 @@ candidate confirmation email). Approving books nothing, and the message says so.
   Slack id, name, time, digest). `bookingApproval` stays `null`, and
   `approveBooking` still refuses. A second click, or a race, is told who
   already approved. The message is updated with `chat.update`: the button is
-  removed, and it adds "Approved by … at …" and "Not booked. Booking in Ashby is
-  blocked on IT permissions".
+  removed, and it adds "Approved by … at …" and "Not booked yet. Nothing has been
+  scheduled in Ashby … Book this schedule in Ashby by hand for now".
 
 ## Phase one: post an option for discussion (built September 28, 2026)
 
@@ -354,8 +354,9 @@ variable belongs to the Poetic tracker's worker (`scheduling-worker/worker/serve
 on `main` only).
 On Luminai, booking is off because `server.js` passes `executor: null` and `source: null`
 to the booking engine, so `approve()` refuses with "Booking adapter has not been
-verified". Booking is also blocked on IT permissions, which is recorded here as given;
-nothing in the code refers to it. The recommendation below applies to either gate.
+verified". This document originally also said booking was blocked on IT permissions.
+That was never true for Luminai: booking was unbuilt (see the handoff's "What was
+blocking it"). The recommendation below doesn't depend on it.
 
 **Recommendation: clicking records a coordinator confirmation, and nothing else.**
 1. **Revalidate before recording.** The option must still be in the future. The

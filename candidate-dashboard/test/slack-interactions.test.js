@@ -167,7 +167,7 @@ test("the Schedule button appears only when interactive, with a confirmation tha
   assert.equal(button.text.text, "Schedule");
   assert.deepEqual(JSON.parse(button.value), { d: "d1", g: "g1" });
   assert.equal(button.confirm.confirm.text, "Approve");
-  assert.match(button.confirm.text.text, /Nothing will be booked:\* booking in Ashby is blocked on IT permissions/);
+  assert.match(button.confirm.text.text, /Nothing will be booked:\* the dashboard doesn't book in Ashby yet, so no interviews are scheduled and no invitations or candidate email are sent\. Book it in Ashby by hand after approving\./);
   const off = slackCapture();
   await createSlack("x", off.request, { displayTimeZone: "America/Los_Angeles", interactive: false })(checkedPlan, { channelId: "C1", proposalId: "d1", approver: "a", digest: "g1" });
   assert.equal(off.calls[0].body.blocks.find(b => b.type === "actions"), undefined);
@@ -183,7 +183,7 @@ test("after approval the button is gone and the message says who approved, when,
   assert.equal(update.body.blocks.find(b => b.type === "actions"), undefined);
   const text = update.body.blocks.map(b => b.text?.text || "").join("\n");
   assert.match(text, /\*Approved\* by Anna Jones \(anna@carrara\.is\) at Jan 1, 2099, 9:00\S* AM PST/);
-  assert.match(text, /\*Not booked\.\* Booking in Ashby is blocked on IT permissions: no interviews are scheduled and no invitations or candidate email have been sent/);
+  assert.match(text, /\*Not booked yet\.\* Nothing has been scheduled in Ashby, and no invitations or candidate email have been sent\. Book this schedule in Ashby by hand for now\./);
   // It never claims a booking happened.
   assert.doesNotMatch(text + update.body.text, /\b(has been|was|is now) booked\b|\bbooking (is )?confirmed\b|\binvitations? (have been|were) sent\b/i);
 });

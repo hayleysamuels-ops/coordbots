@@ -55,7 +55,7 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     type: "button", action_id: "schedule_option", style: "primary", text: { type: "plain_text", text: "Schedule" },
     value: JSON.stringify({ d: proposalId, g: draftDigest }),
     confirm: { title: { type: "plain_text", text: "Approve this schedule?" },
-      text: { type: "mrkdwn", text: "This records your approval of this exact schedule. *Nothing will be booked:* booking in Ashby is blocked on IT permissions, so no interviews are scheduled and no invitations or candidate email are sent.\n\nOnce booking is live, approving will book it, so only approve a schedule you mean to book." },
+      text: { type: "mrkdwn", text: "This records your approval of this exact schedule. *Nothing will be booked:* the dashboard doesn't book in Ashby yet, so no interviews are scheduled and no invitations or candidate email are sent. Book it in Ashby by hand after approving.\n\nOnce booking is live, approving will book it, so only approve a schedule you mean to book." },
       confirm: { type: "plain_text", text: "Approve" }, deny: { type: "plain_text", text: "Cancel" } } }] });
 
   async function calendarChecked(plan, { proposalId, approver, digest: draftDigest }, approval = null) {
@@ -108,7 +108,7 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       { type: "section", text: mrkdwn("*Interview Plan:* to add\n*Shared Prompt:* to add\n*Shared Interview Prep:* to add\n*NDA Sent:* to confirm") },
       { type: "context", elements: [mrkdwn(`${escape(plan.notes)} Posted for discussion by ${escape(approver)}. Draft reference: ${escape(proposalId)}`)] },
     ];
-    if (approval) blocks.push({ type: "section", text: mrkdwn(`*Approved* by ${escape(approval.name || approval.email)} (${escape(approval.email)}) at ${escape(new Intl.DateTimeFormat("en-US", { timeZone: displayTimeZone, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(approval.at)))}.\n*Not booked.* Booking in Ashby is blocked on IT permissions: no interviews are scheduled and no invitations or candidate email have been sent. Book this schedule in Ashby by hand.`) });
+    if (approval) blocks.push({ type: "section", text: mrkdwn(`*Approved* by ${escape(approval.name || approval.email)} (${escape(approval.email)}) at ${escape(new Intl.DateTimeFormat("en-US", { timeZone: displayTimeZone, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(approval.at)))}.\n*Not booked yet.* Nothing has been scheduled in Ashby, and no invitations or candidate email have been sent. Book this schedule in Ashby by hand for now.`) });
     else if (interactive && draftDigest) blocks.push(scheduleButton(proposalId, draftDigest));
     // The fallback shows in notifications and has no names or links.
     const text = `Interview schedule draft for ${plan.candidateName} · ${plan.jobTitle}: ${clashes ? `needs attention (${clashes} calendar clash${clashes === 1 ? "" : "es"}), ` : ""}for discussion, nothing booked.`;

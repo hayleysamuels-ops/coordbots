@@ -584,8 +584,9 @@ done and verified, in this order:
   - **What it does:** on calendar-checked posts, a Schedule button with Slack's
     own confirmation dialog records an approval of that exact option (state
     `discussion_approved`, with who, when and the draft's digest). It then updates
-    the message to show who approved it and that nothing is booked, because
-    booking in Ashby is still blocked on IT permissions. It is never booking
+    the message to show who approved it, that nothing is booked yet, and to book
+    it in Ashby by hand for now. Booking isn't built: it was never blocked on
+    permissions (see "What was blocking it" above). It is never booking
     approval, and stages 2–4 (Ashby booking, calendar invites, candidate email)
     aren't built.
   - **The endpoint:** `POST /api/slack/interactions` is one of two routes outside
