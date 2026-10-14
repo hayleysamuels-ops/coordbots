@@ -619,8 +619,9 @@ even if clicked.
   it; `test/booking-dry-run-worker.test.js` fails if `worker/` or `src/` ever does.
   The image still starts `bootstrap.js`.
 - **Two locks, checked before the session is read or a browser starts:**
-  `BOOKING_DRY_RUN=on` on the worker (unset by default; setting or removing a
-  variable redeploys the worker), and an allowlist of applications in the file
+  `BOOKING_DRY_RUN=on` on the worker (unset by default; setting it redeploys the
+  worker, but `railway variable delete` did not, so run `railway redeploy`
+  afterwards and wait for the new deployment), and an allowlist of applications in the file
   (only TEST, `8dfd8f14`, with its job, candidate, email and two schedules).
   Adding an application takes a commit.
 - **Checks before any write:** the plan is complete, starts at least 15 minutes
@@ -629,28 +630,37 @@ even if clicked.
   account button reads exactly that identity (for example "Anna Jones Luminai").
 - **Running it:**
   1. Build the plan locally from the dashboard's calendar-checked preview with
-     `src/scheduling/booking-plan.js`, with `accountTimeZone: 'America/New_York'`
-     (Anna's Ashby account, confirmed October 13, 2026). The robot types and
-     checks times in that zone, e.g. 19:00Z on October 15 is "3:00pm EDT".
-     Ashby takes the display zone from the account's connected Google Calendar
-     (read-only in Ashby; the browser's zone doesn't change it), and writes
-     Eastern as "EDT". Every local run had the account and the candidate on
-     America/Denver, so it's still unknown whether the candidate invite and
-     confirmation email use the account's zone or the candidate's. The first
-     worker run settles it: a mismatch refuses at the candidate invite check,
-     before Schedule, and the draft is deleted.
+     `src/scheduling/booking-plan.js`, with `accountTimeZone` set to the zone the
+     draft composer shows, **not** Anna's account zone (America/New_York). The
+     robot types and checks times in that zone. On October 14, in Anna's session,
+     TEST's composer had two "Select a timezone" buttons reading
+     "America/Denver" and "MDT", and the composer, candidate invite,
+     interviewer invites and confirmation email were all in MDT. So the zone
+     seems to come from the draft, probably the candidate's availability zone
+     (TEST's is America/Denver). That's unconfirmed: every run so far had a
+     Denver candidate. A wrong zone refuses at the composer before any save,
+     naming the zone Ashby shows, and the draft is deleted. The buttons suggest
+     the zone can be picked per draft; picking one would be a new kind of write
+     and isn't permitted.
   2. Run `railway ssh -s scheduling-worker -- node worker/booking-dry-run.js
      --plan-base64 <base64 plan JSON>`. It runs as the worker's user, has a
      240-second deadline (exit 124, naming any draft left behind), and prints a
      report without page contents.
   3. Check the schedule's Drafts tab is empty.
+- **Run in the worker, October 14, 2026** (TEST, First Round, Hayley then Mary on
+  October 15, 19:00–20:00Z), Anna's saved session:
+  - Two plans in America/New_York refused at the composer's zone check (0 saves;
+    drafts deleted). The second, with the zone label in the refusal (commit
+    `9abfb9f`), showed "America/Denver" and "MDT".
+  - The same plan in America/Denver: `dry_run_complete`, 11/11 checks, 3 saves
+    with none refused, the confirmation email from "Anna Jones
+    <anna@luminai.com>", the draft deleted, and the Drafts tab empty afterwards.
+    The only blocked write was the expected `ApiUpdateDraftScheduleCalendarSettings`.
 - **Not yet verified:**
-  - The command has not run in the container. Linux Chromium and Anna's session
-    are untested there.
+  - Where the composer's zone comes from, with a candidate outside Denver.
   - A session copied from a local Chrome profile into a fresh context is signed
     out by Ashby about 3 seconds after load, so the worker's session path
-    couldn't be reproduced locally. The production session is saved from the
-    browser Anna signed in with, and the draft reader already uses it.
+    can't be reproduced locally; it works in the worker.
   - It can't see whether the dashboard is reading Ashby at the same moment. Run
     it when nobody is.
 
