@@ -617,9 +617,21 @@ done and verified, in this order:
   Logs are `[calendar-retention]` lines with draft ids and counts, no names.
   Not covered: Slack messages already posted (they still show the clashes), and
   `booking-ledger.json`, which has no calendar field and no deployed path that writes it.
-- **An uncertain Slack post has no reconcile button.** A `discussion_uncertain` draft
-  blocks that candidate's next post, and the dashboard can only reject drafts in the
-  `draft` state, so clearing one means editing `scheduling.json` on the volume.
+- **Reconciling an unconfirmed Slack post** (October 14, 2026). A post Slack didn't
+  confirm leaves the draft `discussion_uncertain`, which blocks that candidate's next
+  post. The failure is now named on the draft (`deliveryError`, and the `issue`
+  line) and logged: Slack refusing the post (not delivered), an HTTP error, or no
+  answer within 15 seconds. Before this, the reason was discarded, so the October 14
+  TEST Onsite post (`6681e79e…`) can't be explained: it never reached the channel,
+  and its rebuilt message was well within Slack's limits.
+  - **"Check Slack"** (booking page, and the Scheduling tab's draft list) opens two
+    choices, made after looking in the channel: "It isn't there" rejects the draft
+    so the option can be posted again; "It's there" takes the message's link, which
+    must be in the draft's channel, and Slack's `chat.getPermalink` must confirm the
+    message exists. The draft then becomes `shared` with that message, so its
+    Schedule button works.
+  - The dashboard can't look in the channel itself: the bot token's scopes are
+    `chat:write`, `users:read` and `users:read.email`, without `channels:history`.
 
 Google Cloud project was being configured in Carrara with External audience and Anna
 as test user. Verify its current publishing state on resume. If still Testing,

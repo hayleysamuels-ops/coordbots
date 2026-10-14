@@ -57,6 +57,10 @@
         ${row.state === "draft" ? `<div class="scheduling-actions"><button data-action="share" data-id="${esc(row.id)}" ${!status.canApprove || !status.slackReady || !destination.channelId ? "disabled" : ""}>Approve draft and send to Slack</button>
         <button data-action="book" data-id="${esc(row.id)}" ${!status.canApprove || !status.bookingReady ? "disabled" : ""}>Approve and schedule in Ashby</button>
         <button data-action="reject" data-id="${esc(row.id)}" ${!status.canApprove ? "disabled" : ""}>Reject draft</button></div>` : ""}
+        ${["discussion_uncertain", "sharing"].includes(row.state) ? `<div class="scheduling-actions"><p>Look in ${esc(destination.channelName)} for this schedule (draft reference ${esc(row.id)}), then:</p>
+        <button data-action="reconcile-slack" data-outcome="not_posted" data-id="${esc(row.id)}" ${status.canApprove ? "" : "disabled"}>It isn't there: clear it so it can be posted again</button>
+        <label>or paste its link <input type="url" class="reconcile-link" placeholder="https://….slack.com/archives/…"></label>
+        <button data-action="reconcile-slack" data-outcome="posted" data-id="${esc(row.id)}" ${status.canApprove ? "" : "disabled"}>It's there: record this message</button></div>` : ""}
         ${row.slack ? `<p>Shared in ${esc(row.slack.channel)}. Draft reference: ${esc(row.id)}</p>` : ""}
       </article>`;
     }).join("") : "<p>No schedule drafts yet.</p>";
@@ -110,7 +114,8 @@
     const row = state.proposals.find(r => r.id === button.dataset.id); if (!row) return;
     button.disabled = true;
     try {
-      await api(`/${row.id}/${button.dataset.action}`, { revision: row.revision, digest: row.digest, channelId: row.destination?.channelId });
+      await api(`/${row.id}/${button.dataset.action}`, { revision: row.revision, digest: row.digest, channelId: row.destination?.channelId,
+        ...(button.dataset.outcome ? { outcome: button.dataset.outcome, permalink: button.closest("article")?.querySelector(".reconcile-link")?.value || "" } : {}) });
       await refresh();
     } catch (e) { message.textContent = e.message; }
     finally { button.disabled = false; }

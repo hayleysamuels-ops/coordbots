@@ -130,7 +130,7 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
           ...(calendarCheck ? { format: "calendar_checked", people: option.events.map(e => [{ name: e.interviewer.name }]), ...(flagged ? { flags } : {}), ...(linkedinUrl ? { linkedinUrl } : {}), ...(bookingPlan ? { bookingPlan } : {}) } : {}) });
       try {
         const shared = await this.share(row.id, { revision: row.revision, digest: row.digest, channelId }, user);
-        return { id: shared.id, state: shared.state, issue: shared.issue || null, channelName: name };
+        return { id: shared.id, state: shared.state, issue: shared.issue || null, channelName: name, revision: shared.revision, digest: shared.digest };
       } catch (e) {
         // share() only throws before its claim, so nothing was posted. Reject
         // the unposted draft so it doesn't block the next attempt.
@@ -160,9 +160,37 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
         const receipt = await slack(row.plan, { channelId, proposalId: row.id, approver: user.id, digest: row.digest });
         if (!receipt?.ts || receipt.channel !== channelId) throw new Error("Unverified Slack response");
         return await transition(row, "shared", { slack: receipt });
-      } catch (_) {
-        return transition(row, "discussion_uncertain", { issue: "Check Slack before trying again. The message may already have been delivered." });
+      } catch (e) {
+        // Kept on the draft and logged, so whoever reconciles it knows whether
+        // Slack refused the post or simply didn't answer.
+        console.warn(`[scheduling] Slack post for draft ${row.id} unconfirmed: ${e.message}`);
+        return transition(row, "discussion_uncertain", { deliveryError: String(e.message || "unknown").slice(0, 300),
+          issue: e.refused ? `Slack refused the post (${String(e.message).replace(/^Slack refused the post: /, "")}), so it wasn't delivered. Check Slack, then reconcile.` : `Slack didn't confirm delivery (${String(e.message).slice(0, 200)}). Check Slack, then reconcile: the message may have been delivered.` });
       }
+    },
+    // Settles a post whose delivery wasn't confirmed (discussion_uncertain, or
+    // sharing left by a crash), after a coordinator has looked in the channel:
+    //   not_posted: it isn't there. The draft is rejected, so the candidate
+    //     isn't blocked and the same option can be posted again.
+    //   posted: it is there. The coordinator pastes its link; it must be in
+    //     the draft's channel and Slack must confirm the message exists. The
+    //     draft becomes shared with that message, so its Schedule button works.
+    async reconcileSlack(id, input, user) {
+      actor(user); const row = await current(id, input);
+      if (!["discussion_uncertain", "sharing"].includes(row.state)) fail(409, "Only a post whose delivery wasn't confirmed can be reconciled.");
+      const at = new Date().toISOString(), channelId = row.discussionApproval?.channelId;
+      if (input.outcome === "not_posted")
+        return transition(row, "rejected", { issue: `Not in Slack (checked by ${user.id}); cleared so it can be posted again.`,
+          audit: [...row.audit, { action: "reconciled_not_posted", by: user.id, at }] });
+      if (input.outcome !== "posted") fail(422, "Say whether the message is in Slack.");
+      const m = /^https:\/\/[a-z0-9-]+\.slack\.com\/archives\/([CG][A-Z0-9]+)\/p(\d{10})(\d{6})(?:[?#].*)?$/.exec(String(input.permalink || "").trim());
+      if (!m) fail(422, "Paste the message's link from Slack (More actions → Copy link).");
+      if (m[1] !== channelId) fail(422, "That link is to a different channel than this draft was posted to.");
+      const ts = `${m[2]}.${m[3]}`;
+      if (!slack?.messageExists) fail(503, "Slack isn't connected.");
+      if (!await slack.messageExists({ channel: channelId, ts })) fail(409, "Slack says there's no message at that link.");
+      return transition(row, "shared", { slack: { ts, channel: channelId }, issue: null,
+        audit: [...row.audit, { action: "reconciled_posted", by: user.id, ts, at }] });
     },
     // An approval from the Slack "Schedule" button (slack-interactions.js). It
     // records who approved which exact posted option, and nothing else: it is

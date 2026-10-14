@@ -18,14 +18,24 @@ const escape = v => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;")
 // configured) adds the "Schedule" button to calendar-checked posts; without it
 // there's no endpoint to receive a click, so no button is shown.
 function createSlack(token, request = fetch, { displayTimeZone = "America/New_York", interactive = false, clientName = "" } = {}) {
+  // Failures say which kind they were, so an unconfirmed post can be told
+  // apart: Slack refusing it (not delivered), or no clear answer (maybe).
   const api = async (method, payload) => {
-    const response = await request(`https://slack.com/api/${method}`, { method: "POST", signal: AbortSignal.timeout(15000),
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" }, body: JSON.stringify(payload) });
-    return { ok: response.ok, body: await response.json() };
+    let response;
+    try {
+      response = await request(`https://slack.com/api/${method}`, { method: "POST", signal: AbortSignal.timeout(15000),
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json; charset=utf-8" }, body: JSON.stringify(payload) });
+    } catch (e) {
+      throw new Error(e.name === "TimeoutError" || e.name === "AbortError" ? `Slack didn't answer ${method} within 15 seconds` : `Slack couldn't be reached for ${method} (${e.message})`);
+    }
+    let body = null;
+    try { body = await response.json(); } catch (_) { /* reported below */ }
+    return { ok: response.ok, status: response.status, body: body || {} };
   };
   const post = async (channelId, payload) => {
-    const { ok, body } = await api("chat.postMessage", { channel: channelId, unfurl_links: false, unfurl_media: false, ...payload });
-    if (!ok || body.ok !== true) throw new Error("Slack delivery unconfirmed");
+    const { ok, status, body } = await api("chat.postMessage", { channel: channelId, unfurl_links: false, unfurl_media: false, ...payload });
+    if (!ok) throw new Error(`Slack answered chat.postMessage with HTTP ${status}${body.error ? ` (${body.error})` : ""}`);
+    if (body.ok !== true) throw Object.assign(new Error(`Slack refused the post: ${body.error || "no reason given"}`), { refused: true });
     return { ts: body.ts, channel: body.channel };
   };
 
@@ -155,6 +165,20 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     const status = { queued: "waiting to be checked in Ashby; not booked", running: "being checked in Ashby; not booked", composed: "composed in Ashby, not sent yet", sent: "sent in Ashby" }[row.ashbyCheck?.state] || "not booked";
     const { ok, body } = await api("chat.update", { channel, ts, blocks, text: `Interview schedule for ${row.plan.candidateName} · ${row.plan.jobTitle}: approved by ${row.slackApproval.name || row.slackApproval.email}; ${status}.` });
     if (!ok || body.ok !== true) throw new Error("The Slack message couldn't be updated");
+  };
+  // Whether a message exists in a channel, for reconciling an unconfirmed
+  // post from the link a coordinator pastes. chat.getPermalink needs no scope
+  // beyond the bot's own; it doesn't read the message's content.
+  send.messageExists = async ({ channel, ts }) => {
+    let response;
+    try {
+      response = await request("https://slack.com/api/chat.getPermalink", { method: "POST", signal: AbortSignal.timeout(10000),
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ channel, message_ts: ts }).toString() });
+    } catch (_) { throw new Error("Slack couldn't be reached to check that message."); }
+    const body = await response.json().catch(() => ({}));
+    if (body.ok === true) return true;
+    if (body.error === "message_not_found") return false;
+    throw new Error(`Slack couldn't check that message (${body.error || `HTTP ${response.status}`}).`);
   };
   // Refusals and problems are answered in the post's thread, visible to the channel.
   send.threadReply = async ({ channel, threadTs, text }) => {

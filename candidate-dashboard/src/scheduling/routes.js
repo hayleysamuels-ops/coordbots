@@ -23,6 +23,7 @@ function routes(service) {
   router.post("/drafts", handle(req => service.draft(req.body, req.schedulingUser)));
   router.post("/:id/share", handle(req => service.share(req.params.id, req.body, req.schedulingUser)));
   router.post("/:id/reject", handle(req => service.reject(req.params.id, req.body, req.schedulingUser)));
+  router.post("/:id/reconcile-slack", handle(req => service.reconcileSlack(req.params.id, req.body, req.schedulingUser)));
   router.post("/:id/book", handle(req => service.approveBooking(req.params.id, req.body, req.schedulingUser)));
   return router;
 }

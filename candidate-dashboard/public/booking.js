@@ -144,8 +144,13 @@
   // Every Post button is disabled while one post is in flight, and a posted
   // option's button stays disabled, so a double-click sends one request. The
   // server's claim-before-posting and per-option check are the real guard.
+  // An unconfirmed post's button becomes "Check Slack", which opens the
+  // reconcile choices (reconcileHtml) for that draft.
   let suggestedRequest=null;
   $('full-suggestions').addEventListener('click',async e=>{
+    if(await reconcileClick(e))return;
+    const check=e.target.closest('.check-slack');
+    if(check){const box=check.parentElement.querySelector('.reconcile');if(box)box.hidden=!box.hidden;return;}
     const button=e.target.closest('.post-option');if(!button||button.disabled||!suggestedRequest)return;
     const status=button.parentElement.querySelector('.post-option-status'),buttons=[...$('full-suggestions').querySelectorAll('.post-option')],session=sessionVersion;
     const {calendarCheck:_,...sameForm}=suggestedRequest;
@@ -153,11 +158,39 @@
     for(const b of buttons)b.disabled=true;busyStart(button,'Posting…');status.textContent='Rechecking Ashby and posting…';
     let posted=false;
     try{const r=await api('/post-full-schedule-option',{...suggestedRequest,optionIndex:Number(button.dataset.index),optionDigest:button.dataset.digest});busyEnd(button,false);if(session!==sessionVersion)return;
-      posted=true;button.textContent=r.state==='shared'?'Posted':'Check Slack';
-      status.textContent=r.state==='shared'?`Posted to ${r.channelName} for discussion. Nothing was booked.`:`Slack didn’t confirm delivery. Check ${r.channelName} before trying again. This candidate can’t get another post until the draft is reconciled.`;
+      posted=true;button.dataset.posted='1';
+      if(r.state==='shared'){button.textContent='Posted';status.textContent=`Posted to ${r.channelName} for discussion. Nothing was booked.`;}
+      else{
+        // Swapped for an enabled Check Slack button: this is the state it exists for.
+        const check=document.createElement('button');check.type='button';check.className='check-slack';check.textContent='Check Slack';
+        button.replaceWith(check);
+        status.innerHTML=`${esc(r.issue||'Slack didn’t confirm delivery.')} This candidate can’t get another post until it’s reconciled.`+reconcileHtml({id:r.id,revision:r.revision,digest:r.digest,channelName:r.channelName});
+      }
     }catch(err){busyEnd(button,false);if(session===sessionVersion)status.textContent=err.message;}
-    finally{for(const b of buttons)if(!(b===button&&posted)&&b.textContent==='Post to Slack for discussion')b.disabled=false;}
+    finally{for(const b of buttons)if(!(b===button&&posted)&&!b.dataset.posted&&b.isConnected)b.disabled=false;}
   });
+  // Settling an unconfirmed post, after looking in the channel: it isn't
+  // there (cleared, so it can be posted again), or it is (its link is
+  // recorded, once Slack confirms the message exists).
+  function reconcileHtml({id,revision,digest,channelName}){
+    return `<span class="reconcile" data-id="${esc(id)}" data-revision="${esc(String(revision))}" data-digest="${esc(digest)}"><br>Look in ${esc(channelName)} for this schedule. `
+      +`<button type="button" data-reconcile="not_posted">It isn’t there: clear it so I can post again</button> `
+      +`<label>or paste its link <input type="url" class="reconcile-link" placeholder="https://….slack.com/archives/…"></label> <button type="button" data-reconcile="posted">It’s there: record this message</button></span>`;
+  }
+  async function reconcileClick(e){
+    const b=e.target.closest('button[data-reconcile]');if(!b)return false;
+    const box=b.closest('.reconcile'),status=box.closest('.post-option-status');
+    for(const x of box.querySelectorAll('button'))x.disabled=true;
+    try{
+      const r=await fetch(`/api/scheduling-review/${encodeURIComponent(box.dataset.id)}/reconcile-slack`,{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({revision:Number(box.dataset.revision),digest:box.dataset.digest,outcome:b.dataset.reconcile,permalink:box.querySelector('.reconcile-link')?.value||''})});
+      const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'The draft couldn’t be reconciled.');
+      const check=status.parentElement.querySelector('.check-slack');
+      if(d.state==='shared'){if(check){check.textContent='Posted';check.disabled=true;}status.textContent='Recorded as posted in Slack. Its Schedule button will work.';}
+      else{if(check)check.remove();status.textContent='Cleared. Suggest the full schedule again to post this option again.';}
+    }catch(err){for(const x of box.querySelectorAll('button'))x.disabled=false;status.firstChild.textContent=err.message+' ';}
+    return true;
+  }
   function clearAvailability(){clearFullPlan();$('windows').replaceChildren();$('calendar-preview').replaceChildren();$('availability-status').textContent='';$('prepare').scheduleId.innerHTML='<option value="">Loading requests…</option>';}
   // For an Ashby submission the zone is whatever Ashby's grid reports, and the
   // server re-reads it from Ashby (suggestFull); the selector is only a display.

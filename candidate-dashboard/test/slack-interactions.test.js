@@ -198,3 +198,65 @@ test("after approval the button is gone and the message says who approved, when,
   // It never claims a booking happened.
   assert.doesNotMatch(text + update.body.text, /\b(has been|was|is now) booked\b|\bbooking (is )?confirmed\b|\binvitations? (have been|were) sent\b/i);
 });
+
+// ---- an unconfirmed post, and reconciling it ---------------------------------
+
+async function unconfirmed(t, failure, { exists = async () => true } = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "coord-slack-reconcile-")); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = createStore(dir);
+  let fail = true;
+  const slack = Object.assign(async () => { if (fail) throw failure; return { ts: "1792020020.000100", channel: "C0CONFIG" }; }, { messageExists: exists });
+  const service = createService({ store, candidates: async () => [candidate], clientId: "luminai", routing: "client", channelId: "C0CONFIG", channelName: "#test", slack });
+  const post = () => service.postScheduleOption({ applicationId: "app", candidateId: "candidate", timezone: "UTC", option: option("2099-01-01T10:00:00.000Z"), optionNumber: 1, sourceRef: "full-schedule:r:1", availabilitySource: "ashby", attendance: ["in_person"], rulesRevision: 5, calendarCheck: { checkedAt: Date.now(), meetingHoursAssumed: true } }, user);
+  const result = await post();
+  return { service, store, result, post, succeedNext: () => { fail = false; } };
+}
+const reconcile = (s, outcome, permalink) => s.service.reconcileSlack(s.result.id, { revision: s.result.revision, digest: s.result.digest, outcome, permalink }, user);
+const warn = console.warn;
+
+test("an unconfirmed post says why, on the draft and in the log, and the response carries what reconciling needs", async t => {
+  console.warn = () => {}; t.after(() => { console.warn = warn; });
+  const refused = await unconfirmed(t, Object.assign(new Error("Slack refused the post: invalid_blocks"), { refused: true }));
+  assert.equal(refused.result.state, "discussion_uncertain");
+  assert.match(refused.result.issue, /^Slack refused the post \(invalid_blocks\), so it wasn't delivered\. Check Slack, then reconcile\./);
+  assert.equal((await refused.store.get(refused.result.id)).deliveryError, "Slack refused the post: invalid_blocks");
+  assert.ok(Number.isInteger(refused.result.revision) && refused.result.digest);
+  const timedOut = await unconfirmed(t, new Error("Slack didn't answer chat.postMessage within 15 seconds"));
+  assert.match(timedOut.result.issue, /^Slack didn't confirm delivery \(Slack didn't answer chat\.postMessage within 15 seconds\)\. .*may have been delivered/);
+});
+
+test("not in Slack: the draft is cleared, and the same option can be posted again", async t => {
+  console.warn = () => {}; t.after(() => { console.warn = warn; });
+  const s = await unconfirmed(t, new Error("Slack didn't answer chat.postMessage within 15 seconds"));
+  await assert.rejects(s.post(), /already posted|Check the channel/);
+  const cleared = await reconcile(s, "not_posted");
+  assert.equal(cleared.state, "rejected");assert.equal(cleared.audit.at(-1).action, "reconciled_not_posted");
+  s.succeedNext();
+  assert.equal((await s.post()).state, "shared");
+});
+
+test("in Slack: the pasted link must be in the draft's channel and exist, and the draft becomes shared with it", async t => {
+  console.warn = () => {}; t.after(() => { console.warn = warn; });
+  const seen = [];
+  const s = await unconfirmed(t, new Error("timeout"), { exists: async m => { seen.push(m); return m.ts !== "1792020099.000000"; } });
+  await assert.rejects(reconcile(s, "posted", "not a link"), { status: 422, message: /Paste the message's link/ });
+  await assert.rejects(reconcile(s, "posted", "https://carrara.slack.com/archives/C0ELSEWHERE/p1792020020000100"), { status: 422, message: /different channel/ });
+  await assert.rejects(reconcile(s, "posted", "https://carrara.slack.com/archives/C0CONFIG/p1792020099000000"), { status: 409, message: /no message at that link/ });
+  await assert.rejects(reconcile(s, "maybe"), { status: 422 });
+  const shared = await reconcile(s, "posted", "https://carrara.slack.com/archives/C0CONFIG/p1792020020000100?thread_ts=1");
+  assert.equal(shared.state, "shared");assert.deepEqual(shared.slack, { ts: "1792020020.000100", channel: "C0CONFIG" });
+  assert.deepEqual(seen.at(-1), { channel: "C0CONFIG", ts: "1792020020.000100" });
+  // Only an unconfirmed post can be reconciled.
+  await assert.rejects(s.service.reconcileSlack(s.result.id, { revision: shared.revision, digest: shared.digest, outcome: "not_posted" }, user), { status: 409, message: /Only a post whose delivery wasn't confirmed/ });
+});
+
+test("Slack's answers become named failures: refused, HTTP error, or no answer", async () => {
+  const answer = reply => createSlack("x", reply, { displayTimeZone: "America/Los_Angeles" });
+  const plain = { candidateName: "A", jobTitle: "B", timezone: "UTC", sessions: [], notes: "" }, meta = { channelId: "C1", proposalId: "d", approver: "a" };
+  await assert.rejects(answer(async () => ({ ok: true, status: 200, json: async () => ({ ok: false, error: "not_in_channel" }) }))(plain, meta), e => e.refused === true && e.message === "Slack refused the post: not_in_channel");
+  await assert.rejects(answer(async () => ({ ok: false, status: 503, json: async () => { throw Error("html"); } }))(plain, meta), /HTTP 503/);
+  await assert.rejects(answer(async () => { throw Object.assign(new Error("aborted"), { name: "TimeoutError" }); })(plain, meta), /didn't answer chat\.postMessage within 15 seconds/);
+  const exists = answer(async (u, o) => ({ ok: true, json: async () => (new URLSearchParams(o.body).get("message_ts") === "1.1" ? { ok: true } : { ok: false, error: "message_not_found" }) }));
+  assert.equal(await exists.messageExists({ channel: "C1", ts: "1.1" }), true);
+  assert.equal(await exists.messageExists({ channel: "C1", ts: "2.2" }), false);
+});
