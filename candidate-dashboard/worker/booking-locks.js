@@ -5,14 +5,15 @@
 // browser starts.
 const NOTICE_MINUTES=15;
 
-// The TEST candidate on the TEST job: its Initial Screen and First Round
-// scheduling activities.
+// The TEST candidate on the TEST job: its Initial Screen, First Round and
+// Onsite Interview scheduling activities (Onsite added October 14, 2026, for
+// the first Slack-approved check).
 const ALLOWED_APPLICATIONS={
   '8dfd8f14-83c4-41f8-aaf1-416b75cb0892':{
     jobId:'837cc1e9-15ed-4f07-8755-51ee29f4ea39',
     candidateId:'fc88f24e-d59b-4e58-aa51-f0e94b1a32da',
     candidateEmail:'hayleysamuels511@gmail.com',
-    interviewScheduleIds:['69ffae5a-240c-4d06-8b45-f9826dbf5623','18599066-1d55-493a-8c2f-1e970b04f86c'],
+    interviewScheduleIds:['69ffae5a-240c-4d06-8b45-f9826dbf5623','18599066-1d55-493a-8c2f-1e970b04f86c','d98941b3-5900-4ecc-a5cb-c57ed6729702'],
   },
 };
 

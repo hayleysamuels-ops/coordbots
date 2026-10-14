@@ -51,6 +51,27 @@ test("an approval is queued, run, and left composed in Ashby with its delete dea
   assert.equal(await s.check.start(s.store.data.d1), null);
 });
 
+test("an approval less than two hours before the first interview isn't composed, even if the queue brings it inside", async () => {
+  // First interview 2099-10-15T19:00Z; two hours before is 17:00Z.
+  const s = setup({ compose: composed, at: Date.parse("2099-10-15T17:30:00Z") });
+  const done = await s.check.start((await s.store.list())[0]);
+  assert.equal(done.ashbyCheck.state, "too_close");
+  await s.check.idle();
+  assert.equal(s.calls.length, 0);assert.equal(s.store.data.d1.ashbyCheck.state, "too_close");
+  // Exactly at the line counts as too close.
+  const edge = setup({ compose: composed, at: Date.parse("2099-10-15T17:00:00Z") });
+  assert.equal((await edge.check.start((await edge.store.list())[0])).ashbyCheck.state, "too_close");
+  // Queued in time, but its turn comes too late: still not composed.
+  let t;
+  t = setup({ rows: [row("d1"), row("d2", { plan: { ...row("d2").plan, bookingPlan: { ...bookingPlan, interviewScheduleId: "other" } } })],
+    at: Date.parse("2099-10-15T16:59:00Z"), compose: async () => { t.tick(5 * 60000); return composed; } });
+  for (const r of await t.store.list()) await t.check.start(r);
+  await t.check.idle();
+  assert.equal(t.store.data.d1.ashbyCheck.state, "composed");
+  assert.equal(t.store.data.d2.ashbyCheck.state, "too_close");assert.equal(t.calls.length, 1);
+  assert.deepEqual(t.shown.slice(-1), ["too_close"]);
+});
+
 test("the delete deadline is whichever comes first: two hours before the first interview, or a day after composing", () => {
   assert.equal(deleteByFor(bookingPlan, "2099-10-15T10:00:00.000Z"), "2099-10-15T17:00:00.000Z");
   assert.equal(deleteByFor(bookingPlan, "2099-10-13T10:00:00.000Z"), "2099-10-14T10:00:00.000Z");
@@ -149,6 +170,7 @@ test("the Slack message says what's true in every state, and never that somethin
     refused: [/The Ashby check stopped\* at "compose session 1": The composer shows times in "MDT", not EDT\./, /The draft it made was deleted\./, /Not booked:\* book this schedule in Ashby by hand/],
     not_started: [/didn't start:\* Ashby is busy\./, /no draft was made/],
     uncertain: [/didn't finish\*/, /a draft may be left in Ashby/, /never "Delete Activity"/],
+    too_close: [/\*Not booked:\* too close to the first interview — book this in Ashby by hand\./, /no invitations or candidate email have been sent/],
     skipped: [/Not booked yet\.\*/, /Not checked in Ashby: the check is only on for test candidates so far\./],
   };
   for (const [state, patterns] of Object.entries(states)) {

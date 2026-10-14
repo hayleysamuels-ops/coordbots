@@ -643,7 +643,8 @@ even if clicked.
   worker, but `railway variable delete` did not, so run `railway redeploy`
   afterwards and wait for the new deployment), and an allowlist of applications in
   `worker/booking-locks.js` (only TEST, `8dfd8f14`, with its job, candidate, email
-  and two schedules), shared with the Slack-approved check.
+  and three schedules: Initial Screen, First Round and Onsite Interview), shared
+  with the Slack-approved check.
   Adding an application takes a commit.
 - **Checks before any write:** the plan is complete, starts at least 15 minutes
   out, and the saved session is for this client and `ASHBY_EXPECTED_IDENTITY`. In
@@ -717,7 +718,11 @@ file permits it or the composer clicks Schedule.
   dashboard composed for the same schedule earlier (from an earlier approval) is
   deleted first, by its recorded ID, and that earlier message says "Superseded".
   Any other draft refuses: someone else's draft could be sent by mistake.
-- **States, each shown on the approved Slack message:** queued, running, composed
+- **Short notice:** an approval less than two hours before the first interview
+  isn't composed (the sweep would delete it at once). The message says "too close
+  to the first interview — book this in Ashby by hand". It's checked again when a
+  queued check's turn comes.
+- **States, each shown on the approved Slack message:** too close, queued, running, composed
   ("Composed and waiting in Ashby … open it and click Send", with the sender and the
   delete deadline), skipped, refused (the step and reason; the draft deleted, or
   where to delete it by hand), not started (the worker refused before starting),
@@ -740,9 +745,9 @@ file permits it or the composer clicks Schedule.
   - Who invitations come from when someone other than Anna clicks Send.
   - That Ashby's Drafts tab lists every draft on a schedule (the "no other
     drafts" check relies on it).
-  - TEST is at Onsite Interview in Ashby (October 14), whose schedule isn't on the
-    allowlist. The first test needs TEST back at First Round (or Initial Screen)
-    with availability submitted, or the Onsite schedule added to the allowlist.
+  - TEST is at Onsite Interview in Ashby (October 14), with availability submitted
+    on its Onsite schedule (`d98941b3…`, now on the allowlist). Its earlier
+    Initial Screen and First Round schedules are cancelled.
 
 ## Next work, in order
 

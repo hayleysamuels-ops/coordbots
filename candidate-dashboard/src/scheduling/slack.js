@@ -81,6 +81,7 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       case "refused": return `*The Ashby check stopped*${check.step ? ` at "${escape(check.step)}"` : ""}: ${escape(check.reason || "no reason was given")}\nNothing was sent. ${!check.draftId ? "No draft was made." : check.cleanup?.deleted ? "The draft it made was deleted." : `The draft it made may still be in Ashby. ${deleteByHand(plan)}`} ${byHand}`;
       case "not_started": return `*The Ashby check didn't start:* ${escape(check.reason)} Nothing was sent and no draft was made. ${byHand}`;
       case "uncertain": return `*The Ashby check didn't finish* (${escape(check.reason)}). Nothing was sent, but a draft may be left in Ashby. ${deleteByHand(plan)} ${byHand}`;
+      case "too_close": return "*Not booked:* too close to the first interview — book this in Ashby by hand. Nothing has been scheduled in Ashby, and no invitations or candidate email have been sent.";
       case "skipped": return `*Not booked yet.* Nothing has been scheduled in Ashby, and no invitations or candidate email have been sent. Book this schedule in Ashby by hand for now.\nNot checked in Ashby: ${/booking robot may use/.test(check.reason || "") ? "the check is only on for test candidates so far." : escape(check.reason || "the check is off.")}`;
       default: return "*Not booked yet.* Nothing has been scheduled in Ashby, and no invitations or candidate email have been sent. Book this schedule in Ashby by hand for now.";
     }

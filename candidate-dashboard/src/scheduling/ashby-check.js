@@ -8,6 +8,8 @@
 //
 // The state lives on the draft row as `ashbyCheck`, beside the approval, and
 // every change is revision-checked:
+//   too_close (approved less than two hours before the first interview: not
+//     composed, since the sweep would delete it at once)
 //   queued → running → composed | skipped | refused | not_started | uncertain
 //   composed → sent | deleted | gone | delete_failed | superseded
 // Checks run one at a time, in approval order. Nothing is retried: a check
@@ -68,7 +70,16 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, now = () =
   }
   const stateIs = (...states) => row => states.includes(row.ashbyCheck?.state);
 
+  const tooClose = plan => now() >= Date.parse(plan.sessions[0].start) - UNSENT_BEFORE_FIRST_MS;
+
   async function run(id) {
+    // Checked again at its turn: waiting in the queue can bring it inside.
+    const waiting = await store.get(id);
+    if (waiting?.ashbyCheck?.state === "queued" && tooClose(waiting.plan.bookingPlan)) {
+      const done = await setCheck(id, stateIs("queued"), { state: "too_close" });
+      if (done) await show(done);
+      return;
+    }
     let row = await setCheck(id, stateIs("queued"), { state: "running", startedAt: iso() });
     if (!row) return;
     await show(row);
@@ -108,6 +119,7 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, now = () =
   // row as recorded (for the Slack message), or null when there's no check.
   async function start(row) {
     if (!row.plan?.bookingPlan) return null;
+    if (tooClose(row.plan.bookingPlan)) return setCheck(row.id, r => r.state === "discussion_approved" && !r.ashbyCheck, { state: "too_close" });
     const queued = await setCheck(row.id, r => r.state === "discussion_approved" && !r.ashbyCheck, { state: "queued", queuedAt: iso() });
     if (!queued) return null;
     serially(() => run(row.id).catch(e => log.warn(`[ashby-check] ${row.id}: ${e.message}`)));
