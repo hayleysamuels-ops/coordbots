@@ -3,7 +3,7 @@
   "$comment": "Reproduces candidate-dashboard on feature/client-ashby-connection as of 2026-09-22, plus revision 2's assumed 9–5 Pacific meeting hours and interviewer attendance. The dashboard reads this file at runtime.",
   "schemaVersion": 2,
   "clientId": "luminai",
-  "rulesRevision": 6,
+  "rulesRevision": 7,
 
   "trial": {
     "stageTitleContains": null,
@@ -55,6 +55,13 @@
       "alex.mavrogiannis@luminai.com": { "timezone": "Europe/Athens", "days": ["mon", "tue", "wed", "thu", "fri"], "start": "19:00", "end": "22:00" },
       "mary@luminai.com": { "timezone": "America/New_York", "days": ["mon", "tue", "wed", "thu", "fri"], "start": "09:00", "end": "17:00" },
       "sanjay@luminai.com": { "timezone": "America/Los_Angeles", "days": ["mon", "tue", "wed", "thu", "fri"], "start": "07:00", "end": "17:00" }
+    }
+  },
+
+  "interviewerIdentities": {
+    "$comment": "Added 2026-10-14 (revision 7).",
+    "overrides": {
+      "Joe Penn": { "email": "joe@luminai.com", "reason": "Joe Penn has more than one active Ashby account, intentionally (Luminai Scheduling SOP). Interviews are scheduled on joe@luminai.com." }
     }
   },
 

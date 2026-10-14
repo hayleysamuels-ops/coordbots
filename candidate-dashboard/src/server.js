@@ -82,16 +82,19 @@ function createServer() {
       source: null, executor: null,
       userById: async id => connectionConfig.schedulingApprovers.some(a => a.username === id) ? { id, canApprove: true } : null,
     });
+    // One rules instance: the routes read it, and the Ashby facts take its
+    // interviewer identity overrides (read only for a name that has them).
+    const schedulingRules = require("./scheduling/rules").loadRules({ clientId: connectionConfig.schedulingClientId });
     app.use("/api/scheduling-booking", require("./scheduling/booking-routes").bookingRoutes({
       engine: bookingEngine, store: bookingStore, clientId: connectionConfig.schedulingClientId, googleCalendar, googleFreeBusy,
       discussion: scheduling,
-      rules: require("./scheduling/rules").loadRules({ clientId: connectionConfig.schedulingClientId }),
+      rules: schedulingRules,
       availability: require("./scheduling/availability-source").createAvailabilitySource({key:connectionConfig.ashbyApiKey,clientId:connectionConfig.schedulingClientId,inspect:payload=>bookingWorker.call("inspect-availability",payload)}),
       inspectFullCalendar: payload => bookingWorker.call("inspect-full-calendar",payload),
       inspectPlan: payload => bookingWorker.call("inspect-plan",payload),
       inspectCalendar: payload => bookingWorker.call("inspect-calendar",payload),
       inspectDraft: payload => bookingWorker.call("inspect-draft",payload),
-      facts: require("./scheduling/booking-facts").createBookingFacts({key: connectionConfig.ashbyApiKey, clientId: connectionConfig.schedulingClientId}),
+      facts: require("./scheduling/booking-facts").createBookingFacts({key: connectionConfig.ashbyApiKey, clientId: connectionConfig.schedulingClientId, identityFor: name => schedulingRules.get().identityFor(name)}),
       capabilities: async () => { const worker = await bookingWorker.capabilities(); return {available: false, reason: worker.available ? "The booking executor is being connected to this dashboard. Sending remains disabled." : worker.reason}; },
     }));
   }

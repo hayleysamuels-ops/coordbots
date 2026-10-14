@@ -34,7 +34,7 @@ test('a listed interviewer with only a deactivated account is excluded, and the 
   assert.equal(s.eligibleCount,undefined);
   assert.equal(calls[0].includeDeactivated,true);
   // Not loosened: if the active people still don't equal Ashby's count, refuse.
-  await assert.rejects(reader.excludeDeactivated(lunch(2)),/"Lunch": Ashby shows 2 eligible but 3 of the listed interviewers are active \(Upasna Madhok, Kathryn Wicks, Ariel Perez Chavez; Former Employee is deactivated in Ashby\)/);
+  await assert.rejects(reader.excludeDeactivated(lunch(2)),/Session 1 \("Lunch"\): Ashby shows 2 eligible but 3 of the listed interviewers are active \(Upasna Madhok, Kathryn Wicks, Ariel Perez Chavez; Former Employee is deactivated in Ashby\)/);
   // A listed name with no account at all is never silently dropped.
   await assert.rejects(reader.excludeDeactivated(lunch(3,['Upasna Madhok','Kathryn Wicks','Ariel Perez Chavez','Nobody Here'])),/Nobody Here is listed in the interviewer slot but has no Ashby account/);
   // Sessions whose counts already agreed are untouched, with no directory call.
@@ -53,10 +53,42 @@ test('an interviewer who can\'t be resolved is named, with the session and which
     await assert.rejects(reader.resolveInterviewers(sessions),{status:409,message:'Session 2 ("First Round"): Mary Petrino is an eligible interviewer but has no active Ashby account by that name. Check their account and name in Ashby.'});
   }
   users=[hayley,{...hayley,id:id(12),email:'hayley.s@example.com'}];
-  await assert.rejects(reader.resolveInterviewers(sessions),{status:409,message:'Session 1 ("Initial"): Hayley Samuels is an eligible interviewer but matches 2 active Ashby accounts by that name, so which one is meant can\'t be told. Check for duplicate accounts in Ashby.'});
+  await assert.rejects(reader.resolveInterviewers(sessions),{status:409,message:'Session 1 ("Initial"): Hayley Samuels is an eligible interviewer but matches 2 active Ashby accounts by that name, so which one is meant can\'t be told. Check for duplicate accounts in Ashby, or add an interviewer identity override for Hayley Samuels to the client\'s scheduling rules.'});
   users=[{...hayley,email:''}];
   await assert.rejects(reader.resolveInterviewers(sessions),{status:409,message:'Session 1 ("Initial"): Hayley Samuels\'s active Ashby account has no usable ID or email.'});
   // A session without a title is named by its number alone.
   users=[];
   await assert.rejects(reader.resolveInterviewers([{assignmentVerified:true,eligibleInterviewers:[{name:'Hayley Samuels'}]}]),/^Error: Session 1: Hayley Samuels is an eligible interviewer but has no active Ashby account/);
+});
+
+test('an interviewer identity override picks among same-named accounts, and is never a fallback',async()=>{
+  const joe=(n,email,isEnabled=true,firstName='Joe',lastName='Penn')=>({id:id(n),firstName,lastName,email,isEnabled});
+  let users=[],overrides={};
+  const reader=createBookingFacts({key:'key',clientId:'client',identityFor:name=>overrides[name]||null,
+    request:async(url,options)=>{const body=JSON.parse(options.body);return {ok:true,json:async()=>({success:true,results:users.filter(u=>body.includeDeactivated||u.isEnabled),moreDataAvailable:false})};}});
+  const sessions=[{assignmentVerified:true,title:'Technical',eligibleInterviewers:[{name:'Joe Penn'}]}];
+  const two=[joe(30,'joe@luminai.com'),joe(31,'joe.penn@luminai.com')];
+  // Ambiguous and no override: refused, as before.
+  users=two;
+  await assert.rejects(reader.resolveInterviewers(sessions),{status:409,message:/^Session 1 \("Technical"\): Joe Penn is an eligible interviewer but matches 2 active Ashby accounts by that name, .* or add an interviewer identity override for Joe Penn/});
+  // With the override, its account is used.
+  overrides={'Joe Penn':'joe@luminai.com'};
+  assert.deepEqual((await reader.resolveInterviewers(sessions)).interviewers,[{userId:id(30),name:'Joe Penn',email:'joe@luminai.com'}]);
+  // The deactivated-account filter agrees, keeping Joe against Ashby's count.
+  const [kept]=await reader.excludeDeactivated([{...sessions[0],eligibleCount:1}]);
+  assert.deepEqual(kept.eligibleInterviewers,[{name:'Joe Penn'}]);
+  // The override's email must match exactly one active account...
+  for(const list of [[joe(31,'joe.penn@luminai.com'),joe(32,'jp@luminai.com')],[...two,joe(32,'JOE@luminai.com')],[joe(30,'joe@luminai.com',false),joe(31,'joe.penn@luminai.com'),joe(32,'jp@luminai.com')]]){
+    users=list;
+    await assert.rejects(reader.resolveInterviewers(sessions),{status:409,message:/^Session 1 \("Technical"\): the identity override for Joe Penn gives joe@luminai\.com, which matches [02] active Ashby accounts, not exactly one\./});
+  }
+  // ...and that account must carry the name, or the ambiguity has only moved.
+  users=[...two.slice(1),joe(32,'jp@luminai.com'),joe(30,'joe@luminai.com',true,'Josephine','Smith')];
+  await assert.rejects(reader.resolveInterviewers(sessions),{status:409,message:/the identity override for Joe Penn gives joe@luminai\.com, but that account isn't one of the active Ashby accounts named Joe Penn/});
+  // Enforced even when only one active account has the name.
+  users=[joe(31,'joe.penn@luminai.com')];
+  await assert.rejects(reader.resolveInterviewers(sessions),/matches 0 active Ashby accounts, not exactly one/);
+  // Another ambiguous name is still refused: overrides are per name.
+  users=[...two,joe(40,'a@luminai.com',true,'Ann','Lee'),joe(41,'b@luminai.com',true,'Ann','Lee')];
+  await assert.rejects(reader.resolveInterviewers([...sessions,{assignmentVerified:true,title:'Lunch',eligibleInterviewers:[{name:'Ann Lee'}]}]),/^Error: Session 2 \("Lunch"\): Ann Lee is an eligible interviewer but matches 2 active Ashby accounts/);
 });

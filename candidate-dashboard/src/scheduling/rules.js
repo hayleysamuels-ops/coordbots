@@ -68,6 +68,22 @@ function parseRules(doc, clientId) {
   }
   const debriefs = doc.debriefs;
   if (debriefs !== undefined && (typeof debriefs?.afterOnsiteConfirmed !== "boolean" || typeof debriefs?.meetingHoursExempt !== "boolean")) invalid("debriefs needs afterOnsiteConfirmed and meetingHoursExempt, each true or false.");
+  // The Ashby account an ambiguous interviewer name means. Keys are matched
+  // the way booking-facts.js matches names: spaces collapsed, case ignored.
+  const nameKey = v => String(v || "").replace(/\s+/g, " ").trim().toLowerCase();
+  const identities = new Map();
+  const identityDoc = doc.interviewerIdentities;
+  if (identityDoc !== undefined) {
+    if (!identityDoc || typeof identityDoc.overrides !== "object" || Array.isArray(identityDoc.overrides) || !identityDoc.overrides) invalid("interviewerIdentities.overrides must map names to an email and a reason.");
+    for (const [name, o] of Object.entries(identityDoc.overrides)) {
+      const key = nameKey(name);
+      if (!key) invalid("An interviewer identity override needs a name.");
+      if (identities.has(key)) invalid(`There are two interviewer identity overrides for "${name}".`);
+      if (!EMAIL.test(o?.email || "")) invalid(`The interviewer identity override for "${name}" must give a lowercase email.`);
+      if (typeof o.reason !== "string" || !o.reason.trim()) invalid(`The interviewer identity override for "${name}" needs a reason.`);
+      identities.set(key, o.email);
+    }
+  }
   const norm = v => String(v || "").trim().toLowerCase();
   const matches = (w, title) => w.match === "exact" ? norm(title) === norm(w.value) : norm(title).includes(norm(w.value));
   return {
@@ -77,6 +93,8 @@ function parseRules(doc, clientId) {
     preferredFor: title => [...new Set(preferred.filter(p => matches(p, title)).flatMap(p => p.emails))],
     debriefs: debriefs ? { afterOnsiteConfirmed: debriefs.afterOnsiteConfirmed, meetingHoursExempt: debriefs.meetingHoursExempt } : { afterOnsiteConfirmed: false, meetingHoursExempt: false },
     limitsPolicy, busy: { source: busy.source, calendars: [...busy.calendars] },
+    // The overriding email for this interviewer name, or null.
+    identityFor: name => identities.get(nameKey(name)) || null,
     hasAttendanceOverrides: Object.keys(overrides).length > 0,
     attendanceFor: email => overrides[String(email || "").toLowerCase()] || attendance.default,
     // Every placement window whose pattern matches this Ashby interview name

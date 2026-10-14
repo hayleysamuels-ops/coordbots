@@ -352,6 +352,23 @@ done and verified, in this order:
     deactivated-account handling is generic. He's still listed in Ashby slots
     (Lunch and both One on Ones on the Applied AI Engineer onsite), where
     removing him would make the template match what Ashby books.
+- **Interviewer identity overrides** (October 14, 2026, rules revision 7).
+  Ashby's slots list interviewers by name, and the dashboard matches names to
+  active Ashby accounts. A name with more than one active account refuses,
+  naming the session and the interviewer, unless
+  `interviewerIdentities.overrides` in the client's rules gives the email to use.
+  There's no fallback for a name without one.
+  - **Joe Penn → joe@luminai.com.** Joe's duplicate Ashby account is
+    intentional, per the Luminai Scheduling SOP: don't merge or deactivate it to
+    make the name unique.
+  - **An override is always checked, never trusted.** Its email must match
+    exactly one active account, and that account must be one of the active
+    accounts with the name; otherwise it refuses and says which. This applies
+    whenever the name has an active account, not only while it's ambiguous, so
+    a stale override can't quietly pick someone else.
+  - The deactivated-account filter and the interviewer lookup share one matcher
+    (`activeAccount` in `src/scheduling/booking-facts.js`), so they can't
+    disagree.
 - **A per-candidate Slack channel: what it would take** (not built; posts still
   go to #luminai-rc-team). The SOP wants `hiring-<candidate-name>-<role>` with
   Joe, Mary, Kesava, Gabby and the hiring manager.

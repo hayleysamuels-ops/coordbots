@@ -293,6 +293,30 @@
       }
     },
 
+    "interviewerIdentities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["overrides"],
+      "description": "Which Ashby account an interviewer's name means, for a name that matches more than one active Ashby account. Interviewers are listed by name in Ashby's slots and matched to accounts by name; an ambiguous name with no override here refuses. An override is always enforced: the account must be one of the active accounts with that name, and its email must match exactly one active account.",
+      "properties": {
+        "$comment": { "type": "string" },
+        "overrides": {
+          "type": "object",
+          "description": "Keyed by the interviewer's name as Ashby shows it (case and surrounding spaces ignored; two keys may not differ only by those).",
+          "propertyNames": { "minLength": 1 },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["email", "reason"],
+            "properties": {
+              "email": { "type": "string", "pattern": "^[^@\\sA-Z]+@[^@\\sA-Z]+\\.[^@\\sA-Z]+$", "description": "The Ashby login email of the account to use, in lowercase." },
+              "reason": { "type": "string", "minLength": 1, "description": "Why the name is ambiguous and why this account is the right one." }
+            }
+          }
+        }
+      }
+    },
+
     "attendance": {
       "type": "object",
       "additionalProperties": false,

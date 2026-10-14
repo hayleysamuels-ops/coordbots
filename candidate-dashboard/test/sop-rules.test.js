@@ -64,9 +64,10 @@ test('the preferred host is used, flagged, only when nobody else is free',()=>{
   assert.equal(r.proposals[0].flagCount,1);
 });
 
-test('Luminai\'s rules: WFH Wednesdays, Gabrielle for Welcome, deferred debriefs, Sanjay 07:00–17:00 Pacific',()=>{
+test('Luminai\'s rules: WFH Wednesdays, Gabrielle for Welcome, deferred debriefs, Sanjay 07:00–17:00 Pacific, Joe Penn\'s account',()=>{
   const r=loadRules({clientId:'luminai',log:{log(){},warn(){}}}).get();
-  assert.equal(r.rulesRevision,6);
+  assert.equal(r.rulesRevision,7);
+  assert.deepEqual([r.identityFor('Joe Penn'),r.identityFor(' joe  penn '),r.identityFor('Mary Petrino')],['joe@luminai.com','joe@luminai.com',null]);
   assert.deepEqual([r.agenda.excludedWeekdays.days,r.agenda.excludedWeekdays.timezone],[['wed'],'America/Los_Angeles']);
   assert.deepEqual([r.preferredFor('Welcome'),r.preferredFor('  welcome '),r.preferredFor('Welcome Lunch')],[['gabrielle@luminai.com'],['gabrielle@luminai.com'],[]]);
   assert.deepEqual(r.debriefs,{afterOnsiteConfirmed:true,meetingHoursExempt:true});
@@ -85,4 +86,20 @@ test('debrief ids and the candidate\'s LinkedIn come from Ashby, and are never g
   assert.equal(await reader.candidateLinkedIn(id(3)),null);
   social=[];
   assert.equal(await reader.candidateLinkedIn(id(3)),null);
+});
+
+test('interviewer identity overrides need a name, a lowercase email and a reason, once per name',()=>{
+  const {parseRules}=require('../src/scheduling/rules');
+  const doc=change=>{const d=JSON.parse(JSON.stringify(require('../scheduling-rules/luminai.json')));change(d.interviewerIdentities.overrides);return d;};
+  const ok={email:'x@luminai.com',reason:'Two accounts on purpose.'};
+  for(const [change,pattern] of [
+    [o=>{o[' joe penn']=ok;},/two interviewer identity overrides for " joe penn"/],
+    [o=>{o['Ann Lee']={...ok,email:'Ann@luminai.com'};},/"Ann Lee" must give a lowercase email/],
+    [o=>{o['Ann Lee']={email:'ann@luminai.com'};},/"Ann Lee" needs a reason/],
+    [o=>{o['  ']=ok;},/needs a name/]]){
+    assert.throws(()=>parseRules(doc(change),'luminai'),e=>e.status===503&&pattern.test(e.message));
+  }
+  // Optional: rules without the section have no overrides.
+  const d=doc(()=>{});delete d.interviewerIdentities;
+  assert.equal(parseRules(d,'luminai').identityFor('Joe Penn'),null);
 });

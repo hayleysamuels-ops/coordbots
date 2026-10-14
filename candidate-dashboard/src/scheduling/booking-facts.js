@@ -6,7 +6,9 @@ const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4})
 
 // This reader uses only documented, read-only endpoints. Its results identify
 // the requested interview; they never imply calendar availability or delivery.
-function createBookingFacts({ key, clientId, request = fetch, now = () => Date.now() }) {
+// `identityFor(name)` gives the client rules' interviewer identity override
+// for a name (rules.js), or null.
+function createBookingFacts({ key, clientId, request = fetch, now = () => Date.now(), identityFor = () => null }) {
   async function read(endpoint, body, envelope = false) {
     if (!key || !clientId) fail(503, 'The client Ashby read connection is not configured.');
     const response = await request('https://api.ashbyhq.com/' + endpoint, {
@@ -98,27 +100,47 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
     return users;
   }
   const normalizeName=s=>String(s||'').replace(/\s+/g,' ').trim().toLowerCase();
+  const sessionLabel=(session,i)=>`Session ${i+1}${session.title?` ("${session.title}")`:''}`;
+  // The one active Ashby account an interviewer's name means, or null when
+  // the name has no active account (the callers say what that means). Names
+  // with several active accounts need an identity override in the client's
+  // rules; there is no fallback. An override is enforced whenever the name
+  // has an active account: its email must match exactly one active account,
+  // and that account must carry the name, or the ambiguity has only moved.
+  function activeAccount(users,person,label){
+    const active=users.filter(u=>u.isEnabled===true&&normalizeName([u.firstName,u.lastName].filter(Boolean).join(' '))===normalizeName(person.name));
+    if(!active.length)return null;
+    const email=identityFor(person.name);
+    if(email){
+      const byEmail=users.filter(u=>u.isEnabled===true&&String(u.email||'').toLowerCase()===email);
+      if(byEmail.length!==1)fail(409,`${label}: the identity override for ${person.name} gives ${email}, which matches ${byEmail.length} active Ashby accounts, not exactly one. Fix the override in the client's scheduling rules.`);
+      if(!active.includes(byEmail[0]))fail(409,`${label}: the identity override for ${person.name} gives ${email}, but that account isn't one of the active Ashby accounts named ${person.name}. Fix the override in the client's scheduling rules.`);
+      return byEmail[0];
+    }
+    if(active.length>1)fail(409,`${label}: ${person.name} is an eligible interviewer but matches ${active.length} active Ashby accounts by that name, so which one is meant can't be told. Check for duplicate accounts in Ashby, or add an interviewer identity override for ${person.name} to the client's scheduling rules.`);
+    return active[0];
+  }
   // A slot can list someone Ashby no longer counts as eligible, for instance a
   // person who has left and whose account is deactivated: Ashby then shows
   // fewer eligible matches than the slot lists. The page doesn't mark
   // who, so it's settled here against Ashby's directory. A name whose only
   // accounts are deactivated is dropped; then the active people left must equal
   // Ashby's eligible count exactly. Anything else (a name with no account, two
-  // active accounts, a count still off) refuses, naming who was read.
+  // active accounts and no identity override, a count still off) refuses,
+  // naming who was read.
   async function excludeDeactivated(sessions) {
     if(!sessions.some(s=>Number.isInteger(s.eligibleCount)))return sessions;
     const users=await listUsers(true);
-    return sessions.map(session=>{
+    return sessions.map((session,i)=>{
       if(!Number.isInteger(session.eligibleCount))return session;
-      const kept=[],excluded=[];
+      const kept=[],excluded=[],label=sessionLabel(session,i);
       for(const person of session.eligibleInterviewers){
+        if(activeAccount(users,person,label)){kept.push(person);continue;}
         const named=users.filter(u=>normalizeName([u.firstName,u.lastName].filter(Boolean).join(' '))===normalizeName(person.name));
-        const active=named.filter(u=>u.isEnabled===true);
-        if(active.length===1)kept.push(person);
-        else if(!active.length&&named.length)excluded.push({name:person.name,reason:'deactivated in Ashby'});
-        else fail(409,`"${session.title}": ${person.name} is listed in the interviewer slot but ${active.length?'matches more than one active Ashby account':'has no Ashby account'}. Check the slot in Ashby.`);
+        if(named.length)excluded.push({name:person.name,reason:'deactivated in Ashby'});
+        else fail(409,`${label}: ${person.name} is listed in the interviewer slot but has no Ashby account. Check the slot in Ashby.`);
       }
-      if(kept.length!==session.eligibleCount)fail(409,`"${session.title}": Ashby shows ${session.eligibleCount} eligible but ${kept.length} of the listed interviewers are active (${kept.map(p=>p.name).join(', ')||'none'}${excluded.length?`; ${excluded.map(p=>`${p.name} is ${p.reason}`).join('; ')}`:''}). Check the slot in Ashby, then load the plan again.`);
+      if(kept.length!==session.eligibleCount)fail(409,`${label}: Ashby shows ${session.eligibleCount} eligible but ${kept.length} of the listed interviewers are active (${kept.map(p=>p.name).join(', ')||'none'}${excluded.length?`; ${excluded.map(p=>`${p.name} is ${p.reason}`).join('; ')}`:''}). Check the slot in Ashby, then load the plan again.`);
       const {eligibleCount,...rest}=session;
       return {...rest,eligibleInterviewers:kept,excludedInterviewers:excluded};
     });
@@ -126,15 +148,13 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
   async function resolveInterviewers(sessions) {
     if(!Array.isArray(sessions)||!sessions.length||sessions.some(s=>s.assignmentVerified!==true||!s.eligibleInterviewers?.length))fail(422,'Load the verified interviewer lists first.');
     const users=await listUsers(false);
-    const normalize=normalizeName,people=new Map(),resolved=[];
+    const people=new Map(),resolved=[];
     for(const [i,session] of sessions.entries()){
-      const eligible=[],label=`Session ${i+1}${session.title?` ("${session.title}")`:''}`;
+      const eligible=[],label=sessionLabel(session,i);
       for(const person of session.eligibleInterviewers){
-        const matches=users.filter(u=>u.isEnabled===true&&normalize([u.firstName,u.lastName].filter(Boolean).join(' '))===normalize(person.name));
-        if(!matches.length)fail(409,`${label}: ${person.name} is an eligible interviewer but has no active Ashby account by that name. Check their account and name in Ashby.`);
-        if(matches.length>1)fail(409,`${label}: ${person.name} is an eligible interviewer but matches ${matches.length} active Ashby accounts by that name, so which one is meant can't be told. Check for duplicate accounts in Ashby.`);
-        if(!uuid(matches[0].id)||!/^\S+@\S+\.\S+$/.test(matches[0].email||''))fail(409,`${label}: ${person.name}'s active Ashby account has no usable ID or email.`);
-        const user=matches[0];
+        const user=activeAccount(users,person,label);
+        if(!user)fail(409,`${label}: ${person.name} is an eligible interviewer but has no active Ashby account by that name. Check their account and name in Ashby.`);
+        if(!uuid(user.id)||!/^\S+@\S+\.\S+$/.test(user.email||''))fail(409,`${label}: ${person.name}'s active Ashby account has no usable ID or email.`);
         if(!people.has(user.id))people.set(user.id,{userId:user.id,name:person.name,email:user.email.toLowerCase()});
         eligible.push(people.get(user.id));
       }
