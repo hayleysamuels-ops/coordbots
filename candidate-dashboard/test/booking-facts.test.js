@@ -18,7 +18,7 @@ test('bad windows and identifiers cause no Ashby calls',async()=>{const s=setup(
 test('direct application lookup loads active current plan without an issue-list entry',async()=>{const s=setup();const a=await s.reader.application(id(1));assert.equal(a.applicationId,id(1));assert.equal(a.activities[0].sessions[0].interviewId,id(5));assert.equal(s.calls.length,2);s.data['application.info'].status='Archived';await assert.rejects(()=>s.reader.application(id(1)),/not active/);});
 
 test('changed interviewer limits invalidate the source fingerprint',async()=>{const s=setup();const a=await s.reader.load(input);assert.equal(a.interviewerLimits.dailyLimit,2);s.data['user.interviewerSettings'].dailyLimit=1;assert.notEqual(a.sourceFingerprint,(await s.reader.load(input)).sourceFingerprint);s.data['user.interviewerSettings']={};await assert.rejects(()=>s.reader.load(input),/limits could not be verified/);});
-test('interviewer directory pagination resolves exact unique identities and rejects duplicate names',async()=>{let ambiguous=false;const reader=createBookingFacts({key:'key',clientId:'client',request:async(url,options)=>{const body=JSON.parse(options.body);return {ok:true,json:async()=>({success:true,results:body.cursor==='start'?[{id:id(10),firstName:'Mary',lastName:'Petrino',email:'mary@example.com',isEnabled:true}]:ambiguous?[{id:id(11),firstName:'Mary',lastName:'Petrino',email:'other@example.com',isEnabled:true}]:[],moreDataAvailable:body.cursor==='start',nextCursor:body.cursor==='start'?'next':undefined})};}});const sessions=[{assignmentVerified:true,eligibleInterviewers:[{name:'Mary Petrino'}]}];assert.equal((await reader.resolveInterviewers(sessions)).interviewers[0].email,'mary@example.com');ambiguous=true;await assert.rejects(reader.resolveInterviewers(sessions),/uniquely/);});
+test('interviewer directory pagination resolves exact unique identities and rejects duplicate names',async()=>{let ambiguous=false;const reader=createBookingFacts({key:'key',clientId:'client',request:async(url,options)=>{const body=JSON.parse(options.body);return {ok:true,json:async()=>({success:true,results:body.cursor==='start'?[{id:id(10),firstName:'Mary',lastName:'Petrino',email:'mary@example.com',isEnabled:true}]:ambiguous?[{id:id(11),firstName:'Mary',lastName:'Petrino',email:'other@example.com',isEnabled:true}]:[],moreDataAvailable:body.cursor==='start',nextCursor:body.cursor==='start'?'next':undefined})};}});const sessions=[{assignmentVerified:true,eligibleInterviewers:[{name:'Mary Petrino'}]}];assert.equal((await reader.resolveInterviewers(sessions)).interviewers[0].email,'mary@example.com');ambiguous=true;await assert.rejects(reader.resolveInterviewers(sessions),/Mary Petrino is an eligible interviewer but matches 2 active Ashby accounts/);});
 
 // Luminai's Lunch slot lists four people and Ashby counts three eligible:
 // one listed person has left and their account is deactivated. They're dropped; the count holds exactly.
@@ -40,4 +40,23 @@ test('a listed interviewer with only a deactivated account is excluded, and the 
   // Sessions whose counts already agreed are untouched, with no directory call.
   calls=[];const plain=[{title:'Welcome',assignmentVerified:true,eligibleInterviewers:[{name:'Upasna Madhok'}]}];
   assert.deepEqual(await reader.excludeDeactivated(plain),plain);assert.equal(calls.length,0);
+});
+
+test('an interviewer who can\'t be resolved is named, with the session and which case it hit',async()=>{
+  let users=[];
+  const reader=createBookingFacts({key:'key',clientId:'client',request:async()=>({ok:true,json:async()=>({success:true,results:users,moreDataAvailable:false})})});
+  const sessions=[{assignmentVerified:true,title:'Initial',eligibleInterviewers:[{name:'Hayley Samuels'}]},{assignmentVerified:true,title:'First Round',eligibleInterviewers:[{name:'Mary Petrino'}]}];
+  const hayley={id:id(10),firstName:'Hayley',lastName:'Samuels',email:'hayley@example.com',isEnabled:true};
+  // No account by that name, or only a deactivated one.
+  for(const list of [[hayley],[hayley,{id:id(11),firstName:'Mary',lastName:'Petrino',email:'mary@example.com',isEnabled:false}]]){
+    users=list;
+    await assert.rejects(reader.resolveInterviewers(sessions),{status:409,message:'Session 2 ("First Round"): Mary Petrino is an eligible interviewer but has no active Ashby account by that name. Check their account and name in Ashby.'});
+  }
+  users=[hayley,{...hayley,id:id(12),email:'hayley.s@example.com'}];
+  await assert.rejects(reader.resolveInterviewers(sessions),{status:409,message:'Session 1 ("Initial"): Hayley Samuels is an eligible interviewer but matches 2 active Ashby accounts by that name, so which one is meant can\'t be told. Check for duplicate accounts in Ashby.'});
+  users=[{...hayley,email:''}];
+  await assert.rejects(reader.resolveInterviewers(sessions),{status:409,message:'Session 1 ("Initial"): Hayley Samuels\'s active Ashby account has no usable ID or email.'});
+  // A session without a title is named by its number alone.
+  users=[];
+  await assert.rejects(reader.resolveInterviewers([{assignmentVerified:true,eligibleInterviewers:[{name:'Hayley Samuels'}]}]),/^Error: Session 1: Hayley Samuels is an eligible interviewer but has no active Ashby account/);
 });

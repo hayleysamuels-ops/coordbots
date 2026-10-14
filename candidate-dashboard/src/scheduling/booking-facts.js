@@ -127,11 +127,13 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
     if(!Array.isArray(sessions)||!sessions.length||sessions.some(s=>s.assignmentVerified!==true||!s.eligibleInterviewers?.length))fail(422,'Load the verified interviewer lists first.');
     const users=await listUsers(false);
     const normalize=normalizeName,people=new Map(),resolved=[];
-    for(const session of sessions){
-      const eligible=[];
+    for(const [i,session] of sessions.entries()){
+      const eligible=[],label=`Session ${i+1}${session.title?` ("${session.title}")`:''}`;
       for(const person of session.eligibleInterviewers){
         const matches=users.filter(u=>u.isEnabled===true&&normalize([u.firstName,u.lastName].filter(Boolean).join(' '))===normalize(person.name));
-        if(matches.length!==1||!uuid(matches[0].id)||!/^\S+@\S+\.\S+$/.test(matches[0].email||''))fail(409,'An eligible interviewer could not be uniquely matched to an active Ashby account.');
+        if(!matches.length)fail(409,`${label}: ${person.name} is an eligible interviewer but has no active Ashby account by that name. Check their account and name in Ashby.`);
+        if(matches.length>1)fail(409,`${label}: ${person.name} is an eligible interviewer but matches ${matches.length} active Ashby accounts by that name, so which one is meant can't be told. Check for duplicate accounts in Ashby.`);
+        if(!uuid(matches[0].id)||!/^\S+@\S+\.\S+$/.test(matches[0].email||''))fail(409,`${label}: ${person.name}'s active Ashby account has no usable ID or email.`);
         const user=matches[0];
         if(!people.has(user.id))people.set(user.id,{userId:user.id,name:person.name,email:user.email.toLowerCase()});
         eligible.push(people.get(user.id));

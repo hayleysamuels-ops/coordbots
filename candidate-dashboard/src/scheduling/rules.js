@@ -118,7 +118,7 @@ async function attendanceForEvents(rules, events, resolveInterviewers) {
   // Calendar-checked options already carry each interviewer's resolved email.
   if (events.every(e => e.interviewer?.email)) return events.map(e => rules.attendanceFor(e.interviewer.email));
   if (!resolveInterviewers) invalid("Interviewer identities can't be resolved, so attendance can't be confirmed.");
-  const { sessions } = await resolveInterviewers(events.map(e => ({ assignmentVerified: true, eligibleInterviewers: [{ name: e.interviewer.name }] })));
+  const { sessions } = await resolveInterviewers(events.map(e => ({ assignmentVerified: true, title: e.title, eligibleInterviewers: [{ name: e.interviewer.name }] })));
   return sessions.map(s => rules.attendanceFor(s.eligibleInterviewers[0].email));
 }
 
