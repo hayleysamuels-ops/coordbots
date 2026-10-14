@@ -86,7 +86,10 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
         if (![s.start, s.end].every(v => typeof v === "string" && /T.*(?:Z|[+-]\d\d:\d\d)$/.test(v) && Number.isFinite(Date.parse(v))) || Date.parse(s.start) >= Date.parse(s.end)) fail(400, "Session times must include an offset and end after they start");
         return { title: text(s.title, "a session title"), start: new Date(s.start).toISOString(), end: new Date(s.end).toISOString(), interviewers: text(s.interviewers, "interviewers", 500), location: text(s.location, "a room or location"), ...(meta.people ? { people: meta.people[i].map(p => ({ name: p.name.trim() })) } : {}), ...(meta.flags?.[i]?.length ? { flags: meta.flags[i].map(f => ({ kind: f.kind, name: f.name, start: new Date(f.start).toISOString(), end: new Date(f.end).toISOString(), minutes: f.minutes, ...(f.kind === "hours" ? { hoursSource: f.hoursSource, hoursLabel: f.hoursLabel || null } : {}) })) } : {}) };
       });
-      const plan = { candidateId: c.candidateId, applicationId: c.applicationId, candidateName: c.candidateName, jobTitle: c.jobTitle, timezone, sessions, notes: typeof input.notes === "string" ? input.notes.slice(0, 2000) : "", source: meta.source || "coordinator_draft", timezoneSource: meta.timezoneSource || "coordinator_entered", ...(meta.sourceRef ? { sourceRef: meta.sourceRef } : {}), ...(meta.rulesRevision ? { rulesRevision: meta.rulesRevision } : {}), ...(meta.format ? { format: meta.format } : {}), ...(linkedIn(meta.linkedinUrl) ? { linkedinUrl: linkedIn(meta.linkedinUrl) } : {}) };
+      const plan = { candidateId: c.candidateId, applicationId: c.applicationId, candidateName: c.candidateName, jobTitle: c.jobTitle, timezone, sessions, notes: typeof input.notes === "string" ? input.notes.slice(0, 2000) : "", source: meta.source || "coordinator_draft", timezoneSource: meta.timezoneSource || "coordinator_entered", ...(meta.sourceRef ? { sourceRef: meta.sourceRef } : {}), ...(meta.rulesRevision ? { rulesRevision: meta.rulesRevision } : {}), ...(meta.format ? { format: meta.format } : {}), ...(linkedIn(meta.linkedinUrl) ? { linkedinUrl: linkedIn(meta.linkedinUrl) } : {}),
+        // The Ashby check's plan (booking-plan.js), inside the plan so the
+        // approval's digest covers exactly what the check composes.
+        ...(meta.bookingPlan && typeof meta.bookingPlan === "object" ? { bookingPlan: meta.bookingPlan } : {}) };
       const row = { id: crypto.randomUUID(), clientId, revision: 1, state: "draft", plan, digest: digest(plan), bookingApproval: null,
         audit: [{ action: "drafted", by: user.id, at: new Date().toISOString() }] };
       if (!await store.insert(row)) fail(409, meta.sourceRef ? "This option was already posted to Slack, or another discussion draft for this candidate is still open. Check the channel and the Scheduling tab." : "An active discussion draft already exists. Review or reject it first."); return row;
@@ -102,7 +105,7 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
     // `calendarCheck` is set only for options the server built against Google
     // free/busy (booking-routes calendarChecked); it changes the wording, not
     // the posting path.
-    async postScheduleOption({ applicationId, candidateId, timezone, option, optionNumber, sourceRef, availabilitySource, attendance, rulesRevision, calendarCheck = null, linkedinUrl = null }, user) {
+    async postScheduleOption({ applicationId, candidateId, timezone, option, optionNumber, sourceRef, availabilitySource, attendance, rulesRevision, calendarCheck = null, linkedinUrl = null, bookingPlan = null }, user) {
       actor(user);
       const c = await candidate(applicationId);
       if (c.candidateId !== candidateId) fail(409, "Candidate changed in Ashby. Suggest the full schedule again.");
@@ -124,7 +127,7 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
           // Calendar-checked options use the Slack format with the Ashby link and
           // the solver's assigned interviewer per session, by name (see
           // slack.js for why plain). Never the eligible alternatives.
-          ...(calendarCheck ? { format: "calendar_checked", people: option.events.map(e => [{ name: e.interviewer.name }]), ...(flagged ? { flags } : {}), ...(linkedinUrl ? { linkedinUrl } : {}) } : {}) });
+          ...(calendarCheck ? { format: "calendar_checked", people: option.events.map(e => [{ name: e.interviewer.name }]), ...(flagged ? { flags } : {}), ...(linkedinUrl ? { linkedinUrl } : {}), ...(bookingPlan ? { bookingPlan } : {}) } : {}) });
       try {
         const shared = await this.share(row.id, { revision: row.revision, digest: row.digest, channelId }, user);
         return { id: shared.id, state: shared.state, issue: shared.issue || null, channelName: name };

@@ -37,4 +37,26 @@ function bookingPlanFromOption({option,application,accountTimeZone}){
     candidate:{name:a.candidate.name,email:a.candidate.email.toLowerCase()},job:{title:a.job.title},stage:{title:a.stage.title},activityTitle:a.activityTitle,sessions};
 }
 
-module.exports={bookingPlanFromOption};
+// The plan for an option being posted to Slack, from the dashboard's verified
+// full plan (booking-routes.js fullPlan: facts.application plus the pending
+// schedule). The scheduling activity is the one stage activity holding every
+// session's interview; its title is the card heading Ashby shows.
+//
+// The zone the robot types times in is the candidate's availability zone,
+// not Anna's account zone: in Anna's session (October 14, 2026) TEST's
+// composer showed America/Denver, TEST's availability zone, and the Denver
+// plan passed every check. Still unconfirmed for other candidates; a wrong
+// zone refuses at the composer before any save.
+//
+// Returns {plan} or {plan:null,reason}; a post never fails for want of one.
+function bookingPlanForPost({fullPlan,option,timezone}){
+  try{
+    const ids=(option?.events||[]).map(e=>e.interviewId);
+    const holding=(fullPlan?.activities||[]).filter(a=>ids.length&&ids.every(id=>a.sessions.some(s=>s.interviewId===id)));
+    if(holding.length!==1)return {plan:null,reason:holding.length?'More than one scheduling activity holds these interviews.':'No scheduling activity holds every interview.'};
+    return {plan:bookingPlanFromOption({option,accountTimeZone:timezone,application:{jobId:fullPlan.jobId,candidateId:fullPlan.candidateId,applicationId:fullPlan.applicationId,
+      interviewScheduleId:fullPlan.scheduleId,candidate:{name:fullPlan.candidateName,email:fullPlan.candidateEmail},job:{title:fullPlan.jobTitle},stage:{title:fullPlan.stageTitle},activityTitle:holding[0].title}})};
+  }catch(e){return {plan:null,reason:e.message};}
+}
+
+module.exports={bookingPlanFromOption,bookingPlanForPost};

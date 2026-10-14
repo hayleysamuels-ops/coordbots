@@ -14,6 +14,8 @@ function setup(config, candidates) {
     templateReader: require("./ashby-template").createTemplateReader(config.ashbyApiKey),
     slack });
   service.slackApi = slack;
+  // For the Ashby check (ashby-check.js), which records its state on drafts.
+  service.store = store;
   // Google Calendar data in drafts expires 90 days on (see calendar-retention.js).
   require("./calendar-retention").startCalendarRetention({ store });
   return service;

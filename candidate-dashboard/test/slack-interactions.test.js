@@ -39,11 +39,11 @@ test("the same signed request can't be replayed inside the window", () => {
 
 const click = (extra = {}) => ({ type: "block_actions", team: { id: "T0CARRARA" }, api_app_id: "A0SCHED", user: { id: "U0ANNA" }, channel: { id: "C0CONFIG" },
   container: { message_ts: "1.2" }, actions: [{ action_id: "schedule_option", value: JSON.stringify({ d: "draft-1", g: "digest-1" }) }], ...extra });
-async function endpoint(t, { users = { U0ANNA: { email: "anna@carrara.is", name: "Anna Jones" } }, approve } = {}) {
+async function endpoint(t, { users = { U0ANNA: { email: "anna@carrara.is", name: "Anna Jones" } }, approve, ashbyCheck = null } = {}) {
   const calls = { approve: [], marked: [], replies: [] };
   const service = { approveInSlack: async input => { calls.approve.push(input); if (approve) return approve(input); return { id: input.draftId, slackApproval: { name: "Anna Jones" } }; } };
   const slackApi = { userInfo: async id => users[id] || null, markApproved: async x => calls.marked.push(x), threadReply: async x => calls.replies.push(x) };
-  const handler = createSlackInteractions({ service, slackApi, signingSecret: SECRET, teamId: "T0CARRARA", appId: "A0SCHED", channelId: "C0CONFIG", approvers: ["anna@carrara.is"], log: { warn() {} } });
+  const handler = createSlackInteractions({ service, slackApi, signingSecret: SECRET, teamId: "T0CARRARA", appId: "A0SCHED", channelId: "C0CONFIG", approvers: ["anna@carrara.is"], ashbyCheck, log: { warn() {} } });
   const app = express();
   app.post("/api/slack/interactions", express.raw({ type: "application/x-www-form-urlencoded" }), handler);
   app.use((req, res) => res.status(401).end()); // stands in for Basic Auth on every other route
@@ -65,6 +65,17 @@ test("an approver's click records the approval and updates the message", async t
   assert.deepEqual(calls.approve, [{ draftId: "draft-1", digest: "digest-1", channelId: "C0CONFIG", messageTs: "1.2", approver: { email: "anna@carrara.is", slackUserId: "U0ANNA", name: "Anna Jones" } }]);
   assert.equal(calls.marked.length, 1);
   assert.equal(calls.replies.length, 0);
+});
+
+test("with the Ashby check, the message shows it queued from the start, and a queueing failure falls back to booking by hand", async t => {
+  const started = [];
+  const queued = await endpoint(t, { ashbyCheck: { start: async row => { started.push(row.id); return { ...row, ashbyCheck: { state: "queued" } }; } } });
+  await queued.send(click());
+  assert.deepEqual(started, ["draft-1"]);
+  assert.equal(queued.calls.marked[0].row.ashbyCheck.state, "queued");
+  const broken = await endpoint(t, { ashbyCheck: { start: async () => { throw Error("store busy"); } } });
+  await broken.send(click());
+  assert.equal(broken.calls.marked.length, 1);assert.equal(broken.calls.marked[0].row.ashbyCheck, undefined);
 });
 
 test("the approver's identity comes from Slack, never from the payload", async t => {
@@ -159,7 +170,7 @@ function slackCapture() {
 }
 const checkedPlan = { format: "calendar_checked", candidateId: "c", candidateName: "TEST petrino", jobTitle: "Engineer", timezone: "America/Los_Angeles", notes: "Nothing has been booked.", sessions: [{ title: "Welcome", start: "2099-01-01T18:00:00Z", end: "2099-01-01T18:15:00Z", location: "Room / location to confirm", people: [{ name: "Pat Doe" }] }] };
 
-test("the Schedule button appears only when interactive, with a confirmation that says nothing is booked", async () => {
+test("the Schedule button appears only when interactive, with a confirmation that says nothing is sent automatically", async () => {
   const on = slackCapture();
   await createSlack("x", on.request, { displayTimeZone: "America/Los_Angeles", interactive: true })(checkedPlan, { channelId: "C1", proposalId: "d1", approver: "a", digest: "g1" });
   const actions = on.calls[0].body.blocks.find(b => b.type === "actions");
@@ -167,7 +178,7 @@ test("the Schedule button appears only when interactive, with a confirmation tha
   assert.equal(button.text.text, "Schedule");
   assert.deepEqual(JSON.parse(button.value), { d: "d1", g: "g1" });
   assert.equal(button.confirm.confirm.text, "Approve");
-  assert.match(button.confirm.text.text, /Nothing will be booked:\* the dashboard doesn't book in Ashby yet, so no interviews are scheduled and no invitations or candidate email are sent\. Book it in Ashby by hand after approving\./);
+  assert.match(button.confirm.text.text, /stops before Send, for a person to open and send; otherwise, book it in Ashby by hand\. \*Nothing is sent automatically:\* no invitations or candidate email go out until someone clicks Send in Ashby\./);
   const off = slackCapture();
   await createSlack("x", off.request, { displayTimeZone: "America/Los_Angeles", interactive: false })(checkedPlan, { channelId: "C1", proposalId: "d1", approver: "a", digest: "g1" });
   assert.equal(off.calls[0].body.blocks.find(b => b.type === "actions"), undefined);

@@ -1,29 +1,55 @@
 'use strict';
-// The booking dry run as a worker command (worker/booking-dry-run.js): it must
-// be unreachable from the worker's HTTP server, and its two locks (the
-// BOOKING_DRY_RUN variable and the application allowlist) must stop a run
-// before the saved session is read or a browser starts.
+// The booking dry run as a worker command (worker/booking-dry-run.js): its two
+// locks (the BOOKING_DRY_RUN variable and the application allowlist) must stop
+// a run before the saved session is read or a browser starts.
+//
+// What may reach the booking robot: the dry run's command, and the worker's
+// booking routes for the Slack-approved check (worker/booking-compose.js),
+// which load nothing else of it. Nothing the dashboard runs may load it, and
+// Send is never a permitted write anywhere.
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const fs=require('fs'),path=require('path');
 const {run,Stop}=require('../worker/booking-dry-run');
 
 const root=path.join(__dirname,'..');
 // A require or import of the robot's modules (mentions in comments are fine).
-const LOADS_ROBOT=/\b(?:require|import)\s*\(\s*[^)]*booking-(?:composer|permit|dry-run)/;
+const LOADS_ROBOT=/\b(?:require|import)\s*\(\s*[^)]*booking-(?:composer|permit|dry-run|compose|locks)\b/;
 const loadsRobot=file=>LOADS_ROBOT.test(fs.readFileSync(file,'utf8'));
+const robotLoads=file=>[...fs.readFileSync(file,'utf8').matchAll(/\b(?:require|import)\s*\(\s*['"]([^'"]*booking-(?:composer|permit|dry-run|compose|locks)[^'"]*)['"]/g)].map(m=>m[1]);
 
-test('nothing the worker serves, or the dashboard runs, loads the booking robot',()=>{
+test('only the worker\'s booking routes reach the robot, through the Slack-approved check; the dashboard never does',()=>{
   // The worker's own modules, other than the robot itself.
-  const worker=fs.readdirSync(path.join(root,'worker')).filter(f=>f.endsWith('.js')&&!/^booking-(composer|permit|check|dry-run)\.js$/.test(f));
+  const worker=fs.readdirSync(path.join(root,'worker')).filter(f=>f.endsWith('.js')&&!/^booking-(composer|permit|check|dry-run|compose|locks)\.js$/.test(f));
   assert.ok(worker.includes('server.js')&&worker.includes('booking-routes.js')&&worker.includes('bootstrap.js'));
-  for(const f of worker)assert.ok(!loadsRobot(path.join(root,'worker',f)),`worker/${f} must not load the booking robot`);
+  for(const f of worker){
+    const loads=robotLoads(path.join(root,'worker',f));
+    if(f==='booking-routes.js')assert.deepEqual(loads,['./booking-compose'],'the booking routes load only the Slack-approved check');
+    else assert.ok(!loadsRobot(path.join(root,'worker',f)),`worker/${f} must not load the booking robot`);
+  }
+  // The check loads the composer and the locks, never the dry run's command.
+  assert.deepEqual([...new Set(robotLoads(path.join(root,'worker/booking-compose.js')))].sort(),['./booking-composer','./booking-locks']);
   // The dashboard and its Slack handlers.
   const walk=dir=>fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(path.join(dir,e.name)):e.name.endsWith('.js')?[path.join(dir,e.name)]:[]);
   for(const f of walk(path.join(root,'src')))assert.ok(!loadsRobot(f),`${path.relative(root,f)} must not load the booking robot`);
   // The tripwire itself trips on a load.
-  assert.ok(LOADS_ROBOT.test("const x=require('./booking-composer')")&&LOADS_ROBOT.test('require("../worker/booking-dry-run.js")')&&!LOADS_ROBOT.test('// see booking-composer.js'));
+  assert.ok(LOADS_ROBOT.test("const x=require('./booking-composer')")&&LOADS_ROBOT.test('require("../worker/booking-dry-run.js")')&&LOADS_ROBOT.test("require('./booking-compose')")&&!LOADS_ROBOT.test('// see booking-composer.js'));
   // The image still starts the HTTP worker, never the command.
   assert.match(fs.readFileSync(path.join(root,'worker/Dockerfile'),'utf8'),/CMD \["node", "worker\/bootstrap\.js"\]/);
+});
+
+test('Send is never a permitted write, and the Schedule button is never clicked',()=>{
+  const read=f=>fs.readFileSync(path.join(root,'worker',f),'utf8');
+  for(const f of fs.readdirSync(path.join(root,'worker')).filter(f=>f.endsWith('.js'))){
+    const src=read(f);
+    // No permit for the send mutation, by constant or by name. (The report's
+    // `wouldSend={op:OP.send,...}` only names what a person's Send would do.)
+    assert.doesNotMatch(src,/(?<!wouldSend=\{)op\s*:\s*OP\.send\b/,`worker/${f} must not permit Send`);
+    assert.doesNotMatch(src,/op\s*:\s*['"]ApiScheduleInterviewScheduleFromDraft['"]/,`worker/${f} must not permit Send`);
+  }
+  // The composer finds Ashby's Schedule button and checks it, but never clicks it.
+  const composer=read('booking-composer.js');
+  assert.match(composer,/const schedule=await one\(page\.getByRole\('button',\{name:'Schedule',exact:true\}\)/);
+  assert.doesNotMatch(composer,/schedule\.(?:click|press|tap|dispatchEvent)\(/);
 });
 
 // The First Round plan that passed locally on October 13, moved into the future.
@@ -59,7 +85,7 @@ test('off unless BOOKING_DRY_RUN is exactly "on": no session read, no browser',a
 
 test('only the allowlisted application, with its own job, candidate, email and schedules',async()=>{
   const cases=[
-    [{...plan,applicationId:'00000000-0000-4000-8000-000000000000'},/isn't one the dry run may use/],
+    [{...plan,applicationId:'00000000-0000-4000-8000-000000000000'},/isn't one the booking robot may use/],
     [{...plan,jobId:'00000000-0000-4000-8000-000000000000'},/job, candidate or candidate email doesn't match/],
     [{...plan,candidateId:'00000000-0000-4000-8000-000000000000'},/job, candidate or candidate email doesn't match/],
     [{...plan,candidate:{name:'TEST',email:'someone@example.com'}},/job, candidate or candidate email doesn't match/],

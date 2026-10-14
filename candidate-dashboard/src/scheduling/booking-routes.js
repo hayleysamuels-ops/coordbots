@@ -145,7 +145,10 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     if(!rules)throw Object.assign(Error('Scheduling rules are not loaded, so interviewer attendance can\'t be confirmed.'),{status:503});
     const clientRules=rules.get(),attendance=await require('./rules').attendanceForEvents(clientRules,chosen.events,facts?.resolveInterviewers);
     const linkedinUrl=facts?.candidateLinkedIn?await facts.candidateLinkedIn(plan.candidateId).catch(()=>null):null;
-    return discussion.postScheduleOption({applicationId:plan.applicationId,candidateId:plan.candidateId,timezone:result.timezone,option:chosen,optionNumber:index+1,linkedinUrl,
+    // What the Ashby check will compose if this option is approved in Slack.
+    const composed=require('./booking-plan').bookingPlanForPost({fullPlan:plan,option:chosen,timezone:result.timezone});
+    if(!composed.plan)console.log(`[ashby-check] No plan for this post, so approving it won't check it in Ashby: ${composed.reason}`);
+    return discussion.postScheduleOption({bookingPlan:composed.plan,applicationId:plan.applicationId,candidateId:plan.candidateId,timezone:result.timezone,option:chosen,optionNumber:index+1,linkedinUrl,
       sourceRef:`full-schedule:${plan.scheduleId}:${ref}`,availabilitySource:req.body.availabilitySource,attendance,rulesRevision:clientRules.rulesRevision,
       calendarCheck:['calendar_checked','needs_attention'].includes(result.status)?{checkedAt:result.calendarCheckedAt,meetingHoursAssumed:result.meetingHoursAssumed===true,flags:chosen.events.map(e=>e.flags||[])}:null},req.schedulingUser);
   }));

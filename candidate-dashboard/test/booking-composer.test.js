@@ -5,7 +5,7 @@
 // permitted writes, so nothing reaches Ashby. These test the safeguards, not
 // Ashby's markup; that's only known from a live run.
 const {test}=require('node:test'),assert=require('node:assert/strict');
-const {dryRun}=require('../worker/booking-composer');
+const {dryRun,discardDraft}=require('../worker/booking-composer');
 const {OP}=require('../worker/booking-permit');
 
 let chromium=null;
@@ -26,28 +26,30 @@ const plan={jobId:'job-1',candidateId:'cand-1',applicationId:'app-1',interviewSc
 // `submitted` shows the availability-submitted card instead: a bare "Schedule"
 // button (which must never be clicked) beside "Start Manual Schedule".
 // `zone` gives the composer one session's fields and a time-zone button with
-// that label ('' for no button).
-function app({menu=['Send Direct Booking Link','Request Candidate Availability','Manual Schedule','View All Scheduling Options'],dialogAfterManual=null,strayWrite=null,submitted=false,zone=null}={}){
+// that label ('' for no button). `existing` lists drafts already on the
+// schedule's Drafts tab; the run's own draft (draft-1) joins them once created.
+// (Page state starts over on a full load.)
+function app({menu=['Send Direct Booking Link','Request Candidate Availability','Manual Schedule','View All Scheduling Options'],dialogAfterManual=null,strayWrite=null,submitted=false,zone=null,existing=[]}={}){
   return `<!doctype html><html><body><nav><a href="/candidates/pipeline">Pipeline</a></nav><main id="m"></main><script>
-  let deleted=false;
+  const drafts=${JSON.stringify(existing)};
   const gql=(name,variables)=>fetch('/api/graphql',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operationName:name,query:'mutation '+name+' { x }',variables})}).then(r=>r.json());
   // Like Ashby, every page loads something: one read query, answered by the stand-in.
   function render(){fetch('/api/graphql',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operationName:'ApiLoad',query:'query ApiLoad { x }'})});
     const p=location.pathname,m=document.getElementById('m');m.innerHTML='';
     if(p.endsWith('/feed')){
       m.innerHTML='<div role="dialog" aria-labelledby="cn"><h2 id="cn">TEST</h2><p>t@example.com</p><section><h2>Initial Screen Interview Schedule</h2>'+(${JSON.stringify(submitted)}?'<button id="sched">Schedule</button><button id="start">Start Manual Schedule</button>':'<button id="act">Actions</button>')+'</section></div>';
-      const create=async()=>{const r=await gql('${OP.create}',{interviewScheduleId:'sched-1'});history.pushState({},'','/schedules/drafts/'+r.data.draftInterviewSchedule.id);render();};
+      const create=async()=>{const r=await gql('${OP.create}',{interviewScheduleId:'sched-1'});drafts.push(r.data.draftInterviewSchedule.id);history.pushState({},'','/schedules/drafts/'+r.data.draftInterviewSchedule.id);render();};
       if(${JSON.stringify(submitted)}){document.getElementById('sched').onclick=()=>gql('ApiScheduleCandidateAutomatically',{interviewScheduleId:'sched-1'}).catch(()=>{});document.getElementById('start').onclick=create;return;}
       document.getElementById('act').onclick=()=>{const u=document.createElement('div');u.setAttribute('role','menu');u.setAttribute('aria-label','Actions');
         u.innerHTML=${JSON.stringify(menu)}.map(t=>'<div role="menuitem" tabindex="0">'+t+'</div>').join('');document.body.appendChild(u);
         u.querySelectorAll('[role=menuitem]').forEach(i=>i.onclick=async()=>{u.remove();
           if(${JSON.stringify(strayWrite)}&&i.textContent===${JSON.stringify(strayWrite&&strayWrite.item)})gql(${JSON.stringify(strayWrite&&strayWrite.op)},{interviewScheduleId:'sched-1'}).catch(()=>{});
-          if(i.textContent==='Manual Schedule'){const r=await gql('${OP.create}',{interviewScheduleId:'sched-1'});
+          if(i.textContent==='Manual Schedule'){const r=await gql('${OP.create}',{interviewScheduleId:'sched-1'});drafts.push(r.data.draftInterviewSchedule.id);
             history.pushState({},'','/schedules/drafts/'+r.data.draftInterviewSchedule.id);render();
             if(${JSON.stringify(dialogAfterManual)}){const d=document.createElement('div');d.setAttribute('role','alertdialog');d.innerHTML='<p>'+${JSON.stringify(dialogAfterManual)}+'</p><button>Confirm Anyway</button><button>Cancel</button>';document.body.appendChild(d);}}});};
     } else if(p.endsWith('/drafts')){
-      m.innerHTML='<h2>Draft Schedules</h2>'+(deleted?'':'<div><a href="/schedules/drafts/draft-1">open</a><button id="del"></button></div>');
-      const b=document.getElementById('del');if(b)b.onclick=async()=>{const r=await gql('${OP.discard}',{draftInterviewScheduleId:'draft-1'});if(r.data)deleted=true;};
+      m.innerHTML='<h2>Draft Schedules</h2>'+drafts.map(id=>'<div><a href="/schedules/drafts/'+id+'">open</a><button data-id="'+id+'"></button></div>').join('');
+      m.querySelectorAll('button[data-id]').forEach(b=>b.onclick=async()=>{const id=b.dataset.id,r=await gql('${OP.discard}',{draftInterviewScheduleId:id}).catch(()=>({}));if(r.data)drafts.splice(drafts.indexOf(id),1);});
     } else if(p.startsWith('/schedules/drafts/')){m.innerHTML='<h1>Scheduling TEST TEST Initial Screen Unsaved</h1>'+(${JSON.stringify(zone)}===null?'':
       (${JSON.stringify(zone)}?'<button aria-label="Select a timezone">'+${JSON.stringify(zone)}+'</button>':'')+'<input aria-label="Set interview date..."><input role="combobox" aria-label="Start..."><input role="combobox" aria-label="End...">');}
   }
@@ -55,7 +57,7 @@ function app({menu=['Send Direct Booking Link','Request Candidate Availability',
   </script></body></html>`;
 }
 
-async function run(t,{appOptions,baseline}={}){
+async function run(t,{appOptions,baseline,runOptions={},task=null}={}){
   const browser=await launch();
   if(!browser){t.skip('no Chromium available');return null;}
   t.after(()=>browser.close());
@@ -68,13 +70,15 @@ async function run(t,{appOptions,baseline}={}){
     if(/^\s*query\b/.test(JSON.parse(r.postData()||'{}').query||''))return route.fulfill({contentType:'application/json',body:'{"data":{}}'});
     return route.fallback();});
   const received=[];
-  const respond=async route=>{const b=JSON.parse(route.request().postData());received.push(b.operationName);
+  const respond=async route=>{const b=JSON.parse(route.request().postData());received.push(b.operationName===OP.discard?`${OP.discard}:${b.variables.draftInterviewScheduleId}`:b.operationName);
     if(b.operationName===OP.create)return {status:200,json:{data:{draftInterviewSchedule:{id:'draft-1',draftSchedule:{events:[baseline||{id:'ev-1',title:'Initial',startTimeISO:'2099-10-12T17:00:00.000Z',endTimeISO:'2099-10-12T17:30:00.000Z',interviewId:'int-1',interviewSlots:[{selected:'u-m'}]}]}}}}};
     return {status:200,json:{data:{id:'x'}}};};
   const page=await context.newPage();
-  const report=await dryRun({context,page,plan,respond,timing:{settle:200,short:300,wait:3000}});
+  const timing={settle:200,short:300,wait:3000};
+  const report=task?await task({context,page,respond,timing}):await dryRun({context,page,plan,respond,timing,...runOptions});
   return {report,received};
 }
+const discarded=id=>`${OP.discard}:${id}`;
 
 test('"Manual Schedule" twice in the menu: refused before any write, nothing to clean up',async t=>{
   const r=await run(t,{appOptions:{menu:['Manual Schedule','Request Candidate Availability','Manual Schedule']}});if(!r)return;
@@ -89,14 +93,14 @@ test('a created draft that doesn\'t match the approved agenda is refused, then d
   assert.equal(r.report.status,'refused');assert.match(r.report.reason,/doesn't match the approval/);
   assert.equal(r.report.draftId,'draft-1');
   assert.deepEqual(r.report.cleanup,{deleted:true,draftId:'draft-1'});
-  assert.deepEqual(r.received,[OP.create,OP.discard]);
+  assert.deepEqual(r.received,[OP.create,discarded('draft-1')]);
 });
 
 test('"The interview time is in the past" is never confirmed: the run stops and the draft is deleted',async t=>{
   const r=await run(t,{appOptions:{dialogAfterManual:'Heads up: The interview time is in the past.'}});if(!r)return;
   assert.equal(r.report.status,'refused');assert.match(r.report.reason,/never confirmed/);
   assert.deepEqual(r.report.cleanup,{deleted:true,draftId:'draft-1'});
-  assert.deepEqual(r.received,[OP.create,OP.discard],'nothing was confirmed or saved');
+  assert.deepEqual(r.received,[OP.create,discarded('draft-1')],'nothing was confirmed or saved');
 });
 
 test('a write the booking doesn\'t permit is blocked and stops the run',async t=>{
@@ -112,7 +116,7 @@ test('a composer in another time zone is refused, naming the zone it shows, and 
     const r=await run(t,{appOptions:{zone}});if(!r)return;
     assert.equal(r.report.status,'refused');assert.equal(r.report.step,'compose session 1 ("Initial")');
     assert.match(r.report.reason,new RegExp(`^The composer shows times in ${shown}, not MDT; the account's time zone must match the plan's \\(America/Denver\\)\\.$`));
-    assert.deepEqual(r.received,[OP.create,OP.discard],'nothing was saved');
+    assert.deepEqual(r.received,[OP.create,discarded('draft-1')],'nothing was saved');
   }
   // The plan's own zone passes the check; the bare stand-in then stops at the session editor.
   const r=await run(t,{appOptions:{zone:'MDT'}});if(!r)return;
@@ -123,6 +127,35 @@ test('availability submitted: starts from "Start Manual Schedule", never the bar
   const r=await run(t,{appOptions:{submitted:true},baseline:{id:'ev-1',title:'Other',startTimeISO:'2099-10-12T17:00:00.000Z',endTimeISO:'2099-10-12T17:30:00.000Z',interviewId:'int-9',interviewSlots:[{selected:null}]}});if(!r)return;
   // The mismatched draft stops the run right after creation, which is all this needs.
   assert.ok(r.report.checks.some(c=>c.name==='started from "Start Manual Schedule" (availability submitted)'));
-  assert.deepEqual(r.received,[OP.create,OP.discard],'only the create and the cleanup reached the stand-in');
+  assert.deepEqual(r.received,[OP.create,discarded('draft-1')],'only the create and the cleanup reached the stand-in');
   assert.ok(!r.report.blocked.some(b=>/ApiScheduleCandidateAutomatically/.test(b)),'the bare "Schedule" was never clicked');
+});
+
+test('the Slack-approved check refuses before creating anything if the schedule already has a draft',async t=>{
+  const r=await run(t,{appOptions:{existing:['someone-elses']},runOptions:{checkExistingDrafts:true,keepOnSuccess:true}});if(!r)return;
+  assert.equal(r.report.status,'refused');assert.equal(r.report.step,"check the schedule's drafts");
+  assert.match(r.report.reason,/already has a draft in Ashby that the dashboard didn't make/);
+  assert.deepEqual(r.received,[],'nothing was created or deleted');
+  assert.deepEqual(r.report.cleanup,{deleted:false,reason:'no draft was created'});
+});
+
+test('the dashboard\'s earlier draft for the schedule is deleted first, by its ID only; a refusal still deletes the new one',async t=>{
+  const r=await run(t,{appOptions:{existing:['d-old']},runOptions:{checkExistingDrafts:true,keepOnSuccess:true,supersedeDraftId:'d-old'}});if(!r)return;
+  assert.deepEqual(r.report.superseded,{draftId:'d-old',deleted:true});
+  assert.ok(r.report.checks.some(c=>c.name==='the schedule has no other drafts'));
+  // The bare stand-in composer has no session fields, so the run refuses there;
+  // keepOnSuccess never keeps a refused run's draft.
+  assert.equal(r.report.status,'refused');
+  assert.deepEqual(r.report.cleanup,{deleted:true,draftId:'draft-1'});
+  assert.deepEqual(r.received,[discarded('d-old'),OP.create,discarded('draft-1')]);
+});
+
+test('the sweep\'s delete removes exactly the named draft, and reports one that\'s already gone',async t=>{
+  const del=draftId=>({context,page,respond,timing})=>discardDraft({context,page,plan,draftId,respond,timing});
+  const r=await run(t,{appOptions:{existing:['d-old','someone-elses']},task:del('d-old')});if(!r)return;
+  assert.deepEqual(r.report,{deleted:true,draftId:'d-old'});
+  assert.deepEqual(r.received,[discarded('d-old')]);
+  const gone=await run(t,{appOptions:{existing:['someone-elses']},task:del('d-old')});
+  assert.deepEqual(gone.report,{deleted:false,absent:true,draftId:'d-old'});
+  assert.deepEqual(gone.received,[]);
 });

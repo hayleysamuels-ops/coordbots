@@ -60,7 +60,7 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
     const p=await read('jobInterviewPlan.info',{jobId:a.job.id});
     const stage=p?.stages?.find(s=>s.id===a.currentInterviewStage?.id);
     if(!stage)fail(409,'The current interview stage could not be found.');
-    return {applicationId:a.id,candidateId:a.candidate?.id,stageId:stage.id,templateRevision:digest(stage),candidateName:a.candidate?.name,jobTitle:a.job.title,activities:(stage.activities||[]).map(activity=>({id:activity.id,title:activity.title,sessions:(activity.interviews||[]).filter(i=>i.isSchedulable===true).map(i=>({sessionId:i.id,interviewId:i.interviewId,title:i.title,durationMinutes:i.interviewDurationMinutes}))})).filter(a=>a.sessions.length)};
+    return {applicationId:a.id,candidateId:a.candidate?.id,stageId:stage.id,templateRevision:digest(stage),candidateName:a.candidate?.name,candidateEmail:a.candidate?.primaryEmailAddress?.value||null,jobId:a.job.id,jobTitle:a.job.title,stageTitle:stage.title||null,activities:(stage.activities||[]).map(activity=>({id:activity.id,title:activity.title,sessions:(activity.interviews||[]).filter(i=>i.isSchedulable===true).map(i=>({sessionId:i.id,interviewId:i.interviewId,title:i.title,durationMinutes:i.interviewDurationMinutes}))})).filter(a=>a.sessions.length)};
   }
   // Ashby interview ids marked isDebrief, cached for ten minutes. Used to keep
   // debriefs out of the onsite preview when the rules defer them. A read that
@@ -162,6 +162,25 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
     }
     return {sessions:resolved,interviewers:[...people.values()]};
   }
+  // One interview schedule's status and booked events, read-only, for the
+  // Slack-approved check: whether a left draft has been sent, and what was
+  // booked. null when Ashby doesn't list the schedule for the application.
+  async function scheduleState(applicationId,scheduleId){
+    if(!uuid(applicationId)||!uuid(scheduleId))fail(422,'A verified interview schedule is required.');
+    const cursors=new Set();let cursor=null,found=null;
+    do{
+      const page=await read('interviewSchedule.list',{applicationId,limit:100,...(cursor?{cursor}:{})},true);
+      if(!Array.isArray(page.results))fail(503,'The candidate\'s interview schedules could not be read.');
+      found=page.results.find(s=>s?.id===scheduleId)||found;
+      cursor=page.moreDataAvailable?page.nextCursor:null;
+      if(page.moreDataAvailable&&(!cursor||cursors.has(cursor)))fail(503,'The candidate\'s interview schedules are incomplete.');
+      cursors.add(cursor);if(cursors.size>20)fail(503,'The candidate has too many interview schedules to read.');
+    }while(cursor&&!found);
+    if(!found)return null;
+    return {status:found.status,events:(found.interviewEvents||[]).map(e=>({start:e.startTime?new Date(e.startTime).toISOString():null,end:e.endTime?new Date(e.endTime).toISOString():null,
+      interviewers:(e.interviewers||[]).map(i=>String(i.email||'').toLowerCase()).filter(Boolean).sort()}))
+      .sort((x,y)=>String(x.start).localeCompare(String(y.start)))};
+  }
   // Ashby's per-interviewer limits for every resolved interviewer, read four at
   // a time. The shape is checked exactly as load() checks it; a missing or
   // malformed answer refuses rather than counting as "no limit".
@@ -177,6 +196,6 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
     }
     return out;
   }
-  return { load, application, resolveInterviewers, excludeDeactivated, interviewerLimits, debriefInterviewIds, candidateLinkedIn };
+  return { load, application, scheduleState, resolveInterviewers, excludeDeactivated, interviewerLimits, debriefInterviewIds, candidateLinkedIn };
 }
 module.exports = { createBookingFacts };

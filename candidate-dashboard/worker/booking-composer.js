@@ -1,7 +1,9 @@
 'use strict';
-// Booking through Ashby's scheduling UI, as a dry run: every step up to the
-// "Schedule" click, then the draft is deleted. Nothing is sent: Send isn't a
-// permitted write (booking-permit.js), and this file never clicks Schedule.
+// Booking through Ashby's scheduling UI, up to the "Schedule" click, which is
+// never made. The dry run (booking-dry-run.js) then deletes the draft; the
+// Slack-approved check (booking-compose.js) leaves it for a person to send,
+// and deletes it on any refusal. Nothing is sent: Send isn't a permitted write
+// (booking-permit.js), and this file never clicks Schedule.
 //
 // Fail closed: every control is found by exact role and name and must appear
 // exactly once, or the run refuses. Every draft save is checked on content
@@ -13,7 +15,7 @@
 // Availability"). Exact-name matching here and the write guard are both
 // load-bearing; neither may be relaxed.
 const {guardWrites}=require('./template-guard');
-const {installBookingPermits,ORIGIN,OP}=require('./booking-permit');
+const {installBookingPermits,installPermit,ORIGIN,OP}=require('./booking-permit');
 const {checkFinal,formats,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog}=require('./booking-check');
 
 class Refusal extends Error{constructor(step,message){super(message);this.step=step;this.status=409;}}
@@ -73,17 +75,8 @@ async function openApplication(page,plan,{refuse,sleep,go,net,T,expectedIdentity
   refuse(`Couldn't open ${plan.candidate.name}'s application: Ashby showed a network error or the panel never showed ${plan.candidate.email}, twice.`);
 }
 
-// `respond` is for tests only: a stand-in for Ashby's replies to permitted writes.
-// `onRefusal(page)` runs before cleanup when the run stops (local debugging).
-// `expectedIdentity` is the Ashby account the run must be signed in as.
-async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,expectedIdentity}){
-  const T={settle:700,short:1500,wait:15000,...timing};
-  const events=[];const note=e=>{events.push(e);log(e);};
-  const guard=await guardWrites(context,{warn:m=>note({type:'blocked',detail:m.replace('[write-guard] ','')})});
-  const state={};
-  await installBookingPermits(context,{plan,state,log:note,...(respond?{respond}:{})});
-  let step='start';
-  const refuse=m=>{throw new Refusal(step,m);};
+// Waiting and finding, shared by the run and by deleting a draft on its own.
+function helpers(page,T,refuse){
   const sleep=ms=>page.waitForTimeout(ms);
   async function one(locator,what){
     const deadline=Date.now()+T.wait;let n=0;
@@ -92,6 +85,32 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
   }
   async function until(fn,what,ms=T.wait){const d=Date.now()+ms;while(Date.now()<d){if(await fn())return;await sleep(250);}refuse(`Timed out waiting for ${what}.`);}
   async function go(path){await page.evaluate(u=>{history.pushState({},'',u);dispatchEvent(new PopStateEvent('popstate'));},path);await sleep(T.short);}
+  return {sleep,one,until,go};
+}
+const replied=json=>!!json&&!(json.errors&&json.errors.length);
+
+// `respond` is for tests only: a stand-in for Ashby's replies to permitted writes.
+// `onRefusal(page)` runs before cleanup when the run stops (local debugging).
+// `expectedIdentity` is the Ashby account the run must be signed in as.
+// For the Slack-approved check (booking-compose.js), not the dry run:
+//   `checkExistingDrafts` refuses before creating a draft if the schedule
+//     already has one, other than `supersedeDraftId` (the dashboard's earlier
+//     draft for this schedule), which is deleted first;
+//   `keepOnSuccess` leaves the composed draft in Ashby for a person to send.
+//     Any refusal still deletes it.
+async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,expectedIdentity,checkExistingDrafts=false,supersedeDraftId=null,keepOnSuccess=false}){
+  const T={settle:700,short:1500,wait:15000,...timing};
+  const events=[];const note=e=>{events.push(e);log(e);};
+  const guard=await guardWrites(context,{warn:m=>note({type:'blocked',detail:m.replace('[write-guard] ','')})});
+  const state={};
+  await installBookingPermits(context,{plan,state,log:note,...(respond?{respond}:{})});
+  // The earlier draft's delete: that draft only, once, and only while armed.
+  const superseding={armed:false,discarded:undefined};
+  if(supersedeDraftId)await installPermit(context,{op:OP.discard,max:1,log:note,...(respond?{respond}:{}),
+    bound:v=>superseding.armed&&v.draftInterviewScheduleId===supersedeDraftId,onResponse:json=>{superseding.discarded=replied(json);}});
+  let step='start';
+  const refuse=m=>{throw new Refusal(step,m);};
+  const {sleep,one,until,go}=helpers(page,T,refuse);
   const net=networkWatch(page,{sleep,wait:T.wait});
   // After every action: let Ashby react, then check dialogs, refused saves and
   // any write the guard blocked that it shouldn't have needed to.
@@ -115,7 +134,7 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     if(unexpected.length)refuse(`Ashby tried a write the booking doesn't permit: ${unexpected.map(b=>b.summary).join('; ')}.`);
     seenRefusals=state.refusals.length;
   }
-  const report={mode:'dry-run',status:'refused',step:null,reason:null,draftId:null,checks:[],wouldSend:null,cleanup:null};
+  const report={mode:keepOnSuccess?'compose':'dry-run',status:'refused',step:null,reason:null,draftId:null,checks:[],wouldSend:null,cleanup:null};
   const pass=(name,detail)=>{report.checks.push({name,ok:true,...(detail?{detail}:{})});note({type:'check',name,...(detail?.draftId?{draftId:detail.draftId}:{})});};
   try{
     // 1. Ashby's shell, then the application inside the app. A cold load of a
@@ -124,6 +143,22 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     const opened=await openApplication(page,plan,{refuse,sleep,go,net,T,expectedIdentity});
     if(expectedIdentity)pass(`signed in as ${expectedIdentity}`);
     pass('candidate panel shows the approved candidate',opened.attempts>1?{attempts:opened.attempts}:undefined);
+    // Before the Slack-approved check makes a draft, the schedule must have
+    // none, so nobody can send the wrong one.
+    if(checkExistingDrafts){
+      step='check the schedule\'s drafts';
+      let ids=await listDrafts(page,plan,{one,go});
+      if(supersedeDraftId&&ids.includes(supersedeDraftId)){
+        const r=await deleteDraft(page,plan,supersedeDraftId,{arm:()=>{superseding.armed=true;},done:()=>superseding.discarded},{one,go,sleep,T});
+        if(!r.deleted)refuse(`Couldn't delete the earlier draft the dashboard composed for this schedule: ${r.reason}.`);
+        report.superseded={draftId:supersedeDraftId,deleted:true};
+        ids=await listDrafts(page,plan,{one,go});
+      }else if(supersedeDraftId)report.superseded={draftId:supersedeDraftId,deleted:false,reason:'it was no longer in Ashby'};
+      if(ids.length)refuse(`This schedule already has ${ids.length===1?'a draft':`${ids.length} drafts`} in Ashby that the dashboard didn't make. Send or delete ${ids.length===1?'it':'them'} in Ashby first.`);
+      pass('the schedule has no other drafts');
+      // Back to the application the way the run began.
+      await openApplication(page,plan,{refuse,sleep,go,net,T,expectedIdentity});
+    }
     // 2. Start a manual schedule from the scheduling card. Ashby shows it two
     // ways, and exactly one must be present:
     //   availability submitted: a "Start Manual Schedule" button (beside a bare
@@ -302,8 +337,8 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     if(!(await schedule.isEnabled()))refuse('The Schedule button is disabled.');
     report.wouldSend={op:OP.send,interviewScheduleId:plan.interviewScheduleId,draftInterviewScheduleId:state.draftId,from,
       sessions:state.last.map((e,i)=>({title:e.title,start:new Date(e.start).toISOString(),end:new Date(e.end).toISOString(),interviewers:plan.sessions[i].interviewers.map(x=>x.email)}))};
-    pass('Schedule button found and enabled (not clicked: dry run)');
-    report.status='dry_run_complete';
+    pass(`Schedule button found and enabled (not clicked: ${keepOnSuccess?'left for a person to send':'dry run'})`);
+    report.status=keepOnSuccess?'composed':'dry_run_complete';
   }catch(e){
     report.step=e.step||step;report.reason=e.message;
     if(!(e instanceof Refusal))report.status='error';
@@ -317,29 +352,69 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     if(onRefusal)await onRefusal(page).catch(()=>{});
   }finally{
     report.draftId=state.draftId||report.draftId;
-    report.cleanup=state.draftId?await discard(page,plan,state,{one,go,sleep,T}).catch(e=>({deleted:false,reason:e.message})):{deleted:false,reason:'no draft was created'};
+    report.cleanup=!state.draftId?{deleted:false,reason:'no draft was created'}
+      :keepOnSuccess&&report.status==='composed'?{deleted:false,kept:true,draftId:state.draftId}
+      :await discard(page,plan,state,{one,go,sleep,T}).catch(e=>({deleted:false,reason:e.message}));
     report.writes={saves:state.saves,refusedSaves:state.refusals?.length||0};
     report.blocked=[...new Set(guard.blocked.filter(b=>b.ashby).map(b=>b.summary))];
   }
   return report;
 }
 
-// Delete the run's draft from the schedule's Drafts tab: the single button
-// beside the single link to this exact draft, with the discard permitted only
-// now and only for this draft. Then confirm it's gone.
-async function discard(page,plan,state,{one,go,sleep,T}){
-  state.cleanup=true;
+// The draft IDs listed on the schedule's Drafts tab. Reached in-app, through
+// the schedule first (a cold draft URL errors).
+async function listDrafts(page,plan,{one,go}){
+  await go(`/schedules/${plan.interviewScheduleId}`);await go(`/schedules/${plan.interviewScheduleId}/drafts`);
+  await one(page.getByRole('heading',{name:'Draft Schedules',exact:true}),'the Drafts tab');
+  return page.locator('a[href^="/schedules/drafts/"]').evaluateAll(links=>[...new Set(links.map(a=>a.getAttribute('href').split('/')[3]).filter(Boolean))]);
+}
+
+// Delete one draft from the schedule's Drafts tab: the single button beside
+// the single link to this exact draft. `permit.arm()` lets the delete through
+// (for this draft only), and `permit.done()` says whether Ashby accepted it.
+// Then confirm it's gone. With `allowAbsent`, a draft that isn't listed is
+// reported as absent rather than refused.
+async function deleteDraft(page,plan,draftId,permit,{one,go,sleep,T,allowAbsent=false}){
   // Leave the draft (opening a communications screen again would refresh it).
   await go(`/schedules/${plan.interviewScheduleId}`);await go(`/schedules/${plan.interviewScheduleId}/drafts`);
   await one(page.getByRole('heading',{name:'Draft Schedules',exact:true}),'the Drafts tab');
-  const link=await one(page.locator(`a[href="/schedules/drafts/${state.draftId}"]`),'the link to this draft');
+  const links=page.locator(`a[href="/schedules/drafts/${draftId}"]`);
+  if(allowAbsent&&!(await links.count()))return {deleted:false,absent:true,draftId};
+  const link=await one(links,'the link to this draft');
   const button=await one(link.locator('xpath=..').locator('> button'),'the delete button beside this draft');
+  permit.arm();
   await button.click();
-  const d=Date.now()+T.wait;while(Date.now()<d&&state.discarded===undefined)await sleep(250);
-  if(!state.discarded)return {deleted:false,reason:'Ashby didn\'t confirm the delete',draftId:state.draftId};
+  const d=Date.now()+T.wait;while(Date.now()<d&&permit.done()===undefined)await sleep(250);
+  if(!permit.done())return {deleted:false,reason:'Ashby didn\'t confirm the delete',draftId};
   await go(`/schedules/${plan.interviewScheduleId}`);await go(`/schedules/${plan.interviewScheduleId}/drafts`);
-  const left=await page.locator(`a[href="/schedules/drafts/${state.draftId}"]`).count();
-  return left?{deleted:false,reason:'the draft is still listed after deleting',draftId:state.draftId}:{deleted:true,draftId:state.draftId};
+  const left=await page.locator(`a[href="/schedules/drafts/${draftId}"]`).count();
+  return left?{deleted:false,reason:'the draft is still listed after deleting',draftId}:{deleted:true,draftId};
 }
 
-module.exports={dryRun,openApplication,networkWatch,Refusal};
+// Delete the run's draft, with the discard permitted only now and only for it.
+async function discard(page,plan,state,h){
+  return deleteDraft(page,plan,state.draftId,{arm:()=>{state.cleanup=true;},done:()=>state.discarded},h);
+}
+
+// Delete a draft the Slack-approved check left in Ashby (the dashboard's sweep):
+// open the application, then delete exactly that draft. Its only permitted
+// write is that one delete; a draft no longer listed (sent, or deleted by a
+// person) is reported as absent. Never throws: the result says what happened.
+async function discardDraft({context,page,plan,draftId,log=()=>{},timing={},respond,expectedIdentity}){
+  const T={settle:700,short:1500,wait:15000,...timing};
+  const guard=await guardWrites(context,{warn:m=>log({type:'blocked',detail:m.replace('[write-guard] ','')})});
+  const flag={armed:false,discarded:undefined};
+  await installPermit(context,{op:OP.discard,max:1,log,...(respond?{respond}:{}),
+    bound:v=>flag.armed&&v.draftInterviewScheduleId===draftId,onResponse:json=>{flag.discarded=replied(json);}});
+  let step='open the application';
+  const refuse=m=>{throw new Refusal(step,m);};
+  const h=helpers(page,T,refuse);
+  try{
+    await openApplication(page,plan,{refuse,sleep:h.sleep,go:h.go,net:networkWatch(page,{sleep:h.sleep,wait:T.wait}),T,expectedIdentity});
+    step='delete the draft';
+    return await deleteDraft(page,plan,draftId,{arm:()=>{flag.armed=true;},done:()=>flag.discarded},{...h,T,allowAbsent:true});
+  }catch(e){return {deleted:false,draftId,step,reason:e.message};}
+  finally{log({type:'blocked-summary',blocked:[...new Set(guard.blocked.filter(b=>b.ashby).map(b=>b.summary))]});}
+}
+
+module.exports={dryRun,discardDraft,openApplication,networkWatch,Refusal};

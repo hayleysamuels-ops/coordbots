@@ -51,15 +51,29 @@ function createServer() {
       return Object.values(snapshot).filter(Array.isArray).flat().filter(c => c && c.applicationId);
     });
     app.use("/api/scheduling-review", require("./scheduling/routes").routes(scheduling));
+    const connectionConfig = require("./config");
+    const bookingWorker = require("./scheduling/booking-worker-client").createBookingWorkerClient({
+      url: connectionConfig.ashbyWorkerUrl, secret: connectionConfig.ashbyWorkerSecret,
+      clientId: connectionConfig.schedulingClientId, expectedIdentity: connectionConfig.ashbyExpectedIdentity,
+    });
+    // One rules instance: the routes read it, and the Ashby facts take its
+    // interviewer identity overrides (read only for a name that has them).
+    const schedulingRules = require("./scheduling/rules").loadRules({ clientId: connectionConfig.schedulingClientId });
+    const bookingFacts = require("./scheduling/booking-facts").createBookingFacts({key: connectionConfig.ashbyApiKey, clientId: connectionConfig.schedulingClientId, identityFor: name => schedulingRules.get().identityFor(name)});
     const slackConfig = require("./config");
     if (scheduling.slackApi && require("./scheduling/setup").slackInteractive(slackConfig)) {
+      // After a Slack approval: compose it in Ashby and leave it unsent
+      // (ashby-check.js; the worker decides whether the check is on).
+      const ashbyCheck = require("./scheduling/ashby-check").createAshbyCheck({ store: scheduling.store, worker: bookingWorker, facts: bookingFacts,
+        slackApi: scheduling.slackApi, clientId: connectionConfig.schedulingClientId });
+      ashbyCheck.recover().catch(e => console.warn(`[ashby-check] Recovery failed: ${e.message}`));
+      ashbyCheck.startSweeping();
       slackInteractions = require("./scheduling/slack-interactions").createSlackInteractions({
         service: scheduling, slackApi: scheduling.slackApi, signingSecret: slackConfig.schedulingSlackSigningSecret,
         teamId: slackConfig.schedulingSlackTeamId, appId: slackConfig.schedulingSlackAppId,
-        channelId: slackConfig.schedulingChannelId, approvers: slackConfig.schedulingSlackApprovers });
+        channelId: slackConfig.schedulingChannelId, approvers: slackConfig.schedulingSlackApprovers, ashbyCheck });
       console.log("[slack] Schedule button enabled: interactivity endpoint /api/slack/interactions is live.");
     }
-    const connectionConfig = require("./config");
     app.use("/api/ashby-connection", require("./scheduling/connection-routes").connectionRoutes({
       url: connectionConfig.ashbyWorkerUrl, secret: connectionConfig.ashbyWorkerSecret,
       clientId: connectionConfig.schedulingClientId, expectedIdentity: connectionConfig.ashbyExpectedIdentity,
@@ -72,19 +86,12 @@ function createServer() {
     });
     const googleFreeBusy = require("./scheduling/google-freebusy").createGoogleFreeBusy({connection:googleCalendar});
     app.use("/api/google-calendar", require("./scheduling/google-calendar-routes").googleCalendarRoutes({connection:googleCalendar,freeBusy:googleFreeBusy}));
-    const bookingWorker = require("./scheduling/booking-worker-client").createBookingWorkerClient({
-      url: connectionConfig.ashbyWorkerUrl, secret: connectionConfig.ashbyWorkerSecret,
-      clientId: connectionConfig.schedulingClientId, expectedIdentity: connectionConfig.ashbyExpectedIdentity,
-    });
     const bookingStore = require("./scheduling/booking-store").createBookingStore(connectionConfig.dataDir);
     const bookingEngine = require("./scheduling/booking-engine").createBookingEngine({
       store: bookingStore, clientId: connectionConfig.schedulingClientId,
       source: null, executor: null,
       userById: async id => connectionConfig.schedulingApprovers.some(a => a.username === id) ? { id, canApprove: true } : null,
     });
-    // One rules instance: the routes read it, and the Ashby facts take its
-    // interviewer identity overrides (read only for a name that has them).
-    const schedulingRules = require("./scheduling/rules").loadRules({ clientId: connectionConfig.schedulingClientId });
     app.use("/api/scheduling-booking", require("./scheduling/booking-routes").bookingRoutes({
       engine: bookingEngine, store: bookingStore, clientId: connectionConfig.schedulingClientId, googleCalendar, googleFreeBusy,
       discussion: scheduling,
@@ -94,7 +101,7 @@ function createServer() {
       inspectPlan: payload => bookingWorker.call("inspect-plan",payload),
       inspectCalendar: payload => bookingWorker.call("inspect-calendar",payload),
       inspectDraft: payload => bookingWorker.call("inspect-draft",payload),
-      facts: require("./scheduling/booking-facts").createBookingFacts({key: connectionConfig.ashbyApiKey, clientId: connectionConfig.schedulingClientId, identityFor: name => schedulingRules.get().identityFor(name)}),
+      facts: bookingFacts,
       capabilities: async () => { const worker = await bookingWorker.capabilities(); return {available: false, reason: worker.available ? "The booking executor is being connected to this dashboard. Sending remains disabled." : worker.reason}; },
     }));
   }

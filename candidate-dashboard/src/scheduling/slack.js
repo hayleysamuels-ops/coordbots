@@ -55,10 +55,38 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     type: "button", action_id: "schedule_option", style: "primary", text: { type: "plain_text", text: "Schedule" },
     value: JSON.stringify({ d: proposalId, g: draftDigest }),
     confirm: { title: { type: "plain_text", text: "Approve this schedule?" },
-      text: { type: "mrkdwn", text: "This records your approval of this exact schedule. *Nothing will be booked:* the dashboard doesn't book in Ashby yet, so no interviews are scheduled and no invitations or candidate email are sent. Book it in Ashby by hand after approving.\n\nOnce booking is live, approving will book it, so only approve a schedule you mean to book." },
+      text: { type: "mrkdwn", text: "This records your approval of this exact schedule. Where the Ashby check is on, the dashboard then composes it in Ashby as a draft and stops before Send, for a person to open and send; otherwise, book it in Ashby by hand. *Nothing is sent automatically:* no invitations or candidate email go out until someone clicks Send in Ashby.\n\nOnly approve a schedule you mean to book." },
       confirm: { type: "plain_text", text: "Approve" }, deny: { type: "plain_text", text: "Cancel" } } }] });
 
-  async function calendarChecked(plan, { proposalId, approver, digest: draftDigest }, approval = null) {
+  const when = at => new Intl.DateTimeFormat("en-US", { timeZone: displayTimeZone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(at));
+  // Where a left draft is, and how to delete one by hand: never "Delete
+  // Activity", which cancels the whole scheduling activity.
+  const scheduleIn = plan => `${escape(plan.candidateName)}'s ${escape(plan.bookingPlan?.activityTitle || "interview schedule")} in Ashby`;
+  const deleteByHand = plan => `Delete it from the Drafts tab of ${scheduleIn(plan)}, with the button beside the draft (never "Delete Activity").`;
+  // The Ashby check's state, under the approval (ashby-check.js). Every line
+  // says plainly whether anything is booked or sent.
+  function checkText(plan, check) {
+    const byHand = "*Not booked:* book this schedule in Ashby by hand.";
+    switch (check?.state) {
+      case "queued": return "*Waiting to be checked in Ashby,* after the schedules approved before it. Nothing is booked or sent.";
+      case "running": return `*Checking in Ashby* (started ${escape(when(check.startedAt))}): composing this schedule as the connected Ashby account, stopping before Send. Nothing will be booked or sent.`;
+      case "composed": return `*Composed and waiting in Ashby* (checked ${escape(when(check.composedAt))}): open ${scheduleIn(plan)}, go to its Drafts tab, open the draft and click Send.${check.from ? ` The candidate's confirmation email will come from ${escape(check.from)}.` : ""}\n*Not sent yet.* If it isn't sent by ${escape(when(check.deleteBy))}, the draft is deleted and this needs booking by hand. If you change it in Ashby, or send it much later, check calendars again first.`;
+      case "sent": return check.differences?.length
+        ? `*Sent in Ashby* (seen ${escape(when(check.sentSeenAt))}), *but what was booked differs from this approval:* ${escape(check.differences.join("; "))}. Check it in Ashby.`
+        : `*Sent in Ashby* (seen ${escape(when(check.sentSeenAt))}): what was booked matches this approval.`;
+      case "deleted": return `*Draft deleted unsent* at ${escape(when(check.deletedAt))}. *Not booked:* this needs booking in Ashby by hand.`;
+      case "gone": return `*The draft is no longer in Ashby* (seen ${escape(when(check.goneSeenAt))}), and the schedule hasn't been sent. ${byHand}`;
+      case "delete_failed": return `*The unsent draft couldn't be deleted* at ${escape(when(check.failedAt))} (${escape(check.reason)}). ${deleteByHand(plan)} ${byHand}`;
+      case "superseded": return `*Superseded* at ${escape(when(check.supersededAt))} by a later approval for this schedule${check.draftDeleted ? "; its draft was deleted" : ""}. Nothing from this message was sent.`;
+      case "refused": return `*The Ashby check stopped*${check.step ? ` at "${escape(check.step)}"` : ""}: ${escape(check.reason || "no reason was given")}\nNothing was sent. ${!check.draftId ? "No draft was made." : check.cleanup?.deleted ? "The draft it made was deleted." : `The draft it made may still be in Ashby. ${deleteByHand(plan)}`} ${byHand}`;
+      case "not_started": return `*The Ashby check didn't start:* ${escape(check.reason)} Nothing was sent and no draft was made. ${byHand}`;
+      case "uncertain": return `*The Ashby check didn't finish* (${escape(check.reason)}). Nothing was sent, but a draft may be left in Ashby. ${deleteByHand(plan)} ${byHand}`;
+      case "skipped": return `*Not booked yet.* Nothing has been scheduled in Ashby, and no invitations or candidate email have been sent. Book this schedule in Ashby by hand for now.\nNot checked in Ashby: ${/booking robot may use/.test(check.reason || "") ? "the check is only on for test candidates so far." : escape(check.reason || "the check is off.")}`;
+      default: return "*Not booked yet.* Nothing has been scheduled in Ashby, and no invitations or candidate email have been sent. Book this schedule in Ashby by hand for now.";
+    }
+  }
+
+  async function calendarChecked(plan, { proposalId, approver, digest: draftDigest }, approval = null, check = null) {
     // Interviewer names are plain text on purpose. Interviewers belong to the
     // client's Slack workspace and this bot to Carrara's, where the channel is,
     // so profile links and mentions aren't available regardless of scopes:
@@ -108,7 +136,7 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       { type: "section", text: mrkdwn("*Interview Plan:* to add\n*Shared Prompt:* to add\n*Shared Interview Prep:* to add\n*NDA Sent:* to confirm") },
       { type: "context", elements: [mrkdwn(`${escape(plan.notes)} Posted for discussion by ${escape(approver)}. Draft reference: ${escape(proposalId)}`)] },
     ];
-    if (approval) blocks.push({ type: "section", text: mrkdwn(`*Approved* by ${escape(approval.name || approval.email)} (${escape(approval.email)}) at ${escape(new Intl.DateTimeFormat("en-US", { timeZone: displayTimeZone, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(approval.at)))}.\n*Not booked yet.* Nothing has been scheduled in Ashby, and no invitations or candidate email have been sent. Book this schedule in Ashby by hand for now.`) });
+    if (approval) blocks.push({ type: "section", text: mrkdwn(`*Approved* by ${escape(approval.name || approval.email)} (${escape(approval.email)}) at ${escape(new Intl.DateTimeFormat("en-US", { timeZone: displayTimeZone, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(approval.at)))}.\n${checkText(plan, check)}`) });
     else if (interactive && draftDigest) blocks.push(scheduleButton(proposalId, draftDigest));
     // The fallback shows in notifications and has no names or links.
     const text = `Interview schedule draft for ${plan.candidateName} · ${plan.jobTitle}: ${clashes ? `needs attention (${clashes} calendar clash${clashes === 1 ? "" : "es"}), ` : ""}for discussion, nothing booked.`;
@@ -121,8 +149,10 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
 
   // After an approval: the same message, button removed, approval shown.
   send.markApproved = async ({ channel, ts, row }) => {
-    const { blocks, text } = await calendarChecked(row.plan, { proposalId: row.id, approver: row.discussionApproval?.by || "a coordinator" }, row.slackApproval);
-    const { ok, body } = await api("chat.update", { channel, ts, blocks, text: `${text} Approved by ${row.slackApproval.name || row.slackApproval.email}; not booked.` });
+    const { blocks } = await calendarChecked(row.plan, { proposalId: row.id, approver: row.discussionApproval?.by || "a coordinator" }, row.slackApproval, row.ashbyCheck);
+    // The notification text: no names beyond the approver's, and the state.
+    const status = { queued: "waiting to be checked in Ashby; not booked", running: "being checked in Ashby; not booked", composed: "composed in Ashby, not sent yet", sent: "sent in Ashby" }[row.ashbyCheck?.state] || "not booked";
+    const { ok, body } = await api("chat.update", { channel, ts, blocks, text: `Interview schedule for ${row.plan.candidateName} · ${row.plan.jobTitle}: approved by ${row.slackApproval.name || row.slackApproval.email}; ${status}.` });
     if (!ok || body.ok !== true) throw new Error("The Slack message couldn't be updated");
   };
   // Refusals and problems are answered in the post's thread, visible to the channel.

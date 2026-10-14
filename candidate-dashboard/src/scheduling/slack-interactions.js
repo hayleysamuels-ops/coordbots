@@ -11,7 +11,9 @@
 //      as. Nothing in the payload chooses a channel, a draft or an approver.
 // The clicking user is resolved to an email by Slack's own users.info, never
 // taken from the payload, and must be on SCHEDULING_SLACK_APPROVERS.
-// Recording an approval never books anything (service.approveInSlack).
+// Recording an approval never books anything (service.approveInSlack). With
+// `ashbyCheck`, an approved schedule is then composed in Ashby as a draft and
+// left for a person to send (ashby-check.js); nothing is sent automatically.
 const crypto = require("crypto");
 
 const WINDOW_S = 300;
@@ -30,7 +32,7 @@ function verifySlackRequest({ rawBody, headers, secret, now = Date.now(), seen }
   return null;
 }
 
-function createSlackInteractions({ service, slackApi, signingSecret, teamId, appId, channelId, approvers, now = () => Date.now(), log = console }) {
+function createSlackInteractions({ service, slackApi, signingSecret, teamId, appId, channelId, approvers, ashbyCheck = null, now = () => Date.now(), log = console }) {
   const seen = new Map(), allowed = new Set(approvers.map(e => e.toLowerCase()));
   const when = ms => new Date(ms).toISOString();
 
@@ -48,7 +50,10 @@ function createSlackInteractions({ service, slackApi, signingSecret, teamId, app
     try {
       const row = await service.approveInSlack({ draftId: value.d, digest: value.g, channelId: payload.channel.id, messageTs: message.message_ts,
         approver: { email: who.email.toLowerCase(), slackUserId: payload.user.id, name: who.name } });
-      await slackApi.markApproved({ channel: payload.channel.id, ts: message.message_ts, row });
+      // Queued first, so the message never briefly says "book by hand" for a
+      // schedule that's about to be checked.
+      const queued = ashbyCheck ? await ashbyCheck.start(row).catch(e => { log.warn(`[slack] The Ashby check couldn't be queued: ${e.message}`); return null; }) : null;
+      await slackApi.markApproved({ channel: payload.channel.id, ts: message.message_ts, row: queued || row });
     } catch (e) {
       if (!e.status) log.warn(`[slack] Schedule click failed: ${e.message}`);
       return reply(e.status ? `${e.message} Nothing was recorded.` : "The approval couldn't be recorded. Nothing was recorded; try again.");

@@ -3,7 +3,7 @@ const express=require("express");
 const {verifier}=require("../src/scheduling/worker-auth");
 const {createConnection}=require("./connection");
 const {createVault}=require("./session-vault");
-function createWorkerApp({connection,secret,clientId,expectedIdentity,draftReader}) {
+function createWorkerApp({connection,secret,clientId,expectedIdentity,draftReader,ashby=null}) {
   if(!clientId || !expectedIdentity) throw new Error("Worker client is required");
   const verify=verifier(secret),app=express();
   app.get("/health",(req,res)=>res.json({service:"scheduling-connection",bookingEnabled:false}));
@@ -28,7 +28,7 @@ function createWorkerApp({connection,secret,clientId,expectedIdentity,draftReade
       res.json(result);
     }catch(error){res.status(error.status||503).json({error:error.status?error.message:"Ashby connection unavailable. No connection success has been confirmed."});}
   });
-  app.use("/booking",require("./booking-routes").bookingRoutes({secret,clientId,expectedIdentity,draftReader}));
+  app.use("/booking",require("./booking-routes").bookingRoutes({secret,clientId,expectedIdentity,draftReader,ashby}));
   return app;
 }
 async function start(){
@@ -40,13 +40,16 @@ async function start(){
   // The dashboard cannot choose or change browser isolation.
   const chromium=require("playwright").chromium;
   await require("./runtime-check").checkRuntime(chromium,isolation==="sandbox");
-  console.log("[connection] browser launch verified; isolation="+isolation+"; booking disabled");
+  console.log("[connection] browser launch verified; isolation="+isolation+"; Ashby check "+(process.env.BOOKING_COMPOSE==="on"?"on (allowlisted applications only; never sends)":"off"));
   const vault=createVault(process.env.ASHBY_SESSION_FILE,process.env.ASHBY_SESSION_KEY);
   const connection=createConnection({clientId,expectedIdentity:process.env.ASHBY_EXPECTED_IDENTITY,
     chromium,chromiumSandbox:isolation==="sandbox",
     vault});
   const draftReader=require("./draft-reader").createDraftReader({chromium,vault,connection,clientId,expectedIdentity:process.env.ASHBY_EXPECTED_IDENTITY,chromiumSandbox:isolation==="sandbox"});
-  const app=createWorkerApp({connection,draftReader,clientId,expectedIdentity:process.env.ASHBY_EXPECTED_IDENTITY,secret:process.env.ASHBY_WORKER_SECRET});
+  // The Slack-approved check (booking-compose.js) reads BOOKING_COMPOSE from
+  // this env on every request; unset, it answers "skipped".
+  const ashby={env:process.env,chromium,loadSession:()=>vault.load(),connection};
+  const app=createWorkerApp({connection,draftReader,ashby,clientId,expectedIdentity:process.env.ASHBY_EXPECTED_IDENTITY,secret:process.env.ASHBY_WORKER_SECRET});
   const server=app.listen(process.env.PORT||3001,"::");
   process.on("SIGTERM",()=>{server.close();connection.close().finally(()=>process.exit(0));});
 }

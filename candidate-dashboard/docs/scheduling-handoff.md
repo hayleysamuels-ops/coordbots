@@ -634,13 +634,16 @@ the draft is deleted. Send is never a permitted write, so the guard would block 
 even if clicked.
 
 - **A command, not a route.** Nothing the worker serves or the dashboard runs loads
-  it; `test/booking-dry-run-worker.test.js` fails if `worker/` or `src/` ever does.
+  it. The Slack-approved check below reaches the composer through
+  `worker/booking-compose.js` instead; `test/booking-dry-run-worker.test.js`
+  fails if anything else in `worker/`, or anything in `src/`, loads the robot.
   The image still starts `bootstrap.js`.
 - **Two locks, checked before the session is read or a browser starts:**
   `BOOKING_DRY_RUN=on` on the worker (unset by default; setting it redeploys the
   worker, but `railway variable delete` did not, so run `railway redeploy`
-  afterwards and wait for the new deployment), and an allowlist of applications in the file
-  (only TEST, `8dfd8f14`, with its job, candidate, email and two schedules).
+  afterwards and wait for the new deployment), and an allowlist of applications in
+  `worker/booking-locks.js` (only TEST, `8dfd8f14`, with its job, candidate, email
+  and two schedules), shared with the Slack-approved check.
   Adding an application takes a commit.
 - **Checks before any write:** the plan is complete, starts at least 15 minutes
   out, and the saved session is for this client and `ASHBY_EXPECTED_IDENTITY`. In
@@ -680,7 +683,66 @@ even if clicked.
     out by Ashby about 3 seconds after load, so the worker's session path
     can't be reproduced locally; it works in the worker.
   - It can't see whether the dashboard is reading Ashby at the same moment. Run
-    it when nobody is.
+    it when nobody is. (The Slack-approved check below takes turns with the
+    dashboard's inspections; the SSH command doesn't.)
+
+## The Ashby check after a Slack approval (October 14, 2026)
+
+Approving a calendar-checked post with Slack's Schedule button now has the worker
+compose that schedule in Ashby, as the connected account, and stop at Ashby's own
+Schedule button, which it never clicks. On success the draft is **left in Ashby**
+for a person to open and send; any refusal deletes it. Nothing sends invitations
+or candidate email: Send isn't a permitted write, and a test fails if any worker
+file permits it or the composer clicks Schedule.
+
+- **Off switch and allowlist:** `BOOKING_COMPOSE=on` on the scheduling worker
+  (unset by default; after deleting it, `railway redeploy`), and the TEST-only
+  allowlist in `worker/booking-locks.js`. When either is shut, the approval is
+  recorded, the check is "skipped", and the message says to book by hand.
+- **The plan is fixed at posting.** When a calendar-checked option is posted,
+  `bookingPlanForPost` (`src/scheduling/booking-plan.js`) builds the composer's
+  plan from the option and Ashby's application (the activity holding every
+  session's interview gives the card title) and stores it in the draft's plan, so
+  the approval's digest covers exactly what's composed. Posts made before this
+  change have no plan, so approving one just records the approval. The plan's
+  zone is the candidate's availability zone, per the October 14 finding above.
+- **How it runs** (`src/scheduling/ashby-check.js`): the approving click queues the
+  check (`ashbyCheck` on the draft, revision-checked). Checks run one at a time in
+  approval order, each as one signed `compose` request to the worker
+  (`worker/booking-compose.js`, 5-minute timeout; the worker stops at 4 minutes).
+  In the worker, Ashby work takes turns: a check waits up to 2 minutes for running
+  inspections, and an inspection during a check gets "Ashby is busy". A check also
+  won't start while the Ashby sign-in window is open.
+- **Before making a draft** the check reads the schedule's Drafts tab. A draft the
+  dashboard composed for the same schedule earlier (from an earlier approval) is
+  deleted first, by its recorded ID, and that earlier message says "Superseded".
+  Any other draft refuses: someone else's draft could be sent by mistake.
+- **States, each shown on the approved Slack message:** queued, running, composed
+  ("Composed and waiting in Ashby … open it and click Send", with the sender and the
+  delete deadline), skipped, refused (the step and reason; the draft deleted, or
+  where to delete it by hand), not started (the worker refused before starting),
+  uncertain (no clear answer; a draft may be left, with how to delete it). Nothing
+  is retried. After a restart, a check still running is marked uncertain, and one
+  still queued "didn't start".
+- **The sweep** (every 5 minutes, same queue): for each composed draft it reads the
+  schedule from Ashby's API. Sent (`Scheduled` or later) is recorded with whether
+  what was booked matches the approval (times and interviewers per session); a sent
+  schedule is never deleted. Unsent, the draft is deleted at whichever comes first:
+  two hours before the first interview, or 24 hours after composing. The message
+  then says when it was deleted and that it needs booking by hand. A draft already
+  gone is "no longer in Ashby"; a delete that fails says so and how to delete it by
+  hand. An unreadable schedule is left for the next sweep.
+- **Not yet verified, and settled by the first TEST approval from Slack:**
+  - Whether a draft made under Anna's account is visible to, and sendable by, other
+    Ashby users, or only Anna.
+  - Whether a reopened draft keeps everything, including "Calendar Invites: Send
+    Now" and the confirmation email settings.
+  - Who invitations come from when someone other than Anna clicks Send.
+  - That Ashby's Drafts tab lists every draft on a schedule (the "no other
+    drafts" check relies on it).
+  - TEST is at Onsite Interview in Ashby (October 14), whose schedule isn't on the
+    allowlist. The first test needs TEST back at First Round (or Initial Screen)
+    with availability submitted, or the Onsite schedule added to the allowlist.
 
 ## Next work, in order
 

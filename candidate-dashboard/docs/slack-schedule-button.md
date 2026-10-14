@@ -4,6 +4,11 @@ Status: analysis written 25 September 2026, based on `feature/client-ashby-conne
 at `ad5b592` (after the scheduling flag, PR #4). **Phase one is built** (see below);
 the interactive Slack button, its endpoint and approver mapping are phase two.
 
+**Update, October 14, 2026:** approving now also composes the schedule in Ashby as a
+draft and leaves it for a person to send (TEST only, behind `BOOKING_COMPOSE`).
+Nothing is sent automatically. See the handoff's "The Ashby check after a Slack
+approval".
+
 ## Phase two, stage 1: the Schedule button (built September 29, 2026)
 
 Built: the interactive button, the public endpoint, signature checks and the
