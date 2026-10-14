@@ -25,7 +25,9 @@ const plan={jobId:'job-1',candidateId:'cand-1',applicationId:'app-1',interviewSc
 // named menu item sends.
 // `submitted` shows the availability-submitted card instead: a bare "Schedule"
 // button (which must never be clicked) beside "Start Manual Schedule".
-function app({menu=['Send Direct Booking Link','Request Candidate Availability','Manual Schedule','View All Scheduling Options'],dialogAfterManual=null,strayWrite=null,submitted=false}={}){
+// `zone` gives the composer one session's fields and a time-zone button with
+// that label ('' for no button).
+function app({menu=['Send Direct Booking Link','Request Candidate Availability','Manual Schedule','View All Scheduling Options'],dialogAfterManual=null,strayWrite=null,submitted=false,zone=null}={}){
   return `<!doctype html><html><body><nav><a href="/candidates/pipeline">Pipeline</a></nav><main id="m"></main><script>
   let deleted=false;
   const gql=(name,variables)=>fetch('/api/graphql',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operationName:name,query:'mutation '+name+' { x }',variables})}).then(r=>r.json());
@@ -46,7 +48,8 @@ function app({menu=['Send Direct Booking Link','Request Candidate Availability',
     } else if(p.endsWith('/drafts')){
       m.innerHTML='<h2>Draft Schedules</h2>'+(deleted?'':'<div><a href="/schedules/drafts/draft-1">open</a><button id="del"></button></div>');
       const b=document.getElementById('del');if(b)b.onclick=async()=>{const r=await gql('${OP.discard}',{draftInterviewScheduleId:'draft-1'});if(r.data)deleted=true;};
-    } else if(p.startsWith('/schedules/drafts/')){m.innerHTML='<h1>Scheduling TEST TEST Initial Screen Unsaved</h1>';}
+    } else if(p.startsWith('/schedules/drafts/')){m.innerHTML='<h1>Scheduling TEST TEST Initial Screen Unsaved</h1>'+(${JSON.stringify(zone)}===null?'':
+      (${JSON.stringify(zone)}?'<button aria-label="Select a timezone">'+${JSON.stringify(zone)}+'</button>':'')+'<input aria-label="Set interview date..."><input role="combobox" aria-label="Start..."><input role="combobox" aria-label="End...">');}
   }
   addEventListener('popstate',render);render();
   </script></body></html>`;
@@ -102,6 +105,18 @@ test('a write the booking doesn\'t permit is blocked and stops the run',async t=
   assert.equal(r.report.status,'refused');assert.match(r.report.reason,/doesn't permit: POST \/api\/graphql mutation ApiSendDirectBookingLink/);
   assert.ok(!r.received.includes('ApiSendDirectBookingLink'),'it never reached the stand-in');
   assert.deepEqual(r.report.cleanup,{deleted:true,draftId:'draft-1'});
+});
+
+test('a composer in another time zone is refused, naming the zone it shows, and the draft is deleted',async t=>{
+  for(const [zone,shown] of [['EDT','"EDT"'],['',"no time zone \\(there's no \"Select a timezone\" button\\)"]]){
+    const r=await run(t,{appOptions:{zone}});if(!r)return;
+    assert.equal(r.report.status,'refused');assert.equal(r.report.step,'compose session 1 ("Initial")');
+    assert.match(r.report.reason,new RegExp(`^The composer shows times in ${shown}, not MDT; the account's time zone must match the plan's \\(America/Denver\\)\\.$`));
+    assert.deepEqual(r.received,[OP.create,OP.discard],'nothing was saved');
+  }
+  // The plan's own zone passes the check; the bare stand-in then stops at the session editor.
+  const r=await run(t,{appOptions:{zone:'MDT'}});if(!r)return;
+  assert.match(r.report.reason,/Couldn't find the editor for session 1/);
 });
 
 test('availability submitted: starts from "Start Manual Schedule", never the bare "Schedule" beside it',async t=>{

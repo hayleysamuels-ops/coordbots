@@ -190,8 +190,16 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     for(let i=0;i<plan.sessions.length;i++){
       const s=plan.sessions[i],a=formats(s.start,plan.timeZone),b=formats(s.end,plan.timeZone),eventId=state.last[i].id,what=`session ${i+1} ("${s.title}")`;
       step=`compose ${what}`;
-      const zones=page.getByRole('button',{name:'Select a timezone',exact:true}).filter({hasText:new RegExp(`^${esc(a.zone)}$`)});
-      if(!(await zones.count()))refuse(`The composer doesn't show times in ${a.zone}; the account's time zone must match the plan's (${plan.timeZone}).`);
+      // The zone button can render a moment after the fields. A mismatch names
+      // what Ashby shows, since that's the only way to tell a wrong account
+      // zone from a different label for the right one.
+      const zoneButtons=page.getByRole('button',{name:'Select a timezone',exact:true});
+      {const d=Date.now()+T.wait;while(Date.now()<d&&!(await zoneButtons.count()))await sleep(250);}
+      const zones=zoneButtons.filter({hasText:new RegExp(`^${esc(a.zone)}$`)});
+      if(!(await zones.count())){
+        const shown=[...new Set((await zoneButtons.allInnerTexts()).map(t=>t.replace(/\s+/g,' ').trim().slice(0,40)))].slice(0,3);
+        refuse(`The composer shows times in ${shown.length?shown.map(t=>`"${t}"`).join(', '):'no time zone (there\'s no "Select a timezone" button)'}, not ${a.zone}; the account's time zone must match the plan's (${plan.timeZone}).`);
+      }
       const wantDate=a.shortDate.replace(/, \d{4}$/,'');// "Tue, Oct 20"
       {const {date}=await editor(eventId,what);
         if(await date.inputValue()!==wantDate)await after(async()=>{await date.click();await date.fill(wantDate);await page.keyboard.press('Enter');});}
