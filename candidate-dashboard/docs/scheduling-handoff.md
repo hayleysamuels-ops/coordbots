@@ -631,9 +631,14 @@ even if clicked.
   1. Build the plan locally from the dashboard's calendar-checked preview with
      `src/scheduling/booking-plan.js`, with `accountTimeZone: 'America/New_York'`
      (Anna's Ashby account, confirmed October 13, 2026). The robot types and
-     checks times in that zone, e.g. 19:00Z on October 15 is "3:00pm EDT". Every
-     local run used Hayley's America/Denver account, so Ashby's Eastern labels
-     are unconfirmed; a mismatch refuses rather than saving a wrong time.
+     checks times in that zone, e.g. 19:00Z on October 15 is "3:00pm EDT".
+     Ashby takes the display zone from the account's connected Google Calendar
+     (read-only in Ashby; the browser's zone doesn't change it), and writes
+     Eastern as "EDT". Every local run had the account and the candidate on
+     America/Denver, so it's still unknown whether the candidate invite and
+     confirmation email use the account's zone or the candidate's. The first
+     worker run settles it: a mismatch refuses at the candidate invite check,
+     before Schedule, and the draft is deleted.
   2. Run `railway ssh -s scheduling-worker -- node worker/booking-dry-run.js
      --plan-base64 <base64 plan JSON>`. It runs as the worker's user, has a
      240-second deadline (exit 124, naming any draft left behind), and prints a
