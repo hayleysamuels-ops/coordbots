@@ -113,8 +113,12 @@ const DEFAULT_EXCLUDED_JOB_TITLES = ["test", "test pipeline", "testing", "do not
 // go in as separate entries (Ashby shows "Tess Wicks" while the account
 // is theresa.wicks@..., so a future rename is already covered).
 const DEFAULT_COORDINATORS = [
+  // Ashby's display name is "Tess Wicks" even though the account is
+  // theresa.wicks@january.com. The "Theresa Wicks" alias was removed: it
+  // matched nothing and produced a permanent false alarm, and a genuine
+  // rename is already caught by the renames report (same user id, new
+  // name) rather than needing to be guessed in advance.
   "Tess Wicks",
-  "Theresa Wicks",
   "Kelley Lantigua",
   "Sadiqeh Agah",
   "Anna Jones",
@@ -170,6 +174,11 @@ const clients = clientIds.map((id) => {
     // Per-client override of the roster; defaults to the shared list so a
     // coordinator moving between accounts needs no config change.
     coordinators: nameList(`CARRARA_COORDINATORS_${envSuffix(id)}`, globalCoordinators),
+    // True only when this client has its own explicit roster. The
+    // "no events here for X" warning is only meaningful when someone has
+    // actually said X works this client — against the shared default it
+    // just lists everyone assigned elsewhere, which buries the signal.
+    hasOwnRoster: process.env[`CARRARA_COORDINATORS_${envSuffix(id)}`] != null,
   };
 });
 

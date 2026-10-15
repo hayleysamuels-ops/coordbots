@@ -564,8 +564,15 @@ function computeScope(client, keepScheduler) {
   // counts in full but nothing already booked for next week does.
   const tomorrow = dayKeyOffset(-1, timeZone);
 
+  // "all" is the full history window. Its previous period has no data to
+  // compare against (nothing is stored before the window), so change()
+  // reports "no baseline" rather than inventing a percentage.
+  //
+  // It is not optional: the period control offers "12 months" and
+  // defaults to it, so a missing periods.all makes every stat tile throw
+  // and the whole tab render as an error.
   const periods = {};
-  for (const [name, days] of [["week", 7], ["month", 30], ["quarter", 90]]) {
+  for (const [name, days] of [["week", 7], ["month", 30], ["quarter", 90], ["all", config.historyMonths * 30]]) {
     const currentFrom = dayKeyOffset(days, timeZone);
     const previousFrom = dayKeyOffset(days * 2, timeZone);
     const current = sumWindow(dailySeries, currentFrom, tomorrow);
@@ -709,9 +716,15 @@ function buildRosterReport(client) {
   return {
     configured: roster,
     matched: matched.sort((a, b) => b.events - a.events),
-    // A rostered name with no events HERE. Surfaced rather than silently
-    // contributing nothing.
+    // A rostered name with no events HERE.
+    //
+    // Only reported when this client has an explicit roster of its own.
+    // Against the shared default every coordinator assigned to another
+    // client would appear here — six of seven on Luminai — which drowns
+    // the case worth seeing. Names matching nothing at ANY client are
+    // reported separately on the overview regardless.
     unmatched: roster.filter((name) => !matchedNames.has(config.normalizeName(name))),
+    reportUnmatched: Boolean(client.hasOwnRoster),
     collisions: [...idsByName.entries()]
       .filter(([key, ids]) => ids.size > 1 && rosterSet.has(key))
       .map(([key, ids]) => ({ name: key, userIds: [...ids] })),

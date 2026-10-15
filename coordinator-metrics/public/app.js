@@ -561,7 +561,7 @@ function renderRoster(fullPayload) {
     el("h3", { text: "Who this counts" }),
     el("p", {
       text:
-        `Scheduling by ${roster.matched.length} of the ${roster.configured.length} rostered coordinators was found at ` +
+        `${roster.matched.length} of the ${roster.configured.length} rostered coordinators scheduled at ` +
         `${fullPayload.clientName}: ` +
         (roster.matched.length
           ? roster.matched.map((m) => `${m.name} (${num(m.events)})`).join(", ")
@@ -569,7 +569,7 @@ function renderRoster(fullPayload) {
     }),
   ];
 
-  if (roster.unmatched.length) {
+  if (roster.unmatched.length && roster.reportUnmatched) {
     children.push(
       el("p", {
         style: "margin-top:8px",
