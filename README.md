@@ -40,7 +40,7 @@ reads it.
 | poetic-worktrialtracker | `scheduling-worker` | no connected repo: deployed by CLI upload (`railway up`), Dockerfile `worker/Dockerfile`, last deployed 18 September 2026 |
 | poetic-worktrialtracker | `Postgres` | Railway Postgres image |
 | Feedback Reminder Bot | `Feedback Reminder Bot` | this repo, branch `main`, root `/ashby-scorecard-bot`, rebuilds only on changes under `/ashby-scorecard-bot/**` |
-| coordinator-metrics | `coordinator-metrics` | this repo, branch `main`, root `/coordinator-metrics`, rebuilds only on changes under `/coordinator-metrics/**`. Unlike the six per-client dashboards this is a SINGLE deployment holding every client's Ashby key, with a volume for its SQLite history |
+| coordinator-metrics | `coordinator-metrics` | this repo, branch `main`, root `/coordinator-metrics`, rebuilds only on changes under `/coordinator-metrics/**` except `*.md`. **Its watch patterns come from `coordinator-metrics/railway.json`, not the dashboard** — config-as-code overrides the UI, so editing them there is silently ignored. Unlike the six per-client dashboards this is a SINGLE deployment holding every client's Ashby key, with a volume for its SQLite history |
 | dashboard-luminai | `candidate-channel-bot` | this repo, branch `main`, root `/candidate-channel-bot`, rebuilds only on changes under `/candidate-channel-bot/**` |
 
 **Profound's dashboard is intentionally switched off.** Its `coordbots` service has no running

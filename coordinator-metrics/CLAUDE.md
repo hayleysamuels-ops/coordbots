@@ -90,6 +90,20 @@ is the short list of things that look wrong and are not.
   A client-facing per-client view needs real per-user auth, and keeping the
   decision in one file is what makes that a contained change.
 
+- **Watch patterns live in `railway.json`, NOT the Railway dashboard.**
+  Config-as-code overrides the dashboard for any field it sets, so editing
+  watch paths in the UI will appear to work and then be silently ignored on
+  the next deploy — change `railway.json` instead. Two things to know about
+  the patterns: they are **repo-root-relative even though the service has a
+  root directory** (hence the `/coordinator-metrics/` prefix on every one),
+  and a `!` negation only takes effect if an earlier rule included the files
+  it excludes, so the broad include has to come first. The root directory
+  itself is the one setting that cannot go in this file and still lives in
+  the dashboard.
+
+- **Doc-only changes deliberately do not redeploy.** A redeploy restarts the
+  container mid-sync, and the nightly full sync takes about 21 minutes.
+
 ## Conventions
 
 - No build step and no frontend framework, matching the sibling dashboards.

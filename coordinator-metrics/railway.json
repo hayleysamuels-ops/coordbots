@@ -1,0 +1,10 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "watchPatterns": [
+      "/coordinator-metrics/**",
+      "!/coordinator-metrics/*.md",
+      "!/coordinator-metrics/**/*.md"
+    ]
+  }
+}
