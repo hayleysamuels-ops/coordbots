@@ -177,6 +177,9 @@ cat <<'DONE'
 
       curl -X POST -u carrara:<password> https://<domain>/api/sync?kind=full
 
-    It takes roughly ten minutes across five clients and the dashboard fills
-    in as each one finishes.
+    Measured on the real backfill: about 21 minutes wall clock for all five
+    at CLIENT_CONCURRENCY=2, with Forus alone taking 12 of them. The
+    dashboard fills in client by client as each finishes. Later full syncs
+    are much faster — the first one resolves every application from
+    scratch, nightly ones only refresh the Active few.
 DONE

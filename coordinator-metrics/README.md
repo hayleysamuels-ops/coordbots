@@ -129,6 +129,11 @@ runs that endpoint at without being rate-limited). On a first run that is
 Pruning the unreferenced rows took the database from 254MB to 37MB and
 changed no metric.
 
+Measured on the production backfill of 15 October 2026: 21 minutes wall
+clock for all five clients at `CLIENT_CONCURRENCY=2` — Forus 734s (21,366
+schedules, 18,268 events, 7,483 applications), January 250s, Poetic 157s,
+Runlayer 65s, Luminai 45s.
+
 Anything referenced by a schedule but missing from the database renders as
 "Unknown role", so this step is not optional: before it existed, 132 of
 Runlayer's 730 events — 18% of the dashboard — sat under Unknown role.

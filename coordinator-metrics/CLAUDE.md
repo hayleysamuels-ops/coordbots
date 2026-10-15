@@ -14,7 +14,10 @@ is the short list of things that look wrong and are not.
   that stored schedules actually reference, through `application.info` at
   concurrency 8. Pruning the rest changed no metric. Don't reintroduce a
   bulk sweep because "one call is cheaper than 8,000" — it isn't, after the
-  first run, and the first run is 10 minutes against 27.
+  first run. Measured against the real orgs: the first full backfill is
+  about 21 minutes wall clock for five clients at concurrency 2 (Forus
+  12 of them, resolving 7,483 applications), and every nightly run after
+  that only refreshes applications still marked Active.
 
 - **Applications are synced AFTER schedules, not before.** The set worth
   fetching is defined by which schedules exist, so the order is load-bearing,
