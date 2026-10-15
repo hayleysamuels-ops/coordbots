@@ -7,18 +7,19 @@
  * nothing to bundle and nothing to load from a CDN.
  */
 
-const PERIOD_LABEL = {
-  week: "last 7 days",
-  month: "last 30 days",
-  quarter: "last 90 days",
-  all: "last 12 months",
-};
+// The period and scope option lists come from /api/config, not from a
+// copy here: a hardcoded list that drifts from what the server produces
+// is what took the dashboard down twice.
+function periodLabel(key) {
+  const match = (state.config.periods || []).find((p) => p.key === key);
+  return match ? match.description : key;
+}
 
 const state = {
   config: null,
   active: "overview",
-  period: "all",
-  scope: "coordinated",
+  period: null,
+  scope: null,
   payloads: new Map(),
 };
 
@@ -256,7 +257,7 @@ function heatmapGrid(cells, timeZone) {
  * the gap is visible instead of looking like low output.
  */
 function scopeControl(onChange) {
-  const options = [["coordinated", "Carrara-coordinated"], ["all", "All activity"]];
+  const options = (state.config.scopes || []).map((s) => [s.key, s.label]);
   return el(
     "div",
     { class: "segmented" },
@@ -275,10 +276,7 @@ function scopeControl(onChange) {
 }
 
 function periodControl(onChange) {
-  // "12 months" exists because the breakdowns below always showed the full
-  // window. Wiring the toggle to them without it would have quietly
-  // reduced every table to 90 days.
-  const options = [["week", "7 days"], ["month", "30 days"], ["quarter", "90 days"], ["all", "12 months"]];
+  const options = (state.config.periods || []).map((p) => [p.key, p.label]);
   return el(
     "div",
     { class: "segmented" },
@@ -382,7 +380,7 @@ function section(title, note, body, toolbar) {
 function renderClient(fullPayload) {
   const payload = fullPayload.scopes[state.scope];
   const period = payload.periods[state.period];
-  const periodLabel = PERIOD_LABEL[state.period];
+  const label = periodLabel(state.period);
 
   const frag = document.createDocumentFragment();
 
@@ -401,16 +399,16 @@ function renderClient(fullPayload) {
 
   frag.appendChild(
     el("div", { class: "stat-grid" }, [
-      stat(num(period.current.events), `Interviews coordinated, ${periodLabel}`, {
+      stat(num(period.current.events), `Interviews coordinated, ${label}`, {
         hero: true,
         deltaValue: period.change.events,
         sub: `${num(period.previous.events)} in the previous period`,
       }),
-      stat(num(Math.round(period.current.hours)) + "h", `Interview time placed on calendars, ${periodLabel}`, {
+      stat(num(Math.round(period.current.hours)) + "h", `Interview time placed on calendars, ${label}`, {
         deltaValue: period.change.hours,
         sub: `${num(Math.round(period.previous.hours))}h in the previous period`,
       }),
-      stat(num(period.current.candidates), `Candidates scheduled, ${periodLabel}`),
+      stat(num(period.current.candidates), `Candidates scheduled, ${label}`),
       stat(num(payload.totals.roles), "Roles supported", { sub: "distinct jobs with interview activity" }),
     ])
   );
@@ -483,7 +481,7 @@ function renderClient(fullPayload) {
         el("span", {}, [el("i", { class: "swatch", style: "background:var(--accent,#eb4e19)" }), "Interviews"]),
         el("span", {}, [
           el("i", { class: "swatch", style: "background:var(--accent,#eb4e19);opacity:.3" }),
-          state.period === "quarter" || state.period === "all"
+          state.period === "quarter" || state.period === "full"
             ? "This week so far, and booked ahead"
             : "Today, and booked ahead",
         ]),
@@ -496,7 +494,7 @@ function renderClient(fullPayload) {
   frag.appendChild(
     section(
       "Volume over time",
-      state.period === "quarter" || state.period === "all" ? "Each bar is one week." : "Each bar is one day.",
+      state.period === "quarter" || state.period === "full" ? "Each bar is one week." : "Each bar is one day.",
       chartHost,
       periodControl(() => render())
     )
@@ -505,7 +503,7 @@ function renderClient(fullPayload) {
   frag.appendChild(
     section(
       "By role",
-      `Every job with interview activity in the ${periodLabel}, busiest first.`,
+      `Every job with interview activity in the ${label}, busiest first.`,
       roleTable(payload.byRole[state.period])
     )
   );
@@ -517,7 +515,7 @@ function renderClient(fullPayload) {
   frag.appendChild(
     section(
       "When the work happens",
-      `Interview start times by day and hour over the ${periodLabel}, in ${fullPayload.timeZone}. Darker is busier.`,
+      `Interview start times by day and hour over the ${label}, in ${fullPayload.timeZone}. Darker is busier.`,
       heatmapGrid(payload.heatmap[state.period], fullPayload.timeZone)
     )
   );
@@ -681,14 +679,14 @@ function renderDataQuality(fullPayload, payload) {
 // The overview only has a weekly series, so the shorter periods take a
 // tail of it rather than switching to daily bars.
 function overviewSeries(payload) {
-  const weeks = { week: 2, month: 5, quarter: 13, all: payload.series.weekly.length };
+  const weeks = { week: 2, month: 5, quarter: 13, full: payload.series.weekly.length };
   return payload.series.weekly.slice(-(weeks[state.period] || payload.series.weekly.length));
 }
 
 function renderOverview(fullPayload) {
   const payload = fullPayload.scopes[state.scope];
   const period = payload.periods[state.period];
-  const periodLabel = PERIOD_LABEL[state.period];
+  const label = periodLabel(state.period);
   const frag = document.createDocumentFragment();
 
   frag.appendChild(
@@ -722,11 +720,11 @@ function renderOverview(fullPayload) {
 
   frag.appendChild(
     el("div", { class: "stat-grid" }, [
-      stat(num(period.current.events), `Interviews, ${periodLabel}`, {
+      stat(num(period.current.events), `Interviews, ${label}`, {
         deltaValue: period.change.events,
         sub: `${num(period.previous.events)} in the previous period`,
       }),
-      stat(num(Math.round(period.current.hours)) + "h", `Interview hours, ${periodLabel}`, {
+      stat(num(Math.round(period.current.hours)) + "h", `Interview hours, ${label}`, {
         deltaValue: period.change.hours,
       }),
       stat(num(payload.totals.shortNotice), "Short-notice bookings, 12 months"),
@@ -737,7 +735,7 @@ function renderOverview(fullPayload) {
   frag.appendChild(
     section(
       "Total volume by week",
-      `Every client combined, over the ${periodLabel}. Weeks are Monday-start.`,
+      `Every client combined, over the ${label}. Weeks are Monday-start.`,
       el("div", {}, [
         barChart(overviewSeries(payload), { fadeFrom: fullPayload.currentWeek, labelFn: formatDay }),
         el("div", { class: "legend" }, [
@@ -961,5 +959,9 @@ async function renderFooter() {
   }
 
   document.title = state.config.title;
+  // Defaults come from the server so the UI can never select a period the
+  // backend does not produce.
+  state.period = state.config.defaultPeriod || (state.config.periods || [{}])[0].key;
+  state.scope = state.config.defaultScope || (state.config.scopes || [{}])[0].key;
   render();
 })();

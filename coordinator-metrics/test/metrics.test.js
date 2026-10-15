@@ -134,11 +134,11 @@ test("excludes holds by title but keeps debriefs", () => {
 
 test("resolves role and department through the application join", () => {
   const payload = computeClient(CLIENT);
-  const role = payload.byRole.all.find((r) => r.title === "Software Engineer");
+  const role = payload.byRole.full.find((r) => r.title === "Software Engineer");
   assert.ok(role, "events should join through to their job");
   assert.strictEqual(role.department, "Engineering");
   assert.strictEqual(role.candidates, 1);
-  assert.ok(!payload.byRole.all.some((r) => r.title === "Unknown role"), "nothing should fall out of the join");
+  assert.ok(!payload.byRole.full.some((r) => r.title === "Unknown role"), "nothing should fall out of the join");
 });
 
 test("counts interviewer seats, not just interviews", () => {
@@ -299,7 +299,7 @@ test("related job titles are three rows, never merged into the parent role", () 
   seedJobEvent({ id: "r-grad", jobId: "job-grad", jobTitle: "Forward Deployed Engineer - New Grad ", openedAt: iso(-250) });
 
   const payload = computeClient(ROLE_CLIENT);
-  const fde = payload.byRole.all.filter((r) => r.title.startsWith("Forward Deployed Engineer"));
+  const fde = payload.byRole.full.filter((r) => r.title.startsWith("Forward Deployed Engineer"));
   assert.strictEqual(fde.length, 3, "three job records must stay three rows");
   assert.ok(fde.every((r) => r.events === 1), "each keeps its own count");
 });
@@ -307,10 +307,10 @@ test("related job titles are three rows, never merged into the parent role", () 
 test("trailing whitespace is trimmed for display but never changes grouping", () => {
   const payload = computeClient(ROLE_CLIENT);
   assert.ok(
-    payload.byRole.all.some((r) => r.title === "Forward Deployed Engineer - New Grad"),
+    payload.byRole.full.some((r) => r.title === "Forward Deployed Engineer - New Grad"),
     "the stored title ends in a space; the rendered one must not"
   );
-  assert.ok(!payload.byRole.all.some((r) => r.title !== r.title.trim()), "no rendered title keeps stray whitespace");
+  assert.ok(!payload.byRole.full.some((r) => r.title !== r.title.trim()), "no rendered title keeps stray whitespace");
 });
 
 test("two job records with the same title are numbered, oldest req first", () => {
@@ -318,7 +318,7 @@ test("two job records with the same title are numbered, oldest req first", () =>
   seedJobEvent({ id: "r-ds-new", jobId: "job-ds-new", jobTitle: "Deployment Strategist", openedAt: iso(-50) });
 
   const payload = computeClient(ROLE_CLIENT);
-  const ds = payload.byRole.all.filter((r) => r.title.startsWith("Deployment Strategist"));
+  const ds = payload.byRole.full.filter((r) => r.title.startsWith("Deployment Strategist"));
   assert.strictEqual(ds.length, 2);
   assert.deepStrictEqual(
     ds.map((r) => r.title).sort(),
@@ -336,7 +336,7 @@ test("a test req is excluded from every total, not just hidden from the table", 
   assert.strictEqual(after.totals.events, before.totals.events, "a test req must not inflate the interview count");
   assert.strictEqual(after.totals.roles, before.totals.roles, "nor the role count");
   assert.strictEqual(after.totals.excludedJobEvents, 1, "and the exclusion is reported, not silent");
-  assert.ok(!after.byRole.all.some((r) => r.title.toLowerCase().includes("test")));
+  assert.ok(!after.byRole.full.some((r) => r.title.toLowerCase().includes("test")));
 });
 
 test("exclusion is an exact title match, so a real Test Engineer role survives", () => {
@@ -344,7 +344,7 @@ test("exclusion is an exact title match, so a real Test Engineer role survives",
 
   const payload = computeClient(ROLE_CLIENT);
   assert.ok(
-    payload.byRole.all.some((r) => r.title === "Test Engineer"),
+    payload.byRole.full.some((r) => r.title === "Test Engineer"),
     "a substring rule would have silently deleted this genuine role"
   );
 });
@@ -490,20 +490,20 @@ test("by-role, by-stage and heatmap are scoped per period, not just the full win
 
   const payload = computeClient(P);
 
-  for (const key of ["week", "month", "quarter", "all"]) {
+  for (const key of ["week", "month", "quarter", "full"]) {
     assert.ok(Array.isArray(payload.byRole[key]), `byRole.${key} must exist`);
   }
 
   const roles = (k) => payload.byRole[k].map((r) => r.title).sort();
   assert.deepStrictEqual(roles("week"), ["Recent Role"], "the 200-day-old event is outside 7 days");
-  assert.deepStrictEqual(roles("all"), ["Old Role", "Recent Role"], "both appear over 12 months");
+  assert.deepStrictEqual(roles("full"), ["Old Role", "Recent Role"], "both appear over 12 months");
 
   const total = (k) => payload.byRole[k].reduce((a, r) => a + r.events, 0);
   assert.strictEqual(total("week"), 1);
-  assert.strictEqual(total("all"), 2, "the future event is excluded from breakdowns");
+  assert.strictEqual(total("full"), 2, "the future event is excluded from breakdowns");
 
   assert.strictEqual(payload.byStage.week.length, 1);
-  assert.ok(payload.heatmap.all.length >= 1);
+  assert.ok(payload.heatmap.full.length >= 1);
 
   // The future event still belongs in the time series, so the chart can
   // draw it faded.

@@ -49,6 +49,29 @@ is the short list of things that look wrong and are not.
   otherwise: they are a property of the application, not of whoever booked
   a slot on it.
 
+- **Period keys and scope keys must never share a word.** Periods are
+  `week`/`month`/`quarter`/**`full`**; scopes are `all`/`coordinated`.
+  `all` previously meant both "the full 12-month window" and "every
+  scheduler", and that collision took the dashboard down twice —
+  `payload.periods[state.period]` resolved to undefined and every stat
+  tile threw. A test asserts the two vocabularies stay disjoint.
+
+- **Period options are defined ONCE, in `PERIODS` in metrics.js, and
+  served to the browser via /api/config.** They used to be written out in
+  three places — the per-client loop, the overview loop, and the button
+  list in app.js — and the three drifted: adding "12 months" to the UI
+  while two backends still produced only week/month/quarter is precisely
+  what broke. `public/app.js` builds its control and takes its default
+  from the server, so the UI cannot select a period the server does not
+  produce. Don't hardcode a period list anywhere.
+
+- **The payload contract checks DYNAMIC lookups, not just static paths.**
+  app.js does `payload.periods[state.period]`; a static path list happily
+  certified `periods.week` while the page was actually set to a key that
+  did not exist. `dynamicClientPaths`/`dynamicOverviewPaths` enumerate
+  every scope x period the UI can reach, and both the offline test and
+  the smoke test additionally assert the exact DEFAULT state renders.
+
 - **`byRole`, `byStage` and `heatmap` are keyed by PERIOD, not flat
   arrays.** `payload.byRole.all`, `.quarter`, `.month`, `.week`. They used
   to be single arrays over the whole window, which meant the 7/30/90

@@ -21,7 +21,15 @@
  * can gate a deploy.
  */
 
-const { CLIENT_PATHS, OVERVIEW_PATHS, BY_CLIENT_ROW_KEYS, missingPaths, resolve } = require("../src/payload-contract");
+const {
+  CLIENT_PATHS,
+  OVERVIEW_PATHS,
+  BY_CLIENT_ROW_KEYS,
+  dynamicClientPaths,
+  dynamicOverviewPaths,
+  missingPaths,
+  resolve,
+} = require("../src/payload-contract");
 
 const BASE = (process.env.SMOKE_URL || "https://coordinator-metrics-production.up.railway.app").replace(/\/+$/, "");
 const USER = process.env.SMOKE_USER || process.env.DASHBOARD_USER || "";
@@ -111,11 +119,27 @@ function braceDepth(css) {
   const configRes = await get("/api/config");
   check("/api/config responds 200", configRes.status === 200, `got ${configRes.status}`);
   let clients = [];
+  let periodKeys = [];
+  let scopeKeys = [];
+  let defaultPeriod = null;
+  let defaultScope = null;
   try {
-    clients = JSON.parse(configRes.text).clients || [];
+    const cfg = JSON.parse(configRes.text);
+    clients = cfg.clients || [];
+    periodKeys = (cfg.periods || []).map((p) => p.key);
+    scopeKeys = (cfg.scopes || []).map((s) => s.key);
+    defaultPeriod = cfg.defaultPeriod;
+    defaultScope = cfg.defaultScope;
   } catch (_) {
     /* reported by the check below */
   }
+
+  // The UI builds its controls from these, so an empty list means no
+  // buttons and a null default means the first render reads undefined.
+  check("config declares period options", periodKeys.length > 0, periodKeys.join(","));
+  check("config declares scope options", scopeKeys.length > 0, scopeKeys.join(","));
+  check(`config default period "${defaultPeriod}" is one of the options`, periodKeys.includes(defaultPeriod));
+  check(`config default scope "${defaultScope}" is one of the options`, scopeKeys.includes(defaultScope));
   check("at least one client is configured", clients.length > 0);
   check(
     "every configured client has an API key",
@@ -136,6 +160,23 @@ function braceDepth(css) {
   if (overview) {
     const missing = missingPaths(overview, OVERVIEW_PATHS);
     check("overview matches the payload contract app.js reads", missing.length === 0, missing.slice(0, 6).join(", "));
+
+    // Every combination the toggles can reach, not just the static paths.
+    const dynamicMissing = missingPaths(overview, dynamicOverviewPaths({ scopes: scopeKeys, periods: periodKeys }));
+    check(
+      "overview resolves for every scope x period the UI can select",
+      dynamicMissing.length === 0,
+      dynamicMissing.slice(0, 6).join(", ")
+    );
+
+    // And specifically the state the page loads in — the exact lookup
+    // that rendered an error for two and a half hours.
+    const onLoad = resolve(overview, `scopes.${defaultScope}.periods.${defaultPeriod}.current.events`);
+    check(
+      `overview renders in its DEFAULT state (scope=${defaultScope}, period=${defaultPeriod})`,
+      Number.isFinite(onLoad),
+      "payload.periods[state.period] is undefined on first paint"
+    );
 
     for (const scope of ["all", "coordinated"]) {
       const events = resolve(overview, `scopes.${scope}.totals.events`);
@@ -165,6 +206,16 @@ function braceDepth(css) {
 
     const missing = missingPaths(payload, CLIENT_PATHS);
     check(`${client.id}: matches the payload contract`, missing.length === 0, missing.slice(0, 6).join(", "));
+
+    const dynamicMissing = missingPaths(payload, dynamicClientPaths({ scopes: scopeKeys, periods: periodKeys }));
+    check(
+      `${client.id}: resolves for every scope x period the UI can select`,
+      dynamicMissing.length === 0,
+      dynamicMissing.slice(0, 6).join(", ")
+    );
+
+    const onLoad = resolve(payload, `scopes.${defaultScope}.periods.${defaultPeriod}.current.events`);
+    check(`${client.id}: renders in its DEFAULT state`, Number.isFinite(onLoad), "undefined on first paint");
 
     const all = resolve(payload, "scopes.all.totals.events");
     check(`${client.id}: all-activity interviews non-zero (${all})`, Number.isFinite(all) && all > 0);

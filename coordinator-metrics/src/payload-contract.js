@@ -40,27 +40,57 @@ const SCOPE_PATHS = [
   "totals.excludedEvents",
   "totals.excludedJobEvents",
   "totals.unresolvedTitleEvents",
-  "periods.week.current.events",
-  "periods.week.previous.events",
-  "periods.week.change.events",
-  "periods.month.current.events",
-  "periods.quarter.current.events",
-  "periods.all.current.events",
   "series.daily",
   "series.weekly",
   "series.monthly",
-  "byRole.week",
-  "byRole.month",
-  "byRole.quarter",
-  "byRole.all",
-  "byStage.all",
-  "heatmap.all",
   "timeToSchedule.medianHours",
   "timeToSchedule.p90Hours",
   "timeToSchedule.sample",
   "timeToSchedule.directBookings",
   "excludedTitleBreakdown",
 ];
+
+/**
+ * The dynamic half of the contract.
+ *
+ * The static path list below is not enough, and this is exactly how the
+ * dashboard went down twice: app.js does `payload.periods[state.period]`
+ * and `payload.byRole[state.period]`, and nothing checked that the
+ * runtime value of `state.period` actually resolves. The smoke test
+ * certified a page that rendered "Cannot read properties of undefined
+ * (reading 'current')" on load, because `periods.week` existed and it
+ * never asked about the period the UI was actually set to.
+ *
+ * So: enumerate every (scope, period) combination the UI can reach —
+ * taken from /api/config, which is now the single source of both lists —
+ * and assert each one resolves. A period the server stops producing, or
+ * a UI default pointing at a key that was never built, fails here.
+ */
+function dynamicClientPaths({ scopes, periods }) {
+  const paths = [];
+  for (const scope of scopes) {
+    for (const period of periods) {
+      paths.push(`scopes.${scope}.periods.${period}.current.events`);
+      paths.push(`scopes.${scope}.periods.${period}.previous.events`);
+      paths.push(`scopes.${scope}.periods.${period}.change.events`);
+      paths.push(`scopes.${scope}.byRole.${period}`);
+      paths.push(`scopes.${scope}.byStage.${period}`);
+      paths.push(`scopes.${scope}.heatmap.${period}`);
+    }
+  }
+  return paths;
+}
+
+function dynamicOverviewPaths({ scopes, periods }) {
+  const paths = [];
+  for (const scope of scopes) {
+    for (const period of periods) {
+      paths.push(`scopes.${scope}.periods.${period}.current.events`);
+      paths.push(`scopes.${scope}.periods.${period}.change.events`);
+    }
+  }
+  return paths;
+}
 
 const CLIENT_PATHS = [
   "clientId",
@@ -87,8 +117,6 @@ const OVERVIEW_SCOPE_PATHS = [
   "totals.roles",
   "totals.debriefs",
   "totals.meals",
-  "periods.week.current.events",
-  "periods.week.change.events",
   "series.weekly",
   "byClient",
 ];
@@ -130,6 +158,8 @@ function missingPaths(payload, paths) {
 }
 
 module.exports = {
+  dynamicClientPaths,
+  dynamicOverviewPaths,
   CLIENT_PATHS,
   OVERVIEW_PATHS,
   SCOPE_PATHS,

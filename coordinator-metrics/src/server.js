@@ -25,6 +25,16 @@ function createServer() {
       title: config.dashboardTitle,
       overviewTimeZone: config.overviewTimeZone,
       historyMonths: config.historyMonths,
+      // Served so public/app.js builds its period control from the same
+      // list the aggregation uses, instead of a hardcoded copy that can
+      // drift out of sync with it.
+      periods: metrics.PERIODS.map((p) => ({ key: p.key, label: p.label, description: p.description })),
+      defaultPeriod: metrics.DEFAULT_PERIOD,
+      scopes: [
+        { key: "coordinated", label: "Carrara-coordinated" },
+        { key: "all", label: "All activity" },
+      ],
+      defaultScope: "coordinated",
       shortNoticeHours: config.shortNoticeHours,
       businessHours: { start: config.businessHourStart, end: config.businessHourEnd },
       clients: config.clients.map((c) => ({

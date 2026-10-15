@@ -66,6 +66,40 @@ function localBuckets(isoString, timeZone) {
   return { day, week, month: day.slice(0, 7), hour, dow };
 }
 
+/**
+ * The period options, defined ONCE.
+ *
+ * They were previously written out in three places — the per-client
+ * period loop, the overview period loop, and the button list in
+ * public/app.js — and the three drifted. Adding a "12 months" option to
+ * the UI and defaulting to it, while two of the three backends still
+ * produced only week/month/quarter, took the dashboard down twice:
+ * `payload.periods[state.period]` was undefined and every stat tile threw
+ * "Cannot read properties of undefined (reading 'current')".
+ *
+ * The server now serves this list via /api/config and app.js builds its
+ * control from it, so the UI cannot offer a period the server does not
+ * produce.
+ *
+ * The key is "full", NOT "all": `all` is already a SCOPE key
+ * (`scopes.all` vs `scopes.coordinated`), and one word meaning two
+ * different axes is what made the collision easy to miss both times.
+ */
+const PERIODS = [
+  { key: "week", label: "7 days", description: "last 7 days", days: 7 },
+  { key: "month", label: "30 days", description: "last 30 days", days: 30 },
+  { key: "quarter", label: "90 days", description: "last 90 days", days: 90 },
+  { key: "full", label: "12 months", description: "last 12 months", days: null },
+];
+
+// `days: null` means the whole history window.
+function periodDays(period) {
+  return period.days == null ? config.historyMonths * 30 : period.days;
+}
+
+const PERIOD_KEYS = PERIODS.map((p) => p.key);
+const DEFAULT_PERIOD = "full";
+
 // --- Counting rules --------------------------------------------------------
 
 /**
@@ -395,7 +429,6 @@ function computeScope(client, keepScheduler) {
   // sending a per-role daily matrix for the client to re-aggregate — is
   // ~18,000 sparse entries on Forus, which costs more to transfer than
   // all four precomputed variants put together.
-  const PERIOD_KEYS = ["week", "month", "quarter", "all"];
   const scopes = {};
   for (const key of PERIOD_KEYS) {
     scopes[key] = { byRole: new Map(), byStage: new Map(), heatmap: new Map() };
@@ -422,12 +455,9 @@ function computeScope(client, keepScheduler) {
   // ahead stay in the time series (drawn faded) but are not folded into
   // "by role, last 90 days" — that would mix work done with work pending.
   const tomorrowKey = dayKeyOffset(-1, timeZone);
-  const periodStart = {
-    week: dayKeyOffset(7, timeZone),
-    month: dayKeyOffset(30, timeZone),
-    quarter: dayKeyOffset(90, timeZone),
-    all: "",
-  };
+  const periodStart = Object.fromEntries(
+    PERIODS.map((period) => [period.key, period.days == null ? "" : dayKeyOffset(period.days, timeZone)])
+  );
 
   for (const row of rows) {
     // An event with no resolvable definition cannot be tested against the
@@ -572,7 +602,9 @@ function computeScope(client, keepScheduler) {
   // defaults to it, so a missing periods.all makes every stat tile throw
   // and the whole tab render as an error.
   const periods = {};
-  for (const [name, days] of [["week", 7], ["month", 30], ["quarter", 90], ["all", config.historyMonths * 30]]) {
+  for (const period of PERIODS) {
+    const name = period.key;
+    const days = periodDays(period);
     const currentFrom = dayKeyOffset(days, timeZone);
     const previousFrom = dayKeyOffset(days * 2, timeZone);
     const current = sumWindow(dailySeries, currentFrom, tomorrow);
@@ -813,7 +845,7 @@ function computeOverview(clientPayloads, scopeKey) {
   }
 
   const periods = {};
-  for (const name of ["week", "month", "quarter"]) {
+  for (const name of PERIOD_KEYS) {
     periods[name] = clientPayloads.reduce(
       (acc, p) => {
         acc.current.events += scopeOf(p).periods[name].current.events;
@@ -897,4 +929,14 @@ function getOverview() {
   return cache.get("__overview__") || null;
 }
 
-module.exports = { rebuild, getClient, getOverview, localBuckets, isExcludedTitle, computeClient };
+module.exports = {
+  rebuild,
+  getClient,
+  getOverview,
+  localBuckets,
+  isExcludedTitle,
+  computeClient,
+  PERIODS,
+  PERIOD_KEYS,
+  DEFAULT_PERIOD,
+};
