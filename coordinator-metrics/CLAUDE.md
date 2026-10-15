@@ -50,6 +50,14 @@ is the short list of things that look wrong and are not.
   last resolution time and any still-unresolvable events, because new ones
   appear over time.
 
+- **Hold matching is WHOLE-WORD, and must stay that way.** As a plain
+  `includes()` it silently excluded 297 real interviews: "hold" inside
+  "Stakeholder Conversation" (241 events), "lunch" inside "Lunchtime Chat"
+  (44), "break" inside "Breakfast with Kesava" (12). Nothing on the page
+  showed it — the interviews were simply absent — which is why the
+  excluded titles are now listed in the UI, not just counted. Don't
+  "simplify" the regex back to a substring test.
+
 - **Job exclusion is an EXACT title match, unlike the interview-title
   rule right above it.** A substring rule on "test" would silently delete a
   genuine "Test Engineer" role and the page would just show a smaller

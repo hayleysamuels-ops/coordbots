@@ -45,7 +45,11 @@ Debriefs are identified by Ashby's own structured `isDebrief` flag on the
 interview definition, so they need no per-client configuration.
 
 Holds are not structured anywhere in Ashby, so they are matched on interview
-*title* keywords, which differ per org. This is not hypothetical: Forus's
+*title* keywords, which differ per org. **Matching is on whole words, not
+substrings** — as a substring rule this silently excluded 297 real interviews,
+because "hold" appears inside "Stakeholder Conversation" (241 events),
+"lunch" inside "Lunchtime Chat" (44) and "break" inside "Breakfast with
+Kesava" (12). This is not hypothetical: Forus's
 live `interview.list` contains "External Hold", "[Forus] Arrival + Set Up",
 "[Forus] Account Strategy Work Time" and "Dinner with Forus" sitting
 alongside genuine interviews. Defaults are in `src/config.js`

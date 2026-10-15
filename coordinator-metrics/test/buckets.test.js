@@ -50,13 +50,33 @@ test("rejects an unparseable timestamp rather than bucketing it as epoch", () =>
   assert.strictEqual(localBuckets("not a date", "America/New_York"), null);
 });
 
-test("excluded-title matching is case-insensitive and substring-based", () => {
+test("excluded-title matching is case-insensitive and whole-word", () => {
   const keywords = ["hold", "work time", "dinner"];
   assert.ok(isExcludedTitle("External Hold ", keywords));
   assert.ok(isExcludedTitle("[Forus] Account Strategy Work Time", keywords));
   assert.ok(isExcludedTitle("Dinner with Forus", keywords));
   assert.ok(!isExcludedTitle("[Forus] Coding Interview", keywords));
   assert.ok(!isExcludedTitle("Debrief", keywords));
+});
+
+test("a keyword buried inside a longer word is NOT a hold", () => {
+  // This shipped as a substring match and silently excluded 297 real
+  // interviews across three clients before anyone looked at the titles.
+  const keywords = ["hold", "lunch", "break", "set up", "arrival"];
+  assert.ok(!isExcludedTitle("[Forus] Stakeholder Conversation", keywords), "stakeholder is not a hold");
+  assert.ok(!isExcludedTitle("[Forus] Onsite Stakeholder Convo", keywords));
+  assert.ok(!isExcludedTitle("Lunchtime Chat", keywords), "a lunchtime chat is a conversation, not a meal break");
+  assert.ok(!isExcludedTitle("Breakfast with Kesava", keywords), "breakfast is not 'break'");
+  assert.ok(!isExcludedTitle("Household Survey", keywords));
+
+  // The genuine logistics blocks must still be caught.
+  assert.ok(isExcludedTitle("External Hold", keywords));
+  assert.ok(isExcludedTitle("[Forus] Team Lunch", keywords));
+  assert.ok(isExcludedTitle("[Forus] Arrival + Set Up", keywords));
+});
+
+test("whitespace inside a keyword matches any run of whitespace", () => {
+  assert.ok(isExcludedTitle("Project Work  Time", ["work time"]));
 });
 
 test("an empty keyword list excludes nothing", () => {

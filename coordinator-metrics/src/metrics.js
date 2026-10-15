@@ -83,10 +83,38 @@ function localBuckets(isoString, timeZone) {
  * at all. Verify a new client's titles with scripts/check-client.js before
  * trusting the defaults.
  */
+// Compiled once per keyword. Whitespace in a keyword matches any run of
+// whitespace, so "work time" still catches "Work  Time".
+const keywordPatternCache = new Map();
+
+function keywordPattern(keyword) {
+  let pattern = keywordPatternCache.get(keyword);
+  if (!pattern) {
+    const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+    pattern = new RegExp(`\\b${escaped}\\b`, "i");
+    keywordPatternCache.set(keyword, pattern);
+  }
+  return pattern;
+}
+
+/**
+ * Whether an interview title is a hold or logistics block.
+ *
+ * Matches on WHOLE WORDS, not substrings. This started as a plain
+ * `includes()` and quietly excluded 297 real interviews across three
+ * clients, because the keywords appear inside unrelated longer words:
+ *
+ *   "hold"  matched "[Forus] Stakeholder Conversation"  (241 events)
+ *   "lunch" matched "Lunchtime Chat"                    ( 44 events)
+ *   "break" matched "Breakfast with Kesava"             ( 12 events)
+ *
+ * None of those are holds. The failure was invisible from the page — the
+ * interviews simply weren't there — which is why the excluded titles are
+ * now listed in the UI rather than only counted.
+ */
 function isExcludedTitle(title, keywords) {
   if (!title) return false;
-  const lower = title.toLowerCase();
-  return keywords.some((keyword) => lower.includes(keyword));
+  return keywords.some((keyword) => keywordPattern(keyword).test(title));
 }
 
 /**
