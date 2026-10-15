@@ -226,7 +226,10 @@ function braceDepth(css) {
     const coordinated = resolve(payload, "scopes.coordinated.totals.events");
     if (!(coordinated > 0)) notes.push(`${client.id}: coordinated scope is 0 — check the roster if that is unexpected`);
 
-    const roles = resolve(payload, "scopes.all.byRole.all") || [];
+    // Read through the server's own default period rather than a
+    // hardcoded key — hardcoding one here is the same mistake that broke
+    // the page, and it made this check fail the moment the key was renamed.
+    const roles = resolve(payload, `scopes.all.byRole.${defaultPeriod}`) || [];
     check(`${client.id}: by-role table is populated`, roles.length > 0);
 
     // A handful of permanently unresolvable records (an anonymised
