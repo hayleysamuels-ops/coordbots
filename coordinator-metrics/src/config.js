@@ -64,6 +64,18 @@ function perClient(clientId, name, fallback) {
 // interview.list. Excluding them is a product decision (see README §
 // Counting rules) — debriefs, by contrast, ARE counted, and are identified
 // by Ashby's own structured `isDebrief` flag, not by title.
+// NOTE: "lunch" and "dinner" are deliberately NOT here.
+//
+// A candidate meal is coordinated candidate time, not a logistics block.
+// Checked against Forus's live data: all 469 of its meal events are
+// attached to a named candidate's application, 463 of them sit in an
+// Onsite stage, and the median has two interviewers blocked out — a
+// coordinator finding a slot and booking two to six people around it.
+// Poetic's are the same thing (FDE Work Trial Lunch / Dinner). Excluding
+// them removed 706 real events across three clients.
+//
+// "break" stays, because a standalone "Break" is a genuine gap with
+// nobody in it. Whole-word matching means it no longer eats "Breakfast".
 const DEFAULT_EXCLUDED_TITLE_KEYWORDS = [
   "hold",
   "work time",
@@ -71,8 +83,6 @@ const DEFAULT_EXCLUDED_TITLE_KEYWORDS = [
   "set up",
   "setup",
   "break",
-  "lunch",
-  "dinner",
   "buffer",
   "placeholder",
 ];

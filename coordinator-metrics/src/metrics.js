@@ -180,6 +180,22 @@ function disambiguateTitles(roles) {
   return roles;
 }
 
+/**
+ * Meals are COUNTED as interviews (see config.js), but they are also worth
+ * naming: 481 of Forus's 17,358 interviews are lunches, and someone asked
+ * how we get to that number should find the composition on the page, not
+ * by reading this file.
+ *
+ * This is a label, not a filter — nothing is excluded on the strength of
+ * it.
+ */
+const MEAL_TITLE_KEYWORDS = ["lunch", "dinner", "breakfast", "coffee"];
+
+function isMealTitle(title) {
+  if (!title) return false;
+  return MEAL_TITLE_KEYWORDS.some((keyword) => keywordPattern(keyword).test(title));
+}
+
 // --- Queries ---------------------------------------------------------------
 
 const selectEvents = db.prepare(`
@@ -365,6 +381,7 @@ function computeClient(client) {
 
   let events = 0;
   let debriefs = 0;
+  let meals = 0;
   let hours = 0;
   let interviewerSlots = 0;
   let shortNotice = 0;
@@ -411,6 +428,7 @@ function computeClient(client) {
 
     events += 1;
     if (isDebrief) debriefs += 1;
+    if (isMealTitle(row.interview_title)) meals += 1;
     hours += durationHours;
     interviewerSlots += row.interviewer_count || 0;
     if (row.candidate_id) candidates.add(row.candidate_id);
@@ -536,6 +554,7 @@ function computeClient(client) {
     totals: {
       events,
       debriefs,
+      meals,
       hours: Math.round(hours),
       candidates: candidates.size,
       roles: roles.size,
@@ -631,10 +650,11 @@ function computeOverview(clientPayloads) {
       reschedulesObserved: acc.reschedulesObserved + p.totals.reschedulesObserved,
       dropOffs: acc.dropOffs + p.totals.dropOffs,
       debriefs: acc.debriefs + p.totals.debriefs,
+      meals: acc.meals + p.totals.meals,
     }),
     {
       events: 0, hours: 0, candidates: 0, roles: 0, interviewerSlots: 0, shortNotice: 0,
-      outOfHours: 0, cancellations: 0, reschedulesDerived: 0, reschedulesObserved: 0, dropOffs: 0, debriefs: 0,
+      outOfHours: 0, cancellations: 0, reschedulesDerived: 0, reschedulesObserved: 0, dropOffs: 0, debriefs: 0, meals: 0,
     }
   );
 

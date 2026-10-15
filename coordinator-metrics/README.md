@@ -38,8 +38,22 @@ own a number somebody invented.
 
 ## Counting rules
 
-**Counted:** candidate-facing interview events, and debriefs.
+**Counted:** candidate-facing interview events, debriefs, and candidate meals.
 **Excluded:** holds, logistics and internal blocks.
+
+A candidate meal is coordinated candidate time, not a logistics block.
+Checked against Forus's live data: all 469 meal events are attached to a
+named candidate's application, 463 sit in an Onsite stage, and the median
+has two interviewers blocked out — a coordinator finding a slot and booking
+two to six people around it. Poetic's are the same (`FDE Work Trial Lunch`
+/ `Dinner`). Excluding them was dropping 706 real events across three
+clients. Meals are counted, and also reported as a named sub-count on each
+tab so the composition of a total is on the page rather than in the source.
+
+One rule applies to all five clients rather than per-client settings:
+divergent definitions would make the combined row meaningless. Only Forus
+has logistics blocks at all, so a per-client rule would hide one client's
+ATS hygiene behind a setting rather than solve a real difference.
 
 Debriefs are identified by Ashby's own structured `isDebrief` flag on the
 interview definition, so they need no per-client configuration.

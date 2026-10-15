@@ -400,3 +400,44 @@ test("definition resolution records when it last ran, so staleness is visible", 
   const payload = computeClient(RESOLVE_CLIENT);
   assert.strictEqual(payload.dataQuality.definitionsResolvedAt, "2026-10-15T12:00:00.000Z");
 });
+
+// --- Meals -----------------------------------------------------------------
+
+test("a candidate meal counts as an interview and is named as a sub-count", () => {
+  // Checked against Forus's live data: all 469 meal events are attached to
+  // a named candidate's application, 463 sit in an Onsite stage, and the
+  // median has two interviewers. That is coordinated candidate time, not a
+  // logistics block — but the total should still say what is inside it.
+  const MEAL_CLIENT = { ...CLIENT, id: "meals", excludedTitleKeywords: ["hold", "work time"], excludedJobTitles: [] };
+
+  store.writeReference(MEAL_CLIENT.id, {
+    interviews: [
+      { id: "m-lunch", title: "[Forus] Team Lunch", isDebrief: false },
+      { id: "m-code", title: "Coding Interview", isDebrief: false },
+      { id: "m-hold", title: "External Hold", isDebrief: false },
+    ],
+    jobs: [{ id: "job-1", title: "Engineer", status: "Open" }],
+    departments: [],
+    stages: [],
+  });
+  store.writeApplicationPage(MEAL_CLIENT.id, [
+    { id: "app-1", candidate: { id: "c1", name: "A" }, job: { id: "job-1" }, status: "Active",
+      createdAt: iso(-50), updatedAt: iso(-1), hiringTeam: [] },
+  ]);
+
+  const mk = (id, interviewId) => ({
+    id: `sch-${id}`, status: "Complete", applicationId: "app-1", interviewStageId: "stage-1",
+    createdAt: iso(-4), updatedAt: iso(-3),
+    interviewEvents: [{
+      id, interviewId, interviewScheduleId: `sch-${id}`, interviewerUserIds: ["u1", "u2"],
+      createdAt: iso(-4), updatedAt: iso(-3), startTime: iso(-3, 15), endTime: iso(-3, 16),
+      hasSubmittedFeedback: true,
+    }],
+  });
+  store.writeSchedulePage(MEAL_CLIENT.id, [mk("e-lunch", "m-lunch"), mk("e-code", "m-code"), mk("e-hold", "m-hold")], new Date().toISOString());
+
+  const payload = computeClient(MEAL_CLIENT);
+  assert.strictEqual(payload.totals.events, 2, "the lunch and the interview count; the hold does not");
+  assert.strictEqual(payload.totals.meals, 1, "and the lunch is labelled so the composition is visible");
+  assert.strictEqual(payload.totals.excludedEvents, 1, "only the hold is excluded");
+});

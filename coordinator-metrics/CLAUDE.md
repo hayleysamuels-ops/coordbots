@@ -50,6 +50,15 @@ is the short list of things that look wrong and are not.
   last resolution time and any still-unresolvable events, because new ones
   appear over time.
 
+- **Meals are COUNTED, not excluded, and the same rule applies to every
+  client.** Forus's 469 meal events are all attached to a named candidate's
+  application, 463 sit in an Onsite stage, and the median has two
+  interviewers — coordinated candidate time, identical in kind to Poetic's
+  work-trial meals. Excluding them dropped 706 real events. They're also
+  surfaced as a named sub-count on each tab, so the composition of a total
+  is on the page. Don't add a per-client meal toggle: divergent definitions
+  would make the combined overview row meaningless.
+
 - **Hold matching is WHOLE-WORD, and must stay that way.** As a plain
   `includes()` it silently excluded 297 real interviews: "hold" inside
   "Stakeholder Conversation" (241 events), "lunch" inside "Lunchtime Chat"

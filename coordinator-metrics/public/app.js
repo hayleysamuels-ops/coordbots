@@ -370,7 +370,13 @@ function renderClient(payload) {
   frag.appendChild(
     el("div", { class: "stat-grid" }, [
       stat(num(payload.totals.events), "Interviews, 12 months", {
-        sub: `${num(payload.totals.debriefs)} of them debriefs`,
+        // The composition, named on the page rather than left to whoever
+        // reads the source. Meals are counted as interviews — they are
+        // coordinated candidate time — but someone asked how a total is
+        // reached should be able to see what is inside it.
+        sub:
+          `includes ${num(payload.totals.debriefs)} debriefs and ` +
+          `${num(payload.totals.meals)} candidate meals`,
       }),
       stat(num(payload.totals.hours) + "h", "Interview hours, 12 months"),
       stat(num(payload.totals.interviewerSlots), "Interviewer seats filled", {
@@ -502,7 +508,8 @@ function renderDataQuality(payload) {
     el("p", {
       style: "margin-top:8px",
       text:
-        "Counted: candidate-facing interviews and debriefs. Excluded: holds and logistics blocks, matched on the " +
+        "Counted: candidate-facing interviews, debriefs, and candidate meals — an onsite lunch is a slot a " +
+        "coordinator found and two to six people they booked around it. Excluded: holds and logistics blocks, matched on the " +
         `title keywords ${payload.dataQuality.excludedTitleKeywords.join(", ") || "(none)"}` +
         (payload.totals.excludedEvents ? ` — ${num(payload.totals.excludedEvents)} events excluded.` : "."),
     }),
@@ -565,7 +572,12 @@ function renderOverview(payload) {
 
   frag.appendChild(
     el("div", { class: "stat-grid" }, [
-      stat(num(payload.totals.events), "Interviews coordinated, 12 months", { hero: true }),
+      stat(num(payload.totals.events), "Interviews coordinated, 12 months", {
+        hero: true,
+        sub:
+          `includes ${num(payload.totals.debriefs)} debriefs and ` +
+          `${num(payload.totals.meals)} candidate meals`,
+      }),
       stat(num(payload.totals.hours) + "h", "Interview time placed on calendars"),
       stat(num(payload.totals.candidates), "Candidates scheduled"),
       stat(num(payload.totals.roles), "Roles supported"),
