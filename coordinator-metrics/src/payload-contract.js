@@ -29,6 +29,8 @@ const SCOPE_PATHS = [
   "totals.roles",
   "totals.debriefs",
   "totals.meals",
+  "totals.bookedAhead",
+  "totals.bookedAheadHours",
   "totals.interviewerSlots",
   "totals.averagePanelSize",
   "totals.shortNotice",
@@ -117,6 +119,8 @@ const OVERVIEW_SCOPE_PATHS = [
   "totals.roles",
   "totals.debriefs",
   "totals.meals",
+  "totals.bookedAhead",
+  "totals.bookedAheadHours",
   "series.weekly",
   "byClient",
 ];

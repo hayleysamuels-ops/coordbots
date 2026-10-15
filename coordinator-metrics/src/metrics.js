@@ -388,7 +388,12 @@ function serialiseSeries(map) {
     .map(([key, b]) => ({
       key,
       events: b.events,
-      hours: Math.round(b.hours * 10) / 10,
+      // Full precision on purpose. These rows are summed into the period
+      // totals, and rounding each of ~360 daily buckets to 0.1h before
+      // summing drifted the 12-month figure 11 hours away from the
+      // headline total it is supposed to equal. The UI rounds for
+      // display instead.
+      hours: b.hours,
       debriefs: b.debriefs,
       candidates: b.candidates.size,
       cancellations: b.cancellations,
@@ -411,7 +416,7 @@ function sumWindow(series, fromKey, toKey) {
     .reduce(
       (acc, row) => ({
         events: acc.events + row.events,
-        hours: Math.round((acc.hours + row.hours) * 10) / 10,
+        hours: acc.hours + row.hours,
         candidates: acc.candidates + row.candidates,
         cancellations: acc.cancellations + row.cancellations,
         reschedules: acc.reschedules + row.reschedules,
@@ -881,10 +886,13 @@ function computeOverview(clientPayloads, scopeKey) {
       dropOffs: acc.dropOffs + scopeOf(p).totals.dropOffs,
       debriefs: acc.debriefs + scopeOf(p).totals.debriefs,
       meals: acc.meals + scopeOf(p).totals.meals,
+      bookedAhead: acc.bookedAhead + scopeOf(p).totals.bookedAhead,
+      bookedAheadHours: acc.bookedAheadHours + scopeOf(p).totals.bookedAheadHours,
     }),
     {
       events: 0, hours: 0, candidates: 0, roles: 0, interviewerSlots: 0, shortNotice: 0,
       outOfHours: 0, cancellations: 0, reschedulesDerived: 0, reschedulesObserved: 0, dropOffs: 0, debriefs: 0, meals: 0,
+      bookedAhead: 0, bookedAheadHours: 0,
     }
   );
 

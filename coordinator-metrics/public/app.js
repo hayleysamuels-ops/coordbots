@@ -168,7 +168,7 @@ function barChart(series, { fadeFrom, labelFn, height = 220, showSecondary = tru
     bar.appendChild(
       svgEl("title", {}, [
         document.createTextNode(
-          `${labelFn(row.key)} — ${row.events} interviews, ${row.hours}h` +
+          `${labelFn(row.key)} — ${row.events} interviews, ${Math.round(row.hours * 10) / 10}h` +
             (row.cancellations ? `, ${row.cancellations} cancelled` : "") +
             (row.reschedules ? `, ${row.reschedules} rescheduled` : "") +
             (future ? " — incomplete: in progress or booked ahead" : "")
