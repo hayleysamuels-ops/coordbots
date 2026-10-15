@@ -599,3 +599,67 @@ test("one rostered name on two Ashby accounts is flagged as a collision", () => 
   assert.strictEqual(payload.roster.collisions.length, 1);
   assert.strictEqual(payload.roster.collisions[0].userIds.length, 2);
 });
+
+// --- The overview roll-up --------------------------------------------------
+
+test("rebuild() produces a working overview for both scopes", () => {
+  // This exists because the scope refactor shipped a crash: one accessor
+  // inside computeOverview used a different loop-variable name and was
+  // missed by the rewrite, so the server died on boot with
+  // "Cannot read properties of undefined (reading 'weekly')". Every unit
+  // test passed, because nothing exercised computeOverview at all.
+  const metrics = require("../src/metrics");
+  const configModule = require("../src/config");
+
+  const client = {
+    id: "overview-check",
+    name: "Overview Check",
+    timeZone: "America/New_York",
+    accentColor: null,
+    excludedTitleKeywords: [],
+    excludedJobTitles: [],
+    coordinators: ["Anna Jones"],
+  };
+
+  store.writeReference(client.id, {
+    interviews: [{ id: "i1", title: "Interview", isDebrief: false }],
+    jobs: [{ id: "j1", title: "Engineer", status: "Open" }],
+    departments: [],
+    stages: [],
+  });
+  store.writeApplicationPage(client.id, [
+    { id: "a1", candidate: { id: "c1", name: "X" }, job: { id: "j1" }, status: "Active",
+      createdAt: iso(-60), updatedAt: iso(-1), hiringTeam: [] },
+  ]);
+  store.writeSchedulePage(client.id, [{
+    id: "s1", status: "Complete", applicationId: "a1", interviewStageId: "st",
+    createdAt: iso(-4), updatedAt: iso(-3),
+    scheduledBy: { id: "u-anna", firstName: "Anna", lastName: "Jones", email: "anna@x.com" },
+    interviewEvents: [{
+      id: "e1", interviewId: "i1", interviewScheduleId: "s1", interviewerUserIds: ["u1"],
+      createdAt: iso(-4), updatedAt: iso(-3), startTime: iso(-3, 15), endTime: iso(-3, 16),
+      hasSubmittedFeedback: true,
+    }],
+  }], new Date().toISOString());
+
+  // rebuild() iterates config.clients, so stand this client in for them.
+  const original = configModule.clients.slice();
+  configModule.clients.length = 0;
+  configModule.clients.push(client);
+  try {
+    assert.doesNotThrow(() => metrics.rebuild(), "rebuild must not throw");
+    const overview = metrics.getOverview();
+    assert.ok(overview, "an overview payload must exist");
+    for (const scope of ["all", "coordinated"]) {
+      assert.ok(overview.scopes[scope], `overview.scopes.${scope} must exist`);
+      assert.ok(Array.isArray(overview.scopes[scope].series.weekly), "the weekly roll-up must be built");
+      assert.ok(Array.isArray(overview.scopes[scope].byClient));
+    }
+    assert.strictEqual(overview.scopes.all.totals.events, 1);
+    assert.strictEqual(overview.scopes.coordinated.totals.events, 1);
+    assert.strictEqual(overview.scopes.all.byClient[0].coordinatedEvents, 1);
+  } finally {
+    configModule.clients.length = 0;
+    configModule.clients.push(...original);
+  }
+});

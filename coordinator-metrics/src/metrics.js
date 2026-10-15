@@ -789,7 +789,7 @@ function computeOverview(clientPayloads, scopeKey) {
   // to align, unlike raw day keys.
   const weekly = new Map();
   for (const payload of clientPayloads) {
-    for (const row of payload.series.weekly) {
+    for (const row of scopeOf(payload).series.weekly) {
       if (!weekly.has(row.key)) weekly.set(row.key, { key: row.key, events: 0, hours: 0, cancellations: 0, reschedules: 0 });
       const bucket = weekly.get(row.key);
       bucket.events += row.events;
