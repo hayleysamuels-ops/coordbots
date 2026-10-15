@@ -115,6 +115,7 @@
     --critical: #ffb198;
     --critical-wash: rgba(255, 177, 152, 0.18);
   }
+}
 
 /* ============================================================
    coordinator-metrics components. Tokens above are copied
