@@ -10,7 +10,21 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "coordmetrics-metri
 process.env.CLIENTS = "";
 
 const store = require("../src/db");
-const { computeClient } = require("../src/metrics");
+const { computeClient: computeFull } = require("../src/metrics");
+
+// The payload is split into scopes (all vs. Carrara-coordinated) with the
+// client-level fields hoisted above them. These tests assert on the
+// unfiltered scope, so this flattens it back to the shape they read.
+function computeClient(client) {
+  const payload = computeFull(client);
+  return {
+    ...payload.scopes.all,
+    dataQuality: { ...payload.dataQuality, excludedTitleBreakdown: payload.scopes.all.excludedTitleBreakdown },
+    today: payload.today,
+    roster: payload.roster,
+    scopes: payload.scopes,
+  };
+}
 
 const CLIENT = {
   id: "test",
@@ -494,4 +508,94 @@ test("by-role, by-stage and heatmap are scoped per period, not just the full win
   // The future event still belongs in the time series, so the chart can
   // draw it faded.
   assert.ok(payload.series.daily.some((r) => r.key > payload.today), "future work stays in the series");
+});
+
+// --- Coordinator roster ----------------------------------------------------
+
+test("the coordinated scope counts only rostered schedulers, and matching is exact", () => {
+  const R = {
+    ...CLIENT,
+    id: "roster",
+    excludedTitleKeywords: [],
+    excludedJobTitles: [],
+    // "Anna Jones" as a SUBSTRING also hits "Giovanna Borgiotti" and
+    // "Hanna Rocks", who are other people. Both are real names in the
+    // live data, which is why matching is exact on the normalised name.
+    coordinators: ["Anna Jones", "Departed Coordinator", "Never Scheduled Here"],
+  };
+
+  store.writeReference(R.id, {
+    interviews: [{ id: "i1", title: "Interview", isDebrief: false }],
+    jobs: [{ id: "j1", title: "Engineer", status: "Open" }],
+    departments: [],
+    stages: [],
+  });
+  store.writeApplicationPage(R.id, [
+    { id: "a1", candidate: { id: "c1", name: "X" }, job: { id: "j1" }, status: "Active",
+      createdAt: iso(-60), updatedAt: iso(-1), hiringTeam: [] },
+  ]);
+
+  const mk = (id, who, whoId) => ({
+    id: `s-${id}`, status: "Complete", applicationId: "a1", interviewStageId: "st",
+    createdAt: iso(-4), updatedAt: iso(-3),
+    scheduledBy: { id: whoId, firstName: who.split(" ")[0], lastName: who.split(" ")[1], email: `${id}@x.com` },
+    interviewEvents: [{
+      id, interviewId: "i1", interviewScheduleId: `s-${id}`, interviewerUserIds: ["u1"],
+      createdAt: iso(-4), updatedAt: iso(-3), startTime: iso(-3, 15), endTime: iso(-3, 16),
+      hasSubmittedFeedback: true,
+    }],
+  });
+
+  store.writeSchedulePage(R.id, [
+    mk("ev-anna", "Anna Jones", "u-anna"),
+    mk("ev-giovanna", "Giovanna Borgiotti", "u-gio"),   // contains "anna"
+    mk("ev-hanna", "Hanna Rocks", "u-hanna"),           // contains "anna"
+    mk("ev-departed", "Departed Coordinator", "u-dep"),
+  ], new Date().toISOString());
+
+  const payload = computeFull(R);
+  assert.strictEqual(payload.scopes.all.totals.events, 4, "all activity sees every scheduler");
+  assert.strictEqual(
+    payload.scopes.coordinated.totals.events,
+    2,
+    "only Anna Jones and the departed coordinator count — substring lookalikes must not"
+  );
+});
+
+test("a rostered name matching nothing is reported, never silently zero", () => {
+  const payload = computeFull({
+    ...CLIENT, id: "roster", excludedTitleKeywords: [], excludedJobTitles: [],
+    coordinators: ["Anna Jones", "Departed Coordinator", "Never Scheduled Here"],
+  });
+  assert.deepStrictEqual(payload.roster.unmatched, ["Never Scheduled Here"]);
+  assert.strictEqual(payload.roster.matched.length, 2);
+});
+
+test("work by a coordinator who has left still counts", () => {
+  const payload = computeFull({
+    ...CLIENT, id: "roster", excludedTitleKeywords: [], excludedJobTitles: [],
+    coordinators: ["Departed Coordinator"],
+  });
+  assert.strictEqual(payload.scopes.coordinated.totals.events, 1);
+});
+
+test("one rostered name on two Ashby accounts is flagged as a collision", () => {
+  // Two people sharing a name would otherwise merge into one figure with
+  // nothing on screen to show it.
+  store.writeSchedulePage("roster", [{
+    id: "s-dup", status: "Complete", applicationId: "a1", interviewStageId: "st",
+    createdAt: iso(-4), updatedAt: iso(-3),
+    scheduledBy: { id: "u-anna-2", firstName: "Anna", lastName: "Jones", email: "other@x.com" },
+    interviewEvents: [{
+      id: "ev-dup", interviewId: "i1", interviewScheduleId: "s-dup", interviewerUserIds: ["u1"],
+      createdAt: iso(-4), updatedAt: iso(-3), startTime: iso(-3, 15), endTime: iso(-3, 16),
+      hasSubmittedFeedback: true,
+    }],
+  }], new Date().toISOString());
+
+  const payload = computeFull({
+    ...CLIENT, id: "roster", excludedTitleKeywords: [], excludedJobTitles: [], coordinators: ["Anna Jones"],
+  });
+  assert.strictEqual(payload.roster.collisions.length, 1);
+  assert.strictEqual(payload.roster.collisions[0].userIds.length, 2);
 });

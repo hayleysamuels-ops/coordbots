@@ -28,6 +28,27 @@ is the short list of things that look wrong and are not.
   triple the call count to learn nothing. The drop-off metric depends on
   catching the Active → Archived transition, which this does.
 
+- **The payload is split into `scopes.all` and `scopes.coordinated`**,
+  with client-level fields (name, timezone, today, roster, dataQuality)
+  hoisted above them. Coordinated counts only schedules created by a
+  rostered Carrara coordinator. It is a TOGGLE, not a replacement: "we
+  coordinated 10,689 of the 31,989 interviews that ran" is a stronger
+  claim than 10,689 alone, and a roster gap is then visible rather than
+  looking like low output.
+
+- **The roster matches on NAME, exactly, and never on substring.**
+  `user.list` is incomplete so ids can't be the key, but the name is on
+  every schedule. Substring matching is actively wrong here: "Anna Jones"
+  as a substring also hits "Giovanna Borgiotti" and "Hanna Rocks", both
+  real people in the live data. Two silent failure modes are therefore
+  reported on the page rather than swallowed — a rostered name matching
+  zero events, and one name resolving to two Ashby user ids (two people
+  merged). A mid-window rename (one id, two names) is reported too.
+
+- **Candidate drop-offs are identical in both scopes** and cannot be
+  otherwise: they are a property of the application, not of whoever booked
+  a slot on it.
+
 - **`byRole`, `byStage` and `heatmap` are keyed by PERIOD, not flat
   arrays.** `payload.byRole.all`, `.quarter`, `.month`, `.week`. They used
   to be single arrays over the whole window, which meant the 7/30/90

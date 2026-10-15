@@ -98,6 +98,47 @@ const DEFAULT_EXCLUDED_TITLE_KEYWORDS = [
 // interview events before this existed.
 const DEFAULT_EXCLUDED_JOB_TITLES = ["test", "test pipeline", "testing", "do not use"];
 
+// The Carrara coordinators whose scheduling counts as our work.
+//
+// Matched against the scheduler name Ashby stores ON THE SCHEDULE, which
+// is why this is a name list and not user ids: `user.list` is incomplete
+// (it omits 1,789 of January's schedulers' accounts, 1,323 of Forus's),
+// but the name is present on every schedule regardless.
+//
+// Matching is EXACT on the normalised full name, never a substring —
+// "Anna Jones" as a substring also hits "Giovanna Borgiotti" and "Hanna
+// Rocks", both of whom are other people.
+//
+// Includes coordinators who have left: their work still counts. Aliases
+// go in as separate entries (Ashby shows "Tess Wicks" while the account
+// is theresa.wicks@..., so a future rename is already covered).
+const DEFAULT_COORDINATORS = [
+  "Tess Wicks",
+  "Theresa Wicks",
+  "Kelley Lantigua",
+  "Sadiqeh Agah",
+  "Anna Jones",
+  "Hayley Samuels",
+  "Meredith Faria",
+  "Maggie Stout",
+];
+
+// Case/whitespace-insensitive, so a stray double space or a capitalisation
+// change in Ashby doesn't silently drop someone's work.
+function normalizeName(name) {
+  return (name || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+// Case-preserving list, since these are displayed back as names.
+function nameList(key, fallback) {
+  const raw = process.env[key];
+  if (raw == null) return fallback;
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 const clientIds = (process.env.CLIENTS || "")
   .split(",")
   .map((s) => s.trim().toLowerCase())
@@ -106,6 +147,8 @@ const clientIds = (process.env.CLIENTS || "")
 if (clientIds.length === 0) {
   console.warn("[config] CLIENTS is empty — the dashboard will start with no tabs. See .env.example.");
 }
+
+const globalCoordinators = nameList("CARRARA_COORDINATORS", DEFAULT_COORDINATORS);
 
 const clients = clientIds.map((id) => {
   const apiKey = perClient(id, "ASHBY_API_KEY", "");
@@ -124,6 +167,9 @@ const clients = clientIds.map((id) => {
     appBaseUrl: (perClient(id, "ASHBY_APP_BASE_URL", "https://app.ashbyhq.com")).replace(/\/+$/, ""),
     excludedTitleKeywords: list(`EXCLUDED_TITLE_KEYWORDS_${envSuffix(id)}`, DEFAULT_EXCLUDED_TITLE_KEYWORDS),
     excludedJobTitles: list(`EXCLUDED_JOB_TITLES_${envSuffix(id)}`, DEFAULT_EXCLUDED_JOB_TITLES),
+    // Per-client override of the roster; defaults to the shared list so a
+    // coordinator moving between accounts needs no config change.
+    coordinators: nameList(`CARRARA_COORDINATORS_${envSuffix(id)}`, globalCoordinators),
   };
 });
 
@@ -185,3 +231,4 @@ const config = {
 };
 
 module.exports = config;
+module.exports.normalizeName = normalizeName;

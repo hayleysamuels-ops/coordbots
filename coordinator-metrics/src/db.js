@@ -62,6 +62,10 @@ CREATE TABLE IF NOT EXISTS schedules (
   -- parsing JSON back out.
   scheduled_by_id     TEXT,
   scheduled_by_name   TEXT,
+  -- Stored so a roster name resolving to two different user ids can be
+  -- flagged as a collision rather than silently merging two people, and
+  -- so a mid-window rename is visible (same id, different name).
+  scheduled_by_email  TEXT,
   created_at          TEXT,
   updated_at          TEXT,
   PRIMARY KEY (client_id, id)
@@ -178,17 +182,31 @@ CREATE TABLE IF NOT EXISTS sync_runs (
 );
 `);
 
+// Added after the table shipped, so existing volumes need it backfilled
+// rather than recreated — the 12-month history and the observed-reschedule
+// log both live in this file and neither is cheap to rebuild.
+try {
+  const columns = db.prepare(`PRAGMA table_info(schedules)`).all().map((c) => c.name);
+  if (!columns.includes("scheduled_by_email")) {
+    db.exec(`ALTER TABLE schedules ADD COLUMN scheduled_by_email TEXT`);
+    console.log("[db] added schedules.scheduled_by_email");
+  }
+} catch (err) {
+  console.warn("[db] could not check/add scheduled_by_email:", err.message);
+}
+
 // --- Writes ----------------------------------------------------------------
 
 const upsertSchedule = db.prepare(`
-  INSERT INTO schedules (client_id, id, status, application_id, interview_stage_id, scheduled_by_id, scheduled_by_name, created_at, updated_at)
-  VALUES (@client_id, @id, @status, @application_id, @interview_stage_id, @scheduled_by_id, @scheduled_by_name, @created_at, @updated_at)
+  INSERT INTO schedules (client_id, id, status, application_id, interview_stage_id, scheduled_by_id, scheduled_by_name, scheduled_by_email, created_at, updated_at)
+  VALUES (@client_id, @id, @status, @application_id, @interview_stage_id, @scheduled_by_id, @scheduled_by_name, @scheduled_by_email, @created_at, @updated_at)
   ON CONFLICT (client_id, id) DO UPDATE SET
     status = excluded.status,
     application_id = excluded.application_id,
     interview_stage_id = excluded.interview_stage_id,
     scheduled_by_id = excluded.scheduled_by_id,
     scheduled_by_name = excluded.scheduled_by_name,
+    scheduled_by_email = excluded.scheduled_by_email,
     updated_at = excluded.updated_at
 `);
 
@@ -281,6 +299,7 @@ const writeSchedulePage = transaction((clientId, schedules, observedAt) => {
       interview_stage_id: schedule.interviewStageId || null,
       scheduled_by_id: personId(schedule.scheduledBy),
       scheduled_by_name: personName(schedule.scheduledBy),
+      scheduled_by_email: schedule.scheduledBy && typeof schedule.scheduledBy === "object" ? schedule.scheduledBy.email || null : null,
       created_at: schedule.createdAt || null,
       updated_at: schedule.updatedAt || null,
     });

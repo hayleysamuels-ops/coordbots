@@ -18,6 +18,7 @@ const state = {
   config: null,
   active: "overview",
   period: "all",
+  scope: "coordinated",
   payloads: new Map(),
 };
 
@@ -248,6 +249,31 @@ function heatmapGrid(cells, timeZone) {
 
 // --- Sections --------------------------------------------------------------
 
+/**
+ * All activity vs. the work Carrara coordinated. A toggle rather than a
+ * replacement: "we coordinated 10,689 of the 31,989 interviews that ran"
+ * is a stronger claim than 10,689 alone, and if a roster is incomplete
+ * the gap is visible instead of looking like low output.
+ */
+function scopeControl(onChange) {
+  const options = [["coordinated", "Carrara-coordinated"], ["all", "All activity"]];
+  return el(
+    "div",
+    { class: "segmented" },
+    options.map(([key, label]) =>
+      el("button", {
+        type: "button",
+        text: label,
+        "aria-pressed": String(state.scope === key),
+        onclick: () => {
+          state.scope = key;
+          onChange();
+        },
+      })
+    )
+  );
+}
+
 function periodControl(onChange) {
   // "12 months" exists because the breakdowns below always showed the full
   // window. Wiring the toggle to them without it would have quietly
@@ -353,13 +379,25 @@ function section(title, note, body, toolbar) {
 
 // --- Client panel ----------------------------------------------------------
 
-function renderClient(payload) {
+function renderClient(fullPayload) {
+  const payload = fullPayload.scopes[state.scope];
   const period = payload.periods[state.period];
   const periodLabel = PERIOD_LABEL[state.period];
 
   const frag = document.createDocumentFragment();
 
-  frag.appendChild(el("p", { class: "eyebrow", text: `${payload.clientName} · ${payload.timeZone} · 12-month view` }));
+  frag.appendChild(
+    el("div", { class: "toolbar" }, [
+      el("p", {
+        class: "eyebrow",
+        style: "margin:0",
+        text:
+          `${fullPayload.clientName} · ${fullPayload.timeZone} · ` +
+          (state.scope === "coordinated" ? "work Carrara coordinated" : "all interview activity"),
+      }),
+      scopeControl(() => render()),
+    ])
+  );
 
   frag.appendChild(
     el("div", { class: "stat-grid" }, [
@@ -434,11 +472,11 @@ function renderClient(payload) {
   const redrawChart = () => {
     chartHost.replaceChildren(
       state.period === "week"
-        ? barChart(payload.series.daily.slice(-28), { fadeFrom: nextDay(payload.today), labelFn: formatDay })
+        ? barChart(payload.series.daily.slice(-28), { fadeFrom: nextDay(fullPayload.today), labelFn: formatDay })
         : state.period === "month"
-        ? barChart(payload.series.daily.slice(-60), { fadeFrom: nextDay(payload.today), labelFn: formatDay })
+        ? barChart(payload.series.daily.slice(-60), { fadeFrom: nextDay(fullPayload.today), labelFn: formatDay })
         : barChart(state.period === "quarter" ? payload.series.weekly.slice(-13) : payload.series.weekly, {
-            fadeFrom: payload.currentWeek,
+            fadeFrom: fullPayload.currentWeek,
             labelFn: formatDay,
           }),
       el("div", { class: "legend" }, [
@@ -479,8 +517,8 @@ function renderClient(payload) {
   frag.appendChild(
     section(
       "When the work happens",
-      `Interview start times by day and hour over the ${periodLabel}, in ${payload.timeZone}. Darker is busier.`,
-      heatmapGrid(payload.heatmap[state.period], payload.timeZone)
+      `Interview start times by day and hour over the ${periodLabel}, in ${fullPayload.timeZone}. Darker is busier.`,
+      heatmapGrid(payload.heatmap[state.period], fullPayload.timeZone)
     )
   );
 
@@ -495,7 +533,8 @@ function renderClient(payload) {
     );
   }
 
-  frag.appendChild(renderDataQuality(payload));
+  frag.appendChild(renderRoster(fullPayload));
+  frag.appendChild(renderDataQuality(fullPayload, payload));
 
   return frag;
 }
@@ -506,7 +545,70 @@ function renderClient(payload) {
  * than reported. Saying so on the page is the difference between a metric
  * and a claim.
  */
-function renderDataQuality(payload) {
+/**
+ * The roster, and everywhere it doesn't line up with the data.
+ *
+ * Name matching has two silent failure modes and both are live risks
+ * here, so neither is allowed to just return nothing: a rostered name
+ * that matches no events, and one name resolving to two Ashby accounts.
+ */
+function renderRoster(fullPayload) {
+  const roster = fullPayload.roster;
+  if (!roster) return null;
+  if (state.scope !== "coordinated") return document.createComment("roster shown only in coordinated scope");
+
+  const children = [
+    el("h3", { text: "Who this counts" }),
+    el("p", {
+      text:
+        `Scheduling by ${roster.matched.length} of the ${roster.configured.length} rostered coordinators was found at ` +
+        `${fullPayload.clientName}: ` +
+        (roster.matched.length
+          ? roster.matched.map((m) => `${m.name} (${num(m.events)})`).join(", ")
+          : "none"),
+    }),
+  ];
+
+  if (roster.unmatched.length) {
+    children.push(
+      el("p", {
+        style: "margin-top:8px",
+        text:
+          `No events here for: ${roster.unmatched.join(", ")}. ` +
+          "Either they did not work this client, their name differs in Ashby, or they scheduled under a shared account — " +
+          "a rostered name contributing nothing is reported rather than quietly counting zero.",
+      })
+    );
+  }
+
+  if (roster.collisions.length) {
+    children.push(
+      el("p", {
+        style: "margin-top:8px",
+        text:
+          "Name collision — one rostered name maps to more than one Ashby account, so two people may be merged into one figure: " +
+          roster.collisions.map((c) => `${c.name} (${c.userIds.length} accounts)`).join(", "),
+      })
+    );
+  }
+
+  if (roster.renames.length) {
+    children.push(
+      el("p", {
+        style: "margin-top:8px",
+        text:
+          "One Ashby account appears under more than one name (a rename mid-window). Add both spellings to the roster " +
+          "or that person's earlier work is missed: " +
+          roster.renames.map((r) => r.names.join(" / ")).join("; "),
+      })
+    );
+  }
+
+  return el("div", { class: "notice" }, children);
+}
+
+function renderDataQuality(fullPayload, payload) {
+  const dq = fullPayload.dataQuality;
   return el("div", { class: "notice" }, [
     el("h3", { text: "How these numbers are built" }),
     el("p", {
@@ -514,9 +616,9 @@ function renderDataQuality(payload) {
         "Ashby stores no reschedule history and no cancellation reason. Reschedules over the full 12 months are " +
         "therefore derived: a cancelled interview whose candidate and stage were re-booked afterwards is counted " +
         "as a reschedule, and one that was never re-booked is counted as a cancellation. " +
-        (payload.dataQuality.rescheduleTrackingSince
+        (dq.rescheduleTrackingSince
           ? `Directly observed reschedules — exact, but only countable going forward — have been tracked since ${formatWhen(
-              payload.dataQuality.rescheduleTrackingSince
+              dq.rescheduleTrackingSince
             )}.`
           : "Direct reschedule tracking has not recorded a full cycle yet."),
     }),
@@ -525,23 +627,23 @@ function renderDataQuality(payload) {
       text:
         "Counted: candidate-facing interviews, debriefs, and candidate meals — an onsite lunch is a slot a " +
         "coordinator found and two to six people they booked around it. Excluded: holds and logistics blocks, matched on the " +
-        `title keywords ${payload.dataQuality.excludedTitleKeywords.join(", ") || "(none)"}` +
+        `title keywords ${dq.excludedTitleKeywords.join(", ") || "(none)"}` +
         (payload.totals.excludedEvents ? ` — ${num(payload.totals.excludedEvents)} events excluded.` : "."),
     }),
 
     // What the hold rule actually caught. On the page, not just in a
     // report, so a keyword quietly eating a real interview type shows up.
-    payload.dataQuality.excludedTitleBreakdown.length
+    payload.excludedTitleBreakdown.length
       ? el("p", {
           style: "margin-top:8px",
           text:
             "Excluded by title: " +
-            payload.dataQuality.excludedTitleBreakdown
+            payload.excludedTitleBreakdown
               .slice(0, 10)
               .map((row) => `${row.title} (${num(row.count)})`)
               .join(", ") +
-            (payload.dataQuality.excludedTitleBreakdown.length > 10
-              ? `, and ${payload.dataQuality.excludedTitleBreakdown.length - 10} more titles.`
+            (payload.excludedTitleBreakdown.length > 10
+              ? `, and ${payload.excludedTitleBreakdown.length - 10} more titles.`
               : "."),
         })
       : null,
@@ -552,8 +654,8 @@ function renderDataQuality(payload) {
     el("p", {
       style: "margin-top:8px",
       text:
-        (payload.dataQuality.definitionsResolvedAt
-          ? `Interview definitions last resolved against Ashby ${formatWhen(payload.dataQuality.definitionsResolvedAt)}. `
+        (dq.definitionsResolvedAt
+          ? `Interview definitions last resolved against Ashby ${formatWhen(dq.definitionsResolvedAt)}. `
           : "Interview definitions have not been resolved against Ashby yet. ") +
         (payload.totals.unresolvedTitleEvents
           ? `${num(payload.totals.unresolvedTitleEvents)} events still have no resolvable interview title, so the hold ` +
@@ -566,7 +668,7 @@ function renderDataQuality(payload) {
         "Roles are grouped by Ashby job record, not by job title, so two reqs with the same title stay two rows " +
         "(numbered (1) and (2), oldest first) and related titles like \u201cTeam Lead\u201d or \u201cNew Grad\u201d are " +
         "never folded into the parent role. Job records titled " +
-        `${payload.dataQuality.excludedJobTitles.join(", ") || "(none)"} are treated as scaffolding and excluded` +
+        `${dq.excludedJobTitles.join(", ") || "(none)"} are treated as scaffolding and excluded` +
         (payload.totals.excludedJobEvents
           ? ` — ${num(payload.totals.excludedJobEvents)} events dropped.`
           : " (none matched)."),
@@ -583,13 +685,23 @@ function overviewSeries(payload) {
   return payload.series.weekly.slice(-(weeks[state.period] || payload.series.weekly.length));
 }
 
-function renderOverview(payload) {
+function renderOverview(fullPayload) {
+  const payload = fullPayload.scopes[state.scope];
   const period = payload.periods[state.period];
   const periodLabel = PERIOD_LABEL[state.period];
   const frag = document.createDocumentFragment();
 
   frag.appendChild(
-    el("p", { class: "eyebrow", text: `All clients · ${payload.byClient.length} books of work · 12-month view` })
+    el("div", { class: "toolbar" }, [
+      el("p", {
+        class: "eyebrow",
+        style: "margin:0",
+        text:
+          `All clients · ${payload.byClient.length} books of work · ` +
+          (state.scope === "coordinated" ? "work Carrara coordinated" : "all interview activity"),
+      }),
+      scopeControl(() => render()),
+    ])
   );
 
   frag.appendChild(
@@ -627,7 +739,7 @@ function renderOverview(payload) {
       "Total volume by week",
       `Every client combined, over the ${periodLabel}. Weeks are Monday-start.`,
       el("div", {}, [
-        barChart(overviewSeries(payload), { fadeFrom: payload.currentWeek, labelFn: formatDay }),
+        barChart(overviewSeries(payload), { fadeFrom: fullPayload.currentWeek, labelFn: formatDay }),
         el("div", { class: "legend" }, [
           el("span", {}, [el("i", { class: "swatch", style: "background:var(--accent,#eb4e19)" }), "Interviews"]),
           el("span", {}, [
@@ -658,6 +770,7 @@ function renderOverview(payload) {
               el("th", { class: "num", text: "Reschedules" }),
               el("th", { class: "num", text: "Cancelled" }),
               el("th", { class: "num", text: "This week" }),
+              el("th", { class: "num", text: "Ours / all" }),
               el("th", { text: "" }),
             ]),
           ]),
@@ -680,6 +793,8 @@ function renderOverview(payload) {
                 el("td", { class: "num", text: num(row.reschedules) }),
                 el("td", { class: "num", text: num(row.cancellations) }),
                 el("td", { class: "num" }, [String(row.thisWeek), delta(row.weekChange)]),
+                el("td", { class: "num", text: `${num(row.coordinatedEvents)} / ${num(row.allEvents)}` +
+                  (row.allEvents ? ` (${Math.round((row.coordinatedEvents / row.allEvents) * 100)}%)` : "") }),
                 el("td", { style: "width:140px" }, [
                   el("div", {
                     class: "meter",
@@ -693,6 +808,20 @@ function renderOverview(payload) {
       ])
     )
   );
+
+  if (fullPayload.rosterUnmatchedEverywhere && fullPayload.rosterUnmatchedEverywhere.length) {
+    frag.appendChild(
+      el("div", { class: "notice" }, [
+        el("h3", { text: "Rostered coordinators with no matching work anywhere" }),
+        el("p", {
+          text:
+            `${fullPayload.rosterUnmatchedEverywhere.join(", ")} — no scheduled events under those names at any of the ` +
+            `${fullPayload.scopes.all.byClient.length} clients here. The likeliest explanation is that they work on a client ` +
+            "that has no dashboard yet; the alternative is that the name differs in Ashby.",
+        }),
+      ])
+    );
+  }
 
   return frag;
 }

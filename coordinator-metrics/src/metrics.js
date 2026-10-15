@@ -204,6 +204,7 @@ const selectEvents = db.prepare(`
          i.title AS interview_title, i.is_debrief,
          s.id AS schedule_id, s.status AS schedule_status, s.created_at AS schedule_created_at,
          s.application_id, s.interview_stage_id,
+         s.scheduled_by_name, s.scheduled_by_id, s.scheduled_by_email,
          st.title AS stage_title,
          a.candidate_id, a.job_id,
          j.title AS job_title, j.status AS job_status, j.opened_at AS job_opened_at,
@@ -235,7 +236,7 @@ const selectEvents = db.prepare(`
  * sync; the UI shows both, labelled.
  */
 const selectCancellations = db.prepare(`
-  SELECT c.id, c.created_at, c.updated_at, c.application_id, c.interview_stage_id,
+  SELECT c.id, c.created_at, c.updated_at, c.application_id, c.interview_stage_id, c.scheduled_by_name,
          EXISTS (
            SELECT 1 FROM schedules later
            WHERE later.client_id = c.client_id
@@ -249,8 +250,11 @@ const selectCancellations = db.prepare(`
 `);
 
 const selectObservedReschedules = db.prepare(`
-  SELECT observed_at, previous_start, new_start FROM reschedules
-  WHERE client_id = ? AND observed_at >= ?
+  SELECT r.observed_at, r.previous_start, r.new_start, s.scheduled_by_name
+  FROM reschedules r
+  LEFT JOIN events e    ON e.client_id = r.client_id AND e.id = r.event_id
+  LEFT JOIN schedules s ON s.client_id = e.client_id AND s.id = e.schedule_id
+  WHERE r.client_id = ? AND r.observed_at >= ?
 `);
 
 // A candidate drop-off: an application archived after it had already
@@ -268,7 +272,7 @@ const selectDropOffs = db.prepare(`
 // being booked. Both timestamps are real Ashby fields, so this needs no
 // inference.
 const selectTimeToSchedule = db.prepare(`
-  SELECT s.created_at AS requested_at, MIN(e.created_at) AS booked_at
+  SELECT s.created_at AS requested_at, s.scheduled_by_name, MIN(e.created_at) AS booked_at
   FROM schedules s
   JOIN events e ON e.client_id = s.client_id AND e.schedule_id = s.id
   WHERE s.client_id = ? AND s.created_at >= ? AND e.created_at IS NOT NULL
@@ -358,15 +362,25 @@ function dayKeyOffset(days, timeZone) {
  * Computes the whole payload for one client. One pass over the event rows
  * feeds every series and breakdown rather than re-querying per metric.
  */
-function computeClient(client) {
+/**
+ * Builds one scope's worth of metrics. `keepScheduler` decides which rows
+ * belong to it: everything, or only schedules created by a rostered
+ * Carrara coordinator.
+ *
+ * Candidate drop-offs are the one figure that cannot be scoped — they are
+ * a property of the application, not of whoever booked a slot on it — so
+ * both scopes report the same number and the page says so.
+ */
+function computeScope(client, keepScheduler) {
   const timeZone = client.timeZone;
   const since = new Date(Date.now() - config.historyMonths * 30 * 86400000).toISOString();
 
-  const rows = selectEvents.all(client.id, since);
-  const cancellations = selectCancellations.all(client.id, since);
-  const observed = selectObservedReschedules.all(client.id, since);
+  const keep = (name) => keepScheduler(name);
+  const rows = selectEvents.all(client.id, since).filter((r) => keep(r.scheduled_by_name));
+  const cancellations = selectCancellations.all(client.id, since).filter((r) => keep(r.scheduled_by_name));
+  const observed = selectObservedReschedules.all(client.id, since).filter((r) => keep(r.scheduled_by_name));
   const dropOffs = selectDropOffs.all(client.id, since);
-  const scheduleTimes = selectTimeToSchedule.all(client.id, since);
+  const scheduleTimes = selectTimeToSchedule.all(client.id, since).filter((r) => keep(r.scheduled_by_name));
 
   const daily = new Map();
   const weekly = new Map();
@@ -569,20 +583,6 @@ function computeClient(client) {
   }
 
   return {
-    clientId: client.id,
-    clientName: client.name,
-    timeZone,
-    accentColor: client.accentColor || null,
-    generatedAt: new Date().toISOString(),
-    historyFrom: since,
-    // The client's local today, so charts can mark where observed volume
-    // ends and already-booked future volume begins. currentWeek is the
-    // same idea for weekly bars: the in-progress week is only partly
-    // elapsed, so drawing it solid makes every chart end in a cliff that
-    // looks like a collapse in volume rather than a Tuesday.
-    today: dayKeyOffset(0, timeZone),
-    currentWeek: localBuckets(new Date().toISOString(), timeZone).week,
-
     totals: {
       events,
       debriefs,
@@ -656,24 +656,100 @@ function computeClient(client) {
 
     records: busiest ? { busiestDay: { date: busiest.key, events: busiest.events } } : null,
 
+    excludedTitleBreakdown: [...excludedTitleCounts.entries()]
+      .map(([title, count]) => ({ title, count }))
+      .sort((a, b) => b.count - a.count),
+  };
+}
+
+/**
+ * Who actually scheduled, and how the roster lines up against them.
+ *
+ * Every part of this is reported rather than assumed, because name
+ * matching has two silent failure modes and the data has already shown
+ * both are live risks:
+ *
+ *   - a roster name that matches nothing (Sadiqeh Agah and Meredith Faria
+ *     match zero events across all five clients — most likely they work
+ *     on a client that has no dashboard yet)
+ *   - one name resolving to two different Ashby user ids, which would
+ *     merge two people into one row with nothing on screen to show it
+ *
+ * The opposite case — one id appearing under two names — is a mid-window
+ * rename, and is reported too so the roster can be given both spellings.
+ */
+function buildRosterReport(client) {
+  const roster = client.coordinators || [];
+  const rosterSet = new Set(roster.map(config.normalizeName));
+
+  const schedulers = db
+    .prepare(
+      `SELECT s.scheduled_by_name AS name, s.scheduled_by_id AS id, s.scheduled_by_email AS email, COUNT(*) AS events
+       FROM events e JOIN schedules s ON s.client_id = e.client_id AND s.id = e.schedule_id
+       WHERE e.client_id = ? AND e.start_time IS NOT NULL AND s.scheduled_by_name IS NOT NULL
+       GROUP BY s.scheduled_by_id, s.scheduled_by_name`
+    )
+    .all(client.id);
+
+  const matched = [];
+  const idsByName = new Map();
+  const namesById = new Map();
+
+  for (const row of schedulers) {
+    const key = config.normalizeName(row.name);
+    if (!idsByName.has(key)) idsByName.set(key, new Set());
+    idsByName.get(key).add(row.id);
+    if (!namesById.has(row.id)) namesById.set(row.id, new Set());
+    namesById.get(row.id).add(row.name);
+    if (rosterSet.has(key)) matched.push({ name: row.name, email: row.email, events: row.events });
+  }
+
+  const matchedNames = new Set(matched.map((m) => config.normalizeName(m.name)));
+
+  return {
+    configured: roster,
+    matched: matched.sort((a, b) => b.events - a.events),
+    // A rostered name with no events HERE. Surfaced rather than silently
+    // contributing nothing.
+    unmatched: roster.filter((name) => !matchedNames.has(config.normalizeName(name))),
+    collisions: [...idsByName.entries()]
+      .filter(([key, ids]) => ids.size > 1 && rosterSet.has(key))
+      .map(([key, ids]) => ({ name: key, userIds: [...ids] })),
+    renames: [...namesById.entries()]
+      .filter(([, names]) => names.size > 1)
+      .map(([id, names]) => ({ userId: id, names: [...names] })),
+  };
+}
+
+/**
+ * Both scopes over one set of queries, plus the fields that describe the
+ * client rather than a scope.
+ */
+function computeClient(client) {
+  const rosterSet = new Set((client.coordinators || []).map(config.normalizeName));
+  const timeZone = client.timeZone;
+
+  return {
+    clientId: client.id,
+    clientName: client.name,
+    timeZone,
+    accentColor: client.accentColor || null,
+    generatedAt: new Date().toISOString(),
+    historyFrom: new Date(Date.now() - config.historyMonths * 30 * 86400000).toISOString(),
+    today: dayKeyOffset(0, timeZone),
+    currentWeek: localBuckets(new Date().toISOString(), timeZone).week,
+
+    scopes: {
+      all: computeScope(client, () => true),
+      coordinated: computeScope(client, (name) => rosterSet.has(config.normalizeName(name))),
+    },
+
+    roster: buildRosterReport(client),
+
     dataQuality: {
-      // The honest line under the reschedule number. Observed reschedules
-      // are exact but only exist from the first successful sync onward;
-      // the derived figure covers the whole window but is an inference
-      // from cancelled-then-rebooked schedules, since Ashby records no
-      // reschedule history at all.
       rescheduleTrackingSince: store.rescheduleTrackingSince(client.id),
       excludedTitleKeywords: client.excludedTitleKeywords,
       excludedJobTitles: client.excludedJobTitles,
-      // What the hold rule actually caught, most common first. Shown on
-      // the page so a keyword quietly swallowing a real interview type is
-      // visible rather than something you find out about later.
-      excludedTitleBreakdown: [...excludedTitleCounts.entries()]
-        .map(([title, count]) => ({ title, count }))
-        .sort((a, b) => b.count - a.count),
-      // When interview definitions were last resolved against Ashby.
-      // Surfaced because this CAN go stale: interview.list does not return
-      // every definition, so new unresolvable ids appear over time.
       definitionsResolvedAt: store.getMeta(client.id, "interview_definitions_resolved_at"),
     },
   };
@@ -684,22 +760,23 @@ function computeClient(client) {
  * zone, so the roll-up re-buckets from scratch in OVERVIEW_TIMEZONE rather
  * than summing day keys that mean slightly different things.
  */
-function computeOverview(clientPayloads) {
+function computeOverview(clientPayloads, scopeKey) {
+  const scopeOf = (p) => p.scopes[scopeKey];
   const totals = clientPayloads.reduce(
     (acc, p) => ({
-      events: acc.events + p.totals.events,
-      hours: acc.hours + p.totals.hours,
-      candidates: acc.candidates + p.totals.candidates,
-      roles: acc.roles + p.totals.roles,
-      interviewerSlots: acc.interviewerSlots + p.totals.interviewerSlots,
-      shortNotice: acc.shortNotice + p.totals.shortNotice,
-      outOfHours: acc.outOfHours + p.totals.outOfHours,
-      cancellations: acc.cancellations + p.totals.cancellations,
-      reschedulesDerived: acc.reschedulesDerived + p.totals.reschedulesDerived,
-      reschedulesObserved: acc.reschedulesObserved + p.totals.reschedulesObserved,
-      dropOffs: acc.dropOffs + p.totals.dropOffs,
-      debriefs: acc.debriefs + p.totals.debriefs,
-      meals: acc.meals + p.totals.meals,
+      events: acc.events + scopeOf(p).totals.events,
+      hours: acc.hours + scopeOf(p).totals.hours,
+      candidates: acc.candidates + scopeOf(p).totals.candidates,
+      roles: acc.roles + scopeOf(p).totals.roles,
+      interviewerSlots: acc.interviewerSlots + scopeOf(p).totals.interviewerSlots,
+      shortNotice: acc.shortNotice + scopeOf(p).totals.shortNotice,
+      outOfHours: acc.outOfHours + scopeOf(p).totals.outOfHours,
+      cancellations: acc.cancellations + scopeOf(p).totals.cancellations,
+      reschedulesDerived: acc.reschedulesDerived + scopeOf(p).totals.reschedulesDerived,
+      reschedulesObserved: acc.reschedulesObserved + scopeOf(p).totals.reschedulesObserved,
+      dropOffs: acc.dropOffs + scopeOf(p).totals.dropOffs,
+      debriefs: acc.debriefs + scopeOf(p).totals.debriefs,
+      meals: acc.meals + scopeOf(p).totals.meals,
     }),
     {
       events: 0, hours: 0, candidates: 0, roles: 0, interviewerSlots: 0, shortNotice: 0,
@@ -726,10 +803,10 @@ function computeOverview(clientPayloads) {
   for (const name of ["week", "month", "quarter"]) {
     periods[name] = clientPayloads.reduce(
       (acc, p) => {
-        acc.current.events += p.periods[name].current.events;
-        acc.current.hours = Math.round((acc.current.hours + p.periods[name].current.hours) * 10) / 10;
-        acc.previous.events += p.periods[name].previous.events;
-        acc.previous.hours = Math.round((acc.previous.hours + p.periods[name].previous.hours) * 10) / 10;
+        acc.current.events += scopeOf(p).periods[name].current.events;
+        acc.current.hours = Math.round((acc.current.hours + scopeOf(p).periods[name].current.hours) * 10) / 10;
+        acc.previous.events += scopeOf(p).periods[name].previous.events;
+        acc.previous.hours = Math.round((acc.previous.hours + scopeOf(p).periods[name].previous.hours) * 10) / 10;
         return acc;
       },
       { current: { events: 0, hours: 0 }, previous: { events: 0, hours: 0 } }
@@ -741,10 +818,6 @@ function computeOverview(clientPayloads) {
   }
 
   return {
-    generatedAt: new Date().toISOString(),
-    timeZone: config.overviewTimeZone,
-    today: localBuckets(new Date().toISOString(), config.overviewTimeZone).day,
-    currentWeek: localBuckets(new Date().toISOString(), config.overviewTimeZone).week,
     totals,
     periods,
     series: { weekly: [...weekly.values()].sort((a, b) => (a.key < b.key ? -1 : 1)) },
@@ -752,15 +825,19 @@ function computeOverview(clientPayloads) {
       clientId: p.clientId,
       clientName: p.clientName,
       accentColor: p.accentColor,
-      events: p.totals.events,
-      hours: p.totals.hours,
-      candidates: p.totals.candidates,
-      roles: p.totals.roles,
-      cancellations: p.totals.cancellations,
-      reschedules: p.totals.reschedulesDerived,
-      shortNotice: p.totals.shortNotice,
-      thisWeek: p.periods.week.current.events,
-      weekChange: p.periods.week.change.events,
+      events: scopeOf(p).totals.events,
+      hours: scopeOf(p).totals.hours,
+      candidates: scopeOf(p).totals.candidates,
+      roles: scopeOf(p).totals.roles,
+      cancellations: scopeOf(p).totals.cancellations,
+      reschedules: scopeOf(p).totals.reschedulesDerived,
+      shortNotice: scopeOf(p).totals.shortNotice,
+      thisWeek: scopeOf(p).periods.week.current.events,
+      weekChange: scopeOf(p).periods.week.change.events,
+      // Both scopes on every row, so the by-client table can show what
+      // share of a client's activity was ours without a second request.
+      allEvents: p.scopes.all.totals.events,
+      coordinatedEvents: p.scopes.coordinated.totals.events,
     })).sort((a, b) => b.events - a.events),
   };
 }
@@ -779,7 +856,23 @@ function rebuild() {
     }
   }
 
-  cache.set("__overview__", computeOverview(payloads));
+  const now = new Date().toISOString();
+  cache.set("__overview__", {
+    generatedAt: now,
+    timeZone: config.overviewTimeZone,
+    today: localBuckets(now, config.overviewTimeZone).day,
+    currentWeek: localBuckets(now, config.overviewTimeZone).week,
+    scopes: {
+      all: computeOverview(payloads, "all"),
+      coordinated: computeOverview(payloads, "coordinated"),
+    },
+    // Rostered names that matched nothing at ANY client — the strongest
+    // signal that a roster entry is wrong or that the coordinator works
+    // on a client with no dashboard yet.
+    rosterUnmatchedEverywhere: [...new Set(config.clients.flatMap((c) => c.coordinators || []))].filter((name) =>
+      payloads.every((p) => p.roster.unmatched.some((u) => config.normalizeName(u) === config.normalizeName(name)))
+    ),
+  });
   console.log(`[metrics] rebuilt ${payloads.length} client payloads in ${Date.now() - t0}ms`);
 }
 
