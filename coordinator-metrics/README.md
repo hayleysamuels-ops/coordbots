@@ -262,6 +262,30 @@ compile.
 twelve-month backfill — recoverable, at the cost of a long re-sync — *and*
 the observed-reschedule history, which is not recoverable from Ashby at all.
 
+## Checks
+
+| Command | What it covers |
+|---|---|
+| `npm test` | Units, plus the payload contract against a locally computed payload |
+| `npm run smoke` | The deployed page: assets, auth, payload contract, headline numbers |
+
+`npm run smoke` runs against production by default; set `SMOKE_URL` for
+anywhere else, and `SMOKE_USER`/`SMOKE_PASSWORD` for credentials.
+
+Both exist because three failures reached the user in one day with a
+green unit suite every time: a stylesheet whose unterminated media query
+made the browser discard 485 of 488 lines, a crash in the cross-client
+roll-up that no test called, and a default period the backend never
+produced. Unit tests assert what a function returns; these assert what a
+browser receives.
+
+`.github/workflows/coordinator-metrics-smoke.yml` runs both on every push
+to `main` that touches this directory, after waiting for Railway to serve
+the new build — and on a weekday schedule, to catch drift no push caused
+(a sync that empties a client, an expired Ashby key, an unmounted
+volume). It needs three repo secrets: `COORDINATOR_METRICS_URL`,
+`COORDINATOR_METRICS_USER`, `COORDINATOR_METRICS_PASSWORD`.
+
 ## Routes
 
 | Route | What |

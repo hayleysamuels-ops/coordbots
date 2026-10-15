@@ -116,7 +116,8 @@ test("interviews already booked for the future are not counted as work done this
 
   const payload = computeClient(CLIENT);
   assert.strictEqual(payload.periods.week.current.events, 2, "future interview must not land in the last-7-days total");
-  assert.strictEqual(payload.totals.events, 3, "but it is still part of the 12-month series");
+  assert.strictEqual(payload.totals.events, 2, "nor in the headline total — every total counts work DONE");
+  assert.strictEqual(payload.totals.bookedAhead, 1, "it is counted separately as work already on the calendar");
 
   const futureBucket = payload.series.daily.find((row) => row.key > payload.today);
   assert.ok(futureBucket, "the future interview should still appear in the daily series so the chart can show it");
@@ -129,7 +130,8 @@ test("excludes holds by title but keeps debriefs", () => {
   const payload = computeClient(CLIENT);
   assert.strictEqual(payload.totals.excludedEvents, 1, "the hold should be excluded");
   assert.strictEqual(payload.totals.debriefs, 1, "the debrief should be counted");
-  assert.strictEqual(payload.totals.events, 4, "two past + one future + the debrief, with the hold dropped");
+  assert.strictEqual(payload.totals.events, 3, "two past + the debrief; the hold is dropped and the future one is booked-ahead");
+  assert.strictEqual(payload.totals.bookedAhead, 1);
 });
 
 test("resolves role and department through the application join", () => {
@@ -661,5 +663,22 @@ test("rebuild() produces a working overview for both scopes", () => {
   } finally {
     configModule.clients.length = 0;
     configModule.clients.push(...original);
+  }
+});
+
+
+// --- Headline consistency --------------------------------------------------
+
+test("the headline total and the full-period total agree", () => {
+  // They disagreed by 410 events and 274 hours on the live dashboard,
+  // under near-identical labels ("Interviews coordinated, 12 months" vs
+  // "Interviews, last 12 months"), because totals counted work booked
+  // ahead and periods did not.
+  const payload = computeFull(CLIENT);
+  for (const scope of ["all", "coordinated"]) {
+    const t = payload.scopes[scope].totals;
+    const full = payload.scopes[scope].periods.full.current;
+    assert.strictEqual(t.events, full.events, `${scope}: headline events must equal the full-period events`);
+    assert.strictEqual(Math.round(t.hours), Math.round(full.hours), `${scope}: headline hours must equal full-period hours`);
   }
 });

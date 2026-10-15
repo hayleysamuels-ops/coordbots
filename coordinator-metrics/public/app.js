@@ -402,11 +402,14 @@ function renderClient(fullPayload) {
       stat(num(period.current.events), `Interviews coordinated, ${label}`, {
         hero: true,
         deltaValue: period.change.events,
-        sub: `${num(period.previous.events)} in the previous period`,
+        // Suppressed entirely when there is nothing to compare against —
+        // "0 in the previous period" under a "no baseline" tile reads as
+        // a real zero rather than an absence of data.
+        sub: period.change.events == null ? null : `${num(period.previous.events)} in the previous period`,
       }),
       stat(num(Math.round(period.current.hours)) + "h", `Interview time placed on calendars, ${label}`, {
         deltaValue: period.change.hours,
-        sub: `${num(Math.round(period.previous.hours))}h in the previous period`,
+        sub: period.change.hours == null ? null : `${num(Math.round(period.previous.hours))}h in the previous period`,
       }),
       stat(num(period.current.candidates), `Candidates scheduled, ${label}`),
       stat(num(payload.totals.roles), "Roles supported", { sub: "distinct jobs with interview activity" }),
@@ -415,7 +418,7 @@ function renderClient(fullPayload) {
 
   frag.appendChild(
     el("div", { class: "stat-grid" }, [
-      stat(num(payload.totals.events), "Interviews, 12 months", {
+      stat(num(payload.totals.events), "Interviews held, 12 months", {
         // The composition, named on the page rather than left to whoever
         // reads the source. Meals are counted as interviews — they are
         // coordinated candidate time — but someone asked how a total is
@@ -425,6 +428,9 @@ function renderClient(fullPayload) {
           `${num(payload.totals.meals)} candidate meals`,
       }),
       stat(num(payload.totals.hours) + "h", "Interview hours, 12 months"),
+      stat(num(payload.totals.bookedAhead), "Booked ahead", {
+        sub: `${num(payload.totals.bookedAheadHours)}h already on the calendar for future dates`,
+      }),
       stat(num(payload.totals.interviewerSlots), "Interviewer seats filled", {
         sub: `${payload.totals.averagePanelSize} interviewers per interview on average`,
       }),
@@ -443,8 +449,8 @@ function renderClient(fullPayload) {
       stat(num(payload.totals.cancellations), "Cancellations, 12 months", {
         sub: "cancelled with no re-booking",
       }),
-      stat(num(payload.totals.dropOffs), "Candidate drop-offs", {
-        sub: "archived after reaching a scheduled interview",
+      stat(num(payload.totals.dropOffs), "Applications archived after interviewing", {
+        sub: "candidates who reached a scheduled interview, then were archived — counts applications, not interviews",
       }),
       stat(num(payload.totals.shortNotice), "Short-notice bookings", {
         sub: `booked under ${state.config.shortNoticeHours}h before the interview`,
@@ -704,13 +710,16 @@ function renderOverview(fullPayload) {
 
   frag.appendChild(
     el("div", { class: "stat-grid" }, [
-      stat(num(payload.totals.events), "Interviews coordinated, 12 months", {
+      stat(num(payload.totals.events), "Interviews held, 12 months", {
         hero: true,
         sub:
           `includes ${num(payload.totals.debriefs)} debriefs and ` +
           `${num(payload.totals.meals)} candidate meals`,
       }),
       stat(num(payload.totals.hours) + "h", "Interview time placed on calendars"),
+      stat(num(payload.totals.bookedAhead), "Booked ahead", {
+        sub: `${num(payload.totals.bookedAheadHours)}h on the calendar for future dates`,
+      }),
       stat(num(payload.totals.candidates), "Candidates scheduled"),
       stat(num(payload.totals.roles), "Roles supported"),
       stat(num(payload.totals.interviewerSlots), "Interviewer seats filled"),
@@ -722,13 +731,15 @@ function renderOverview(fullPayload) {
     el("div", { class: "stat-grid" }, [
       stat(num(period.current.events), `Interviews, ${label}`, {
         deltaValue: period.change.events,
-        sub: `${num(period.previous.events)} in the previous period`,
+        sub: period.change.events == null ? null : `${num(period.previous.events)} in the previous period`,
       }),
       stat(num(Math.round(period.current.hours)) + "h", `Interview hours, ${label}`, {
         deltaValue: period.change.hours,
       }),
       stat(num(payload.totals.shortNotice), "Short-notice bookings, 12 months"),
-      stat(num(payload.totals.dropOffs), "Candidate drop-offs, 12 months"),
+      stat(num(payload.totals.dropOffs), "Applications archived after interviewing", {
+        sub: "counts applications, not interviews",
+      }),
     ])
   );
 

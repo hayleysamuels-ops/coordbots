@@ -269,8 +269,40 @@ const selectEvents = db.prepare(`
  * observed-reschedule table is precise but only counts forward from first
  * sync; the UI shows both, labelled.
  */
+/**
+ * Who a cancelled schedule is attributed to.
+ *
+ * Ashby leaves `scheduledBy` empty on most cancelled schedules — 92% of
+ * Luminai's, 24-33% elsewhere. Filtering the coordinated scope on that
+ * field alone therefore DROPPED cancellations rather than filtering
+ * them: Luminai read 0 reschedules and 2 cancellations against 214 and
+ * 220 for all activity, while retaining 91% of its interviews.
+ *
+ * So attribution falls back, in order:
+ *   1. the cancelled schedule's own scheduler
+ *   2. whoever created the replacement schedule — for a reschedule, the
+ *      person who re-booked it did the work
+ *   3. whoever scheduled anything else on the same application — a
+ *      cancellation on a candidate your coordinator was running is your
+ *      coordinator's cancellation
+ */
+const ATTRIBUTED_SCHEDULER = `
+  COALESCE(
+    c.scheduled_by_name,
+    (SELECT succ.scheduled_by_name FROM schedules succ
+      WHERE succ.client_id = c.client_id AND succ.application_id = c.application_id
+        AND succ.interview_stage_id = c.interview_stage_id AND succ.id != c.id
+        AND succ.created_at > c.created_at AND succ.scheduled_by_name IS NOT NULL
+      ORDER BY succ.created_at LIMIT 1),
+    (SELECT sib.scheduled_by_name FROM schedules sib
+      WHERE sib.client_id = c.client_id AND sib.application_id = c.application_id
+        AND sib.scheduled_by_name IS NOT NULL
+      ORDER BY sib.created_at LIMIT 1)
+  )`;
+
 const selectCancellations = db.prepare(`
-  SELECT c.id, c.created_at, c.updated_at, c.application_id, c.interview_stage_id, c.scheduled_by_name,
+  SELECT c.id, c.created_at, c.updated_at, c.application_id, c.interview_stage_id,
+         ${ATTRIBUTED_SCHEDULER} AS scheduled_by_name,
          EXISTS (
            SELECT 1 FROM schedules later
            WHERE later.client_id = c.client_id
@@ -294,8 +326,14 @@ const selectObservedReschedules = db.prepare(`
 // A candidate drop-off: an application archived after it had already
 // reached a scheduled interview. Measures candidate-side loss from an
 // active process, not generic resume rejections at application review.
+// Drop-offs are attributed through whoever scheduled on that
+// application — without it they were identical in both scopes, which
+// made the coordinated number plainly wrong.
 const selectDropOffs = db.prepare(`
-  SELECT a.id, a.archived_at, a.archive_reason, a.job_id, j.title AS job_title
+  SELECT a.id, a.archived_at, a.archive_reason, a.job_id, j.title AS job_title,
+         (SELECT s.scheduled_by_name FROM schedules s
+           WHERE s.client_id = a.client_id AND s.application_id = a.id AND s.scheduled_by_name IS NOT NULL
+           ORDER BY s.created_at LIMIT 1) AS scheduled_by_name
   FROM applications a
   LEFT JOIN jobs j ON j.client_id = a.client_id AND j.id = a.job_id
   WHERE a.client_id = ? AND a.status = 'Archived' AND a.archived_at IS NOT NULL AND a.archived_at >= ?
@@ -413,7 +451,7 @@ function computeScope(client, keepScheduler) {
   const rows = selectEvents.all(client.id, since).filter((r) => keep(r.scheduled_by_name));
   const cancellations = selectCancellations.all(client.id, since).filter((r) => keep(r.scheduled_by_name));
   const observed = selectObservedReschedules.all(client.id, since).filter((r) => keep(r.scheduled_by_name));
-  const dropOffs = selectDropOffs.all(client.id, since);
+  const dropOffs = selectDropOffs.all(client.id, since).filter((r) => keep(r.scheduled_by_name));
   const scheduleTimes = selectTimeToSchedule.all(client.id, since).filter((r) => keep(r.scheduled_by_name));
 
   const daily = new Map();
@@ -441,6 +479,8 @@ function computeScope(client, keepScheduler) {
   let events = 0;
   let debriefs = 0;
   let meals = 0;
+  let bookedAhead = 0;
+  let bookedAheadHours = 0;
   let hours = 0;
   let interviewerSlots = 0;
   let shortNotice = 0;
@@ -493,6 +533,23 @@ function computeScope(client, keepScheduler) {
       candidateId: row.candidate_id,
     };
 
+    // Everything below counts work DONE, so it stops at today. Interviews
+    // already booked for future dates are counted separately as
+    // `bookedAhead` and still appear in the time series (drawn faded).
+    //
+    // They used to be in `totals` but not in `periods`, which made the
+    // hero tile and the period tile disagree by 410 events and 274 hours
+    // while being labelled almost identically.
+    const isBookedAhead = buckets.day >= tomorrowKey;
+    if (isBookedAhead) {
+      bookedAhead += 1;
+      bookedAheadHours += durationHours;
+      bump(daily, buckets.day, patch);
+      bump(weekly, buckets.week, patch);
+      bump(monthly, buckets.month, patch);
+      continue;
+    }
+
     events += 1;
     if (isDebrief) debriefs += 1;
     if (isMealTitle(row.interview_title)) meals += 1;
@@ -515,7 +572,7 @@ function computeScope(client, keepScheduler) {
     bump(weekly, buckets.week, patch);
     bump(monthly, buckets.month, patch);
 
-    if (buckets.day < tomorrowKey) {
+    {
       const roleKey = row.job_id || "unknown";
       const stageKey = row.stage_title || "Unknown stage";
       const heatKey = `${buckets.dow}:${buckets.hour}`;
@@ -626,6 +683,8 @@ function computeScope(client, keepScheduler) {
       events,
       debriefs,
       meals,
+      bookedAhead,
+      bookedAheadHours: Math.round(bookedAheadHours),
       hours: Math.round(hours),
       candidates: candidates.size,
       roles: roles.size,
