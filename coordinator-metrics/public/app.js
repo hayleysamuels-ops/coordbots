@@ -506,6 +506,17 @@ function renderDataQuality(payload) {
         `title keywords ${payload.dataQuality.excludedTitleKeywords.join(", ") || "(none)"}` +
         (payload.totals.excludedEvents ? ` — ${num(payload.totals.excludedEvents)} events excluded.` : "."),
     }),
+    el("p", {
+      style: "margin-top:8px",
+      text:
+        "Roles are grouped by Ashby job record, not by job title, so two reqs with the same title stay two rows " +
+        "(numbered (1) and (2), oldest first) and related titles like \u201cTeam Lead\u201d or \u201cNew Grad\u201d are " +
+        "never folded into the parent role. Job records titled " +
+        `${payload.dataQuality.excludedJobTitles.join(", ") || "(none)"} are treated as scaffolding and excluded` +
+        (payload.totals.excludedJobEvents
+          ? ` — ${num(payload.totals.excludedJobEvents)} events dropped.`
+          : " (none matched)."),
+    }),
   ]);
 }
 

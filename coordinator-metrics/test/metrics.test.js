@@ -18,6 +18,7 @@ const CLIENT = {
   timeZone: "America/New_York",
   accentColor: null,
   excludedTitleKeywords: ["hold", "work time"],
+  excludedJobTitles: [],
 };
 
 function iso(daysFromNow, hourUTC = 15) {
@@ -219,4 +220,117 @@ test("short-notice bookings are flagged separately from ordinary volume", () => 
 
   const payload = computeClient(CLIENT);
   assert.strictEqual(payload.totals.shortNotice, 1);
+});
+
+// --- Role grouping ---------------------------------------------------------
+//
+// These pin the answers to a real audit of Luminai's Ashby job records:
+// "Forward Deployed Engineer" exists three times at three levels, two
+// "Deployment Strategist" reqs share a title exactly, several titles carry
+// trailing whitespace, and a "TEST PIPELINE" req on Runlayer had collected
+// two real interview events.
+
+const ROLE_CLIENT = { ...CLIENT, id: "roles", excludedJobTitles: ["test", "test pipeline"] };
+
+function seedJobEvent({ id, jobId, jobTitle, openedAt, startDaysFromNow = -3 }) {
+  store.writeReference(ROLE_CLIENT.id, {
+    interviews: [{ id: "int-real", title: "Coding Interview", isDebrief: false }],
+    jobs: [{ id: jobId, title: jobTitle, status: "Open", departmentId: null, openedAt }],
+    departments: [],
+    stages: [],
+  });
+  store.writeApplicationPage(ROLE_CLIENT.id, [
+    {
+      id: `app-${id}`,
+      candidate: { id: `cand-${id}`, name: "Someone" },
+      job: { id: jobId },
+      status: "Active",
+      createdAt: iso(-100),
+      updatedAt: iso(-1),
+      hiringTeam: [],
+    },
+  ]);
+  store.writeSchedulePage(
+    ROLE_CLIENT.id,
+    [
+      {
+        id: `sch-${id}`,
+        status: "Complete",
+        applicationId: `app-${id}`,
+        interviewStageId: "stage-1",
+        createdAt: iso(startDaysFromNow - 1),
+        updatedAt: iso(startDaysFromNow),
+        interviewEvents: [
+          {
+            id,
+            interviewId: "int-real",
+            interviewScheduleId: `sch-${id}`,
+            interviewerUserIds: ["u2"],
+            createdAt: iso(startDaysFromNow - 1),
+            updatedAt: iso(startDaysFromNow),
+            startTime: iso(startDaysFromNow, 15),
+            endTime: iso(startDaysFromNow, 16),
+            hasSubmittedFeedback: true,
+          },
+        ],
+      },
+    ],
+    new Date().toISOString()
+  );
+}
+
+test("related job titles are three rows, never merged into the parent role", () => {
+  seedJobEvent({ id: "r-fde", jobId: "job-fde", jobTitle: "Forward Deployed Engineer", openedAt: iso(-300) });
+  seedJobEvent({ id: "r-lead", jobId: "job-lead", jobTitle: "Forward Deployed Engineer, Team Lead", openedAt: iso(-200) });
+  seedJobEvent({ id: "r-grad", jobId: "job-grad", jobTitle: "Forward Deployed Engineer - New Grad ", openedAt: iso(-250) });
+
+  const payload = computeClient(ROLE_CLIENT);
+  const fde = payload.byRole.filter((r) => r.title.startsWith("Forward Deployed Engineer"));
+  assert.strictEqual(fde.length, 3, "three job records must stay three rows");
+  assert.ok(fde.every((r) => r.events === 1), "each keeps its own count");
+});
+
+test("trailing whitespace is trimmed for display but never changes grouping", () => {
+  const payload = computeClient(ROLE_CLIENT);
+  assert.ok(
+    payload.byRole.some((r) => r.title === "Forward Deployed Engineer - New Grad"),
+    "the stored title ends in a space; the rendered one must not"
+  );
+  assert.ok(!payload.byRole.some((r) => r.title !== r.title.trim()), "no rendered title keeps stray whitespace");
+});
+
+test("two job records with the same title are numbered, oldest req first", () => {
+  seedJobEvent({ id: "r-ds-old", jobId: "job-ds-old", jobTitle: "Deployment Strategist", openedAt: iso(-400) });
+  seedJobEvent({ id: "r-ds-new", jobId: "job-ds-new", jobTitle: "Deployment Strategist", openedAt: iso(-50) });
+
+  const payload = computeClient(ROLE_CLIENT);
+  const ds = payload.byRole.filter((r) => r.title.startsWith("Deployment Strategist"));
+  assert.strictEqual(ds.length, 2);
+  assert.deepStrictEqual(
+    ds.map((r) => r.title).sort(),
+    ["Deployment Strategist (1)", "Deployment Strategist (2)"],
+    "identical titles must be distinguishable on the page"
+  );
+  assert.strictEqual(ds.find((r) => r.title.endsWith("(1)")).jobId, "job-ds-old", "oldest req numbered first");
+});
+
+test("a test req is excluded from every total, not just hidden from the table", () => {
+  const before = computeClient(ROLE_CLIENT);
+  seedJobEvent({ id: "r-test", jobId: "job-test", jobTitle: "TEST PIPELINE", openedAt: iso(-100) });
+  const after = computeClient(ROLE_CLIENT);
+
+  assert.strictEqual(after.totals.events, before.totals.events, "a test req must not inflate the interview count");
+  assert.strictEqual(after.totals.roles, before.totals.roles, "nor the role count");
+  assert.strictEqual(after.totals.excludedJobEvents, 1, "and the exclusion is reported, not silent");
+  assert.ok(!after.byRole.some((r) => r.title.toLowerCase().includes("test")));
+});
+
+test("exclusion is an exact title match, so a real Test Engineer role survives", () => {
+  seedJobEvent({ id: "r-testeng", jobId: "job-testeng", jobTitle: "Test Engineer", openedAt: iso(-100) });
+
+  const payload = computeClient(ROLE_CLIENT);
+  assert.ok(
+    payload.byRole.some((r) => r.title === "Test Engineer"),
+    "a substring rule would have silently deleted this genuine role"
+  );
 });

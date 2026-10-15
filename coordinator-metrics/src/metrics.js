@@ -89,6 +89,69 @@ function isExcludedTitle(title, keywords) {
   return keywords.some((keyword) => lower.includes(keyword));
 }
 
+/**
+ * Whether a JOB is scaffolding rather than a real req.
+ *
+ * Deliberately an exact match on the trimmed, lowercased title — not a
+ * substring like the interview-title rule above. A substring rule on
+ * "test" would silently swallow a real "Test Engineer" role, and the
+ * dashboard would show a smaller number with nothing indicating why.
+ */
+function isExcludedJob(title, excludedTitles) {
+  // Defaulted rather than assumed: config always supplies this, but a
+  // client object missing it should mean "exclude nothing", not throw and
+  // take down the whole metrics rebuild for every client.
+  if (!title || !Array.isArray(excludedTitles)) return false;
+  return excludedTitles.includes(title.trim().toLowerCase());
+}
+
+/**
+ * Ashby job titles carry stray trailing whitespace surprisingly often —
+ * 5 of Luminai's 22 live titles, 3 of Forus's 85. Grouping is by job id so
+ * this never affects a count, but it does affect what the title looks like
+ * next to another one, and whether two rows read as the same role.
+ */
+function cleanTitle(title) {
+  return (title || "").trim() || "Unknown role";
+}
+
+/**
+ * Two job records can share a title: Luminai has two "Deployment
+ * Strategist" reqs, one closed in August 2025 and one opened in April
+ * 2026. Grouping is by job id, so they are correctly two rows — but
+ * rendered they would be two identical lines with nothing to tell them
+ * apart, which reads as a rendering bug rather than as two reqs.
+ *
+ * So same-titled rows get " (1)" / " (2)" appended, ordered oldest-opened
+ * first for stability across refreshes. This mirrors what
+ * candidate-dashboard already does for duplicate department names.
+ *
+ * Note this never MERGES them. "Forward Deployed Engineer",
+ * "Forward Deployed Engineer, Team Lead" and "Forward Deployed Engineer -
+ * New Grad" are three different roles at three different levels and stay
+ * three rows; only exactly-equal titles are disambiguated.
+ */
+function disambiguateTitles(roles) {
+  const byTitle = new Map();
+  for (const role of roles) {
+    const key = role.title.toLowerCase();
+    if (!byTitle.has(key)) byTitle.set(key, []);
+    byTitle.get(key).push(role);
+  }
+
+  for (const group of byTitle.values()) {
+    if (group.length < 2) continue;
+    group
+      .slice()
+      .sort((a, b) => String(a.openedAt || "9999").localeCompare(String(b.openedAt || "9999")))
+      .forEach((role, index) => {
+        role.title = `${role.title} (${index + 1})`;
+      });
+  }
+
+  return roles;
+}
+
 // --- Queries ---------------------------------------------------------------
 
 const selectEvents = db.prepare(`
@@ -99,7 +162,7 @@ const selectEvents = db.prepare(`
          s.application_id, s.interview_stage_id,
          st.title AS stage_title,
          a.candidate_id, a.job_id,
-         j.title AS job_title, j.status AS job_status,
+         j.title AS job_title, j.status AS job_status, j.opened_at AS job_opened_at,
          d.name AS department_name
   FROM events e
   LEFT JOIN interviews   i  ON i.client_id  = e.client_id AND i.id  = e.interview_id
@@ -279,11 +342,17 @@ function computeClient(client) {
   let shortNotice = 0;
   let outOfHours = 0;
   let excluded = 0;
+  let excludedJobEvents = 0;
   let feedbackOutstanding = 0;
 
   for (const row of rows) {
     if (isExcludedTitle(row.interview_title, client.excludedTitleKeywords)) {
       excluded += 1;
+      continue;
+    }
+
+    if (isExcludedJob(row.job_title, client.excludedJobTitles)) {
+      excludedJobEvents += 1;
       continue;
     }
 
@@ -330,7 +399,8 @@ function computeClient(client) {
       byRole.set(roleKey, {
         ...emptyBucket(),
         jobId: row.job_id,
-        title: row.job_title || "Unknown role",
+        title: cleanTitle(row.job_title),
+        openedAt: row.job_opened_at || null,
         department: row.department_name || null,
         jobStatus: row.job_status || null,
         interviewers: new Set(),
@@ -442,13 +512,14 @@ function computeClient(client) {
       reschedulesObserved: observed.length,
       dropOffs: dropOffs.length,
       excludedEvents: excluded,
+      excludedJobEvents,
     },
 
     periods,
 
     series: { daily: dailySeries, weekly: weeklySeries, monthly: monthlySeries },
 
-    byRole: [...byRole.values()]
+    byRole: disambiguateTitles([...byRole.values()])
       .map((r) => ({
         jobId: r.jobId,
         title: r.title,
@@ -487,6 +558,7 @@ function computeClient(client) {
       // reschedule history at all.
       rescheduleTrackingSince: store.rescheduleTrackingSince(client.id),
       excludedTitleKeywords: client.excludedTitleKeywords,
+      excludedJobTitles: client.excludedJobTitles,
     },
   };
 }

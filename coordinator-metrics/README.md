@@ -57,6 +57,37 @@ trusting the defaults.** It prints every interview title, which ones the
 current keywords would exclude, whether the org uses `isDebrief` at all, and
 what twelve months of their data will cost to pull.
 
+## Roles
+
+**A role is one Ashby job record, keyed by job id — never by title.** The
+title is display-only. So the role count is the number of job records with
+interview activity, not the number of distinct titles, and two reqs that
+share a title stay two rows.
+
+Three consequences, all confirmed against Luminai's live job records:
+
+- **Related titles are not merged.** "Forward Deployed Engineer",
+  "Forward Deployed Engineer, Team Lead" and "Forward Deployed Engineer -
+  New Grad" are three reqs at three levels and stay three rows (374, 4 and
+  15 events respectively). Folding them into one number would overstate a
+  single req. Same reasoning `candidate-dashboard` records for same-titled
+  interview records: same-titled duplicates are not reliably equivalent, so
+  they are surfaced, never absorbed.
+- **Exactly-equal titles are numbered, not merged.** Luminai has two
+  "Deployment Strategist" reqs, one closed in August 2025 and one opened in
+  April 2026. They render as "(1)" and "(2)", oldest req first — the same
+  convention `candidate-dashboard` uses for duplicate department names.
+  Without it they are two identical lines that read as a rendering bug.
+- **Trailing whitespace is trimmed for display only.** Ashby titles carry
+  it often — 5 of Luminai's 22, 3 of Forus's 85. It never affects a count,
+  because grouping does not touch the string.
+
+Job records whose trimmed, lowercased title exactly matches
+`EXCLUDED_JOB_TITLES_<ID>` are dropped from every total, and the count of
+dropped events is shown on the page rather than vanishing silently. The
+match is exact and not a substring specifically so a real "Test Engineer"
+role is never deleted by a rule meant for a "TEST" req.
+
 ## Reschedules
 
 **Ashby stores no reschedule history.** This was checked across schedule

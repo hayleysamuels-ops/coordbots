@@ -77,6 +77,17 @@ const DEFAULT_EXCLUDED_TITLE_KEYWORDS = [
   "placeholder",
 ];
 
+// Job records that are scaffolding rather than real reqs. Matched against
+// the job title TRIMMED AND LOWERCASED, IN FULL — an exact match, never a
+// substring. That is the whole point: a substring rule on "test" would
+// silently delete a genuine "Test Engineer" or "QA Test Lead" role, and
+// nothing on the page would show that it had happened.
+//
+// Confirmed real: Luminai has three job records titled "TEST" (one of them
+// open), and Runlayer has a "TEST PIPELINE" req that had collected two
+// interview events before this existed.
+const DEFAULT_EXCLUDED_JOB_TITLES = ["test", "test pipeline", "testing", "do not use"];
+
 const clientIds = (process.env.CLIENTS || "")
   .split(",")
   .map((s) => s.trim().toLowerCase())
@@ -102,6 +113,7 @@ const clients = clientIds.map((id) => {
     accentColor: perClient(id, "CLIENT_ACCENT_COLOR", ""),
     appBaseUrl: (perClient(id, "ASHBY_APP_BASE_URL", "https://app.ashbyhq.com")).replace(/\/+$/, ""),
     excludedTitleKeywords: list(`EXCLUDED_TITLE_KEYWORDS_${envSuffix(id)}`, DEFAULT_EXCLUDED_TITLE_KEYWORDS),
+    excludedJobTitles: list(`EXCLUDED_JOB_TITLES_${envSuffix(id)}`, DEFAULT_EXCLUDED_JOB_TITLES),
   };
 });
 

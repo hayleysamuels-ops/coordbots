@@ -28,6 +28,21 @@ is the short list of things that look wrong and are not.
   triple the call count to learn nothing. The drop-off metric depends on
   catching the Active → Archived transition, which this does.
 
+- **Roles group by job id, never by title, and nothing is auto-merged.**
+  Luminai has three "Forward Deployed Engineer" reqs at three levels and
+  two "Deployment Strategist" reqs sharing a title exactly. Merging on a
+  title prefix would overstate a single req; merging exact duplicates would
+  be right in the Deployment Strategist case and wrong in others, and
+  nothing in the data tells them apart. So exact duplicates get "(1)"/"(2)"
+  (oldest req first) and related titles stay separate. Don't "fix" the
+  duplicate-looking rows by merging them.
+
+- **Job exclusion is an EXACT title match, unlike the interview-title
+  rule right above it.** A substring rule on "test" would silently delete a
+  genuine "Test Engineer" role and the page would just show a smaller
+  number. `test/metrics.test.js` pins both halves: a "TEST PIPELINE" req is
+  dropped from every total, and a "Test Engineer" req survives.
+
 - **Reschedules are reported two ways on purpose, and both are labelled on
   the page.** Ashby has no reschedule history and no cancellation reason
   (verified across schedule fields, event fields, `application.listHistory`
