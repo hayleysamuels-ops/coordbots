@@ -411,6 +411,26 @@ function unresolvedInterviewIds(clientId) {
     .map((row) => row.id);
 }
 
+/**
+ * Job ids referenced by stored applications that have no row in `jobs`.
+ *
+ * Third endpoint with the same shape of gap: `job.list` does not return
+ * Draft jobs even with `includeArchived: true` (confirmed live — Poetic's
+ * "Business Operations - Compliance & Trust" is status Draft and absent
+ * from the list). An event whose job is missing renders as "Unknown role".
+ */
+function unresolvedJobIds(clientId) {
+  return db
+    .prepare(
+      `SELECT DISTINCT a.job_id AS id
+       FROM applications a
+       LEFT JOIN jobs j ON j.client_id = a.client_id AND j.id = a.job_id
+       WHERE a.client_id = ? AND a.job_id IS NOT NULL AND j.id IS NULL`
+    )
+    .all(clientId)
+    .map((row) => row.id);
+}
+
 function recordSyncRun(clientId, kind, startedAt, ok, detail) {
   db.prepare(
     `INSERT OR REPLACE INTO sync_runs (client_id, kind, started_at, finished_at, ok, detail) VALUES (?, ?, ?, ?, ?, ?)`
@@ -440,6 +460,7 @@ module.exports = {
   setMeta,
   getMeta,
   unresolvedInterviewIds,
+  unresolvedJobIds,
   writeSchedulePage,
   writeApplicationPage,
   writeReference,

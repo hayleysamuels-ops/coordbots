@@ -75,6 +75,20 @@ is the short list of things that look wrong and are not.
   (oldest req first) and related titles stay separate. Don't "fix" the
   duplicate-looking rows by merging them.
 
+- **Ashby `.list` endpoints are not complete, as a rule. Always gap-fill
+  by id.** Three found so far, each discovered only after it had silently
+  corrupted a number:
+  - `interview.list` omits definitions that are not even archived — 88% of
+    Forus's events had no title, so the hold rule never ran on them.
+  - `user.list` omits accounts behind 1,789 of January's scheduled events.
+  - `job.list` omits **Draft** jobs even with `includeArchived: true`,
+    so their events render as "Unknown role".
+
+  The fix in every case is the same: find the ids referenced by stored
+  rows that have no matching record, and resolve exactly those through the
+  matching `.info` endpoint at concurrency 8. Assume the next `.list` you
+  add has the same problem and check before trusting it.
+
 - **`interview.list` is NOT a complete list of an org's interview
   definitions, and no flag makes it one.** Confirmed live: it returns 83
   for Luminai while its events reference 118 more, `includeArchived`

@@ -177,10 +177,22 @@ function braceDepth(css) {
 
     const roles = resolve(payload, "scopes.all.byRole.all") || [];
     check(`${client.id}: by-role table is populated`, roles.length > 0);
+
+    // A handful of permanently unresolvable records (an anonymised
+    // candidate, a deleted req) is normal and would make a strict check
+    // fail forever — the fastest way to get a smoke test ignored. A
+    // threshold still catches the regression this guards against, which
+    // was 132 of Runlayer's 730 events (18%) sitting under Unknown role.
+    const unknown = roles.find((r) => r.title === "Unknown role");
+    const unknownEvents = unknown ? unknown.events : 0;
+    const share = all ? unknownEvents / all : 0;
+    if (unknownEvents > 0 && share <= 0.005) {
+      notes.push(`${client.id}: ${unknownEvents} event(s) under "Unknown role" (${(share * 100).toFixed(2)}%) — within tolerance`);
+    }
     check(
-      `${client.id}: no role fell out of the job join`,
-      !roles.some((r) => r.title === "Unknown role"),
-      "an event's application did not resolve to a job"
+      `${client.id}: events resolving to no job stay under 0.5% (${unknownEvents})`,
+      share <= 0.005,
+      `${(share * 100).toFixed(1)}% of events have no job — job.list omits Draft jobs, so check syncJobGaps ran`
     );
   }
 

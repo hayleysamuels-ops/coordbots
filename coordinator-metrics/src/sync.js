@@ -171,6 +171,35 @@ async function syncInterviewDefinitions(client) {
 }
 
 /**
+ * Fills in jobs that `job.list` omits.
+ *
+ * The third Ashby `.list` endpoint found to be incomplete, after
+ * `interview.list` and `user.list`. This one omits **Draft** jobs even
+ * with `includeArchived: true`, so an application sitting on a draft req
+ * has a job id that resolves to nothing and its events render as
+ * "Unknown role". Small and bounded — one job on Poetic at the time of
+ * writing.
+ */
+async function syncJobGaps(client) {
+  const ids = store.unresolvedJobIds(client.id);
+  if (ids.length === 0) return 0;
+
+  let written = 0;
+  await mapWithConcurrency(ids, APPLICATION_CONCURRENCY, async (id) => {
+    try {
+      const json = await ashby.ashbyPost(client, "job.info", { id });
+      if (json.results && json.results.id) {
+        store.writeReference(client.id, { jobs: [json.results] });
+        written += 1;
+      }
+    } catch (err) {
+      console.warn(`[sync:${client.id}] job.info failed for ${id}: ${err.message}`);
+    }
+  });
+  return written;
+}
+
+/**
  * Pulls one client. `kind` is "full" (12 months of history, plus the
  * reference tables and every application) or "incremental" (a rolling
  * recent window only).
@@ -192,6 +221,7 @@ async function syncClient(client, kind) {
   let rescheduleCount = 0;
   let applicationCount = 0;
   let definitionCount = 0;
+  let jobGapCount = 0;
 
   try {
     // Reference data first: an event's interview title and debrief flag,
@@ -230,10 +260,12 @@ async function syncClient(client, kind) {
     // defined by the events that reference them — same ordering logic as
     // applications above.
     definitionCount = await syncInterviewDefinitions(client);
+    jobGapCount = await syncJobGaps(client);
 
     const detail =
       `${scheduleCount} schedules, ${eventCount} events, ${applicationCount} applications resolved, ` +
       `${definitionCount} interview definitions resolved, ` +
+      (jobGapCount ? `${jobGapCount} draft/missing jobs resolved, ` : "") +
       `${rescheduleCount} reschedules observed, ${schedulePages} pages in ${Math.round((Date.now() - t0) / 1000)}s`;
     store.recordSyncRun(client.id, kind, startedAt, true, detail);
     console.log(`[sync:${client.id}] ${kind} ok — ${detail}`);
