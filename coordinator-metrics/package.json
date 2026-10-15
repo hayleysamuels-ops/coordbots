@@ -1,0 +1,21 @@
+{
+  "name": "coordinator-metrics",
+  "version": "1.0.0",
+  "description": "Cross-client coordinator volume dashboard, built on the Ashby API.",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test test/*.test.js",
+    "sync": "node scripts/sync-once.js",
+    "check-client": "node scripts/check-client.js"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2"
+  }
+}
