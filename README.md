@@ -12,6 +12,7 @@ For Luminai's scheduling pilot (gated by `SCHEDULING_CLIENT_ID`), start with the
 | `ashby-scorecard-bot/` | Ashby → Slack scorecard reminders | `Feedback Reminder Bot` |
 | `candidate-channel-bot/` | Ashby → Slack: archives a candidate's channel when their application is archived or hired. Luminai only for now | `candidate-channel-bot` in dashboard-luminai |
 | `scheduling-worker/` | Copy of the Poetic work-trial tracker (squashed from work-trial-tracker `feature/scheduling-discussion-approvals` at `bbb1052`) | none: nothing deploys from this directory |
+| `coordinator-metrics/` | Cross-client coordinator volume dashboard: one tab per client plus an overview, twelve months of Ashby history in a SQLite file on a volume | `coordinator-metrics` in project `coordinator-metrics` |
 | `candidate-dashboard/scheduling-rules/` | Per-client scheduling policy config + JSON Schema. Moved from the repo root on 29 September 2026 so the deployed dashboard can read it. | read at runtime by the dashboard whose `SCHEDULING_CLIENT_ID` matches (today Luminai, for interviewer attendance) |
 
 ## Railway projects
@@ -39,6 +40,7 @@ reads it.
 | poetic-worktrialtracker | `scheduling-worker` | no connected repo: deployed by CLI upload (`railway up`), Dockerfile `worker/Dockerfile`, last deployed 18 September 2026 |
 | poetic-worktrialtracker | `Postgres` | Railway Postgres image |
 | Feedback Reminder Bot | `Feedback Reminder Bot` | this repo, branch `main`, root `/ashby-scorecard-bot`, rebuilds only on changes under `/ashby-scorecard-bot/**` |
+| coordinator-metrics | `coordinator-metrics` | this repo, branch `main`, root `/coordinator-metrics`, rebuilds only on changes under `/coordinator-metrics/**`. Unlike the six per-client dashboards this is a SINGLE deployment holding every client's Ashby key, with a volume for its SQLite history |
 | dashboard-luminai | `candidate-channel-bot` | this repo, branch `main`, root `/candidate-channel-bot`, rebuilds only on changes under `/candidate-channel-bot/**` |
 
 **Profound's dashboard is intentionally switched off.** Its `coordbots` service has no running

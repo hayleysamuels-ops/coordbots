@@ -1,0 +1,487 @@
+/* ============================================================
+   Carrara design tokens, ported from the "Carrara Design System"
+   (Manrope/PT Serif type, ember/grafite/marmol palette). Copied in
+   directly rather than linked, since this app has no build step to
+   pull an external stylesheet at request time. Layout, radii, type
+   roles and state colour follow docs/DESIGN.md, which deliberately
+   uses soft radii for the dashboard even though Carrara's deck and
+   document templates stay angular.
+   ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&family=PT+Serif:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+
+:root {
+  color-scheme: light;
+
+  /* --- Core palette --- */
+  --white: #ffffff;
+  --ember: #eb4e19;
+  --ember-hover: #d2440f;
+  --ember-press: #b93a0c;
+  --ember-wash: #fce7df;
+  --grafite: #2d2a2a;
+  /* Darkened from #9a938e — that was only ~3:1 contrast on white, too light
+     for the 10–12px meta text (section timestamps, card ages, dismiss
+     buttons) that uses --text-muted below. #7C776D reached ~4.45:1, just
+     short of AA; #7A756B reaches 4.61:1. */
+  --nuvola: #7A756B;
+  --ardesia: #59534f;
+  --marmol: #edebea;
+  --border-subtle: #e2dfdd;
+  --border-default: #d3cfcc;
+
+  /* --- Accent palette, darkened for text/icon legibility (matches the
+     design system's Tag component, which uses these same darker bases
+     rather than the raw swatch hex) --- */
+  --moss: #4e7a45;
+  --moss-wash: #e7f0e4;
+  --lemon: #8a7a17;
+  --lemon-wash: #fbfbd9;
+
+  /* --- Fonts --- */
+  --font-serif: "PT Serif", Georgia, "Times New Roman", serif;
+  --font-sans: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Metadata only: counts, times, dates, eyebrow labels. Never a sentence. */
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* --- Radii / shadows. Soft, per docs/DESIGN.md § Radii: a deliberate
+     dashboard choice that may differ from Carrara's (angular) deck and
+     document templates. Pill is for status pills and badges only. --- */
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-check: 6px;
+  --radius-pill: 999px;
+  --shadow-xs: 0 1px 2px rgba(45, 42, 42, 0.06);
+  --shadow-sm: 0 2px 8px rgba(45, 42, 42, 0.08);
+
+  /* --- Semantic aliases --- */
+  /* Tinted page so white cards lift off it without heavy shadow. Muted
+     text stays on --surface (see DESIGN.md § Keeping today's fixes). */
+  --page: #f5f3f1;
+  --surface: var(--white);
+  --surface-sunken: var(--marmol);
+  --text-primary: var(--grafite);
+  --text-secondary: var(--ardesia);
+  --text-muted: var(--nuvola);
+  --border: var(--border-default);
+  --gridline: var(--border-subtle);
+
+  /* Overridden per client deployment via CLIENT_ACCENT_COLOR (see
+     applyAppConfig() in app.js) — defaults to the brand ember so an
+     unconfigured deployment looks exactly as it always has. */
+  --header-accent: var(--ember);
+
+  /* --- Severity, mapped onto Carrara's own palette rather than
+     invented colors: an ascending "heat" ramp through the brand's
+     ember ramp for warning → serious → critical, moss for good. The good,
+     warning and critical inks are a shade darker than moss/lemon/ember-press
+     so each reaches 4.5:1 on its own wash as a 12px status pill (moss,
+     lemon and ember-press measured 4.29, 4.08 and 4.29). --- */
+  --good: #4a7442;
+  --good-wash: var(--moss-wash);
+  --warning: #807115;
+  --warning-wash: var(--lemon-wash);
+  --serious: var(--ember);
+  --serious-wash: var(--ember-wash);
+  --critical: #b0370b;
+  --critical-wash: #f7d9cd;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --border-default: #8c837b;
+    --border-subtle: #514c49;
+    --ember: #ffad89;
+    --ember-wash: #51382d;
+    --page: var(--grafite);
+    --surface: #3a3634;
+    --surface-sunken: #242121;
+    --text-primary: #ffffff;
+    --text-secondary: #d3cfcb;
+    --text-muted: #a9a29c;
+    --border: rgba(255, 255, 255, 0.12);
+    --gridline: rgba(255, 255, 255, 0.12);
+
+    /* Lighter tints of the same hues so they hold contrast on grafite and
+       on the card surface (#3a3634) sections now sit on. Good and critical
+       were lightened again for the card surface, where their pills measured
+       4.22 and 3.96; each wash is drawn from its own ink. */
+    --good: #9fca8f;
+    --good-wash: rgba(159, 202, 143, 0.16);
+    --warning: #e8cf5c;
+    --warning-wash: rgba(232, 207, 92, 0.16);
+    --serious: #ff7a45;
+    --serious-wash: rgba(255, 122, 69, 0.16);
+    --critical: #ffb198;
+    --critical-wash: rgba(255, 177, 152, 0.18);
+  }
+
+/* ============================================================
+   coordinator-metrics components. Tokens above are copied
+   verbatim from candidate-dashboard/public/style.css so the two
+   dashboards read as one family; everything below is specific to
+   showing volume over time rather than a work queue.
+   ============================================================ */
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* --- Topbar and tabs --- */
+
+.topbar {
+  background: var(--surface);
+  border-bottom: 3px solid var(--accent, var(--ember));
+  padding: 16px 32px 0;
+}
+
+.topbar-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+h1 {
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--accent, var(--ember));
+}
+
+.topbar-meta {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 14px;
+  overflow-x: auto;
+}
+
+.tab {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 9px 16px;
+  border-radius: var(--radius-control) var(--radius-control) 0 0;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tab:hover { background: var(--surface-sunken); }
+
+.tab[aria-selected="true"] {
+  color: var(--text-primary);
+  border-bottom-color: var(--tab-accent, var(--ember));
+  background: var(--surface-sunken);
+}
+
+.tab-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  margin-right: 8px;
+  vertical-align: 1px;
+  background: var(--tab-accent, var(--ember));
+}
+
+/* --- Layout --- */
+
+main { padding: 24px 32px 64px; max-width: 1500px; }
+
+.panel[hidden] { display: none !important; }
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  margin: 0 0 12px;
+}
+
+h2 {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+
+.section { margin-bottom: 32px; }
+
+.section-note {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 16px;
+  max-width: 76ch;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  padding: 20px 24px;
+  box-shadow: var(--shadow-xs);
+}
+
+/* --- Stat tiles --- */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  padding: 20px;
+  box-shadow: var(--shadow-xs);
+}
+
+.stat.hero { border-left: 4px solid var(--accent, var(--ember)); }
+
+.stat-number {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-label { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
+
+.stat-sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.delta {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: var(--radius-pill);
+  margin-left: 6px;
+  vertical-align: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.delta.up   { color: var(--good);    background: var(--good-wash); }
+.delta.down { color: var(--warning); background: var(--warning-wash); }
+.delta.flat { color: var(--text-muted); background: var(--surface-sunken); }
+
+/* --- Segmented period control --- */
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.segmented button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 7px 14px;
+  cursor: pointer;
+}
+
+.segmented button + button { border-left: 1px solid var(--border-subtle); }
+.segmented button[aria-pressed="true"] { background: var(--accent, var(--ember)); color: #fff; }
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+/* --- Charts --- */
+
+.chart { width: 100%; height: auto; display: block; overflow: visible; }
+.chart .bar { fill: var(--accent, var(--ember)); }
+.chart .bar.future { fill: var(--accent, var(--ember)); opacity: 0.3; }
+.chart .bar.cancel { fill: var(--critical); }
+.chart .bar.resched { fill: var(--nuvola); }
+.chart .axis { stroke: var(--gridline); stroke-width: 1; }
+.chart .tick {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  fill: var(--text-muted);
+}
+.chart .gridline { stroke: var(--gridline); stroke-width: 1; stroke-dasharray: 2 3; }
+
+.legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 10px;
+}
+
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+/* --- Tables --- */
+
+.table-wrap { overflow-x: auto; }
+
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+
+th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--gridline);
+  vertical-align: middle;
+}
+
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover { background: var(--surface-sunken); }
+
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+td.lead { font-weight: 600; }
+
+.muted { color: var(--text-muted); }
+
+.meter {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent, var(--ember));
+  min-width: 2px;
+}
+
+.tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+}
+
+.tag.open { background: var(--good-wash); color: var(--good); }
+
+/* --- Heatmap --- */
+
+.heatmap { display: grid; grid-template-columns: 34px repeat(24, 1fr); gap: 2px; min-width: 760px; }
+
+.heat-cell { aspect-ratio: 1; border-radius: 2px; background: var(--surface-sunken); }
+
+.heat-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+}
+
+.heat-hour {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* --- States --- */
+
+.notice {
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-left: 4px solid var(--warning);
+  border-radius: var(--radius-card);
+  padding: 16px 20px;
+  margin-bottom: 24px;
+}
+
+.notice h3 { margin: 0 0 6px; font-family: var(--font-serif); font-size: 16px; }
+.notice p { margin: 0; font-size: 13px; color: var(--text-secondary); max-width: 80ch; }
+
+.empty {
+  padding: 32px 24px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+footer {
+  padding: 24px 32px 48px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  max-width: 1500px;
+}
+
+footer p { margin: 0 0 6px; }
+
+button.link {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--accent, var(--ember));
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+@media (max-width: 720px) {
+  main, .topbar, footer { padding-left: 16px; padding-right: 16px; }
+  .stat-number { font-size: 24px; }
+}
