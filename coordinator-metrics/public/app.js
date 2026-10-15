@@ -7,10 +7,17 @@
  * nothing to bundle and nothing to load from a CDN.
  */
 
+const PERIOD_LABEL = {
+  week: "last 7 days",
+  month: "last 30 days",
+  quarter: "last 90 days",
+  all: "last 12 months",
+};
+
 const state = {
   config: null,
   active: "overview",
-  period: "quarter",
+  period: "all",
   payloads: new Map(),
 };
 
@@ -242,7 +249,10 @@ function heatmapGrid(cells, timeZone) {
 // --- Sections --------------------------------------------------------------
 
 function periodControl(onChange) {
-  const options = [["week", "7 days"], ["month", "30 days"], ["quarter", "90 days"]];
+  // "12 months" exists because the breakdowns below always showed the full
+  // window. Wiring the toggle to them without it would have quietly
+  // reduced every table to 90 days.
+  const options = [["week", "7 days"], ["month", "30 days"], ["quarter", "90 days"], ["all", "12 months"]];
   return el(
     "div",
     { class: "segmented" },
@@ -345,7 +355,7 @@ function section(title, note, body, toolbar) {
 
 function renderClient(payload) {
   const period = payload.periods[state.period];
-  const periodLabel = { week: "last 7 days", month: "last 30 days", quarter: "last 90 days" }[state.period];
+  const periodLabel = PERIOD_LABEL[state.period];
 
   const frag = document.createDocumentFragment();
 
@@ -427,12 +437,17 @@ function renderClient(payload) {
         ? barChart(payload.series.daily.slice(-28), { fadeFrom: nextDay(payload.today), labelFn: formatDay })
         : state.period === "month"
         ? barChart(payload.series.daily.slice(-60), { fadeFrom: nextDay(payload.today), labelFn: formatDay })
-        : barChart(payload.series.weekly, { fadeFrom: payload.currentWeek, labelFn: formatDay }),
+        : barChart(state.period === "quarter" ? payload.series.weekly.slice(-13) : payload.series.weekly, {
+            fadeFrom: payload.currentWeek,
+            labelFn: formatDay,
+          }),
       el("div", { class: "legend" }, [
         el("span", {}, [el("i", { class: "swatch", style: "background:var(--accent,#eb4e19)" }), "Interviews"]),
         el("span", {}, [
           el("i", { class: "swatch", style: "background:var(--accent,#eb4e19);opacity:.3" }),
-          state.period === "quarter" ? "This week so far, and booked ahead" : "Today, and booked ahead",
+          state.period === "quarter" || state.period === "all"
+            ? "This week so far, and booked ahead"
+            : "Today, and booked ahead",
         ]),
         el("span", {}, [el("i", { class: "swatch", style: "background:var(--critical)" }), "Cancelled or rescheduled"]),
       ])
@@ -443,7 +458,7 @@ function renderClient(payload) {
   frag.appendChild(
     section(
       "Volume over time",
-      state.period === "quarter" ? "Each bar is one week." : "Each bar is one day.",
+      state.period === "quarter" || state.period === "all" ? "Each bar is one week." : "Each bar is one day.",
       chartHost,
       periodControl(() => render())
     )
@@ -452,20 +467,20 @@ function renderClient(payload) {
   frag.appendChild(
     section(
       "By role",
-      "Every job with interview activity in the last 12 months, busiest first.",
-      roleTable(payload.byRole)
+      `Every job with interview activity in the ${periodLabel}, busiest first.`,
+      roleTable(payload.byRole[state.period])
     )
   );
 
   frag.appendChild(
-    section("By stage", "Which rounds the volume sits in. Onsites and panels cost far more to coordinate than screens.", stageTable(payload.byStage))
+    section("By stage", "Which rounds the volume sits in. Onsites and panels cost far more to coordinate than screens.", stageTable(payload.byStage[state.period]))
   );
 
   frag.appendChild(
     section(
       "When the work happens",
-      `Interview start times by day and hour, in ${payload.timeZone}. Darker is busier.`,
-      heatmapGrid(payload.heatmap, payload.timeZone)
+      `Interview start times by day and hour over the ${periodLabel}, in ${payload.timeZone}. Darker is busier.`,
+      heatmapGrid(payload.heatmap[state.period], payload.timeZone)
     )
   );
 
@@ -561,9 +576,16 @@ function renderDataQuality(payload) {
 
 // --- Overview panel --------------------------------------------------------
 
+// The overview only has a weekly series, so the shorter periods take a
+// tail of it rather than switching to daily bars.
+function overviewSeries(payload) {
+  const weeks = { week: 2, month: 5, quarter: 13, all: payload.series.weekly.length };
+  return payload.series.weekly.slice(-(weeks[state.period] || payload.series.weekly.length));
+}
+
 function renderOverview(payload) {
   const period = payload.periods[state.period];
-  const periodLabel = { week: "last 7 days", month: "last 30 days", quarter: "last 90 days" }[state.period];
+  const periodLabel = PERIOD_LABEL[state.period];
   const frag = document.createDocumentFragment();
 
   frag.appendChild(
@@ -603,9 +625,9 @@ function renderOverview(payload) {
   frag.appendChild(
     section(
       "Total volume by week",
-      "Every client combined. Weeks are Monday-start.",
+      `Every client combined, over the ${periodLabel}. Weeks are Monday-start.`,
       el("div", {}, [
-        barChart(payload.series.weekly, { fadeFrom: payload.currentWeek, labelFn: formatDay }),
+        barChart(overviewSeries(payload), { fadeFrom: payload.currentWeek, labelFn: formatDay }),
         el("div", { class: "legend" }, [
           el("span", {}, [el("i", { class: "swatch", style: "background:var(--accent,#eb4e19)" }), "Interviews"]),
           el("span", {}, [

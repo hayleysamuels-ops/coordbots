@@ -28,6 +28,23 @@ is the short list of things that look wrong and are not.
   triple the call count to learn nothing. The drop-off metric depends on
   catching the Active → Archived transition, which this does.
 
+- **`byRole`, `byStage` and `heatmap` are keyed by PERIOD, not flat
+  arrays.** `payload.byRole.all`, `.quarter`, `.month`, `.week`. They used
+  to be single arrays over the whole window, which meant the 7/30/90
+  toggle moved the stat tiles and the client-tab chart and silently drove
+  nothing else — on the Overview it didn't even move the chart directly
+  beneath it. All four variants ship in one payload so switching is an
+  object lookup with no refetch; a per-role daily matrix for the client to
+  re-aggregate would be ~18,000 sparse entries on Forus, more than all four
+  variants together. A "12 months" option was added to the control at the
+  same time, because wiring the toggle without it would have quietly cut
+  every breakdown from 12 months to 90 days.
+
+- **Breakdowns stop at today; the time series does not.** Interviews
+  booked ahead stay in `series.daily`/`series.weekly` (drawn faded) but are
+  excluded from every breakdown, so "by role, last 90 days" never mixes
+  work done with work pending.
+
 - **Roles group by job id, never by title, and nothing is auto-merged.**
   Luminai has three "Forward Deployed Engineer" reqs at three levels and
   two "Deployment Strategist" reqs sharing a title exactly. Merging on a

@@ -371,9 +371,21 @@ function computeClient(client) {
   const daily = new Map();
   const weekly = new Map();
   const monthly = new Map();
-  const byRole = new Map();
-  const byStage = new Map();
-  const heatmap = new Map();
+
+  // The by-role, by-stage and heatmap breakdowns are computed once PER
+  // PERIOD rather than once over the whole window, so the 7/30/90-day
+  // toggle drives them instead of only moving the stat tiles above them.
+  //
+  // They're precomputed server-side and shipped in one payload: switching
+  // period is then an object lookup with no refetch. The alternative —
+  // sending a per-role daily matrix for the client to re-aggregate — is
+  // ~18,000 sparse entries on Forus, which costs more to transfer than
+  // all four precomputed variants put together.
+  const PERIOD_KEYS = ["week", "month", "quarter", "all"];
+  const scopes = {};
+  for (const key of PERIOD_KEYS) {
+    scopes[key] = { byRole: new Map(), byStage: new Map(), heatmap: new Map() };
+  }
 
   const candidates = new Set();
   const interviewers = new Set();
@@ -391,6 +403,17 @@ function computeClient(client) {
   let unresolvedTitleEvents = 0;
   const excludedTitleCounts = new Map();
   let feedbackOutstanding = 0;
+
+  // Breakdowns count work up to and including today. Interviews booked
+  // ahead stay in the time series (drawn faded) but are not folded into
+  // "by role, last 90 days" — that would mix work done with work pending.
+  const tomorrowKey = dayKeyOffset(-1, timeZone);
+  const periodStart = {
+    week: dayKeyOffset(7, timeZone),
+    month: dayKeyOffset(30, timeZone),
+    quarter: dayKeyOffset(90, timeZone),
+    all: "",
+  };
 
   for (const row of rows) {
     // An event with no resolvable definition cannot be tested against the
@@ -447,28 +470,37 @@ function computeClient(client) {
     bump(daily, buckets.day, patch);
     bump(weekly, buckets.week, patch);
     bump(monthly, buckets.month, patch);
-    bump(byStage, row.stage_title || "Unknown stage", patch);
 
-    const roleKey = row.job_id || "unknown";
-    if (!byRole.has(roleKey)) {
-      byRole.set(roleKey, {
-        ...emptyBucket(),
-        jobId: row.job_id,
-        title: cleanTitle(row.job_title),
-        openedAt: row.job_opened_at || null,
-        department: row.department_name || null,
-        jobStatus: row.job_status || null,
-        interviewers: new Set(),
-      });
+    if (buckets.day < tomorrowKey) {
+      const roleKey = row.job_id || "unknown";
+      const stageKey = row.stage_title || "Unknown stage";
+      const heatKey = `${buckets.dow}:${buckets.hour}`;
+
+      for (const periodKey of PERIOD_KEYS) {
+        if (buckets.day < periodStart[periodKey]) continue;
+        const scope = scopes[periodKey];
+
+        bump(scope.byStage, stageKey, patch);
+
+        if (!scope.byRole.has(roleKey)) {
+          scope.byRole.set(roleKey, {
+            ...emptyBucket(),
+            jobId: row.job_id,
+            title: cleanTitle(row.job_title),
+            openedAt: row.job_opened_at || null,
+            department: row.department_name || null,
+            jobStatus: row.job_status || null,
+          });
+        }
+        const role = scope.byRole.get(roleKey);
+        role.events += 1;
+        role.hours += durationHours;
+        role.debriefs += isDebrief ? 1 : 0;
+        if (row.candidate_id) role.candidates.add(row.candidate_id);
+
+        scope.heatmap.set(heatKey, (scope.heatmap.get(heatKey) || 0) + 1);
+      }
     }
-    const role = byRole.get(roleKey);
-    role.events += 1;
-    role.hours += durationHours;
-    role.debriefs += isDebrief ? 1 : 0;
-    if (row.candidate_id) role.candidates.add(row.candidate_id);
-
-    const heatKey = `${buckets.dow}:${buckets.hour}`;
-    heatmap.set(heatKey, (heatmap.get(heatKey) || 0) + 1);
   }
 
   // Cancellations split into the two meanings a Cancelled schedule carries.
@@ -576,27 +608,44 @@ function computeClient(client) {
 
     series: { daily: dailySeries, weekly: weeklySeries, monthly: monthlySeries },
 
-    byRole: disambiguateTitles([...byRole.values()])
-      .map((r) => ({
-        jobId: r.jobId,
-        title: r.title,
-        department: r.department,
-        jobStatus: r.jobStatus,
-        events: r.events,
-        hours: Math.round(r.hours),
-        debriefs: r.debriefs,
-        candidates: r.candidates.size,
-      }))
-      .sort((a, b) => b.events - a.events),
+    // Keyed by period, so the toggle switches breakdowns instantly with
+    // no refetch. "all" is the full 12 months.
+    byRole: Object.fromEntries(
+      PERIOD_KEYS.map((key) => [
+        key,
+        disambiguateTitles([...scopes[key].byRole.values()])
+          .map((r) => ({
+            jobId: r.jobId,
+            title: r.title,
+            department: r.department,
+            jobStatus: r.jobStatus,
+            events: r.events,
+            hours: Math.round(r.hours),
+            debriefs: r.debriefs,
+            candidates: r.candidates.size,
+          }))
+          .sort((a, b) => b.events - a.events),
+      ])
+    ),
 
-    byStage: [...byStage.entries()]
-      .map(([title, b]) => ({ title, events: b.events, hours: Math.round(b.hours), candidates: b.candidates.size }))
-      .sort((a, b) => b.events - a.events),
+    byStage: Object.fromEntries(
+      PERIOD_KEYS.map((key) => [
+        key,
+        [...scopes[key].byStage.entries()]
+          .map(([title, b]) => ({ title, events: b.events, hours: Math.round(b.hours), candidates: b.candidates.size }))
+          .sort((a, b) => b.events - a.events),
+      ])
+    ),
 
-    heatmap: [...heatmap.entries()].map(([key, count]) => {
-      const [dow, hour] = key.split(":").map(Number);
-      return { dow, hour, events: count };
-    }),
+    heatmap: Object.fromEntries(
+      PERIOD_KEYS.map((key) => [
+        key,
+        [...scopes[key].heatmap.entries()].map(([heatKey, count]) => {
+          const [dow, hour] = heatKey.split(":").map(Number);
+          return { dow, hour, events: count };
+        }),
+      ])
+    ),
 
     timeToSchedule: {
       medianHours: median(noticeValues) === null ? null : Math.round(median(noticeValues) * 10) / 10,
