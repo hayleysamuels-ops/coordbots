@@ -44,16 +44,40 @@ if [ -z "${DASHBOARD_PASSWORD:-}" ]; then
   exit 1
 fi
 
-echo "==> Creating project $PROJECT"
-railway init --name "$PROJECT"
+# Each step is skipped if it has already happened, so the script can be
+# re-run safely after a failure partway through. Without this, a second run
+# would create a duplicate Railway project rather than resuming.
 
-echo "==> Creating service $SERVICE from $REPO ($BRANCH)"
-railway add --service "$SERVICE" --repo "$REPO" --branch "$BRANCH"
+if railway status > /dev/null 2>&1; then
+  echo "==> Project already linked in this directory, skipping create"
+  railway status | sed -n '1,4p'
+else
+  echo "==> Creating project $PROJECT"
+  railway init --name "$PROJECT"
+fi
 
-echo "==> Attaching volume at $MOUNT_PATH"
-# RAILWAY_VOLUME_MOUNT_PATH is set automatically once a volume is attached,
-# and src/config.js prefers it over DATA_DIR, so nothing else to configure.
-railway volume add --service "$SERVICE" --mount-path "$MOUNT_PATH"
+if railway variables --service "$SERVICE" > /dev/null 2>&1; then
+  echo "==> Service $SERVICE already exists, skipping create"
+else
+  echo "==> Creating service $SERVICE from $REPO ($BRANCH)"
+  # `railway add` prompts for variables interactively unless --variables is
+  # passed; press Esc at that prompt, the variables are all set further down.
+  railway add --service "$SERVICE" --repo "$REPO" --branch "$BRANCH"
+fi
+
+if railway volume list 2>/dev/null | grep -q "$MOUNT_PATH"; then
+  echo "==> Volume already attached at $MOUNT_PATH, skipping"
+else
+  echo "==> Attaching volume at $MOUNT_PATH"
+  # NOTE the flag order: --service belongs to `railway volume`, not to its
+  # `add` subcommand. `railway volume add --service ...` fails with
+  # "unexpected argument '--service' found".
+  #
+  # RAILWAY_VOLUME_MOUNT_PATH is set automatically once a volume is
+  # attached, and src/config.js prefers it over DATA_DIR, so there is
+  # nothing else to configure.
+  railway volume --service "$SERVICE" add --mount-path "$MOUNT_PATH"
+fi
 
 echo "==> Setting base variables"
 client_ids=""
@@ -87,7 +111,10 @@ for entry in "${CLIENTS[@]}"; do
 
   echo "==> $id: copying key and display config from $source_project"
   vars="$(railway variables --service coordbots --project "$source_project" --environment production --kv)"
-  key="$(printf '%s\n' "$vars" | grep '^ASHBY_API_KEY=' | cut -d= -f2-)"
+  # Every `|| true` here is load-bearing under `set -e`: a grep that matches
+  # nothing returns non-zero, and a failed command substitution in an
+  # assignment exits the script rather than leaving the variable empty.
+  key="$(printf '%s\n' "$vars" | grep '^ASHBY_API_KEY=' | cut -d= -f2- || true)"
   name="$(printf '%s\n' "$vars" | grep '^CLIENT_NAME=' | cut -d= -f2- || true)"
   accent="$(printf '%s\n' "$vars" | grep '^CLIENT_ACCENT_COLOR=' | cut -d= -f2- || true)"
 
@@ -96,12 +123,22 @@ for entry in "${CLIENTS[@]}"; do
     continue
   fi
 
+  # Written as `if` blocks, not `[ -n "$x" ] && args+=(...)`: under `set -e`
+  # that one-liner exits the whole script whenever the test is false, which
+  # is exactly the ordinary case of a client having no accent colour.
   args=(--set "ASHBY_API_KEY_${up}=${key}" --set "CLIENT_TIMEZONE_${up}=${tz}")
-  [ -n "$name" ] && args+=(--set "CLIENT_NAME_${up}=${name}")
-  [ -n "$accent" ] && args+=(--set "CLIENT_ACCENT_COLOR_${up}=${accent}")
+  count=2
+  if [ -n "$name" ]; then
+    args+=(--set "CLIENT_NAME_${up}=${name}")
+    count=$((count + 1))
+  fi
+  if [ -n "$accent" ]; then
+    args+=(--set "CLIENT_ACCENT_COLOR_${up}=${accent}")
+    count=$((count + 1))
+  fi
 
   railway variables --service "$SERVICE" --skip-deploys "${args[@]}" > /dev/null
-  echo "    set ${#args[@]} variables for $id"
+  echo "    set $count variables for $id"
 done
 
 cat <<'DONE'
