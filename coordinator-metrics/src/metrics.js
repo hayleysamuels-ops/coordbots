@@ -343,11 +343,20 @@ function computeClient(client) {
   let outOfHours = 0;
   let excluded = 0;
   let excludedJobEvents = 0;
+  let unresolvedTitleEvents = 0;
+  const excludedTitleCounts = new Map();
   let feedbackOutstanding = 0;
 
   for (const row of rows) {
+    // An event with no resolvable definition cannot be tested against the
+    // hold keywords at all. Counted separately so the page can say so
+    // rather than quietly treating "untestable" as "not a hold".
+    if (!row.interview_title) unresolvedTitleEvents += 1;
+
     if (isExcludedTitle(row.interview_title, client.excludedTitleKeywords)) {
       excluded += 1;
+      const title = row.interview_title.trim();
+      excludedTitleCounts.set(title, (excludedTitleCounts.get(title) || 0) + 1);
       continue;
     }
 
@@ -513,6 +522,7 @@ function computeClient(client) {
       dropOffs: dropOffs.length,
       excludedEvents: excluded,
       excludedJobEvents,
+      unresolvedTitleEvents,
     },
 
     periods,
@@ -559,6 +569,16 @@ function computeClient(client) {
       rescheduleTrackingSince: store.rescheduleTrackingSince(client.id),
       excludedTitleKeywords: client.excludedTitleKeywords,
       excludedJobTitles: client.excludedJobTitles,
+      // What the hold rule actually caught, most common first. Shown on
+      // the page so a keyword quietly swallowing a real interview type is
+      // visible rather than something you find out about later.
+      excludedTitleBreakdown: [...excludedTitleCounts.entries()]
+        .map(([title, count]) => ({ title, count }))
+        .sort((a, b) => b.count - a.count),
+      // When interview definitions were last resolved against Ashby.
+      // Surfaced because this CAN go stale: interview.list does not return
+      // every definition, so new unresolvable ids appear over time.
+      definitionsResolvedAt: store.getMeta(client.id, "interview_definitions_resolved_at"),
     },
   };
 }

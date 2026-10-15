@@ -506,6 +506,38 @@ function renderDataQuality(payload) {
         `title keywords ${payload.dataQuality.excludedTitleKeywords.join(", ") || "(none)"}` +
         (payload.totals.excludedEvents ? ` — ${num(payload.totals.excludedEvents)} events excluded.` : "."),
     }),
+
+    // What the hold rule actually caught. On the page, not just in a
+    // report, so a keyword quietly eating a real interview type shows up.
+    payload.dataQuality.excludedTitleBreakdown.length
+      ? el("p", {
+          style: "margin-top:8px",
+          text:
+            "Excluded by title: " +
+            payload.dataQuality.excludedTitleBreakdown
+              .slice(0, 10)
+              .map((row) => `${row.title} (${num(row.count)})`)
+              .join(", ") +
+            (payload.dataQuality.excludedTitleBreakdown.length > 10
+              ? `, and ${payload.dataQuality.excludedTitleBreakdown.length - 10} more titles.`
+              : "."),
+        })
+      : null,
+
+    // Staleness, stated rather than assumed. interview.list does not
+    // return every definition an org uses, so unresolvable ids reappear
+    // over time and the hold rule silently stops applying to them.
+    el("p", {
+      style: "margin-top:8px",
+      text:
+        (payload.dataQuality.definitionsResolvedAt
+          ? `Interview definitions last resolved against Ashby ${formatWhen(payload.dataQuality.definitionsResolvedAt)}. `
+          : "Interview definitions have not been resolved against Ashby yet. ") +
+        (payload.totals.unresolvedTitleEvents
+          ? `${num(payload.totals.unresolvedTitleEvents)} events still have no resolvable interview title, so the hold ` +
+            "rule above could not be applied to them and their debrief status is unknown."
+          : "Every event resolves to a named interview, so the hold rule was applied to all of them."),
+    }),
     el("p", {
       style: "margin-top:8px",
       text:

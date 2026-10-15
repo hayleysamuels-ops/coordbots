@@ -37,6 +37,19 @@ is the short list of things that look wrong and are not.
   (oldest req first) and related titles stay separate. Don't "fix" the
   duplicate-looking rows by merging them.
 
+- **`interview.list` is NOT a complete list of an org's interview
+  definitions, and no flag makes it one.** Confirmed live: it returns 83
+  for Luminai while its events reference 118 more, `includeArchived`
+  changes nothing, and the omitted ones are not even archived — the
+  most-used missing one resolves via `interview.info` with
+  `isArchived: false`. Before `syncInterviewDefinitions()` existed this hit
+  88% of Forus's events, and the failure was silent in one direction: an
+  event with no title can't be tested against the hold keywords, so holds
+  counted as interviews and debriefs were undercounted. Don't "simplify"
+  this back to a single `interview.list` call. The page reports both the
+  last resolution time and any still-unresolvable events, because new ones
+  appear over time.
+
 - **Job exclusion is an EXACT title match, unlike the interview-title
   rule right above it.** A substring rule on "test" would silently delete a
   genuine "Test Engineer" role and the page would just show a smaller

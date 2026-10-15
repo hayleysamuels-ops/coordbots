@@ -88,6 +88,27 @@ dropped events is shown on the page rather than vanishing silently. The
 match is exact and not a substring specifically so a real "Test Engineer"
 role is never deleted by a rule meant for a "TEST" req.
 
+## Interview definitions
+
+`interview.list` does not return every interview definition an org uses,
+and there is no parameter that makes it: it returns 83 for Luminai whose
+events reference 118 more, `includeArchived` changes nothing, and the
+missing ones are not archived — the most-used one resolves through
+`interview.info` reporting `isArchived: false`.
+
+This matters because an event with no resolvable title cannot be tested
+against the hold-exclusion keywords, and its `isDebrief` flag is unknown.
+Before this was fixed it affected 88% of Forus's events, 79% of Poetic's
+and 70% of Luminai's, and it failed in one direction only: holds were
+counted as interviews, and debriefs were undercounted.
+
+`syncInterviewDefinitions()` resolves the gap by id through
+`interview.info` at concurrency 8 — 1,266 distinct ids across all five
+clients on first run, then only genuinely new ones, since definitions are
+stored once. The dashboard shows when definitions were last resolved and
+how many events (if any) still have no title, because new unresolvable ids
+appear over time and this can go stale again.
+
 ## Reschedules
 
 **Ashby stores no reschedule history.** This was checked across schedule

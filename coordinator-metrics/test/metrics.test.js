@@ -334,3 +334,69 @@ test("exclusion is an exact title match, so a real Test Engineer role survives",
     "a substring rule would have silently deleted this genuine role"
   );
 });
+
+// --- Unresolvable interview definitions ------------------------------------
+//
+// interview.list does not return every definition an org uses, and no flag
+// makes it: Luminai's events referenced 118 ids it omits, Forus's 785,
+// covering 88% of its events. An event with no resolvable title cannot be
+// tested against the hold keywords, so holds get counted as interviews —
+// silently, which is the part that matters.
+
+const RESOLVE_CLIENT = { ...CLIENT, id: "resolve", excludedTitleKeywords: ["hold", "lunch"], excludedJobTitles: [] };
+
+test("an event whose definition is missing is reported, not treated as a non-hold", () => {
+  store.writeReference(RESOLVE_CLIENT.id, {
+    interviews: [{ id: "known", title: "Coding Interview", isDebrief: false }],
+    jobs: [{ id: "job-1", title: "Engineer", status: "Open" }],
+    departments: [],
+    stages: [],
+  });
+  store.writeApplicationPage(RESOLVE_CLIENT.id, [
+    { id: "app-1", candidate: { id: "c1", name: "A" }, job: { id: "job-1" }, status: "Active",
+      createdAt: iso(-50), updatedAt: iso(-1), hiringTeam: [] },
+  ]);
+
+  const mk = (id, interviewId) => ({
+    id: `sch-${id}`, status: "Complete", applicationId: "app-1", interviewStageId: "stage-1",
+    createdAt: iso(-4), updatedAt: iso(-3),
+    interviewEvents: [{
+      id, interviewId, interviewScheduleId: `sch-${id}`, interviewerUserIds: ["u1"],
+      createdAt: iso(-4), updatedAt: iso(-3), startTime: iso(-3, 15), endTime: iso(-3, 16),
+      hasSubmittedFeedback: true,
+    }],
+  });
+
+  store.writeSchedulePage(RESOLVE_CLIENT.id, [mk("ev-known", "known"), mk("ev-missing", "not-in-our-table")], new Date().toISOString());
+
+  const payload = computeClient(RESOLVE_CLIENT);
+  assert.strictEqual(payload.totals.unresolvedTitleEvents, 1, "the untestable event must be counted and surfaced");
+  assert.strictEqual(payload.totals.events, 2, "it still counts as an interview — it is real, just unnamed");
+});
+
+test("resolving the definition lets the hold rule finally apply to it", () => {
+  // Exactly what syncInterviewDefinitions does: fill in the missing row.
+  store.writeReference(RESOLVE_CLIENT.id, {
+    interviews: [{ id: "not-in-our-table", title: "External Hold", isDebrief: false }],
+  });
+
+  const payload = computeClient(RESOLVE_CLIENT);
+  assert.strictEqual(payload.totals.unresolvedTitleEvents, 0, "nothing is unresolvable any more");
+  assert.strictEqual(payload.totals.events, 1, "the hold is now correctly excluded from the interview count");
+  assert.strictEqual(payload.totals.excludedEvents, 1);
+});
+
+test("the excluded-title breakdown names what the keywords actually caught", () => {
+  const payload = computeClient(RESOLVE_CLIENT);
+  assert.deepStrictEqual(
+    payload.dataQuality.excludedTitleBreakdown,
+    [{ title: "External Hold", count: 1 }],
+    "a keyword swallowing a real interview type has to be visible, not just counted"
+  );
+});
+
+test("definition resolution records when it last ran, so staleness is visible", () => {
+  store.setMeta(RESOLVE_CLIENT.id, "interview_definitions_resolved_at", "2026-10-15T12:00:00.000Z");
+  const payload = computeClient(RESOLVE_CLIENT);
+  assert.strictEqual(payload.dataQuality.definitionsResolvedAt, "2026-10-15T12:00:00.000Z");
+});

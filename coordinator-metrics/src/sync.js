@@ -122,6 +122,55 @@ async function syncApplications(client, kind) {
 }
 
 /**
+ * Resolves interview definitions that `interview.list` does not return.
+ *
+ * `interview.list` is not a complete list of an org's interview
+ * definitions, and there is no flag that makes it one — `includeArchived`
+ * changes nothing (tested live). Luminai's events reference 118 ids the
+ * list endpoint omits; Forus's reference 785, covering 88% of its events.
+ * The omitted ones are not archived either: the most-used missing Luminai
+ * definition resolves through `interview.info` reporting
+ * `isArchived: false`.
+ *
+ * The cost of leaving them unresolved is silent and one-directional: an
+ * event with no title cannot be tested against the hold-exclusion
+ * keywords, so holds are counted as interviews, and its `isDebrief` flag
+ * is unknown, so debriefs are undercounted.
+ *
+ * Resolving them is a one-off per definition — 1,266 ids across all five
+ * clients at first run, then only genuinely new ones — so this uses the
+ * same targeted by-id fetch at concurrency 8 that syncApplications() does.
+ */
+async function syncInterviewDefinitions(client) {
+  const ids = store.unresolvedInterviewIds(client.id);
+  if (ids.length === 0) {
+    store.setMeta(client.id, "interview_definitions_resolved_at", new Date().toISOString());
+    return 0;
+  }
+
+  let written = 0;
+  let failed = 0;
+
+  await mapWithConcurrency(ids, APPLICATION_CONCURRENCY, async (id) => {
+    try {
+      const json = await ashby.ashbyPost(client, "interview.info", { id });
+      const def = json.results;
+      if (def && def.id) {
+        store.writeReference(client.id, { interviews: [def] });
+        written += 1;
+      }
+    } catch (err) {
+      failed += 1;
+      if (failed <= 3) console.warn(`[sync:${client.id}] interview.info failed for ${id}: ${err.message}`);
+    }
+  });
+
+  if (failed > 3) console.warn(`[sync:${client.id}] ${failed} interview.info calls failed in total`);
+  store.setMeta(client.id, "interview_definitions_resolved_at", new Date().toISOString());
+  return written;
+}
+
+/**
  * Pulls one client. `kind` is "full" (12 months of history, plus the
  * reference tables and every application) or "incremental" (a rolling
  * recent window only).
@@ -142,6 +191,7 @@ async function syncClient(client, kind) {
   let eventCount = 0;
   let rescheduleCount = 0;
   let applicationCount = 0;
+  let definitionCount = 0;
 
   try {
     // Reference data first: an event's interview title and debrief flag,
@@ -176,8 +226,14 @@ async function syncClient(client, kind) {
     // step existed.
     applicationCount = await syncApplications(client, kind);
 
+    // After schedules, because the set of definitions worth resolving is
+    // defined by the events that reference them — same ordering logic as
+    // applications above.
+    definitionCount = await syncInterviewDefinitions(client);
+
     const detail =
       `${scheduleCount} schedules, ${eventCount} events, ${applicationCount} applications resolved, ` +
+      `${definitionCount} interview definitions resolved, ` +
       `${rescheduleCount} reschedules observed, ${schedulePages} pages in ${Math.round((Date.now() - t0) / 1000)}s`;
     store.recordSyncRun(client.id, kind, startedAt, true, detail);
     console.log(`[sync:${client.id}] ${kind} ok — ${detail}`);

@@ -157,6 +157,16 @@ CREATE TABLE IF NOT EXISTS applications (
 );
 CREATE INDEX IF NOT EXISTS idx_applications_job ON applications (client_id, job_id);
 
+-- Small key/value side table for facts about the sync itself that aren't
+-- rows of Ashby data — currently just when interview definitions were last
+-- resolved, which the dashboard shows so this can't silently go stale.
+CREATE TABLE IF NOT EXISTS sync_meta (
+  client_id  TEXT NOT NULL,
+  key        TEXT NOT NULL,
+  value      TEXT,
+  PRIMARY KEY (client_id, key)
+);
+
 CREATE TABLE IF NOT EXISTS sync_runs (
   client_id    TEXT NOT NULL,
   kind         TEXT NOT NULL,
@@ -346,6 +356,42 @@ const writeReference = transaction((clientId, { interviews, jobs, departments, s
   for (const s of stages || []) upsertStage.run(clientId, s.id, s.title || null, s.type || null);
 });
 
+function setMeta(clientId, key, value) {
+  db.prepare(
+    `INSERT INTO sync_meta (client_id, key, value) VALUES (?, ?, ?)
+     ON CONFLICT (client_id, key) DO UPDATE SET value = excluded.value`
+  ).run(clientId, key, value);
+}
+
+function getMeta(clientId, key) {
+  const row = db.prepare(`SELECT value FROM sync_meta WHERE client_id = ? AND key = ?`).get(clientId, key);
+  return row ? row.value : null;
+}
+
+/**
+ * Interview ids referenced by stored events that have no matching row in
+ * `interviews`.
+ *
+ * `interview.list` does not return every definition an org has ever used —
+ * confirmed live: it returns 83 for Luminai while its events reference 118
+ * more, and passing `includeArchived` changes nothing. The missing ones are
+ * not even archived (the most-used one resolves via `interview.info` with
+ * `isArchived: false`). Without resolving them, an event has no title, so
+ * the hold-exclusion rule cannot be applied to it and its debrief flag is
+ * unknown — which silently affected 88% of Forus's events.
+ */
+function unresolvedInterviewIds(clientId) {
+  return db
+    .prepare(
+      `SELECT DISTINCT e.interview_id AS id
+       FROM events e
+       LEFT JOIN interviews i ON i.client_id = e.client_id AND i.id = e.interview_id
+       WHERE e.client_id = ? AND e.interview_id IS NOT NULL AND i.id IS NULL`
+    )
+    .all(clientId)
+    .map((row) => row.id);
+}
+
 function recordSyncRun(clientId, kind, startedAt, ok, detail) {
   db.prepare(
     `INSERT OR REPLACE INTO sync_runs (client_id, kind, started_at, finished_at, ok, detail) VALUES (?, ?, ?, ?, ?, ?)`
@@ -372,6 +418,9 @@ function rescheduleTrackingSince(clientId) {
 
 module.exports = {
   db,
+  setMeta,
+  getMeta,
+  unresolvedInterviewIds,
   writeSchedulePage,
   writeApplicationPage,
   writeReference,
