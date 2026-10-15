@@ -207,3 +207,4 @@ Everything except `/healthz` sits behind one shared Basic Auth credential.
 A per-client, client-facing view would need real per-user auth; `src/auth.js`
 is deliberately the only place that decides access so that change lands in
 one file.
+
