@@ -685,12 +685,17 @@ function computeScope(client, keepScheduler) {
 
   return {
     totals: {
-      events,
+      // Derived from the full-period figure rather than counted
+      // separately, so the hero tile and the "last 12 months" tile are
+      // the same number by construction. Counting them independently
+      // left them 410 events apart, and after that was fixed a
+      // day-boundary edge still split the hours by one.
+      events: periods.full.current.events,
+      hours: Math.round(periods.full.current.hours),
       debriefs,
       meals,
       bookedAhead,
       bookedAheadHours: Math.round(bookedAheadHours),
-      hours: Math.round(hours),
       candidates: candidates.size,
       roles: roles.size,
       interviewerSlots,
