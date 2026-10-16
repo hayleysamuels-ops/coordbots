@@ -229,6 +229,17 @@ const config = {
 
   dashboardTitle: process.env.DASHBOARD_TITLE || "Coordinator Metrics",
 
+  // The commit this build was made from. Railway injects
+  // RAILWAY_GIT_COMMIT_SHA for repo-connected services; the others are
+  // fallbacks for any other host, and null means "this deployment cannot
+  // say what it is", which CI reports rather than silently skipping.
+  commitSha:
+    process.env.RAILWAY_GIT_COMMIT_SHA ||
+    process.env.GIT_COMMIT_SHA ||
+    process.env.SOURCE_COMMIT ||
+    process.env.COMMIT_SHA ||
+    null,
+
   // A booked slot this close to its start counts as short-notice — a
   // firefighting signal that a raw volume count hides completely.
   shortNoticeHours: number("SHORT_NOTICE_HOURS", 24),

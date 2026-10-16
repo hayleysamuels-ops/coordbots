@@ -8,12 +8,18 @@ const metrics = require("./metrics");
 const sync = require("./sync");
 const store = require("./db");
 
+const STARTED_AT = new Date().toISOString();
+
 function createServer() {
   const app = express();
   app.use(express.json());
 
   // Unauthenticated: a liveness probe that reveals nothing. Everything
   // else, static files included, sits behind Basic Auth.
+  //
+  // Deliberately does NOT carry the commit SHA. A version string on an
+  // open endpoint tells anyone exactly which build is running; the SHA
+  // lives on /api/config, behind auth, where CI can still read it.
   app.get("/healthz", (req, res) => res.json({ ok: true }));
 
   app.use(basicAuth);
@@ -23,6 +29,16 @@ function createServer() {
   app.get("/api/config", (req, res) => {
     res.json({
       title: config.dashboardTitle,
+      // Which build is actually serving.
+      //
+      // CI used to wait for /healthz to return 200 and then smoke-test
+      // whatever was up — which cannot distinguish the new deployment
+      // from the old one still running. When a Railway webhook was
+      // dropped overnight, the committed fix never deployed and nothing
+      // noticed: a green run would have certified the previous build.
+      // CI now waits for this to equal the commit it is testing.
+      commit: config.commitSha,
+      startedAt: STARTED_AT,
       overviewTimeZone: config.overviewTimeZone,
       historyMonths: config.historyMonths,
       // Served so public/app.js builds its period control from the same

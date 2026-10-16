@@ -35,6 +35,9 @@ const BASE = ((process.env.SMOKE_URL || "").trim() || "https://coordinator-metri
 const USER = process.env.SMOKE_USER || process.env.DASHBOARD_USER || "";
 const PASSWORD = process.env.SMOKE_PASSWORD || process.env.DASHBOARD_PASSWORD || "";
 const TIMEOUT_MS = 60000;
+// When set, the smoke test refuses to pass unless the live build is this
+// commit. CI passes the SHA it is testing.
+const EXPECTED_COMMIT = (process.env.EXPECTED_COMMIT || "").trim();
 
 const failures = [];
 const notes = [];
@@ -119,6 +122,7 @@ function braceDepth(css) {
   const configRes = await get("/api/config");
   check("/api/config responds 200", configRes.status === 200, `got ${configRes.status}`);
   let clients = [];
+  let servedCommit = null;
   let periodKeys = [];
   let scopeKeys = [];
   let defaultPeriod = null;
@@ -126,6 +130,7 @@ function braceDepth(css) {
   try {
     const cfg = JSON.parse(configRes.text);
     clients = cfg.clients || [];
+    servedCommit = cfg.commit || null;
     periodKeys = (cfg.periods || []).map((p) => p.key);
     scopeKeys = (cfg.scopes || []).map((s) => s.key);
     defaultPeriod = cfg.defaultPeriod;
@@ -141,6 +146,23 @@ function braceDepth(css) {
   check(`config default period "${defaultPeriod}" is one of the options`, periodKeys.includes(defaultPeriod));
   check(`config default scope "${defaultScope}" is one of the options`, scopeKeys.includes(defaultScope));
   check("at least one client is configured", clients.length > 0);
+
+  // Refuse to certify a build that is not the one under test. Without
+  // this, a dropped deploy webhook means CI smoke-tests the PREVIOUS
+  // build and passes — which has already happened once.
+  if (EXPECTED_COMMIT) {
+    check(
+      `serving the commit under test (${EXPECTED_COMMIT.slice(0, 8)})`,
+      servedCommit === EXPECTED_COMMIT,
+      servedCommit
+        ? `live build is ${servedCommit.slice(0, 8)} — the deployment did not happen or is still building`
+        : "the deployment does not report a commit, so this cannot be verified"
+    );
+  } else if (servedCommit) {
+    notes.push(`serving commit ${servedCommit.slice(0, 8)}`);
+  } else {
+    notes.push("deployment reports no commit SHA — set RAILWAY_GIT_COMMIT_SHA or equivalent to enable build verification");
+  }
   check(
     "every configured client has an API key",
     clients.every((c) => c.configured),
