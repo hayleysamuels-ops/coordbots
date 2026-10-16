@@ -921,9 +921,12 @@ function computeOverview(clientPayloads, scopeKey) {
     periods[name] = clientPayloads.reduce(
       (acc, p) => {
         acc.current.events += scopeOf(p).periods[name].current.events;
-        acc.current.hours = Math.round((acc.current.hours + scopeOf(p).periods[name].current.hours) * 10) / 10;
+        // Unrounded: rounding each client's contribution as it is added
+        // is what left the overview's headline and full-period hours one
+        // apart while every individual client agreed.
+        acc.current.hours += scopeOf(p).periods[name].current.hours;
         acc.previous.events += scopeOf(p).periods[name].previous.events;
-        acc.previous.hours = Math.round((acc.previous.hours + scopeOf(p).periods[name].previous.hours) * 10) / 10;
+        acc.previous.hours += scopeOf(p).periods[name].previous.hours;
         return acc;
       },
       { current: { events: 0, hours: 0 }, previous: { events: 0, hours: 0 } }
@@ -935,7 +938,15 @@ function computeOverview(clientPayloads, scopeKey) {
   }
 
   return {
-    totals,
+    // Same rule as a client payload: the headline IS the full-period
+    // figure, not a second independent count of it. Summing each
+    // client's rounded totals while summing their raw periods gave two
+    // answers to one question.
+    totals: {
+      ...totals,
+      events: periods.full.current.events,
+      hours: Math.round(periods.full.current.hours),
+    },
     periods,
     series: { weekly: [...weekly.values()].sort((a, b) => (a.key < b.key ? -1 : 1)) },
     byClient: clientPayloads.map((p) => ({

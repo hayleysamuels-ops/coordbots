@@ -669,6 +669,31 @@ test("rebuild() produces a working overview for both scopes", () => {
 
 // --- Headline consistency --------------------------------------------------
 
+test("the OVERVIEW headline and full-period totals agree too", () => {
+  // The per-client version of this test passed while the overview was
+  // still one hour out, because computeOverview builds totals and
+  // periods with two separate reducers. Covering only the client payload
+  // is the same blind spot that let the overview crash ship.
+  const metricsModule = require("../src/metrics");
+  const configModule = require("../src/config");
+  const original = configModule.clients.slice();
+  configModule.clients.length = 0;
+  configModule.clients.push(CLIENT);
+  try {
+    metricsModule.rebuild();
+    const overview = metricsModule.getOverview();
+    for (const scope of ["all", "coordinated"]) {
+      const t = overview.scopes[scope].totals;
+      const full = overview.scopes[scope].periods.full.current;
+      assert.strictEqual(t.events, full.events, `overview ${scope}: events must match`);
+      assert.strictEqual(t.hours, Math.round(full.hours), `overview ${scope}: hours must match`);
+    }
+  } finally {
+    configModule.clients.length = 0;
+    configModule.clients.push(...original);
+  }
+});
+
 test("the headline total and the full-period total agree", () => {
   // They disagreed by 410 events and 274 hours on the live dashboard,
   // under near-identical labels ("Interviews coordinated, 12 months" vs
