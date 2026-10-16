@@ -40,13 +40,10 @@ jobs:
         working-directory: coordinator-metrics
         run: npm test
 
-      # Railway rebuilds on the same push that triggered this, so the old
-      # version is still serving for the first minute or two. Without the
-      # wait the smoke test certifies the deployment it was meant to
-      # replace — which is exactly how a broken build passed before.
-      # Without this the run spends ten minutes polling an empty URL and
-      # then fails with a timeout, which says nothing about the actual
-      # problem.
+      # An unset secret is an empty string, not an error, so without this
+      # the run polls an empty URL for the full timeout and then fails
+      # with a message about health checks that says nothing about the
+      # actual cause.
       - name: Check the required secrets exist
         env:
           SMOKE_URL: ${{ secrets.COORDINATOR_METRICS_URL }}
@@ -64,6 +61,10 @@ jobs:
           fi
           echo "All three secrets are set."
 
+      # Railway rebuilds on the same push that triggered this, so the old
+      # version is still serving for the first minute or two. Without the
+      # wait, the smoke test certifies the deployment it was meant to
+      # replace — which is exactly how a broken build passed before.
       - name: Wait for the new deployment to be live
         env:
           SMOKE_URL: ${{ secrets.COORDINATOR_METRICS_URL }}
