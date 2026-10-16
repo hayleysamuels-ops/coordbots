@@ -14,6 +14,52 @@ const ASHBY_CANDIDATE = "https://app.ashbyhq.com/candidate-searches/new/right-si
 // Slack's mrkdwn control characters; everything we didn't write is escaped.
 const escape = v => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+// Slack's Block Kit limits, for the block types these messages use. Slack
+// refuses a whole message over any one of them ("invalid_blocks"), so each is
+// checked before sending; returns what's wrong, [] when nothing is.
+function blockProblems({ text, blocks = [] }) {
+  const problems = [];
+  const over = (where, value, max, min = 1) => {
+    const n = String(value ?? "").length;
+    if (n > max) problems.push(`${where} is ${n} characters (Slack allows ${max})`);
+    else if (n < min || !String(value ?? "").trim()) problems.push(`${where} is empty`);
+  };
+  // mrkdwn: everything we didn't write is escaped, so the only < and > left
+  // must be links we wrote, "<https://…|label>".
+  const mrkdwnText = (where, t) => {
+    over(where, t?.text, 3000);
+    if (t?.type === "mrkdwn" && /[<>]/.test(String(t.text ?? "").replace(/<https?:\/\/[^\s<>|]+(\|[^<>]+)?>/g, ""))) problems.push(`${where} has a < or > that isn't a link`);
+  };
+  if (text !== undefined) over("The notification text", text, 40000);
+  if (blocks.length > 50) problems.push(`The message has ${blocks.length} blocks (Slack allows 50)`);
+  blocks.forEach((b, i) => {
+    const where = `Block ${i + 1} (${b.type})`;
+    if (b.block_id !== undefined) over(`${where}'s block_id`, b.block_id, 255);
+    if (b.type === "section") mrkdwnText(where, b.text);
+    else if (b.type === "context") {
+      if (!b.elements?.length || b.elements.length > 10) problems.push(`${where} has ${b.elements?.length || 0} elements (Slack allows 1 to 10)`);
+      (b.elements || []).forEach((e, j) => mrkdwnText(`${where}, element ${j + 1}`, e));
+    } else if (b.type === "actions") {
+      if (!b.elements?.length || b.elements.length > 25) problems.push(`${where} has ${b.elements?.length || 0} elements (Slack allows 1 to 25)`);
+      (b.elements || []).forEach((e, j) => {
+        const at = `${where}, button ${j + 1}`;
+        over(`${at}'s label`, e.text?.text, 75);
+        over(`${at}'s action_id`, e.action_id, 255);
+        if (e.value !== undefined) over(`${at}'s value`, e.value, 2000);
+        if (e.confirm) {
+          over(`${at}'s confirmation title`, e.confirm.title?.text, 100);
+          mrkdwnText(`${at}'s confirmation text`, e.confirm.text);
+          if (String(e.confirm.text?.text ?? "").length > 300) problems.push(`${at}'s confirmation text is ${e.confirm.text.text.length} characters (Slack allows 300)`);
+          over(`${at}'s confirm label`, e.confirm.confirm?.text, 30);
+          over(`${at}'s deny label`, e.confirm.deny?.text, 30);
+        }
+      });
+    } else problems.push(`${where} is a block type this check doesn't know`);
+  });
+  return problems;
+}
+const invalid = problems => Object.assign(new Error(`The Slack message failed its check before sending, so it wasn't sent: ${problems.join("; ")}.`), { invalid: true });
+
 // `interactive` (the signing secret, workspace, app and approvers are all
 // configured) adds the "Schedule" button to calendar-checked posts; without it
 // there's no endpoint to receive a click, so no button is shown.
@@ -33,6 +79,8 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     return { ok: response.ok, status: response.status, body: body || {} };
   };
   const post = async (channelId, payload) => {
+    const problems = blockProblems(payload);
+    if (problems.length) throw invalid(problems);
     const { ok, status, body } = await api("chat.postMessage", { channel: channelId, unfurl_links: false, unfurl_media: false, ...payload });
     if (!ok) throw new Error(`Slack answered chat.postMessage with HTTP ${status}${body.error ? ` (${body.error})` : ""}`);
     if (body.ok !== true) throw Object.assign(new Error(`Slack refused the post: ${body.error || "no reason given"}`), { refused: true });
@@ -65,7 +113,8 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     type: "button", action_id: "schedule_option", style: "primary", text: { type: "plain_text", text: "Schedule" },
     value: JSON.stringify({ d: proposalId, g: draftDigest }),
     confirm: { title: { type: "plain_text", text: "Approve this schedule?" },
-      text: { type: "mrkdwn", text: "This records your approval of this exact schedule. Where the Ashby check is on, the dashboard then composes it in Ashby as a draft and stops before Send, for a person to open and send; otherwise, book it in Ashby by hand. *Nothing is sent automatically:* no invitations or candidate email go out until someone clicks Send in Ashby.\n\nOnly approve a schedule you mean to book." },
+      // Slack caps this text at 300 characters (blockProblems checks it).
+      text: { type: "mrkdwn", text: "With the Ashby check on, this schedule is then composed in Ashby, stopping before Send; otherwise, book it by hand. *Nothing is sent automatically:* no invitations or candidate email go out until someone clicks Send in Ashby.\n\nOnly approve a schedule you mean to book." },
       confirm: { type: "plain_text", text: "Approve" }, deny: { type: "plain_text", text: "Cancel" } } }] });
 
   const when = at => new Intl.DateTimeFormat("en-US", { timeZone: displayTimeZone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(at));
@@ -154,17 +203,24 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     return { text, blocks, mrkdwn: false, parse: "none" };
   }
 
-  const send = async (plan, meta) => post(meta.channelId, plan.format === "calendar_checked"
-    ? await calendarChecked(plan, meta)
-    : { text: plainText(plan, meta), mrkdwn: false, parse: "none" });
+  const message = async (plan, meta) => plan.format === "calendar_checked"
+    ? calendarChecked(plan, meta)
+    : { text: plainText(plan, meta), mrkdwn: false, parse: "none" };
+  const send = async (plan, meta) => post(meta.channelId, await message(plan, meta));
+  // The same check, without sending: share() runs it before claiming the
+  // draft, so a message Slack would refuse is reported and nothing is posted.
+  send.check = async (plan, meta) => blockProblems(await message(plan, meta));
 
   // After an approval: the same message, button removed, approval shown.
   send.markApproved = async ({ channel, ts, row }) => {
     const { blocks } = await calendarChecked(row.plan, { proposalId: row.id, approver: row.discussionApproval?.by || "a coordinator" }, row.slackApproval, row.ashbyCheck);
     // The notification text: no names beyond the approver's, and the state.
     const status = { queued: "waiting to be checked in Ashby; not booked", running: "being checked in Ashby; not booked", composed: "composed in Ashby, not sent yet", sent: "sent in Ashby" }[row.ashbyCheck?.state] || "not booked";
-    const { ok, body } = await api("chat.update", { channel, ts, blocks, text: `Interview schedule for ${row.plan.candidateName} · ${row.plan.jobTitle}: approved by ${row.slackApproval.name || row.slackApproval.email}; ${status}.` });
-    if (!ok || body.ok !== true) throw new Error("The Slack message couldn't be updated");
+    const text = `Interview schedule for ${row.plan.candidateName} · ${row.plan.jobTitle}: approved by ${row.slackApproval.name || row.slackApproval.email}; ${status}.`;
+    const problems = blockProblems({ text, blocks });
+    if (problems.length) throw invalid(problems);
+    const { ok, body } = await api("chat.update", { channel, ts, blocks, text });
+    if (!ok || body.ok !== true) throw new Error(`The Slack message couldn't be updated${body.error ? ` (${body.error})` : ""}`);
   };
   // Whether a message exists in a channel, for reconciling an unconfirmed
   // post from the link a coordinator pastes. chat.getPermalink needs no scope
@@ -198,4 +254,4 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
   };
   return send;
 }
-module.exports = { createSlack };
+module.exports = { createSlack, blockProblems };

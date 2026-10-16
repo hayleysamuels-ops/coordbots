@@ -364,3 +364,16 @@ test("the booking page's Check Slack reconciles through its own signed-in API, w
   assert.doesNotMatch(page, /fetch\([^;]*reconcile-slack/);
   assert.match(page, /api\('\/reconcile-slack'/);
 });
+
+test("a message that fails Slack's Block Kit check is reported, never sent, and leaves nothing to reconcile", async t => {
+  let problems = ["Block 9 (actions), button 1's confirmation text is 374 characters (Slack allows 300)"];
+  const sent = [], slack = async (plan, meta) => { sent.push(meta); return { ts: "1.2", channel: meta.channelId }; };
+  slack.check = async () => problems;
+  const { service, store } = setup(t, { slack });
+  await assert.rejects(service.postScheduleOption(post(), user), { status: 422, message: /wasn't sent: Slack would refuse it \(.*374 characters \(Slack allows 300\)\)/ });
+  assert.equal(sent.length, 0);
+  assert.deepEqual((await store.list()).map(r => r.state), ["rejected"]);
+  problems = [];
+  assert.equal((await service.postScheduleOption(post(), user)).state, "shared");
+  assert.equal(sent.length, 1);
+});

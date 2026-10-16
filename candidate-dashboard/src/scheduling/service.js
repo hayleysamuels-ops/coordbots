@@ -152,6 +152,13 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
         if (fresh.candidateId !== row.plan.candidateId) fail(409, "Candidate changed in Ashby. Review again.");
       }
       if (c.candidateId !== row.plan.candidateId) fail(409, "Candidate changed. Create a new draft.");
+      // The message is checked against Slack's Block Kit limits before the
+      // claim: one Slack would refuse is reported here and never sent.
+      const problems = await slack.check?.(row.plan, { channelId, proposalId: row.id, approver: user.id, digest: row.digest }) || [];
+      if (problems.length) {
+        console.warn(`[scheduling] Slack message for draft ${row.id} failed its check: ${problems.join("; ")}`);
+        fail(422, `This message wasn't sent: Slack would refuse it (${problems.join("; ")}).`);
+      }
       // Persist the claim BEFORE posting. A timeout or crash must never result in
       // an automatic second post. Operators reconcile sharing/uncertain records.
       row = await transition(row, "sharing", { discussionApproval: { by: user.id, digest: row.digest, channelId, at: new Date().toISOString() },
@@ -165,7 +172,7 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
         // Slack refused the post or simply didn't answer.
         console.warn(`[scheduling] Slack post for draft ${row.id} unconfirmed: ${e.message}`);
         return transition(row, "discussion_uncertain", { deliveryError: String(e.message || "unknown").slice(0, 300),
-          issue: e.refused ? `Slack refused the post (${String(e.message).replace(/^Slack refused the post: /, "")}), so it wasn't delivered. Check Slack, then reconcile.` : `Slack didn't confirm delivery (${String(e.message).slice(0, 200)}). Check Slack, then reconcile: the message may have been delivered.` });
+          issue: e.invalid ? `${String(e.message).slice(0, 400)} Check Slack, then reconcile.` : e.refused ? `Slack refused the post (${String(e.message).replace(/^Slack refused the post: /, "")}), so it wasn't delivered. Check Slack, then reconcile.` : `Slack didn't confirm delivery (${String(e.message).slice(0, 200)}). Check Slack, then reconcile: the message may have been delivered.` });
       }
     },
     // Settles a post whose delivery wasn't confirmed (discussion_uncertain, or

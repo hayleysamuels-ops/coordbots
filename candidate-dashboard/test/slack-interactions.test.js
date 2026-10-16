@@ -178,7 +178,9 @@ test("the Schedule button appears only when interactive, with a confirmation tha
   assert.equal(button.text.text, "Schedule");
   assert.deepEqual(JSON.parse(button.value), { d: "d1", g: "g1" });
   assert.equal(button.confirm.confirm.text, "Approve");
-  assert.match(button.confirm.text.text, /stops before Send, for a person to open and send; otherwise, book it in Ashby by hand\. \*Nothing is sent automatically:\* no invitations or candidate email go out until someone clicks Send in Ashby\./);
+  assert.match(button.confirm.text.text, /composed in Ashby, stopping before Send; otherwise, book it by hand\. \*Nothing is sent automatically:\* no invitations or candidate email go out until someone clicks Send in Ashby\./);
+  // Slack refuses the whole message (invalid_blocks) over 300 characters here.
+  assert.ok(button.confirm.text.text.length <= 300);
   const off = slackCapture();
   await createSlack("x", off.request, { displayTimeZone: "America/Los_Angeles", interactive: false })(checkedPlan, { channelId: "C1", proposalId: "d1", approver: "a", digest: "g1" });
   assert.equal(off.calls[0].body.blocks.find(b => b.type === "actions"), undefined);

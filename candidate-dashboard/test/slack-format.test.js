@@ -91,3 +91,47 @@ test("SOP format: LinkedIn and Ashby on one line, break separators, and the chec
   assert.equal((text.match(/Break -----/g) || []).length, 1);
   assert.match(text, /\*Interview Plan:\* to add\n\*Shared Prompt:\* to add\n\*Shared Interview Prep:\* to add\n\*NDA Sent:\* to confirm/);
 });
+
+// Slack refuses a whole message (invalid_blocks) over any one Block Kit limit.
+// The confirmation dialog went to 374 characters of a 300 limit and every
+// calendar-checked post with the Schedule button was refused (October 2026).
+const { blockProblems } = require("../src/scheduling/slack");
+const longOption = (flagged = true) => plan({ timezone: "America/Denver", sessions: [0, 1, 2, 3, 4, 6].map((n, i) => ({
+  title: i === 5 ? "Lunch" : "Onsite", start: new Date(Date.parse("2026-10-22T16:00:00Z") + n * 1800000).toISOString(), end: new Date(Date.parse("2026-10-22T16:30:00Z") + n * 1800000).toISOString(),
+  location: "Room / location to confirm", people: [{ name: "Hayley Samuels" }],
+  ...(flagged && i === 0 ? { flags: [{ kind: "busy", name: "Hayley Samuels", start: "2026-10-22T16:00:00.000Z", end: "2026-10-22T16:30:00.000Z", minutes: 30 }] } : {}) })) });
+
+test("a six-session flagged option with a break and the Schedule button passes Slack's limits", async () => {
+  const api = slackApi(), send = createSlack("xoxb-test", api.request, { displayTimeZone: "America/Los_Angeles", interactive: true, clientName: "Luminai" });
+  assert.deepEqual(await send.check(longOption(), { ...meta, digest: "g1" }), []);
+  await send(longOption(), { ...meta, digest: "g1" });
+  assert.equal(api.posts.length, 1);
+  assert.deepEqual(blockProblems(api.posts[0]), []);
+  assert.match(allText(api.posts[0]), /---- 0:30 Break -----/);
+});
+
+test("the check names each limit a message breaks", () => {
+  const button = text => ({ type: "actions", elements: [{ type: "button", action_id: "a", text: { type: "plain_text", text: "Schedule" }, value: "v",
+    confirm: { title: { type: "plain_text", text: "t" }, text: { type: "mrkdwn", text }, confirm: { type: "plain_text", text: "Approve" }, deny: { type: "plain_text", text: "Cancel" } } }] });
+  const section = text => ({ type: "section", text: { type: "mrkdwn", text } });
+  assert.deepEqual(blockProblems({ text: "x", blocks: [section("ok <https://a.example/x|Ashby>"), button("y".repeat(300))] }), []);
+  assert.deepEqual(blockProblems({ text: "x", blocks: [button("y".repeat(374))] }), ["Block 1 (actions), button 1's confirmation text is 374 characters (Slack allows 300)"]);
+  assert.deepEqual(blockProblems({ text: "x", blocks: Array.from({ length: 51 }, () => section("a")) }), ["The message has 51 blocks (Slack allows 50)"]);
+  assert.deepEqual(blockProblems({ text: "x", blocks: [section(""), section("  \n"), section("z".repeat(3001))] }),
+    ["Block 1 (section) is empty", "Block 2 (section) is empty", "Block 3 (section) is 3001 characters (Slack allows 3000)"]);
+  assert.deepEqual(blockProblems({ text: "x", blocks: [section("a < b"), section("<javascript:x|y>")] }),
+    ["Block 1 (section) has a < or > that isn't a link", "Block 2 (section) has a < or > that isn't a link"]);
+  assert.deepEqual(blockProblems({ text: "x", blocks: [{ type: "header", text: { type: "plain_text", text: "h" } }] }), ["Block 1 (header) is a block type this check doesn't know"]);
+});
+
+test("an invalid message is never sent: the post and the approval update both stop before Slack", async () => {
+  const api = slackApi(), send = createSlack("xoxb-test", api.request, { displayTimeZone: "America/Los_Angeles" });
+  // One line over Slack's 3000 can't be split onto its own section.
+  const bad = plan({ sessions: [{ title: "x".repeat(3100), start: "2026-09-29T18:00:00.000Z", end: "2026-09-29T18:30:00.000Z", location: "Room / location to confirm", people: [] }] });
+  const problems = await send.check(bad, meta);
+  assert.ok(problems.length && problems.every(p => /characters \(Slack allows 3000\)/.test(p)), problems.join("; "));
+  await assert.rejects(send(bad, meta), { invalid: true, message: /wasn't sent: .*Slack allows 3000/ });
+  const row = { id: "d", plan: bad, slackApproval: { name: "A", email: "a@example.com", at: "2026-09-29T10:00:00Z" }, ashbyCheck: null };
+  await assert.rejects(send.markApproved({ channel: "C1", ts: "1.2", row }), { invalid: true });
+  assert.deepEqual(api.calls, []);
+});
