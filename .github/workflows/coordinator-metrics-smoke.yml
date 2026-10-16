@@ -62,25 +62,39 @@ jobs:
           echo "All three secrets are set."
 
       # Railway rebuilds on the same push that triggered this, so the old
-      # version is still serving for the first minute or two. Without the
-      # wait, the smoke test certifies the deployment it was meant to
-      # replace — which is exactly how a broken build passed before.
-      - name: Wait for the new deployment to be live
+      # version is still serving for the first minute or two.
+      #
+      # Waiting for /healthz to return 200 was not enough: it cannot tell
+      # the new deployment from the old one still running, so a dropped
+      # deploy webhook meant CI certified the previous build. That
+      # happened — a committed fix sat undeployed overnight while every
+      # check was green. This waits for the service to report the exact
+      # commit under test.
+      - name: Wait for THIS commit to be serving
         env:
           SMOKE_URL: ${{ secrets.COORDINATOR_METRICS_URL }}
+          SMOKE_USER: ${{ secrets.COORDINATOR_METRICS_USER }}
+          SMOKE_PASSWORD: ${{ secrets.COORDINATOR_METRICS_PASSWORD }}
+          EXPECTED_COMMIT: ${{ github.sha }}
         run: |
-          echo "Waiting for ${SMOKE_URL} to come back healthy..."
-          for i in $(seq 1 20); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "${SMOKE_URL}/healthz" || true)
-            if [ "$code" = "200" ]; then
-              echo "healthy after $((i * 15))s"
-              # Give the boot sync a moment to rebuild the metrics cache.
+          echo "Waiting for ${EXPECTED_COMMIT:0:8} to be live..."
+          for i in $(seq 1 24); do
+            served=$(curl -s --max-time 15 -u "${SMOKE_USER}:${SMOKE_PASSWORD}" "${SMOKE_URL}/api/config" \
+              | python3 -c 'import sys,json;print(json.load(sys.stdin).get("commit") or "")' 2>/dev/null || true)
+            if [ "$served" = "$EXPECTED_COMMIT" ]; then
+              echo "live after $((i * 15))s"
+              # Let the boot sync rebuild the metrics cache.
               sleep 20
               exit 0
             fi
+            if [ -z "$served" ]; then
+              echo "  ${i}: no commit reported yet (building, or the build does not expose one)"
+            else
+              echo "  ${i}: serving ${served:0:8}, waiting for ${EXPECTED_COMMIT:0:8}"
+            fi
             sleep 15
           done
-          echo "Never became healthy — the deployment is down or still building." >&2
+          echo "::error::${EXPECTED_COMMIT:0:8} never went live. The deploy may have been dropped — redeploy with 'railway redeploy --from-source'." >&2
           exit 1
 
       - name: Smoke test the deployed page
@@ -89,4 +103,5 @@ jobs:
           SMOKE_URL: ${{ secrets.COORDINATOR_METRICS_URL }}
           SMOKE_USER: ${{ secrets.COORDINATOR_METRICS_USER }}
           SMOKE_PASSWORD: ${{ secrets.COORDINATOR_METRICS_PASSWORD }}
+          EXPECTED_COMMIT: ${{ github.sha }}
         run: npm run smoke

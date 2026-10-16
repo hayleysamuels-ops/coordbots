@@ -224,6 +224,15 @@ is the short list of things that look wrong and are not.
 - **Doc-only changes deliberately do not redeploy.** A redeploy restarts the
   container mid-sync, and the nightly full sync takes about 21 minutes.
 
+- **CI waits for the deployed commit, not for a 200.** `/api/config`
+  reports `commit` (from `RAILWAY_GIT_COMMIT_SHA`), and the workflow
+  polls until it equals the SHA under test. `/healthz` deliberately does
+  NOT carry it — that endpoint is unauthenticated. A health-only wait
+  cannot distinguish the new deployment from the old one still serving,
+  and when a Railway webhook was dropped, a committed fix sat undeployed
+  overnight with every check green. If that happens again the fix is
+  `railway redeploy --from-source`.
+
 ## Conventions
 
 - No build step and no frontend framework, matching the sibling dashboards.

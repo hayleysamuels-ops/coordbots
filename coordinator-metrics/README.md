@@ -279,6 +279,14 @@ roll-up that no test called, and a default period the backend never
 produced. Unit tests assert what a function returns; these assert what a
 browser receives.
 
+The deployment reports the commit it was built from on `/api/config`
+(behind auth — a version string on an open endpoint tells anyone which
+build is running). CI waits for that to equal the commit it is testing
+before smoke-testing, because waiting for `/healthz` alone cannot tell a
+new deployment from the old one still serving: a dropped Railway webhook
+once left a committed fix undeployed overnight while every check stayed
+green.
+
 `.github/workflows/coordinator-metrics-smoke.yml` runs both on every push
 to `main` that touches this directory, after waiting for Railway to serve
 the new build — and on a weekday schedule, to catch drift no push caused
