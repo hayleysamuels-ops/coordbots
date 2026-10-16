@@ -1,0 +1,71 @@
+name: coordinator-metrics smoke
+
+# Runs the deployed-page smoke test automatically, because three failures
+# reached the user in one day and in every case the unit suite was green —
+# nothing was checking the page a browser actually receives, and the one
+# thing that did check it only ran when someone remembered to run it.
+#
+# Railway has no "deploy finished" webhook into Actions, so this polls:
+# it waits for the running deployment to serve the commit that triggered
+# it, then runs the smoke test against production.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "coordinator-metrics/**"
+      - ".github/workflows/coordinator-metrics-smoke.yml"
+  # So a failure can be re-checked after a fix without an empty commit.
+  workflow_dispatch:
+  # Catches drift that no push caused: a sync that empties a client, an
+  # Ashby key expiring, a volume that failed to mount.
+  schedule:
+    - cron: "0 13 * * 1-5"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install
+        working-directory: coordinator-metrics
+        run: npm ci --omit=dev
+
+      - name: Unit tests
+        working-directory: coordinator-metrics
+        run: npm test
+
+      # Railway rebuilds on the same push that triggered this, so the old
+      # version is still serving for the first minute or two. Without the
+      # wait the smoke test certifies the deployment it was meant to
+      # replace — which is exactly how a broken build passed before.
+      - name: Wait for the new deployment to be live
+        env:
+          SMOKE_URL: ${{ secrets.COORDINATOR_METRICS_URL }}
+        run: |
+          echo "Waiting for ${SMOKE_URL} to come back healthy..."
+          for i in $(seq 1 40); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "${SMOKE_URL}/healthz" || true)
+            if [ "$code" = "200" ]; then
+              echo "healthy after $((i * 15))s"
+              # Give the boot sync a moment to rebuild the metrics cache.
+              sleep 20
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "Never became healthy — the deployment is down or still building." >&2
+          exit 1
+
+      - name: Smoke test the deployed page
+        working-directory: coordinator-metrics
+        env:
+          SMOKE_URL: ${{ secrets.COORDINATOR_METRICS_URL }}
+          SMOKE_USER: ${{ secrets.COORDINATOR_METRICS_USER }}
+          SMOKE_PASSWORD: ${{ secrets.COORDINATOR_METRICS_PASSWORD }}
+        run: npm run smoke
