@@ -27,6 +27,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history: the deployable commit is found by walking back
+          # through it, which a shallow clone cannot do.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -75,8 +79,23 @@ jobs:
           SMOKE_URL: ${{ secrets.COORDINATOR_METRICS_URL }}
           SMOKE_USER: ${{ secrets.COORDINATOR_METRICS_USER }}
           SMOKE_PASSWORD: ${{ secrets.COORDINATOR_METRICS_PASSWORD }}
-          EXPECTED_COMMIT: ${{ github.sha }}
         run: |
+          # NOT github.sha. Railway only builds commits that touch
+          # deployable files, so a docs- or CI-only push is correctly
+          # never served and waiting for it would hang until timeout —
+          # which is exactly what happened on this gate's first run.
+          #
+          # These path filters mirror coordinator-metrics/railway.json's
+          # watchPatterns. Keep them in step.
+          EXPECTED_COMMIT=$(git log -1 --format=%H -- \
+            'coordinator-metrics' \
+            ':(exclude)coordinator-metrics/*.md' \
+            ':(exclude)coordinator-metrics/**/*.md')
+          if [ -z "$EXPECTED_COMMIT" ]; then
+            echo "Could not determine the deployable commit; falling back to ${GITHUB_SHA:0:8}."
+            EXPECTED_COMMIT="$GITHUB_SHA"
+          fi
+          echo "EXPECTED_COMMIT=$EXPECTED_COMMIT" >> "$GITHUB_ENV"
           echo "Waiting for ${EXPECTED_COMMIT:0:8} to be live..."
           for i in $(seq 1 24); do
             served=$(curl -s --max-time 15 -u "${SMOKE_USER}:${SMOKE_PASSWORD}" "${SMOKE_URL}/api/config" \
@@ -103,5 +122,4 @@ jobs:
           SMOKE_URL: ${{ secrets.COORDINATOR_METRICS_URL }}
           SMOKE_USER: ${{ secrets.COORDINATOR_METRICS_USER }}
           SMOKE_PASSWORD: ${{ secrets.COORDINATOR_METRICS_PASSWORD }}
-          EXPECTED_COMMIT: ${{ github.sha }}
         run: npm run smoke
