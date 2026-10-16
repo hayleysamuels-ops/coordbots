@@ -31,7 +31,7 @@ const {
   resolve,
 } = require("../src/payload-contract");
 
-const BASE = (process.env.SMOKE_URL || "https://coordinator-metrics-production.up.railway.app").replace(/\/+$/, "");
+const BASE = ((process.env.SMOKE_URL || "").trim() || "https://coordinator-metrics-production.up.railway.app").replace(/\/+$/, "");
 const USER = process.env.SMOKE_USER || process.env.DASHBOARD_USER || "";
 const PASSWORD = process.env.SMOKE_PASSWORD || process.env.DASHBOARD_PASSWORD || "";
 const TIMEOUT_MS = 60000;
