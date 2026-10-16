@@ -672,8 +672,9 @@ even if clicked.
      interviewer invites and confirmation email were all in MDT. So the zone
      seems to come from the draft, probably the candidate's availability zone
      (TEST's is America/Denver). That's unconfirmed: every run so far had a
-     Denver candidate. A wrong zone refuses at the composer before any save,
-     naming the zone Ashby shows, and the draft is deleted. The buttons suggest
+     Denver candidate, and on October 16 it wasn't: see "The composer's zone is
+     read" below. The robot now reads the zone and enters times in it; a zone
+     it can't read refuses before any save, and the draft is deleted. The buttons suggest
      the zone can be picked per draft; picking one would be a new kind of write
      and isn't permitted.
   2. Run `railway ssh -s scheduling-worker -- node worker/booking-dry-run.js
@@ -691,7 +692,8 @@ even if clicked.
     <anna@luminai.com>", the draft deleted, and the Drafts tab empty afterwards.
     The only blocked write was the expected `ApiUpdateDraftScheduleCalendarSettings`.
 - **Not yet verified:**
-  - Where the composer's zone comes from, with a candidate outside Denver.
+  - Where the composer's zone comes from: not the candidate's availability zone
+    (October 16, a Pacific submission still showed Denver).
   - A session copied from a local Chrome profile into a fresh context is signed
     out by Ashby about 3 seconds after load, so the worker's session path
     can't be reproduced locally; it works in the worker.
@@ -718,7 +720,26 @@ file permits it or the composer clicks Schedule.
   session's interview gives the card title) and stores it in the draft's plan, so
   the approval's digest covers exactly what's composed. Posts made before this
   change have no plan, so approving one just records the approval. The plan's
-  zone is the candidate's availability zone, per the October 14 finding above.
+  zone is the candidate's availability zone.
+- **The composer's zone is read, not required to match** (October 16). The first
+  Slack-triggered check (TEST, Onsite) refused because the plan was in
+  America/Los_Angeles (TEST's availability had been resubmitted in Pacific) while
+  the composer showed "America/Denver" and "MDT". So the composer's zone isn't the
+  candidate's availability zone, and where it comes from is still unknown. The
+  composer now reads it (`composerZone` in `worker/booking-check.js`): exactly one
+  "Select a timezone" button must hold an IANA name, and any other may only be
+  that zone's own abbreviation, or the check refuses. The approved instants are
+  typed in that zone, and the invite previews and confirmation email are read
+  back in it. Every save is still checked against the approved instants, so a
+  misread zone refuses rather than booking a different time. Consequence: a
+  Pacific candidate's invite and confirmation email state the times in
+  Ashby's zone (MDT in this case), as Ashby shows them.
+- **The worker logs each check** (`[booking]` lines): when it starts
+  (application, schedule, sessions, plan zone, any draft it replaces), then its
+  outcome: composed, refused or uncertain at which step and why, each draft
+  created, kept, deleted or left (and to delete by hand), the composer's zone and
+  the save count. Each sweep delete logs what happened to the draft. Lines carry
+  the dashboard draft's ID, which is the Slack post's "Draft reference".
 - **How it runs** (`src/scheduling/ashby-check.js`): the approving click queues the
   check (`ashbyCheck` on the draft, revision-checked). Checks run one at a time in
   approval order, each as one signed `compose` request to the worker

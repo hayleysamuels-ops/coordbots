@@ -54,6 +54,30 @@ test('date and time are separate edits: the approved date at the old time is a s
   assert.throws(()=>c.checkSave(base,N(draft({selected:'u-hayley',start:'2026-10-20T21:00:00.000Z',end:'2026-10-20T21:30:00.000Z'})),plan),/the start time moved/);
 });
 
+test('partial saves are read in the zone the composer edits in, not the plan\'s',()=>{
+  // Approved Tue Oct 20 11:30pm PDT, which is Wed Oct 21 00:30 MDT. Typed in a
+  // Pacific composer, the time goes in first: Oct 12 at 11:30pm PDT. In
+  // Denver that's Oct 13, a date that's neither the old nor the approved one.
+  const late={...plan,sessions:[{...plan.sessions[0],start:'2026-10-21T06:30:00.000Z',end:'2026-10-21T07:00:00.000Z'}]};
+  const base=N(draft({selected:'u-hayley'})),timeFirst=N(draft({selected:'u-hayley',start:'2026-10-13T06:30:00.000Z',end:'2026-10-13T07:00:00.000Z'}));
+  c.checkSave(base,timeFirst,late,{timeZone:'America/Los_Angeles'});
+  assert.throws(()=>c.checkSave(base,timeFirst,late),/the start date moved/);
+  // The final check is by instant either way.
+  assert.throws(()=>c.checkFinal(timeFirst,late),/not the approved/);
+});
+
+test('the composer\'s zone: one IANA name, and nothing else but its own abbreviation',()=>{
+  const at='2026-10-22T16:00:00.000Z';
+  assert.equal(c.composerZone(['America/Denver','MDT'],at),'America/Denver');
+  assert.equal(c.composerZone([' MDT ','America/Denver','America/Denver'],at),'America/Denver');
+  assert.equal(c.composerZone(['America/Los_Angeles'],at),'America/Los_Angeles');
+  // In winter Denver is MST, so MDT then is a mismatch.
+  assert.throws(()=>c.composerZone(['America/Denver','MDT'],'2026-12-22T16:00:00.000Z'),/"MDT" isn't America\/Denver \(MST\)/);
+  for(const [shown,why] of [[['MDT'],/"MDT"; exactly one IANA/],[[],/no time zone/],[['America/Denver','PDT'],/"PDT" isn't America\/Denver \(MDT\)/],
+    [['America/Denver','America/Chicago'],/exactly one IANA/],[['Mars/Olympus','MDT'],/exactly one IANA/],[['America/Denver','MDT','Eastern'],/"Eastern" isn't/]])
+    assert.throws(()=>c.composerZone(shown,at),why);
+});
+
 test('a save that changes any other field is refused, except against the create response',()=>{
   const first=N(draft({selected:'u-hayley'}));
   const changed=N({events:[{...draft({selected:'u-hayley'}).events[0],interviewSlots:[{selected:'u-hayley',alternates:[],feedbackRequired:false,dimension:{id:'d'}}]}]});

@@ -25,8 +25,8 @@ const plan={jobId:'job-1',candidateId:'cand-1',applicationId:'app-1',interviewSc
 // named menu item sends.
 // `submitted` shows the availability-submitted card instead: a bare "Schedule"
 // button (which must never be clicked) beside "Start Manual Schedule".
-// `zone` gives the composer one session's fields and a time-zone button with
-// that label ('' for no button). `existing` lists drafts already on the
+// `zone` gives the composer one session's fields and a time-zone button per
+// label (a label or a list; '' for no button). `existing` lists drafts already on the
 // schedule's Drafts tab; the run's own draft (draft-1) joins them once created.
 // (Page state starts over on a full load.)
 function app({menu=['Send Direct Booking Link','Request Candidate Availability','Manual Schedule','View All Scheduling Options'],dialogAfterManual=null,strayWrite=null,submitted=false,zone=null,existing=[]}={}){
@@ -51,7 +51,7 @@ function app({menu=['Send Direct Booking Link','Request Candidate Availability',
       m.innerHTML='<h2>Draft Schedules</h2>'+drafts.map(id=>'<div><a href="/schedules/drafts/'+id+'">open</a><button data-id="'+id+'"></button></div>').join('');
       m.querySelectorAll('button[data-id]').forEach(b=>b.onclick=async()=>{const id=b.dataset.id,r=await gql('${OP.discard}',{draftInterviewScheduleId:id}).catch(()=>({}));if(r.data)drafts.splice(drafts.indexOf(id),1);});
     } else if(p.startsWith('/schedules/drafts/')){m.innerHTML='<h1>Scheduling TEST TEST Initial Screen Unsaved</h1>'+(${JSON.stringify(zone)}===null?'':
-      (${JSON.stringify(zone)}?'<button aria-label="Select a timezone">'+${JSON.stringify(zone)}+'</button>':'')+'<input aria-label="Set interview date..."><input role="combobox" aria-label="Start..."><input role="combobox" aria-label="End...">');}
+      [].concat(${JSON.stringify(zone)}).filter(Boolean).map(z=>'<button aria-label="Select a timezone">'+z+'</button>').join('')+'<input aria-label="Set interview date..."><input role="combobox" aria-label="Start..."><input role="combobox" aria-label="End...">');}
   }
   addEventListener('popstate',render);render();
   </script></body></html>`;
@@ -111,16 +111,32 @@ test('a write the booking doesn\'t permit is blocked and stops the run',async t=
   assert.deepEqual(r.report.cleanup,{deleted:true,draftId:'draft-1'});
 });
 
-test('a composer in another time zone is refused, naming the zone it shows, and the draft is deleted',async t=>{
-  for(const [zone,shown] of [['EDT','"EDT"'],['',"no time zone \\(there's no \"Select a timezone\" button\\)"]]){
+test('the composer\'s zone is read, not required to match: the approved times are entered in it',async t=>{
+  // Ashby shows Denver; the candidate's availability (the plan's zone) is Pacific.
+  const pacific={...plan,timeZone:'America/Los_Angeles'};
+  for(const zone of [['America/Denver','MDT'],['MDT','America/Denver'],'America/Denver']){
+    const r=await run(t,{appOptions:{zone},runOptions:{plan:pacific}});if(!r)return;
+    assert.ok(r.report.checks.some(c=>c.name==='composer shows times in America/Denver; the approved times are entered in it (the candidate\'s availability is in America/Los_Angeles)'),JSON.stringify(r.report.checks));
+    assert.equal(r.report.displayZone,'America/Denver');
+    // Past the zone, the bare stand-in stops at the session editor.
+    assert.match(r.report.reason,/Couldn't find the editor for session 1/);
+  }
+  const same=await run(t,{appOptions:{zone:['America/Denver','MDT']}});if(!same)return;
+  assert.ok(same.report.checks.some(c=>c.name==='composer shows times in America/Denver'));
+});
+
+test('a zone that can\'t be read unambiguously is refused, naming what Ashby shows, and the draft is deleted',async t=>{
+  for(const [zone,why] of [
+    ['EDT','"EDT"; exactly one IANA time zone name is needed to read it by'],
+    ['',"no time zone \\(there's no \"Select a timezone\" button\\); exactly one IANA"],
+    [['America/Denver','EDT'],'"America/Denver", "EDT"; "EDT" isn\'t America/Denver \\(MDT\\)'],
+    [['America/Denver','America/New_York'],'"America/Denver", "America/New_York"; exactly one IANA'],
+    [['Mars/Olympus','MDT'],'"Mars/Olympus", "MDT"; exactly one IANA']]){
     const r=await run(t,{appOptions:{zone}});if(!r)return;
-    assert.equal(r.report.status,'refused');assert.equal(r.report.step,'compose session 1 ("Initial")');
-    assert.match(r.report.reason,new RegExp(`^The composer shows times in ${shown}, not MDT; the account's time zone must match the plan's \\(America/Denver\\)\\.$`));
+    assert.equal(r.report.status,'refused');assert.equal(r.report.step,"read the composer's time zone");
+    assert.match(r.report.reason,new RegExp(`^The composer shows times in ${why}`));
     assert.deepEqual(r.received,[OP.create,discarded('draft-1')],'nothing was saved');
   }
-  // The plan's own zone passes the check; the bare stand-in then stops at the session editor.
-  const r=await run(t,{appOptions:{zone:'MDT'}});if(!r)return;
-  assert.match(r.report.reason,/Couldn't find the editor for session 1/);
 });
 
 test('availability submitted: starts from "Start Manual Schedule", never the bare "Schedule" beside it',async t=>{

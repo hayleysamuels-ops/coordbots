@@ -88,7 +88,7 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, now = () =
     const earlier = (await store.list()).filter(r => r.id !== id && r.clientId === clientId && r.ashbyCheck?.state === "composed" && r.plan.bookingPlan?.interviewScheduleId === plan.interviewScheduleId);
     let result, check;
     try {
-      result = await worker.call("compose", { plan, supersedeDraftId: earlier[0]?.ashbyCheck.draftId || null });
+      result = await worker.call("compose", { plan, supersedeDraftId: earlier[0]?.ashbyCheck.draftId || null, proposalId: id });
     } catch (e) {
       // A 4xx means the worker refused before starting: no draft was made.
       check = e.status >= 400 && e.status < 500
@@ -140,7 +140,7 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, now = () =
     }
     if (now() < Date.parse(check.deleteBy)) return;
     let result;
-    try { result = await worker.call("discard-draft", { plan, draftId: check.draftId }); }
+    try { result = await worker.call("discard-draft", { plan, draftId: check.draftId, proposalId: row.id }); }
     catch (e) { result = { deleted: false, reason: e.message }; }
     const next = result?.deleted ? { ...check, state: "deleted", deletedAt: iso() }
       : result?.absent ? { ...check, state: "gone", goneSeenAt: iso() }

@@ -59,7 +59,7 @@ async function installPermit(context,{origin=ORIGIN,op,max=1,bound,respond=async
 //   refusals    every save refused on content, with the reason
 //   cleanup     true only while the draft is being deleted
 async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxSaves=25,maxRefreshes=10}){
-  Object.assign(state,{draftId:null,last:null,saves:0,lastSaveAt:0,lastRefreshAt:0,refusals:[],baselineError:null,cleanup:false,sent:0,lastSeq:0});
+  Object.assign(state,{draftId:null,last:null,saves:0,lastSaveAt:0,lastRefreshAt:0,refusals:[],baselineError:null,cleanup:false,sent:0,lastSeq:0,zone:null});
   const forDraft=v=>!!state.draftId&&v.draftInterviewScheduleId===state.draftId;
   const ok=json=>json&&!(json.errors&&json.errors.length);
   const permits={};
@@ -77,7 +77,7 @@ async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxS
   permits.save=await installPermit(context,{op:OP.save,max:maxSaves,respond,log,
     bound:v=>{
       if(!forDraft(v)||!state.last||state.baselineError)return false;
-      try{const next=normalizeDraft(v.draftSchedule);checkSave(state.last,next,plan,{compareRest:state.saves>0});return {next,seq:++state.sent};}
+      try{const next=normalizeDraft(v.draftSchedule);checkSave(state.last,next,plan,{compareRest:state.saves>0,timeZone:state.zone});return {next,seq:++state.sent};}
       catch(e){state.refusals.push(e.message);log({type:'refused-save',reason:e.message});return false;}
     },
     // Replies can arrive out of order; only the most recently sent accepted

@@ -16,7 +16,7 @@
 // load-bearing; neither may be relaxed.
 const {guardWrites}=require('./template-guard');
 const {installBookingPermits,installPermit,ORIGIN,OP}=require('./booking-permit');
-const {checkFinal,formats,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog}=require('./booking-check');
+const {checkFinal,formats,composerZone,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog}=require('./booking-check');
 
 class Refusal extends Error{constructor(step,message){super(message);this.step=step;this.status=409;}}
 const esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
@@ -194,6 +194,17 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
       const d=Date.now()+T.wait;while(Date.now()<d&&await loc.count()<plan.sessions.length)await sleep(250);
       if(await loc.count()!==plan.sessions.length)refuse(`The composer has ${await loc.count()} ${what}, but ${plan.sessions.length} session${plan.sessions.length===1?' was':'s were'} approved.`);
     }
+    // The zone Ashby shows times in. It needn't be the plan's (the candidate's
+    // availability zone): the approved instants are converted into it, and
+    // `shown` is the plan as Ashby displays it, for typing and for reading
+    // previews back. The approval itself, and every save check, stay instants.
+    step='read the composer\'s time zone';
+    const zoneButtons=page.getByRole('button',{name:'Select a timezone',exact:true});
+    {const d=Date.now()+T.wait;while(Date.now()<d&&!(await zoneButtons.count()))await sleep(250);}
+    try{state.zone=composerZone(await zoneButtons.allInnerTexts(),plan.sessions[0].start);}catch(e){refuse(e.message);}
+    const shown={...plan,timeZone:state.zone};
+    report.displayZone=state.zone;
+    pass(`composer shows times in ${state.zone}${state.zone===plan.timeZone?'':`; the approved times are entered in it (the candidate's availability is in ${plan.timeZone})`}`);
     // Each session's editor, found by its event ID, never by position: Ashby
     // re-sorts the editors by time as they change (seen October 13: setting
     // session 1 to 1pm moved session 2's 9:30am editor above it). The editor
@@ -223,18 +234,12 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     // Option text is the time, then for End fields the length ("1:30pm 4h").
     const timeOption=want=>page.getByRole('option',{name:new RegExp(`^${esc(want)}(?: [0-9].*)?$`)});
     for(let i=0;i<plan.sessions.length;i++){
-      const s=plan.sessions[i],a=formats(s.start,plan.timeZone),b=formats(s.end,plan.timeZone),eventId=state.last[i].id,what=`session ${i+1} ("${s.title}")`;
+      const s=plan.sessions[i],a=formats(s.start,shown.timeZone),b=formats(s.end,shown.timeZone),eventId=state.last[i].id,what=`session ${i+1} ("${s.title}")`;
       step=`compose ${what}`;
-      // The zone button can render a moment after the fields. A mismatch names
-      // what Ashby shows, since that's the only way to tell a wrong account
-      // zone from a different label for the right one.
-      const zoneButtons=page.getByRole('button',{name:'Select a timezone',exact:true});
-      {const d=Date.now()+T.wait;while(Date.now()<d&&!(await zoneButtons.count()))await sleep(250);}
-      const zones=zoneButtons.filter({hasText:new RegExp(`^${esc(a.zone)}$`)});
-      if(!(await zones.count())){
-        const shown=[...new Set((await zoneButtons.allInnerTexts()).map(t=>t.replace(/\s+/g,' ').trim().slice(0,40)))].slice(0,3);
-        refuse(`The composer shows times in ${shown.length?shown.map(t=>`"${t}"`).join(', '):'no time zone (there\'s no "Select a timezone" button)'}, not ${a.zone}; the account's time zone must match the plan's (${plan.timeZone}).`);
-      }
+      // Still the same zone, read at this session's date: across a
+      // daylight-saving change its abbreviation differs.
+      try{if(composerZone(await zoneButtons.allInnerTexts(),s.start)!==state.zone)refuse(`The composer's time zone changed from ${state.zone} while composing.`);}
+      catch(e){if(e instanceof Refusal)throw e;refuse(`${e.message} (at ${what}'s date)`);}
       const wantDate=a.shortDate.replace(/, \d{4}$/,'');// "Tue, Oct 20"
       {const {date}=await editor(eventId,what);
         if(await date.inputValue()!==wantDate)await after(async()=>{await date.click();await date.fill(wantDate);await page.keyboard.press('Enter');});}
@@ -307,9 +312,9 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     const order=await page.getByRole('heading',{level:2}).allInnerTexts();
     const ci=order.indexOf('Candidate Invite'),ii=order.findIndex(h=>/^Interviewer Invites?$/.test(h));
     if(ci<0||ii<ci)refuse('Couldn\'t tell the candidate invite from the interviewer invites.');
-    checkInvitePreview(read.candidateText,plan,read.agendaItems);
+    checkInvitePreview(read.candidateText,shown,read.agendaItems);
     pass('candidate invite preview shows the approved date, agenda and only the candidate');
-    checkInterviewerInvitePreviews(read.interviewerTexts,plan);
+    checkInterviewerInvitePreviews(read.interviewerTexts,shown);
     pass('each session\'s interviewer invite goes to exactly its approved interviewers');
     step='candidate confirmation email';
     await after(async()=>(await one(page.getByRole('link',{name:'Candidate Confirmation Email On',exact:true}),'"Candidate Confirmation Email On"')).click());
@@ -327,7 +332,7 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     const subject=(await (await field('Subject','*[@contenteditable="true"]','the email\'s subject')).innerText()).replace(/\s+/g,' ').trim();
     const body=await (await one(page.getByRole('combobox',{name:'Rich text editor',exact:true}),'the email body')).innerText();
     if(!subject)refuse('Couldn\'t read the confirmation email\'s subject.');
-    checkConfirmationEmail({subject,body},plan);
+    checkConfirmationEmail({subject,body},shown);
     const from=(await (await field('From','button','the email\'s sender')).innerText()).replace(/\s+/g,' ').trim()||null;
     if(!from||!/<[^>]+@[^>]+>/.test(from))refuse('Couldn\'t read who the confirmation email is from.');
     pass('candidate confirmation email is fresh and shows the approved date and times',{from});

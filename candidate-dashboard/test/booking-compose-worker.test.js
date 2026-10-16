@@ -68,6 +68,35 @@ test('the sweep\'s delete may run after the interview has passed, for exactly th
   await assert.rejects(discard({env,payload:{plan,draftId:'x'},...fakes().deps}),{status:422});
 });
 
+test('each check is logged: started, then its outcome with every draft created or deleted',async()=>{
+  const PROPOSAL='22222222-3333-4444-8555-666666666666';
+  const logged=async(report,payload={plan,proposalId:PROPOSAL})=>{const lines=[],{deps}=fakes(report);
+    try{await compose({env,payload,...deps,say:l=>lines.push(l)});}catch(_){}return lines;};
+  const composed=await logged({status:'composed',draftId:DRAFT,displayZone:'America/Denver',cleanup:{deleted:false,kept:true,draftId:DRAFT},writes:{saves:3,refusedSaves:0},superseded:{draftId:OLD,deleted:true}});
+  assert.deepEqual(composed,[`[booking] Ashby check for ${PROPOSAL} started: application ${plan.applicationId}, schedule ${plan.interviewScheduleId}, 1 session(s), plan zone America/Denver`,
+    `[booking] Ashby check for ${PROPOSAL} composed; draft ${DRAFT} created, kept for a person to send; earlier draft ${OLD} deleted; composer zone America/Denver; 3 saves`]);
+  const refused=await logged({status:'refused',step:'compose session 1 ("First Round")',reason:'Something.',draftId:DRAFT,cleanup:{deleted:true,draftId:DRAFT},writes:{saves:0,refusedSaves:1}});
+  assert.equal(refused[1],`[booking] Ashby check for ${PROPOSAL} refused at "compose session 1 ("First Round")": Something; draft ${DRAFT} created, deleted; 0 saves, 1 refused`);
+  const left=await logged({status:'error',step:'compose',reason:'Boom.',draftId:DRAFT,cleanup:{deleted:false,reason:'Ashby didn\'t answer'}});
+  assert.match(left[1],new RegExp(`draft ${DRAFT} created, NOT deleted \\(Ashby didn't answer\\); delete it by hand$`));
+  const none=await logged({status:'refused',step:'check the schedule\'s drafts',reason:'Already has one.',cleanup:{deleted:false,reason:'no draft was created'}});
+  assert.match(none[1],/: Already has one; no draft created$/);
+  // Skipped, with no proposal ID (an older dashboard): no "for".
+  const skipped=await logged(undefined,{plan:{...plan,applicationId:'00000000-0000-4000-8000-000000000000'}});
+  assert.match(skipped[0],/^\[booking\] Ashby check started:/);assert.match(skipped[1],/^\[booking\] Ashby check skipped: Application 0{8}-0{4}-4000-8000-0{12} isn't one the booking robot may use; no draft created$/);
+  // A run that throws still says so.
+  const lines=[],{deps}=fakes();
+  await assert.rejects(compose({env,payload:{plan,supersedeDraftId:'bad'},...deps,say:l=>lines.push(l)}),{status:422});
+  assert.match(lines[1],/didn't run to a result: The earlier draft reference isn't a draft ID; no draft created$/);
+});
+
+test('each sweep delete is logged with what happened to the draft',async()=>{
+  const lines=[],{deps}=fakes();
+  await discard({env,payload:{plan,draftId:DRAFT,proposalId:'22222222-3333-4444-8555-666666666666'},...deps,say:l=>lines.push(l)});
+  assert.deepEqual(lines,[`[booking] Unsent draft ${DRAFT} for 22222222-3333-4444-8555-666666666666: deleting (schedule ${plan.interviewScheduleId})`,
+    `[booking] Unsent draft ${DRAFT} for 22222222-3333-4444-8555-666666666666: deleted`]);
+});
+
 // The routes, over HTTP, with a stand-in draft reader and check.
 async function serve({inspect,chromium=null,writeWaitMs=400,signIn=false}){
   const secret='s'.repeat(40);

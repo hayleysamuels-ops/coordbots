@@ -45,7 +45,7 @@ test("an approval is queued, run, and left composed in Ashby with its delete dea
   // 24 hours after composing comes before 2 hours before the interview here.
   assert.equal(c.deleteBy, "2099-10-15T12:00:00.000Z");
   assert.deepEqual(s.shown, ["running", "composed"]);
-  assert.deepEqual(s.calls, [{ action: "compose", payload: { plan: bookingPlan, supersedeDraftId: null } }]);
+  assert.deepEqual(s.calls, [{ action: "compose", payload: { plan: bookingPlan, supersedeDraftId: null, proposalId: "d1" } }]);
   assert.match(s.replies[0], /^Ashby check passed: a; b\.$/);
   // Approving twice never queues a second check.
   assert.equal(await s.check.start(s.store.data.d1), null);
@@ -133,7 +133,7 @@ test("an unsent draft is left alone until its deadline, then deleted, and a fail
   assert.equal(s.store.data.d1.ashbyCheck.state, "composed");assert.equal(s.calls.length, 0);
   s.tick(3600 * 1000);await s.check.sweep();
   assert.equal(s.store.data.d1.ashbyCheck.state, "deleted");
-  assert.deepEqual(s.calls, [{ action: "discard-draft", payload: { plan: bookingPlan, draftId: "dr-1" } }]);
+  assert.deepEqual(s.calls, [{ action: "discard-draft", payload: { plan: bookingPlan, draftId: "dr-1", proposalId: "d1" } }]);
   for (const [answer, state] of [[{ deleted: false, absent: true }, "gone"], [{ deleted: false, reason: "Ashby didn't confirm the delete" }, "delete_failed"],
     [() => { throw Error("worker unreachable"); }, "delete_failed"]]) {
     const t = setup({ rows: [row("d1", { ashbyCheck: left })], booked: waiting, discard: answer, at: Date.parse("2099-10-14T14:00:00Z") });

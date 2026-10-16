@@ -53,39 +53,68 @@ async function withBrowser({chromium,saved,isolation},task){
   }finally{clearTimeout(timer);await browser.close().catch(()=>{});}
 }
 
-async function compose({env,payload,chromium,loadSession,clientId,expectedIdentity,now=Date.now(),log=()=>{},composer=require('./booking-composer')}){
+// One line per check in the worker's log: when it starts, and what it did,
+// with every draft it made or deleted. IDs, steps and reasons only, never page
+// contents. `proposalId` is the dashboard's draft, which names the Slack post.
+const ID=/^[0-9a-f-]{36}$/i;
+const short=v=>String(v??'').replace(/\s+/g,' ').trim().slice(0,300);
+const clause=v=>short(v).replace(/\.$/,'');// a reason inside a line
+function composeOutcome(r){
+  const made=r.draftId?`draft ${r.draftId} created`:'no draft created';
+  const kept=r.cleanup?.kept?'kept for a person to send':r.cleanup?.deleted?'deleted':r.draftId?`NOT deleted (${short(r.cleanup?.reason||'no reason given')}); delete it by hand`:'';
+  const replaced=r.superseded?.draftId?`; earlier draft ${r.superseded.draftId} ${r.superseded.deleted?'deleted':'NOT deleted'}`:'';
+  const zone=r.displayZone?`; composer zone ${r.displayZone}`:'';
+  const writes=r.writes?`; ${r.writes.saves} save${r.writes.saves===1?'':'s'}${r.writes.refusedSaves?`, ${r.writes.refusedSaves} refused`:''}`:'';
+  const head=r.status==='composed'?'composed':r.status==='skipped'?`skipped: ${clause(r.reason)}`:`${r.status}${r.step?` at "${short(r.step)}"`:''}: ${clause(r.reason)}`;
+  return `${head}; ${made}${kept?`, ${kept}`:''}${replaced}${zone}${writes}`;
+}
+
+async function compose({env,payload,chromium,loadSession,clientId,expectedIdentity,now=Date.now(),log=()=>{},say=console.log,composer=require('./booking-composer')}){
   const plan=payload?.plan,supersedeDraftId=payload?.supersedeDraftId??null;
-  if(supersedeDraftId!==null&&!/^[0-9a-f-]{36}$/i.test(String(supersedeDraftId)))throw Object.assign(Error('The earlier draft reference isn\'t a draft ID.'),{status:422});
-  const ready=await prepare({env,plan,loadSession,clientId,expectedIdentity,now});
-  if(ready.skip)return ready.skip;
-  const isolation=env.ASHBY_BROWSER_ISOLATION||'sandbox';
-  if(!['sandbox','container'].includes(isolation))throw Object.assign(Error('Unknown browser isolation configuration.'),{status:503});
+  const tag=`[booking] Ashby check${ID.test(String(payload?.proposalId||''))?` for ${payload.proposalId}`:''}`;
+  say(`${tag} started: application ${short(plan?.applicationId)}, schedule ${short(plan?.interviewScheduleId)}, ${plan?.sessions?.length??0} session(s), plan zone ${short(plan?.timeZone)}${supersedeDraftId?`, replacing draft ${short(supersedeDraftId)}`:''}`);
   // Draft IDs as they're learned, so a deadline can still name the draft.
   let draftId=null;
   const note=e=>{if(e.draftId)draftId=e.draftId;log(e);};
   try{
-    return await withBrowser({chromium,saved:ready.saved,isolation},({context,page})=>
+    if(supersedeDraftId!==null&&!ID.test(String(supersedeDraftId)))throw Object.assign(Error('The earlier draft reference isn\'t a draft ID.'),{status:422});
+    const ready=await prepare({env,plan,loadSession,clientId,expectedIdentity,now});
+    if(ready.skip){say(`${tag} ${composeOutcome(ready.skip)}`);return ready.skip;}
+    const isolation=env.ASHBY_BROWSER_ISOLATION||'sandbox';
+    if(!['sandbox','container'].includes(isolation))throw Object.assign(Error('Unknown browser isolation configuration.'),{status:503});
+    const result=await withBrowser({chromium,saved:ready.saved,isolation},({context,page})=>
       composer.dryRun({context,page,plan,log:note,expectedIdentity,checkExistingDrafts:true,supersedeDraftId,keepOnSuccess:true}));
+    say(`${tag} ${composeOutcome(result)}`);
+    return result;
   }catch(e){
-    if(e.deadline)return {mode:'compose',status:'uncertain',reason:e.message,draftId,cleanup:{deleted:false,reason:'the check was stopped before it could delete its draft'}};
+    if(e.deadline){
+      const result={mode:'compose',status:'uncertain',reason:e.message,draftId,cleanup:{deleted:false,reason:'the check was stopped before it could delete its draft'}};
+      say(`${tag} ${composeOutcome(result)}`);
+      return result;
+    }
+    say(`${tag} didn't run to a result: ${clause(e.message)}${draftId?`; draft ${draftId} was created and may still be in Ashby`:'; no draft created'}`);
     throw e;
   }
 }
 
-async function discard({env,payload,chromium,loadSession,clientId,expectedIdentity,now=Date.now(),log=()=>{},composer=require('./booking-composer')}){
+async function discard({env,payload,chromium,loadSession,clientId,expectedIdentity,now=Date.now(),log=()=>{},say=console.log,composer=require('./booking-composer')}){
   const plan=payload?.plan,draftId=payload?.draftId;
-  if(!/^[0-9a-f-]{36}$/i.test(String(draftId||'')))throw Object.assign(Error('The draft reference isn\'t a draft ID.'),{status:422});
-  // Deleting is allowed after the interview has passed, so the plan's times
-  // aren't checked against now; everything else about it is.
-  const ready=await prepare({env,plan,loadSession,clientId,expectedIdentity,now:0});
-  if(ready.skip)return ready.skip;
-  const isolation=env.ASHBY_BROWSER_ISOLATION||'sandbox';
+  const tag=`[booking] Unsent draft ${short(draftId)}${ID.test(String(payload?.proposalId||''))?` for ${payload.proposalId}`:''}`;
+  const done=r=>{say(`${tag}: ${r.status==='skipped'?`not deleted, skipped: ${short(r.reason)}`:r.deleted?'deleted':r.absent?'already gone from Ashby':`NOT deleted (${short(r.reason||'no reason given')})`}`);return r;};
+  say(`${tag}: deleting (schedule ${short(plan?.interviewScheduleId)})`);
   try{
-    return await withBrowser({chromium,saved:ready.saved,isolation},({context,page})=>composer.discardDraft({context,page,plan,draftId,log,expectedIdentity}));
+    if(!ID.test(String(draftId||'')))throw Object.assign(Error('The draft reference isn\'t a draft ID.'),{status:422});
+    // Deleting is allowed after the interview has passed, so the plan's times
+    // aren't checked against now; everything else about it is.
+    const ready=await prepare({env,plan,loadSession,clientId,expectedIdentity,now:0});
+    if(ready.skip)return done(ready.skip);
+    const isolation=env.ASHBY_BROWSER_ISOLATION||'sandbox';
+    return done(await withBrowser({chromium,saved:ready.saved,isolation},({context,page})=>composer.discardDraft({context,page,plan,draftId,log,expectedIdentity})));
   }catch(e){
-    if(e.deadline)return {deleted:false,draftId,reason:e.message};
+    if(e.deadline)return done({deleted:false,draftId,reason:e.message});
+    say(`${tag}: NOT deleted (${short(e.message)})`);
     throw e;
   }
 }
 
-module.exports={compose,discard,DEADLINE_MS};
+module.exports={compose,discard,composeOutcome,DEADLINE_MS};

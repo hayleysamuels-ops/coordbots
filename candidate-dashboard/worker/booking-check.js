@@ -78,7 +78,9 @@ function parts(ms,timeZone){
 // the one value Ashby derives itself: the new start plus the previous length.
 // `prev` is the last accepted state; `compareRest` is false for the first save,
 // whose previous state came from Ashby's create response (a different shape).
-function checkSave(prev,next,plan,{compareRest=true}={}){
+// `timeZone` is the zone the composer edits in (composerZone below); the plan's
+// own zone until it has been read.
+function checkSave(prev,next,plan,{compareRest=true,timeZone=null}={}){
   const why=[];
   if(next.length!==prev.length)fail(`This save has ${next.length} events; the draft had ${prev.length}.`);
   next.forEach((e,i)=>{
@@ -86,7 +88,7 @@ function checkSave(prev,next,plan,{compareRest=true}={}){
     if(e.id!==p.id)why.push(`${label}: the event ID changed`);
     if(e.title!==p.title)why.push(`${label}: the title changed to "${e.title}"`);
     if(e.interviewId!==p.interviewId&&e.interviewId!==s.interviewId)why.push(`${label}: the interview changed to one that wasn't approved`);
-    const tz=plan.timeZone;
+    const tz=timeZone||plan.timeZone;
     for(const [field,approved] of [['start',instant(s.start)],['end',instant(s.end)]]){
       if(e[field]===p[field]||e[field]===approved)continue;
       if(field==='end'&&e.end-e.start===p.end-p.start&&e.start!==p.start)continue;// Ashby kept the length when start moved
@@ -127,7 +129,7 @@ function checkFinal(state,plan){
   if(why.length)fail(`The composed draft doesn't match the approval: ${why.join('; ')}.`,why);
 }
 
-// Display strings Ashby uses, in the account's time zone.
+// Display strings Ashby uses, in the zone it shows (composerZone).
 function formats(iso,timeZone){
   const d=new Date(iso),f=o=>new Intl.DateTimeFormat('en-US',{timeZone,...o}).format(d);
   const zone=new Intl.DateTimeFormat('en-US',{timeZone,timeZoneName:'short'}).formatToParts(d).find(p=>p.type==='timeZoneName').value;
@@ -135,6 +137,24 @@ function formats(iso,timeZone){
   return {zone,shortDate:`${f({weekday:'short'})}, ${f({month:'short'})} ${f({day:'numeric'})}, ${f({year:'numeric'})}`,// "Mon, Oct 12, 2026"
     longDate:f({weekday:'long',month:'long',day:'numeric',year:'numeric'}),// "Monday, October 12, 2026"
     upper:time,lower:time.replace(' AM','am').replace(' PM','pm')};
+}
+
+// The zone Ashby's composer shows times in, from its "Select a timezone"
+// buttons (seen October 14 and 16: two, reading "America/Denver" and "MDT").
+// Exactly one must be an IANA zone name, and anything else shown must be that
+// zone's own abbreviation at `atIso`; anything else refuses. The approved
+// instants are then typed and checked in this zone. A misread zone still
+// can't book the wrong time: every save is checked against the approved
+// instants (checkSave, checkFinal).
+function composerZone(shown,atIso){
+  const texts=[...new Set(shown.map(t=>String(t).replace(/\s+/g,' ').trim()).filter(Boolean))];
+  const said=texts.length?texts.slice(0,4).map(t=>`"${t.slice(0,40)}"`).join(', '):'no time zone (there\'s no "Select a timezone" button)';
+  const isZone=t=>{if(!/^[A-Za-z_]+(?:\/[A-Za-z0-9_+-]+)+$/.test(t))return false;try{new Intl.DateTimeFormat('en-US',{timeZone:t});return true;}catch(_){return false;}};
+  const zones=texts.filter(isZone);
+  if(zones.length!==1)fail(`The composer shows times in ${said}; exactly one IANA time zone name is needed to read it by.`);
+  const zone=zones[0],abbr=formats(atIso,zone).zone,other=texts.filter(t=>t!==zone&&t!==abbr);
+  if(other.length)fail(`The composer shows times in ${said}; ${other.map(t=>`"${t.slice(0,40)}"`).join(', ')} isn't ${zone} (${abbr}).`);
+  return zone;
 }
 
 // Every email address a preview shows: its recipients.
@@ -216,4 +236,4 @@ function classifyDialog(text){
   return {action:'stop',reason:`Ashby showed a dialog the booking doesn't recognise: "${t.slice(0,160)}". Nothing was confirmed.`};
 }
 
-module.exports={selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};
+module.exports={selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};
