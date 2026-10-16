@@ -38,7 +38,12 @@ const FILE = path.join(config.dataDir, "interviewer-training.json");
 // alone would merge two roles' training in the first case and split one
 // role's in half in the second, where neither half ever reaches its required
 // count.
-let store = { paths: {}, enrolments: {} };
+// eventPaths resolves the one case neither the pool nor inference can settle:
+// an interview event that two pool-scoped paths could both own, for a trainee
+// enrolled on both. Keyed globally by event id rather than per enrolment,
+// because an event belongs to exactly one path - storing it per enrolment
+// would let the same interview be claimed by two paths at once.
+let store = { paths: {}, enrolments: {}, eventPaths: {} };
 
 function load() {
   try {
@@ -46,9 +51,10 @@ function load() {
     store = {
       paths: (parsed && parsed.paths) || {},
       enrolments: (parsed && parsed.enrolments) || {},
+      eventPaths: (parsed && parsed.eventPaths) || {},
     };
   } catch (err) {
-    store = { paths: {}, enrolments: {} }; // missing/corrupt file -> start empty
+    store = { paths: {}, enrolments: {}, eventPaths: {} }; // missing/corrupt file -> start empty
   }
 }
 
@@ -80,7 +86,7 @@ function getPath(pathId) {
 // own default, NOT Ashby's. Forus's single enabled Ashby training path is
 // configured Shadow:1 + Shadow:1 + ReverseShadow:1 and every trainee on it
 // sits at 0 of 1, so there was no existing configuration worth inheriting.
-function upsertPath({ id, label, interviewTitle, interviewIds, jobId, jobTitle, requiredShadows, requiredReverseShadows }) {
+function upsertPath({ id, label, interviewTitle, interviewIds, jobId, jobTitle, requiredShadows, requiredReverseShadows, interviewerPoolId, interviewerPoolTitle }) {
   const pathId = id || crypto.randomUUID();
   const existing = store.paths[pathId];
   store.paths[pathId] = {
@@ -90,6 +96,11 @@ function upsertPath({ id, label, interviewTitle, interviewIds, jobId, jobTitle, 
     interviewIds: [...new Set(interviewIds || [])],
     jobId,
     jobTitle,
+    // Optional: scopes the path to one interviewer pool, so two paths can
+    // share an interview title and job and still be told apart (Bug Bash
+    // Python vs JavaScript). Null means "any pool", the ordinary case.
+    interviewerPoolId: interviewerPoolId || (existing ? existing.interviewerPoolId : null) || null,
+    interviewerPoolTitle: interviewerPoolTitle || (existing ? existing.interviewerPoolTitle : "") || "",
     requiredShadows: Number.isFinite(requiredShadows) ? requiredShadows : (existing ? existing.requiredShadows : 2),
     requiredReverseShadows: Number.isFinite(requiredReverseShadows) ? requiredReverseShadows : (existing ? existing.requiredReverseShadows : 2),
     createdAt: existing ? existing.createdAt : new Date().toISOString(),
@@ -117,10 +128,29 @@ function removePath(pathId) {
   for (const key of Object.keys(store.enrolments)) {
     if (store.enrolments[key].pathId === pathId) delete store.enrolments[key];
   }
+  // Otherwise an event stays pinned to a path that no longer exists and
+  // silently counts for nobody.
+  for (const eventId of Object.keys(store.eventPaths)) {
+    if (store.eventPaths[eventId] === pathId) delete store.eventPaths[eventId];
+  }
   save();
 }
 
 // ----------------------------------------------------------- enrolments
+
+// --- ambiguous-event assignment ---------------------------------------
+
+function listEventPaths() {
+  return { ...store.eventPaths };
+}
+
+function assignEventToPath(eventId, pathId) {
+  if (!eventId) return null;
+  if (pathId) store.eventPaths[eventId] = pathId;
+  else delete store.eventPaths[eventId];
+  save();
+  return store.eventPaths[eventId] || null;
+}
 
 function listEnrolments() {
   return Object.values(store.enrolments);
@@ -253,6 +283,8 @@ function removeManualCredit(userId, pathId, creditId) {
 load();
 
 module.exports = {
+  listEventPaths,
+  assignEventToPath,
   listPaths,
   getPath,
   upsertPath,
