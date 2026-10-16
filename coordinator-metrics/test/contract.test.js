@@ -43,6 +43,11 @@ const CLIENT = {
   excludedJobTitles: ["test"],
   coordinators: ["Anna Jones"],
   hasOwnRoster: true,
+  engagement: "carrara-scheduled",
+  status: "active",
+  isEnded: false,
+  engagementStart: null,
+  engagementEnd: null,
 };
 
 function iso(daysFromNow, hourUTC = 15) {

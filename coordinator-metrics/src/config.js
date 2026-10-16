@@ -86,6 +86,10 @@ const DEFAULT_EXCLUDED_TITLE_KEYWORDS = [
   "buffer",
   "placeholder",
 ];
+// NOTE "work time" is deliberately absent too. A candidate working alone
+// on a case is still a slot a coordinator blocked out and arranged —
+// same reasoning as meals. Removing it counts ~376 more events at Forus
+// (24 "Work Time" variants) and 4 at Profound.
 
 // Job records that are scaffolding rather than real reqs. Matched against
 // the job title TRIMMED AND LOWERCASED, IN FULL — an exact match, never a
@@ -159,9 +163,48 @@ const clients = clientIds.map((id) => {
   if (!apiKey) {
     console.warn(`[config] Client "${id}" has no ASHBY_API_KEY_${envSuffix(id)} — its tab will show a configuration error rather than silently empty data.`);
   }
+  // Two independent axes, and both gate the roll-up.
+  //
+  //   engagement — who does the scheduling. A share-of-activity figure
+  //     is only meaningful inside one of these groups: at a
+  //     client-scheduled account most interviews were never ours, so
+  //     mixing them into one percentage understates the work everywhere
+  //     else.
+  //   status — whether the engagement is still running. An ended
+  //     engagement must never reach a current-period number, or a
+  //     finished client quietly drags every "this week" on the page
+  //     toward zero.
+  const engagement = perClient(id, "CLIENT_ENGAGEMENT", "carrara-scheduled");
+  if (!["carrara-scheduled", "client-scheduled"].includes(engagement)) {
+    throw new Error(`CLIENT_ENGAGEMENT_${envSuffix(id)} must be carrara-scheduled or client-scheduled, got "${engagement}"`);
+  }
+
+  const status = perClient(id, "CLIENT_STATUS", "active");
+  if (!["active", "ended"].includes(status)) {
+    throw new Error(`CLIENT_STATUS_${envSuffix(id)} must be active or ended, got "${status}"`);
+  }
+
+  // An ended engagement reads its own fixed date range instead of the
+  // rolling 12 months. Without that the work would silently age out of
+  // the dashboard — Profound's ends in August 2026, so a rolling window
+  // erases all of it by September 2027.
+  const engagementStart = perClient(id, "CLIENT_ENGAGEMENT_START", "");
+  const engagementEnd = perClient(id, "CLIENT_ENGAGEMENT_END", "");
+  if (status === "ended" && (!engagementStart || !engagementEnd)) {
+    throw new Error(
+      `Client "${id}" is ended, so CLIENT_ENGAGEMENT_START_${envSuffix(id)} and ` +
+        `CLIENT_ENGAGEMENT_END_${envSuffix(id)} are required (YYYY-MM-DD) — otherwise its window is undefined.`
+    );
+  }
+
   return {
     id,
     name: perClient(id, "CLIENT_NAME", id.charAt(0).toUpperCase() + id.slice(1)),
+    engagement,
+    status,
+    isEnded: status === "ended",
+    engagementStart: engagementStart || null,
+    engagementEnd: engagementEnd || null,
     apiKey,
     // Each tab renders in its own client's zone, so "interviews on Tuesday"
     // matches the week that client's coordinator actually worked. The

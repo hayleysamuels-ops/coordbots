@@ -102,6 +102,18 @@ function delta(value) {
   });
 }
 
+// Absolute change, not a percentage. "+6" is readable on any base;
+// "+300%" on a base of two interviews is noise dressed as a signal.
+function weekDelta(current, previous) {
+  if (previous == null) return null;
+  const diff = current - previous;
+  if (diff === 0) return el("span", { class: "delta flat", text: "0" });
+  return el("span", {
+    class: `delta ${diff > 0 ? "up" : "down"}`,
+    text: `${diff > 0 ? "+" : "\u2212"}${Math.abs(diff)}`,
+  });
+}
+
 function stat(number, label, { sub, hero, deltaValue } = {}) {
   return el("div", { class: `stat${hero ? " hero" : ""}` }, [
     el("div", { class: "stat-number" }, [String(number), deltaValue !== undefined ? delta(deltaValue) : null]),
@@ -275,8 +287,13 @@ function scopeControl(onChange) {
   );
 }
 
-function periodControl(onChange) {
-  const options = (state.config.periods || []).map((p) => [p.key, p.label]);
+function periodControl(onChange, { onlyFull = false } = {}) {
+  // An ended engagement has nothing in the last 7/30/90 days by
+  // definition, so offering those buttons just offers four ways to see
+  // zero.
+  const options = (state.config.periods || [])
+    .filter((p) => !onlyFull || p.key === "full")
+    .map((p) => [p.key, onlyFull ? "Full engagement" : p.label]);
   return el(
     "div",
     { class: "segmented" },
@@ -384,6 +401,8 @@ function renderClient(fullPayload) {
 
   const frag = document.createDocumentFragment();
 
+  const isEnded = fullPayload.status === "ended";
+
   frag.appendChild(
     el("div", { class: "toolbar" }, [
       el("p", {
@@ -396,6 +415,23 @@ function renderClient(fullPayload) {
       scopeControl(() => render()),
     ])
   );
+
+  // An ended engagement says so plainly, with its dates. Without this the
+  // tab looks like a live client having a very quiet year.
+  if (isEnded) {
+    frag.appendChild(
+      el("div", { class: "notice" }, [
+        el("h3", { text: "Ended engagement" }),
+        el("p", {
+          text:
+            `Carrara coordinated for ${fullPayload.clientName} from ${formatDay(fullPayload.engagementStart)} ` +
+            `to ${formatDay(fullPayload.engagementEnd)}. Every figure here covers that period, not a rolling ` +
+            "12 months, so the work does not fade out as time passes. It is excluded from current-period " +
+            "totals and the trend chart on the Overview.",
+        }),
+      ])
+    );
+  }
 
   frag.appendChild(
     el("div", { class: "stat-grid" }, [
@@ -502,7 +538,7 @@ function renderClient(fullPayload) {
       "Volume over time",
       state.period === "quarter" || state.period === "full" ? "Each bar is one week." : "Each bar is one day.",
       chartHost,
-      periodControl(() => render())
+      periodControl(() => render(), { onlyFull: isEnded })
     )
   );
 
@@ -693,60 +729,69 @@ function renderOverview(fullPayload) {
   const payload = fullPayload.scopes[state.scope];
   const period = payload.periods[state.period];
   const label = periodLabel(state.period);
+  const groups = payload.groups || {};
+  const core = groups.core || { clientNames: [], coordinated: 0, all: 0, sharePct: null };
   const frag = document.createDocumentFragment();
 
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+  // The headline states what was coordinated and out of what, for ONE
+  // engagement group. Forus is client-scheduled and Profound has ended,
+  // so both are stated separately rather than folded into a percentage
+  // that would describe neither.
   frag.appendChild(
-    el("div", { class: "toolbar" }, [
-      el("p", {
-        class: "eyebrow",
-        style: "margin:0",
-        text:
-          `All clients · ${payload.byClient.length} books of work · ` +
-          (state.scope === "coordinated" ? "work Carrara coordinated" : "all interview activity"),
-      }),
-      scopeControl(() => render()),
+    el("div", { class: "headline" }, [
+      el("p", { class: "headline-lead" }, [
+        "Carrara coordinated ",
+        el("strong", { text: num(core.coordinated) }),
+        " interviews across the ",
+        plural(core.clientNames.length, "client", "clients"),
+        " we schedule for",
+        core.sharePct == null ? "" : ` — ${core.sharePct}% of everything that ran there`,
+        ".",
+      ]),
+      el("p", { class: "headline-sub", text: core.clientNames.join(", ") }),
     ])
   );
 
+  const asides = [];
+  const cs = groups.clientScheduled;
+  if (cs && cs.clientIds.length) {
+    asides.push(
+      `At ${cs.clientNames.join(", ")}, where the client schedules its own interviews, Carrara coordinated ` +
+        `${num(cs.coordinated)} of ${num(cs.all)}.`
+    );
+  }
+  const ended = groups.ended;
+  if (ended && ended.clientIds.length) {
+    asides.push(
+      `${ended.clientNames.join(", ")} — engagement ended — accounts for a further ${num(ended.coordinated)}, ` +
+        "not included in any current-period figure or the trend below."
+    );
+  }
+  if (asides.length) {
+    frag.appendChild(el("div", { class: "headline-asides" }, asides.map((text) => el("p", { text }))));
+  }
+
+  // Four tiles. Ten made the page a wall of numbers with no hierarchy.
   frag.appendChild(
     el("div", { class: "stat-grid" }, [
       stat(num(payload.totals.events), "Interviews held, 12 months", {
         hero: true,
-        sub:
-          `includes ${num(payload.totals.debriefs)} debriefs and ` +
-          `${num(payload.totals.meals)} candidate meals`,
+        sub: `includes ${num(payload.totals.debriefs)} debriefs and ${num(payload.totals.meals)} candidate meals`,
       }),
       stat(num(payload.totals.hours) + "h", "Interview time placed on calendars"),
-      stat(num(payload.totals.bookedAhead), "Booked ahead", {
-        sub: `${num(payload.totals.bookedAheadHours)}h on the calendar for future dates`,
-      }),
       stat(num(payload.totals.candidates), "Candidates scheduled"),
-      stat(num(payload.totals.roles), "Roles supported"),
-      stat(num(payload.totals.interviewerSlots), "Interviewer seats filled"),
-      stat(num(payload.totals.reschedulesDerived + payload.totals.cancellations), "Reschedules and cancellations handled"),
-    ])
-  );
-
-  frag.appendChild(
-    el("div", { class: "stat-grid" }, [
-      stat(num(period.current.events), `Interviews, ${label}`, {
-        deltaValue: period.change.events,
-        sub: period.change.events == null ? null : `${num(period.previous.events)} in the previous period`,
-      }),
-      stat(num(Math.round(period.current.hours)) + "h", `Interview hours, ${label}`, {
-        deltaValue: period.change.hours,
-      }),
-      stat(num(payload.totals.shortNotice), "Short-notice bookings, 12 months"),
-      stat(num(payload.totals.dropOffs), "Applications archived after interviewing", {
-        sub: "counts applications, not interviews",
+      stat(num(payload.totals.interviewerSlots), "Interviewer seats filled", {
+        sub: `across ${num(payload.totals.roles)} roles`,
       }),
     ])
   );
 
   frag.appendChild(
     section(
-      "Total volume by week",
-      `Every client combined, over the ${label}. Weeks are Monday-start.`,
+      "Volume by week",
+      `Active clients only, over the ${label}. Weeks are Monday-start.`,
       el("div", {}, [
         barChart(overviewSeries(payload), { fadeFrom: fullPayload.currentWeek, labelFn: formatDay }),
         el("div", { class: "legend" }, [
@@ -762,56 +807,67 @@ function renderOverview(fullPayload) {
     )
   );
 
-  const max = Math.max(...payload.byClient.map((c) => c.events), 1);
+  const max = Math.max(...payload.byClient.map((c) => c.allEvents), 1);
+  const GROUP_NOTE = {
+    core: "",
+    clientScheduled: "client-scheduled",
+    ended: "engagement ended",
+  };
+
   frag.appendChild(
     section(
       "By client",
-      "Twelve months of coordination, client by client. Click a tab above for the detail.",
+      "Ours against everything that ran. Click a tab above for the detail.",
       el("div", { class: "table-wrap" }, [
         el("table", {}, [
           el("thead", {}, [
             el("tr", {}, [
               el("th", { text: "Client" }),
-              el("th", { class: "num", text: "Interviews" }),
+              el("th", { class: "num", text: "Ours / all" }),
               el("th", { class: "num", text: "Hours" }),
               el("th", { class: "num", text: "Candidates" }),
               el("th", { class: "num", text: "Roles" }),
               el("th", { class: "num", text: "Reschedules" }),
               el("th", { class: "num", text: "Cancelled" }),
               el("th", { class: "num", text: "This week" }),
-              el("th", { class: "num", text: "Ours / all" }),
               el("th", { text: "" }),
             ]),
           ]),
           el(
             "tbody",
             {},
-            payload.byClient.map((row) =>
-              el("tr", { style: "cursor:pointer", onclick: () => selectTab(row.clientId) }, [
+            payload.byClient.map((row) => {
+              const note = GROUP_NOTE[row.group];
+              const share = row.allEvents ? Math.round((row.coordinatedEvents / row.allEvents) * 100) : null;
+              return el("tr", { style: "cursor:pointer", onclick: () => selectTab(row.clientId) }, [
                 el("td", { class: "lead" }, [
-                  el("span", {
-                    class: "tab-dot",
-                    style: `--tab-accent:${row.accentColor || "var(--ember)"}`,
-                  }),
+                  el("span", { class: "tab-dot", style: `--tab-accent:${row.accentColor || "var(--ember)"}` }),
                   row.clientName,
+                  note ? el("div", { class: "muted", style: "font-size:12px", text: note }) : null,
                 ]),
-                el("td", { class: "num", text: num(row.events) }),
+                el("td", { class: "num" }, [
+                  `${num(row.coordinatedEvents)} / ${num(row.allEvents)}`,
+                  share == null ? null : el("div", { class: "muted", style: "font-size:12px", text: `${share}%` }),
+                ]),
                 el("td", { class: "num", text: num(row.hours) + "h" }),
                 el("td", { class: "num", text: num(row.candidates) }),
                 el("td", { class: "num", text: num(row.roles) }),
                 el("td", { class: "num", text: num(row.reschedules) }),
                 el("td", { class: "num", text: num(row.cancellations) }),
-                el("td", { class: "num" }, [String(row.thisWeek), delta(row.weekChange)]),
-                el("td", { class: "num", text: `${num(row.coordinatedEvents)} / ${num(row.allEvents)}` +
-                  (row.allEvents ? ` (${Math.round((row.coordinatedEvents / row.allEvents) * 100)}%)` : "") }),
+                // Absolute change, not a percentage: on a base of two
+                // interviews a percentage swings wildly and says nothing.
+                el("td", { class: "num" }, [
+                  row.status === "ended" ? el("span", { class: "muted", text: "—" }) : String(row.thisWeek),
+                  row.status === "ended" ? null : weekDelta(row.thisWeek, row.lastWeek),
+                ]),
                 el("td", { style: "width:140px" }, [
                   el("div", {
                     class: "meter",
-                    style: `width:${Math.max(2, (row.events / max) * 100)}%;background:${row.accentColor || "var(--ember)"}`,
+                    style: `width:${Math.max(2, (row.allEvents / max) * 100)}%;background:${row.accentColor || "var(--ember)"}`,
                   }),
                 ]),
-              ])
-            )
+              ]);
+            })
           ),
         ]),
       ])
@@ -824,9 +880,8 @@ function renderOverview(fullPayload) {
         el("h3", { text: "Rostered coordinators with no matching work anywhere" }),
         el("p", {
           text:
-            `${fullPayload.rosterUnmatchedEverywhere.join(", ")} — no scheduled events under those names at any of the ` +
-            `${fullPayload.scopes.all.byClient.length} clients here. The likeliest explanation is that they work on a client ` +
-            "that has no dashboard yet; the alternative is that the name differs in Ashby.",
+            `${fullPayload.rosterUnmatchedEverywhere.join(", ")} — no scheduled events under those names at any ` +
+            "configured client. Either the name differs in Ashby, or they work on a client with no dashboard yet.",
         }),
       ])
     );
@@ -896,6 +951,9 @@ async function render() {
 
   try {
     const payload = await load(state.active);
+    // An ended engagement only has its own window; any other period is
+    // empty by definition, so don't leave the page sitting on one.
+    if (payload.status === "ended") state.period = "full";
     main.replaceChildren(state.active === "overview" ? renderOverview(payload) : renderClient(payload));
     metaEl.textContent = `Updated ${formatWhen(payload.generatedAt)}`;
   } catch (err) {

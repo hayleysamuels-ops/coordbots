@@ -213,7 +213,14 @@ async function syncClient(client, kind) {
   const startedAt = new Date().toISOString();
   const observedAt = startedAt;
   const t0 = Date.now();
-  const createdAfter = kind === "full" ? monthsAgo(config.historyMonths) : daysAgo(config.incrementalDays);
+  // An ended engagement pulls from its own start date, with a month of
+  // slack: a schedule created shortly before the engagement began can
+  // still carry events inside it.
+  const createdAfter = client.isEnded
+    ? new Date(`${client.engagementStart}T00:00:00.000Z`).getTime() - 31 * 86400000
+    : kind === "full"
+    ? monthsAgo(config.historyMonths)
+    : daysAgo(config.incrementalDays);
 
   let schedulePages = 0;
   let scheduleCount = 0;
@@ -268,6 +275,11 @@ async function syncClient(client, kind) {
       (jobGapCount ? `${jobGapCount} draft/missing jobs resolved, ` : "") +
       `${rescheduleCount} reschedules observed, ${schedulePages} pages in ${Math.round((Date.now() - t0) / 1000)}s`;
     store.recordSyncRun(client.id, kind, startedAt, true, detail);
+    // Mark an ended engagement done so it is never synced again.
+    if (client.isEnded && kind === "full") {
+      store.setMeta(client.id, "ended_backfill_completed_at", new Date().toISOString());
+      console.log(`[sync:${client.id}] ended engagement backfilled — will not sync again`);
+    }
     console.log(`[sync:${client.id}] ${kind} ok — ${detail}`);
     return { clientId: client.id, ok: true, detail };
   } catch (err) {
@@ -289,7 +301,27 @@ async function syncAll(kind) {
     return running;
   }
 
-  const clients = config.clients.filter((c) => c.apiKey);
+  // An ended engagement is synced ONCE and then left alone. Its data
+  // cannot change in any way that matters — our last event was months
+  // ago — while the workspace itself may still be busy: Profound's own
+  // team is running ~1,300 interviews a month, none of them ours.
+  // Re-syncing would spend API calls pulling someone else's activity and
+  // risk it leaking into the all-activity figures.
+  const clients = config.clients.filter((c) => {
+    if (!c.apiKey) return false;
+    if (!c.isEnded) return true;
+    const already = store.getMeta(c.id, "ended_backfill_completed_at");
+    if (already) {
+      console.log(`[sync] skipping ${c.id} — ended engagement, backfilled ${already}`);
+      return false;
+    }
+    if (kind !== "full") {
+      console.log(`[sync] skipping ${c.id} — ended engagement needs a full backfill, not an incremental`);
+      return false;
+    }
+    return true;
+  });
+
   if (clients.length === 0) {
     console.warn("[sync] no clients with an API key configured — nothing to sync");
     return [];

@@ -486,3 +486,46 @@ button.link {
   main, .topbar, footer { padding-left: 16px; padding-right: 16px; }
   .stat-number { font-size: 24px; }
 }
+
+/* --- Overview headline --- */
+
+.headline {
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-left: 4px solid var(--accent, var(--ember));
+  border-radius: var(--radius-card);
+  padding: 20px 24px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-xs);
+}
+
+.headline-lead {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  line-height: 1.35;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.headline-lead strong {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.headline-sub {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 8px 0 0;
+}
+
+.headline-asides {
+  margin-bottom: 24px;
+}
+
+.headline-asides p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 6px;
+  max-width: 80ch;
+}

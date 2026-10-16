@@ -28,6 +28,23 @@ is the short list of things that look wrong and are not.
   triple the call count to learn nothing. The drop-off metric depends on
   catching the Active → Archived transition, which this does.
 
+- **Two flags gate every roll-up: `engagement` and `status`.** A
+  share-of-activity percentage is computed ONLY within one engagement
+  type — Forus is client-scheduled, so most of its interviews were never
+  ours and folding it into one figure describes nothing. An `ended`
+  client never reaches a current-period number or the weekly trend.
+  Volume totals DO include ended clients: that work happened. This means
+  the overview's `totals` and `periods.full` legitimately differ once an
+  ended client exists, unlike a client payload where they must be equal.
+
+- **An ended engagement reads its own fixed date range, not the rolling
+  12 months.** A rolling window would silently erase finished work as it
+  aged out — Profound's ends August 2026, so by September 2027 none of it
+  would show, with nothing on screen to say why. It is also synced ONCE
+  and never again (`ended_backfill_completed_at` in sync_meta): our last
+  event there was months ago, while Profound's own team still runs ~1,300
+  interviews a month that must never leak into the all-activity figures.
+
 - **The payload is split into `scopes.all` and `scopes.coordinated`**,
   with client-level fields (name, timezone, today, roster, dataQuality)
   hoisted above them. Coordinated counts only schedules created by a

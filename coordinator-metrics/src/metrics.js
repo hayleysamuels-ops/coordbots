@@ -100,6 +100,30 @@ function periodDays(period) {
 const PERIOD_KEYS = PERIODS.map((p) => p.key);
 const DEFAULT_PERIOD = "full";
 
+/**
+ * The window a client's figures are drawn from.
+ *
+ * An active client gets the rolling 12 months. An ENDED one gets its own
+ * fixed engagement range instead: a rolling window would quietly erase
+ * finished work as it aged out — Profound's engagement ends in August
+ * 2026, so by September 2027 a rolling view would show none of it, with
+ * nothing on screen to say why.
+ */
+function clientWindow(client) {
+  if (client.isEnded) {
+    return {
+      from: new Date(`${client.engagementStart}T00:00:00.000Z`).toISOString(),
+      to: new Date(`${client.engagementEnd}T23:59:59.999Z`).toISOString(),
+      fixed: true,
+    };
+  }
+  return {
+    from: new Date(Date.now() - config.historyMonths * 30 * 86400000).toISOString(),
+    to: new Date(Date.now() + 365 * 86400000).toISOString(),
+    fixed: false,
+  };
+}
+
 // --- Counting rules --------------------------------------------------------
 
 /**
@@ -450,13 +474,21 @@ function dayKeyOffset(days, timeZone) {
  */
 function computeScope(client, keepScheduler) {
   const timeZone = client.timeZone;
-  const since = new Date(Date.now() - config.historyMonths * 30 * 86400000).toISOString();
+  const window = clientWindow(client);
+  const since = window.from;
 
   const keep = (name) => keepScheduler(name);
-  const rows = selectEvents.all(client.id, since).filter((r) => keep(r.scheduled_by_name));
-  const cancellations = selectCancellations.all(client.id, since).filter((r) => keep(r.scheduled_by_name));
+  const inWindow = (iso) => !window.fixed || (iso >= window.from && iso <= window.to);
+  const rows = selectEvents
+    .all(client.id, since)
+    .filter((r) => keep(r.scheduled_by_name) && inWindow(r.start_time));
+  const cancellations = selectCancellations
+    .all(client.id, since)
+    .filter((r) => keep(r.scheduled_by_name) && inWindow(r.updated_at || r.created_at));
   const observed = selectObservedReschedules.all(client.id, since).filter((r) => keep(r.scheduled_by_name));
-  const dropOffs = selectDropOffs.all(client.id, since).filter((r) => keep(r.scheduled_by_name));
+  const dropOffs = selectDropOffs
+    .all(client.id, since)
+    .filter((r) => keep(r.scheduled_by_name) && inWindow(r.archived_at));
   const scheduleTimes = selectTimeToSchedule.all(client.id, since).filter((r) => keep(r.scheduled_by_name));
 
   const daily = new Map();
@@ -666,6 +698,18 @@ function computeScope(client, keepScheduler) {
   const periods = {};
   for (const period of PERIODS) {
     const name = period.key;
+    // For an ended client "full" means the engagement itself, not the
+    // last N days — that is the window its tab defaults to, and the only
+    // one with anything in it.
+    if (period.days == null && window.fixed) {
+      const whole = sumWindow(dailySeries, "", "9999-99-99");
+      periods[name] = {
+        current: whole,
+        previous: { events: 0, hours: 0, candidates: 0, cancellations: 0, reschedules: 0 },
+        change: { events: null, hours: null, cancellations: null, reschedules: null },
+      };
+      continue;
+    }
     const days = periodDays(period);
     const currentFrom = dayKeyOffset(days, timeZone);
     const previousFrom = dayKeyOffset(days * 2, timeZone);
@@ -848,6 +892,11 @@ function computeClient(client) {
     clientName: client.name,
     timeZone,
     accentColor: client.accentColor || null,
+    engagement: client.engagement,
+    status: client.status,
+    engagementStart: client.engagementStart,
+    engagementEnd: client.engagementEnd,
+    window: clientWindow(client),
     generatedAt: new Date().toISOString(),
     historyFrom: new Date(Date.now() - config.historyMonths * 30 * 86400000).toISOString(),
     today: dayKeyOffset(0, timeZone),
@@ -874,6 +923,32 @@ function computeClient(client) {
  * zone, so the roll-up re-buckets from scratch in OVERVIEW_TIMEZONE rather
  * than summing day keys that mean slightly different things.
  */
+/**
+ * Which clients may be summed together.
+ *
+ * Two axes gate every roll-up:
+ *   - engagement: a share-of-activity percentage only means something
+ *     inside one engagement type. Forus is client-scheduled, so most of
+ *     its interviews were never ours; folding it into one percentage
+ *     drags the figure down everywhere else and describes nothing.
+ *   - status: an ended engagement must never reach a current-period
+ *     number or the weekly trend, or a finished client pulls every
+ *     "this week" toward zero and the chart ends in a cliff that reads
+ *     as collapsing output.
+ */
+function groupOf(payload) {
+  if (payload.status === "ended") return "ended";
+  // Anything not explicitly client-scheduled is treated as ours, so a
+  // missing flag over-reports our share rather than silently dropping a
+  // client out of the roll-up entirely.
+  return payload.engagement === "client-scheduled" ? "clientScheduled" : "core";
+}
+
+// Current-period figures and the trend chart: active clients only.
+function isCurrent(payload) {
+  return payload.status !== "ended";
+}
+
 function computeOverview(clientPayloads, scopeKey) {
   const scopeOf = (p) => p.scopes[scopeKey];
   const totals = clientPayloads.reduce(
@@ -904,8 +979,10 @@ function computeOverview(clientPayloads, scopeKey) {
   // Weekly series summed across clients by week key. Week keys are Monday
   // dates, which differ by at most a day across these zones — close enough
   // to align, unlike raw day keys.
+  // Ended engagements are excluded: their series stops dead at the
+  // engagement end and would render as a collapse in output.
   const weekly = new Map();
-  for (const payload of clientPayloads) {
+  for (const payload of clientPayloads.filter(isCurrent)) {
     for (const row of scopeOf(payload).series.weekly) {
       if (!weekly.has(row.key)) weekly.set(row.key, { key: row.key, events: 0, hours: 0, cancellations: 0, reschedules: 0 });
       const bucket = weekly.get(row.key);
@@ -918,7 +995,7 @@ function computeOverview(clientPayloads, scopeKey) {
 
   const periods = {};
   for (const name of PERIOD_KEYS) {
-    periods[name] = clientPayloads.reduce(
+    periods[name] = clientPayloads.filter(isCurrent).reduce(
       (acc, p) => {
         acc.current.events += scopeOf(p).periods[name].current.events;
         // Unrounded: rounding each client's contribution as it is added
@@ -938,21 +1015,47 @@ function computeOverview(clientPayloads, scopeKey) {
   }
 
   return {
-    // Same rule as a client payload: the headline IS the full-period
-    // figure, not a second independent count of it. Summing each
-    // client's rounded totals while summing their raw periods gave two
-    // answers to one question.
-    totals: {
-      ...totals,
-      events: periods.full.current.events,
-      hours: Math.round(periods.full.current.hours),
-    },
+    // Volume totals span every client, ended ones included — that work
+    // happened and it counts. Only the CURRENT-period figures and the
+    // trend above exclude them.
+    //
+    // Note these cannot be reconciled with periods.full the way a client
+    // payload is: periods excludes ended engagements and totals does
+    // not, so they are deliberately different numbers measuring
+    // different populations.
+    totals,
     periods,
     series: { weekly: [...weekly.values()].sort((a, b) => (a.key < b.key ? -1 : 1)) },
+    // Per-group summaries. A share-of-activity percentage is computed
+    // ONLY within a group, never across one — see groupOf().
+    groups: ["core", "clientScheduled", "ended"].reduce((acc, key) => {
+      const members = clientPayloads.filter((p) => groupOf(p) === key);
+      const sum = (scope, field) => members.reduce((n, p) => n + p.scopes[scope].totals[field], 0);
+      const coordinated = sum("coordinated", "events");
+      const all = sum("all", "events");
+      acc[key] = {
+        clientIds: members.map((p) => p.clientId),
+        clientNames: members.map((p) => p.clientName),
+        coordinated,
+        all,
+        sharePct: all ? Math.round((coordinated / all) * 100) : null,
+        hours: sum("coordinated", "hours"),
+        candidates: sum("coordinated", "candidates"),
+        roles: sum("coordinated", "roles"),
+        interviewerSlots: sum("coordinated", "interviewerSlots"),
+      };
+      return acc;
+    }, {}),
+
     byClient: clientPayloads.map((p) => ({
       clientId: p.clientId,
       clientName: p.clientName,
       accentColor: p.accentColor,
+      engagement: p.engagement,
+      status: p.status,
+      group: groupOf(p),
+      engagementStart: p.engagementStart,
+      engagementEnd: p.engagementEnd,
       events: scopeOf(p).totals.events,
       hours: scopeOf(p).totals.hours,
       candidates: scopeOf(p).totals.candidates,
@@ -961,6 +1064,10 @@ function computeOverview(clientPayloads, scopeKey) {
       reschedules: scopeOf(p).totals.reschedulesDerived,
       shortNotice: scopeOf(p).totals.shortNotice,
       thisWeek: scopeOf(p).periods.week.current.events,
+      // Absolute week-on-week change is rendered from these two, rather
+      // than a percentage: on a base of two interviews a percentage
+      // swings wildly and describes nothing.
+      lastWeek: scopeOf(p).periods.week.previous.events,
       weekChange: scopeOf(p).periods.week.change.events,
       // Both scopes on every row, so the by-client table can show what
       // share of a client's activity was ours without a second request.

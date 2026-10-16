@@ -33,6 +33,11 @@ const CLIENT = {
   accentColor: null,
   excludedTitleKeywords: ["hold", "work time"],
   excludedJobTitles: [],
+  engagement: "carrara-scheduled",
+  status: "active",
+  isEnded: false,
+  engagementStart: null,
+  engagementEnd: null,
 };
 
 function iso(daysFromNow, hourUTC = 15) {
@@ -682,6 +687,9 @@ test("the OVERVIEW headline and full-period totals agree too", () => {
   try {
     metricsModule.rebuild();
     const overview = metricsModule.getOverview();
+    // With no ended engagements configured these must agree. Once an
+    // ended client exists they deliberately diverge: volume totals
+    // include it, current-period figures do not.
     for (const scope of ["all", "coordinated"]) {
       const t = overview.scopes[scope].totals;
       const full = overview.scopes[scope].periods.full.current;
@@ -706,4 +714,114 @@ test("the headline total and the full-period total agree", () => {
     assert.strictEqual(t.events, full.events, `${scope}: headline events must equal the full-period events`);
     assert.strictEqual(Math.round(t.hours), Math.round(full.hours), `${scope}: headline hours must equal full-period hours`);
   }
+});
+
+// --- Engagement type and status --------------------------------------------
+
+test("an ended engagement is kept out of current-period figures and the trend", () => {
+  // Both axes gate the roll-up. An ended client in a "this week" number
+  // drags every current figure toward zero, and in the trend chart its
+  // series stops dead and reads as collapsing output.
+  const metricsModule = require("../src/metrics");
+  const configModule = require("../src/config");
+
+  const active = { ...CLIENT, id: "grp-active", coordinators: ["Anna Jones"] };
+  const ended = {
+    ...CLIENT,
+    id: "grp-ended",
+    name: "Ended Co",
+    coordinators: ["Anna Jones"],
+    status: "ended",
+    isEnded: true,
+    engagementStart: "2025-01-01",
+    engagementEnd: "2025-06-30",
+  };
+  const clientScheduled = { ...CLIENT, id: "grp-cs", name: "Client Sched", coordinators: ["Anna Jones"], engagement: "client-scheduled" };
+
+  const seed = (c, daysAgo) => {
+    store.writeReference(c.id, {
+      interviews: [{ id: "i1", title: "Interview", isDebrief: false }],
+      jobs: [{ id: "j1", title: "Engineer", status: "Open" }],
+      departments: [], stages: [],
+    });
+    store.writeApplicationPage(c.id, [
+      { id: "a1", candidate: { id: "c1", name: "X" }, job: { id: "j1" }, status: "Active",
+        createdAt: iso(-400), updatedAt: iso(-1), hiringTeam: [] },
+    ]);
+    store.writeSchedulePage(c.id, [{
+      id: "s1", status: "Complete", applicationId: "a1", interviewStageId: "st",
+      createdAt: iso(daysAgo - 1), updatedAt: iso(daysAgo),
+      scheduledBy: { id: "u1", firstName: "Anna", lastName: "Jones", email: "a@x.com" },
+      interviewEvents: [{
+        id: "e1", interviewId: "i1", interviewScheduleId: "s1", interviewerUserIds: ["u2"],
+        createdAt: iso(daysAgo - 1), updatedAt: iso(daysAgo),
+        startTime: iso(daysAgo, 15), endTime: iso(daysAgo, 16), hasSubmittedFeedback: true,
+      }],
+    }], new Date().toISOString());
+  };
+
+  seed(active, -2);
+  seed(clientScheduled, -2);
+  // Inside the ended engagement's own window, long before "this week".
+  const endedStart = new Date("2025-03-01T15:00:00.000Z").toISOString();
+  store.writeReference(ended.id, {
+    interviews: [{ id: "i1", title: "Interview", isDebrief: false }],
+    jobs: [{ id: "j1", title: "Engineer", status: "Open" }], departments: [], stages: [],
+  });
+  store.writeApplicationPage(ended.id, [
+    { id: "a1", candidate: { id: "c1", name: "X" }, job: { id: "j1" }, status: "Active",
+      createdAt: endedStart, updatedAt: endedStart, hiringTeam: [] },
+  ]);
+  store.writeSchedulePage(ended.id, [{
+    id: "s1", status: "Complete", applicationId: "a1", interviewStageId: "st",
+    createdAt: endedStart, updatedAt: endedStart,
+    scheduledBy: { id: "u1", firstName: "Anna", lastName: "Jones", email: "a@x.com" },
+    interviewEvents: [{
+      id: "e1", interviewId: "i1", interviewScheduleId: "s1", interviewerUserIds: ["u2"],
+      createdAt: endedStart, updatedAt: endedStart,
+      startTime: endedStart, endTime: new Date("2025-03-01T16:00:00.000Z").toISOString(),
+      hasSubmittedFeedback: true,
+    }],
+  }], new Date().toISOString());
+
+  const original = configModule.clients.slice();
+  configModule.clients.length = 0;
+  configModule.clients.push(active, clientScheduled, ended);
+  try {
+    metricsModule.rebuild();
+    const o = metricsModule.getOverview().scopes.coordinated;
+
+    assert.strictEqual(o.groups.core.clientIds.length, 1, "only the active carrara-scheduled client is core");
+    assert.strictEqual(o.groups.clientScheduled.clientIds[0], "grp-cs");
+    assert.strictEqual(o.groups.ended.clientIds[0], "grp-ended");
+
+    // The share is computed inside the core group only.
+    assert.strictEqual(o.groups.core.all, o.groups.core.coordinated, "core share spans only core clients");
+
+    // Volume totals include the ended client; current-period figures do not.
+    assert.strictEqual(o.totals.events, 3, "all three contribute to 12-month volume");
+    assert.strictEqual(o.periods.week.current.events, 2, "the ended client is absent from this week");
+
+    const endedWeek = new Date("2025-03-01").toISOString().slice(0, 10);
+    assert.ok(
+      !o.series.weekly.some((w) => w.key <= endedWeek),
+      "the ended client's weeks must not appear in the trend"
+    );
+  } finally {
+    configModule.clients.length = 0;
+    configModule.clients.push(...original);
+  }
+});
+
+test("an ended engagement reads its own window, not a rolling year", () => {
+  const ended = {
+    ...CLIENT, id: "grp-ended", name: "Ended Co", coordinators: ["Anna Jones"],
+    status: "ended", isEnded: true, engagementStart: "2025-01-01", engagementEnd: "2025-06-30",
+  };
+  const payload = computeFull(ended);
+  // A rolling 12-month window would exclude a March 2025 event outright.
+  assert.strictEqual(payload.scopes.coordinated.totals.events, 1, "work inside the engagement still counts");
+  assert.ok(payload.window.fixed, "the window is pinned to the engagement");
+  assert.strictEqual(payload.engagementStart, "2025-01-01");
+  assert.strictEqual(payload.engagementEnd, "2025-06-30");
 });
