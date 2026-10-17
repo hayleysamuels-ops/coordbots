@@ -825,3 +825,52 @@ test("an ended engagement reads its own window, not a rolling year", () => {
   assert.strictEqual(payload.engagementStart, "2025-01-01");
   assert.strictEqual(payload.engagementEnd, "2025-06-30");
 });
+
+test("a rostered name unmatched everywhere is still reported when another client has its own roster", () => {
+  // Adding Profound, which has its own three-person roster, silently
+  // cleared Sadiqeh Agah's "no matching work anywhere" warning: she is
+  // not on Profound's roster, so she was absent from its unmatched list,
+  // and an "unmatched at EVERY client" test then found a client where
+  // she was not unmatched. A name must be judged only against the
+  // clients whose roster claims her.
+  const metricsModule = require("../src/metrics");
+  const configModule = require("../src/config");
+
+  const wide = { ...CLIENT, id: "rw-wide", name: "Wide", coordinators: ["Anna Jones", "Ghost Coordinator"] };
+  const narrow = { ...CLIENT, id: "rw-narrow", name: "Narrow", coordinators: ["Anna Jones"] };
+
+  for (const c of [wide, narrow]) {
+    store.writeReference(c.id, {
+      interviews: [{ id: "i1", title: "Interview", isDebrief: false }],
+      jobs: [{ id: "j1", title: "Engineer", status: "Open" }], departments: [], stages: [],
+    });
+    store.writeApplicationPage(c.id, [
+      { id: "a1", candidate: { id: "c1", name: "X" }, job: { id: "j1" }, status: "Active",
+        createdAt: iso(-50), updatedAt: iso(-1), hiringTeam: [] },
+    ]);
+    store.writeSchedulePage(c.id, [{
+      id: "s1", status: "Complete", applicationId: "a1", interviewStageId: "st",
+      createdAt: iso(-4), updatedAt: iso(-3),
+      scheduledBy: { id: "u1", firstName: "Anna", lastName: "Jones", email: "a@x.com" },
+      interviewEvents: [{
+        id: "e1", interviewId: "i1", interviewScheduleId: "s1", interviewerUserIds: ["u2"],
+        createdAt: iso(-4), updatedAt: iso(-3), startTime: iso(-3, 15), endTime: iso(-3, 16), hasSubmittedFeedback: true,
+      }],
+    }], new Date().toISOString());
+  }
+
+  const original = configModule.clients.slice();
+  configModule.clients.length = 0;
+  configModule.clients.push(wide, narrow);
+  try {
+    metricsModule.rebuild();
+    assert.deepStrictEqual(
+      metricsModule.getOverview().rosterUnmatchedEverywhere,
+      ["Ghost Coordinator"],
+      "a name rostered somewhere and matching nothing there must stay reported"
+    );
+  } finally {
+    configModule.clients.length = 0;
+    configModule.clients.push(...original);
+  }
+});

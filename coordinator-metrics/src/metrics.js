@@ -1101,12 +1101,24 @@ function rebuild() {
       all: computeOverview(payloads, "all"),
       coordinated: computeOverview(payloads, "coordinated"),
     },
-    // Rostered names that matched nothing at ANY client — the strongest
-    // signal that a roster entry is wrong or that the coordinator works
-    // on a client with no dashboard yet.
-    rosterUnmatchedEverywhere: [...new Set(config.clients.flatMap((c) => c.coordinators || []))].filter((name) =>
-      payloads.every((p) => p.roster.unmatched.some((u) => config.normalizeName(u) === config.normalizeName(name)))
-    ),
+    // Rostered names that matched nothing at any client they are
+    // rostered FOR.
+    //
+    // The earlier version asked whether a name was unmatched at every
+    // client, which quietly stopped reporting anyone once a client had
+    // its own narrower roster: adding Profound (rostered to three
+    // people) made Sadiqeh Agah's warning vanish, because she is not on
+    // Profound's roster and so was not in its unmatched list either.
+    // A name must now be judged only against the clients that actually
+    // claim her.
+    rosterUnmatchedEverywhere: [...new Set(config.clients.flatMap((c) => c.coordinators || []))].filter((name) => {
+      const key = config.normalizeName(name);
+      const rosteredAt = payloads.filter((p) =>
+        (config.clients.find((c) => c.id === p.clientId)?.coordinators || []).some((n) => config.normalizeName(n) === key)
+      );
+      if (rosteredAt.length === 0) return false;
+      return rosteredAt.every((p) => p.roster.unmatched.some((u) => config.normalizeName(u) === key));
+    }),
   });
   console.log(`[metrics] rebuilt ${payloads.length} client payloads in ${Date.now() - t0}ms`);
 }
