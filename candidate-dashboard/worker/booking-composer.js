@@ -389,9 +389,10 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     const order=await page.getByRole('heading',{level:2}).allInnerTexts();
     const ci=order.indexOf('Candidate Invite'),ii=order.findIndex(h=>/^Interviewer Invites?$/.test(h));
     if(ci<0||ii<ci)refuse('Couldn\'t tell the candidate invite from the interviewer invites.');
-    checkInvitePreview(read.candidateText,shown,read.agendaItems);
+    // Content checks fail as refusals, naming what differs.
+    try{checkInvitePreview(read.candidateText,shown,read.agendaItems);}catch(e){refuse(e.message);}
     pass('candidate invite preview shows the approved date, agenda and only the candidate');
-    checkInterviewerInvitePreviews(read.interviewerTexts,shown);
+    try{checkInterviewerInvitePreviews(read.interviewerTexts,shown);}catch(e){refuse(e.message);}
     pass('each session\'s interviewer invite goes to exactly its approved interviewers');
     step='candidate confirmation email';
     // On or Off in the communications list. Off is accepted and reported (the
@@ -418,7 +419,7 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
       const subject=(await (await field('Subject','*[@contenteditable="true"]','the email\'s subject')).innerText()).replace(/\s+/g,' ').trim();
       const body=await (await one(page.getByRole('combobox',{name:'Rich text editor',exact:true}),'the email body')).innerText();
       if(!subject)refuse('Couldn\'t read the confirmation email\'s subject.');
-      checkConfirmationEmail({subject,body},shown);
+      try{checkConfirmationEmail({subject,body},shown);}catch(e){refuse(e.message);}
       from=(await (await field('From','button','the email\'s sender')).innerText()).replace(/\s+/g,' ').trim()||null;
       if(!from||!/<[^>]+@[^>]+>/.test(from))refuse('Couldn\'t read who the confirmation email is from.');
       pass('candidate confirmation email is fresh and shows the approved date and times',{from});

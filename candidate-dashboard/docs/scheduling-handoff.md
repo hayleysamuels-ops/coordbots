@@ -731,11 +731,28 @@ file permits it or the composer clicks Schedule.
   composer now reads it (`composerZone` in `worker/booking-check.js`): exactly one
   "Select a timezone" button must hold an IANA name, and any other may only be
   that zone's own abbreviation, or the check refuses. The approved instants are
-  typed in that zone, and the invite previews and confirmation email are read
-  back in it. Every save is still checked against the approved instants, so a
-  misread zone refuses rather than booking a different time. Consequence: a
-  Pacific candidate's invite and confirmation email state the times in
-  Ashby's zone (MDT in this case), as Ashby shows them.
+  typed in that zone. Every save is still checked against the approved
+  instants, so a misread zone refuses rather than booking a different time.
+- **Where candidates see their times: their own zone, not the composer's**
+  (October 19). This is different from what was assumed above. On TEST's Onsite
+  the composer showed MDT (sessions typed as 11:00am MDT), but the candidate's
+  invite preview showed the same sessions in the candidate's zone, "10:00 AM -
+  10:30 AM (PDT)". Interviewer invites state times in the schedule's Primary
+  Interview Timezone (Ashby says so on the screen, with an "Update Primary
+  Interview Timezone" link). So three zones can be in play on one draft: the
+  composer's, the candidate's, and the Primary Interview Timezone. The preview
+  checks therefore read each time with its zone label (PDT, MDT, GMT-7 and so
+  on) and compare instants, never rendered strings: the candidate's agenda
+  items and date, and each interviewer invite's "Thu, Oct 22, 2026 11:00am -
+  11:30am MDT" line. A different instant, or a zone label that can't be read,
+  refuses; interviewer names and recipients are checked as before. The first
+  Onsite run past the invite settings refused on this spuriously (10:00 AM PDT
+  against an expected 11:00 AM MDT, the same instant).
+  Not yet changed: the candidate confirmation email's date and times are still
+  compared as text in the composer's zone. Its body has times without a zone
+  label, and it's likely in the candidate's zone too; it's Off on the Onsite
+  template for now, so once it's turned on, expect the check to refuse there
+  until its format has been seen.
 - **Two Communications layouts** (October 19). The Calendar Invites screen isn't
   the same for every schedule, so a check built against one layout refuses on the
   other:

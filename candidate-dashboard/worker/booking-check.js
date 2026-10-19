@@ -169,49 +169,105 @@ function exactly(found,expected,what){
   return why;
 }
 
-// One agenda item per session, in order. Each starts "1:00 PM - 1:30 PM (MDT)
-// - First Round", and what follows may only be that session's approved
-// interviewers: Ashby puts a name inline, or on its own line with "(LinkedIn)"
-// when the profile has one (seen October 13). Anything else left over refuses.
+// Invite previews state times in their own zone, which needn't be the
+// composer's: the candidate's invite is in the candidate's zone (seen October
+// 19: "10:00 AM - 10:30 AM (PDT)" for a session typed as 11:00am MDT), and
+// interviewer invites in the schedule's Primary Interview Timezone. So times
+// are read with their zone label and compared as instants. A label that isn't
+// one of these refuses.
+const ZONE_OFFSETS={UTC:0,GMT:0,EST:-300,EDT:-240,CST:-360,CDT:-300,MST:-420,MDT:-360,PST:-480,PDT:-420,AKST:-540,AKDT:-480,HST:-600};
+function zoneOffset(label){
+  const l=String(label||'').trim();
+  if(Object.hasOwn(ZONE_OFFSETS,l))return ZONE_OFFSETS[l];
+  const m=/^(?:GMT|UTC)([+-])(\d{1,2})(?::?(\d\d))?$/.exec(l);
+  return m?(m[1]==='-'?-1:1)*(Number(m[2])*60+Number(m[3]||0)):null;
+}
+// "10:00 AM" or "10:00am" → minutes after midnight.
+function clockMinutes(t){
+  const m=/^(\d{1,2}):(\d\d)\s*([AaPp])[Mm]$/.exec(String(t).trim());
+  if(!m||Number(m[1])<1||Number(m[1])>12||Number(m[2])>59)return null;
+  return (Number(m[1])%12+(/[Pp]/.test(m[3])?12:0))*60+Number(m[2]);
+}
+const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+// An approved instant as wall-clock time at a UTC offset: minutes after
+// midnight, and the date as Ashby writes it ("Thu, Oct 22, 2026").
+function wallClock(iso,offset){
+  const d=new Date(Date.parse(iso)+offset*60000);
+  return {minutes:d.getUTCHours()*60+d.getUTCMinutes(),
+    shortDate:`${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getUTCDay()]}, ${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`};
+}
+const hhmm=min=>`${String(Math.floor(min/60)).padStart(2,'0')}:${String(min%60).padStart(2,'0')}`;
+// Whether "start - end" at `offset` is the session's approved instants: the
+// same wall-clock times at that offset. (The date is checked separately.)
+function sameInstants(s,offset,startMin,endMin){
+  return wallClock(s.start,offset).minutes===startMin&&wallClock(s.end,offset).minutes===endMin;
+}
+const approvedAt=(s,offset)=>`${hhmm(wallClock(s.start,offset).minutes)}–${hhmm(wallClock(s.end,offset).minutes)} at that offset (${s.start}–${s.end})`;
+
+// One agenda item per session, in order. Each reads "10:00 AM - 10:30 AM (PDT)
+// - Onsite", in any zone, and must be the session's approved instants; what
+// follows may only be that session's approved interviewers: Ashby puts a name
+// inline, or on its own line with "(LinkedIn)" when the profile has one (seen
+// October 13). Anything else left over refuses. Returns the problems and the
+// first item's offset, for the date.
 function agendaWhy(items,plan){
-  const why=[],norm=v=>v.replace(/\s+/g,' ').trim();
-  if(items.length!==plan.sessions.length)return [`its agenda has ${items.length} item${items.length===1?'':'s'}, but ${plan.sessions.length} session${plan.sessions.length===1?' was':'s were'} approved`];
+  const why=[],norm=v=>v.replace(/\s+/g,' ').trim();let firstOffset=null;
+  if(items.length!==plan.sessions.length)return {why:[`its agenda has ${items.length} item${items.length===1?'':'s'}, but ${plan.sessions.length} session${plan.sessions.length===1?' was':'s were'} approved`],firstOffset};
   plan.sessions.forEach((s,i)=>{
-    const a=formats(s.start,plan.timeZone),b=formats(s.end,plan.timeZone),prefix=`${a.upper} - ${b.upper} (${a.zone}) - ${s.title}`,item=norm(items[i]);
-    if(!item.startsWith(prefix)){why.push(`agenda item ${i+1} reads "${item.slice(0,80)}", not "${prefix}"`);return;}
-    let rest=item.slice(prefix.length);
+    const item=norm(items[i]);
+    const m=/^(\d{1,2}:\d\d\s*[AP]M) - (\d{1,2}:\d\d\s*[AP]M) \(([^)]+)\) - (.*)$/.exec(item);
+    if(!m){why.push(`agenda item ${i+1} reads "${item.slice(0,80)}", which isn't a time range with its zone`);return;}
+    const offset=zoneOffset(m[3]),start=clockMinutes(m[1]),end=clockMinutes(m[2]);
+    if(offset===null){why.push(`agenda item ${i+1}'s time zone "${m[3].slice(0,20)}" can't be read`);return;}
+    if(i===0)firstOffset=offset;
+    if(start===null||end===null||!sameInstants(s,offset,start,end))why.push(`agenda item ${i+1} reads "${m[1]} - ${m[2]} (${m[3]})", not the approved ${approvedAt(s,offset)}`);
+    if(!(m[4]===s.title||m[4].startsWith(s.title+' '))){why.push(`agenda item ${i+1} is "${m[4].slice(0,40)}", not "${s.title}"`);return;}
+    let rest=m[4].slice(s.title.length);
     for(const x of s.interviewers){if(!rest.includes(x.name))why.push(`agenda item ${i+1} doesn't name ${x.name}`);rest=rest.split(x.name).join(' ');}
     rest=rest.replace(/\(\s*LinkedIn\s*\)/g,' ').replace(/[\s,\-–]+/g,' ').trim();
     if(rest)why.push(`agenda item ${i+1} also names "${rest.slice(0,60)}", who wasn't approved`);
   });
-  return why;
+  return {why,firstOffset};
 }
 
-// The candidate's calendar invite preview: the date, the agenda (one item per
-// session, as above) and exactly the candidate as recipient.
+// The candidate's calendar invite preview: the date (in the agenda's own
+// zone), the agenda (one item per session, as above) and exactly the
+// candidate as recipient.
 function checkInvitePreview(text,plan,agendaItems){
-  const t=text.replace(/\s+/g,' '),why=[];
-  const first=formats(plan.sessions[0].start,plan.timeZone);
-  if(!t.includes(first.shortDate))why.push(`it doesn't show the date ${first.shortDate}`);
-  why.push(...agendaWhy(agendaItems,plan));
+  const t=text.replace(/\s+/g,' ');
+  const {why,firstOffset}=agendaWhy(agendaItems,plan);
+  if(firstOffset!==null){const date=wallClock(plan.sessions[0].start,firstOffset).shortDate;if(!t.includes(date))why.unshift(`it doesn't show the date ${date}`);}
   why.push(...exactly(emailsIn(t),[plan.candidate.email],'candidate invite'));
   if(why.length)fail(`The candidate's calendar invite preview doesn't match the approval: ${why.join('; ')}.`,why);
 }
 
 // The interviewers' invite previews: Ashby sends one per session (seen
-// October 13 with two sessions). Each is matched to its session by its
-// "Thu, Oct 15, 2026 1:00pm - 1:30pm MDT" line, exactly once, and must go to
-// exactly that session's approved interviewers, so anyone else Ashby would
-// invite (an alternate, say) shows up on every run.
+// October 13 with two sessions). Each states its time as "Thu, Oct 15, 2026
+// 1:00pm - 1:30pm MDT", in the schedule's Primary Interview Timezone; it's
+// read with its zone and matched to the session with those instants, exactly
+// once, and must go to exactly that session's approved interviewers, so
+// anyone else Ashby would invite (an alternate, say) shows up on every run.
+const INVITE_LINE=/([A-Z][a-z]{2}), ([A-Z][a-z]{2}) (\d{1,2}), (\d{4}) (\d{1,2}:\d\d\s*[ap]m) - (\d{1,2}:\d\d\s*[ap]m) ([A-Z]{2,5}|(?:GMT|UTC)[+-]\d{1,2}(?::?\d\d)?)\b/;
+function inviteInstants(panel){
+  const m=INVITE_LINE.exec(panel);if(!m)return null;
+  const offset=zoneOffset(m[7]),month=MONTHS.indexOf(m[2]),start=clockMinutes(m[5]),end=clockMinutes(m[6]);
+  if(offset===null||month<0||start===null||end===null)return {unreadable:m[0]};
+  const day=Date.UTC(Number(m[4]),month,Number(m[3]));
+  // An end before the start is past midnight.
+  return {start:day+(start-offset)*60000,end:day+(end+(end<start?1440:0)-offset)*60000,line:m[0]};
+}
 function checkInterviewerInvitePreviews(texts,plan){
   const why=[],panels=texts.map(t=>t.replace(/\s+/g,' '));
   if(panels.length!==plan.sessions.length)why.push(`there are ${panels.length} interviewer invite previews, but ${plan.sessions.length} session${plan.sessions.length===1?' was':'s were'} approved`);
-  else plan.sessions.forEach((s,i)=>{
-    const a=formats(s.start,plan.timeZone),b=formats(s.end,plan.timeZone),line=`${a.shortDate} ${a.lower} - ${b.lower} ${a.zone}`;
-    const matches=panels.filter(p=>p.includes(line));
-    if(matches.length!==1){why.push(`${matches.length} interviewer invite previews are for session ${i+1} ("${line}")`);return;}
-    why.push(...exactly(emailsIn(matches[0]),s.interviewers.map(x=>x.email),`interviewer invite for session ${i+1}`));
-  });
+  else{
+    const read=panels.map(inviteInstants);
+    read.forEach((r,k)=>{if(!r)why.push(`interviewer invite preview ${k+1} has no date and time with a zone`);else if(r.unreadable)why.push(`interviewer invite preview ${k+1}'s time "${r.unreadable.slice(0,60)}" can't be read`);});
+    if(!why.length)plan.sessions.forEach((s,i)=>{
+      const matches=panels.filter((p,k)=>read[k].start===Date.parse(s.start)&&read[k].end===Date.parse(s.end));
+      if(matches.length!==1){why.push(`${matches.length} interviewer invite previews are for session ${i+1} (${s.start}–${s.end})`);return;}
+      why.push(...exactly(emailsIn(matches[0]),s.interviewers.map(x=>x.email),`interviewer invite for session ${i+1}`));
+    });
+  }
   if(why.length)fail(`The interviewers' calendar invite previews don't match the approval: ${why.join('; ')}.`,why);
 }
 
@@ -255,4 +311,4 @@ function classifyDialog(text){
   return {action:'stop',reason:`Ashby showed a dialog the booking doesn't recognise: "${t.slice(0,160)}". Nothing was confirmed.`};
 }
 
-module.exports={selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};
+module.exports={zoneOffset,clockMinutes,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};

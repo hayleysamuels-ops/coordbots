@@ -136,7 +136,7 @@ test('agenda items: a name on its own line with "(LinkedIn)" is accepted; a stra
   const items=['1:00 PM - 1:30 PM (MDT) - First Round - Hayley Samuels','1:30 PM - 2:00 PM (MDT) - First Round\nMary Petrino (\nLinkedIn\n)'];
   c.checkInvitePreview('Thu, Oct 15, 2026 1:00pm - 2:00pm MDT Invitees TEST hayleysamuels511@gmail.com',two,items);
   assert.throws(()=>c.checkInvitePreview('Thu, Oct 15, 2026 TEST hayleysamuels511@gmail.com',two,[items[0],items[1]+'\nPatrick Lii']),/agenda item 2 also names "Patrick Lii", who wasn't approved/);
-  assert.throws(()=>c.checkInvitePreview('Thu, Oct 15, 2026 TEST hayleysamuels511@gmail.com',two,[items[1],items[0]]),/agenda item 1 reads "1:30 PM/);
+  assert.throws(()=>c.checkInvitePreview('Thu, Oct 15, 2026 TEST hayleysamuels511@gmail.com',two,[items[1],items[0]]),/agenda item 1 reads "1:30 PM - 2:00 PM \(MDT\)", not the approved 13:00–13:30 at that offset/);
 });
 
 test('interviewer invites: one per session, each to exactly that session\'s interviewers',()=>{
@@ -147,6 +147,38 @@ test('interviewer invites: one per session, each to exactly that session\'s inte
   assert.throws(()=>c.checkInterviewerInvitePreviews([hayley],two),/there are 1 interviewer invite previews, but 2 sessions were approved/);
   assert.throws(()=>c.checkInterviewerInvitePreviews([hayley,hayley],two),/0 interviewer invite previews are for session 2/);
   assert.throws(()=>c.checkInterviewerInvitePreviews(['First Round Tue, Oct 20, 2026 1:05pm - 1:35pm MDT Invitees Hayley Samuels'],plan),/no recipients could be read from the interviewer invite for session 1/);
+});
+
+// TEST's Onsite on October 19: typed as 11:00am MDT in the composer, shown to
+// the candidate as 10:00 AM PDT, and to interviewers in the Primary Interview
+// Timezone. The same instants, so all pass.
+const onsite={...plan,sessions:[{title:'Onsite',interviewId:'i-1',start:'2026-10-22T17:00:00.000Z',end:'2026-10-22T17:30:00.000Z',interviewers:[HAYLEY]},
+  {title:'Lunch',interviewId:'i-2',start:'2026-10-22T19:30:00.000Z',end:'2026-10-22T20:00:00.000Z',interviewers:[MARY2]}]};
+test('invite previews in another zone are compared as instants: the candidate\'s in PDT and the composer\'s in MDT agree',()=>{
+  const items=['10:00 AM - 10:30 AM (PDT) - Onsite - Hayley Samuels','12:30 PM - 1:00 PM (PDT) - Lunch - Mary Petrino'];
+  const text='Invite for Onsite and Lunch Thu, Oct 22, 2026 10:00am - 1:00pm PDT Invitees TEST hayleysamuels511@gmail.com';
+  c.checkInvitePreview(text,onsite,items);
+  c.checkInvitePreview(text.replace(/PDT/g,'MDT'),onsite,['11:00 AM - 11:30 AM (MDT) - Onsite - Hayley Samuels','1:30 PM - 2:00 PM (MDT) - Lunch - Mary Petrino']);
+  c.checkInvitePreview(text,onsite,['5:00 PM - 5:30 PM (GMT+0) - Onsite - Hayley Samuels','7:30 PM - 8:00 PM (UTC) - Lunch - Mary Petrino']);
+  // A different instant refuses, saying what it is at that offset.
+  assert.throws(()=>c.checkInvitePreview(text,onsite,['10:30 AM - 11:00 AM (PDT) - Onsite - Hayley Samuels',items[1]]),
+    /agenda item 1 reads "10:30 AM - 11:00 AM \(PDT\)", not the approved 10:00–10:30 at that offset \(2026-10-22T17:00:00.000Z–2026-10-22T17:30:00.000Z\)/);
+  // So does a zone label that can't be read, or a line without one.
+  assert.throws(()=>c.checkInvitePreview(text,onsite,['10:00 AM - 10:30 AM (Pacific) - Onsite - Hayley Samuels',items[1]]),/agenda item 1's time zone "Pacific" can't be read/);
+  assert.throws(()=>c.checkInvitePreview(text,onsite,['10:00 AM - 10:30 AM - Onsite - Hayley Samuels',items[1]]),/isn't a time range with its zone/);
+  // The date is read in the agenda's zone.
+  assert.throws(()=>c.checkInvitePreview(text.replace('Oct 22','Oct 23'),onsite,items),/doesn't show the date Thu, Oct 22, 2026/);
+  // Names are checked as before.
+  assert.throws(()=>c.checkInvitePreview(text,onsite,[items[0].replace('Hayley Samuels','Joe Penn'),items[1]]),/doesn't name Hayley Samuels.*also names "Joe Penn"/);
+  // Interviewer invites: matched by instant, whatever zone each states.
+  const inv=(when,who)=>`Onsite - TEST - TEST ${when} Invitees & Rooms ${who}`;
+  c.checkInterviewerInvitePreviews([inv('Thu, Oct 22, 2026 11:00am - 11:30am MDT','hayley@luminai.com'),inv('Thu, Oct 22, 2026 12:30pm - 1:00pm PDT','mary@luminai.com')],onsite);
+  assert.throws(()=>c.checkInterviewerInvitePreviews([inv('Thu, Oct 22, 2026 11:00am - 11:30am PDT','hayley@luminai.com'),inv('Thu, Oct 22, 2026 12:30pm - 1:00pm PDT','mary@luminai.com')],onsite),
+    /0 interviewer invite previews are for session 1 \(2026-10-22T17:00:00.000Z/);
+  assert.throws(()=>c.checkInterviewerInvitePreviews([inv('Thu, Oct 22, 2026 11:00am - 11:30am XYZT','hayley@luminai.com'),inv('Thu, Oct 22, 2026 12:30pm - 1:00pm PDT','mary@luminai.com')],onsite),
+    /preview 1's time "Thu, Oct 22, 2026 11:00am - 11:30am XYZT" can't be read/);
+  assert.equal(c.zoneOffset('GMT-7'),-420);assert.equal(c.zoneOffset('UTC+05:30'),330);assert.equal(c.zoneOffset('Pacific'),null);
+  assert.equal(c.clockMinutes('12:30 AM'),30);assert.equal(c.clockMinutes('12:30pm'),750);assert.equal(c.clockMinutes('13:00 PM'),null);
 });
 
 test('a stale confirmation email (an earlier date) refuses',()=>{
