@@ -250,6 +250,41 @@ is the short list of things that look wrong and are not.
   overnight with every check green. If that happens again the fix is
   `railway redeploy --from-source`.
 
+- **Booking turnaround measures from `application_stages.entered_at`,
+  not from the schedule's own `createdAt`.** Ashby records no timestamp
+  for a schedule entering `NeedsScheduling` — a schedule carries only
+  createdAt/updatedAt and a current status. Measuring from createdAt gave
+  a median of 0.2 hours, because a direct booking creates the schedule
+  and its first event in the same instant; it was measuring nothing. The
+  anchor is the application entering that schedule's interview stage,
+  from `application.info`'s embedded `applicationHistory[]` — verified to
+  match on 100% of sampled schedules across all six clients. It is
+  reported in BUSINESS hours: a Friday-evening request booked Monday
+  morning is 64 clock hours and about 2 business hours.
+
+- **Time between stages is anchored on interviews, not on history
+  entries.** Measured from `applicationHistory` transitions the median is
+  ~0 days, because a bulk stage advance moves an application through
+  several stages in milliseconds. The metric instead orders each
+  application's interviewed stages by their own first interview and
+  measures the end of one to the start of the next, so stages passed
+  through without an interview are correctly absent.
+
+- **Reschedule rate is per ROUND (application + stage), not per
+  schedule.** A round that was cancelled and re-booked appears as two
+  schedules; counting schedules would record the same round twice and
+  call one of them untouched.
+
+- **The areas-to-work-on panel uses the SAME attribution fallback as the
+  cancellation rate.** Filtering it on `scheduled_by_name` alone dropped
+  the 92% of Luminai's cancelled schedules Ashby leaves unattributed and
+  collapsed the panel from 315 cancellations to 1.
+
+- **Ashby has no URL for a filtered list view.** The only link shapes
+  that work are a candidate's application feed, a candidate profile, and
+  `/schedules/{id}`. A group row therefore cannot link to "cancelled,
+  role = X"; rows expand to the individual records instead.
+
 ## Conventions
 
 - No build step and no frontend framework, matching the sibling dashboards.

@@ -874,3 +874,57 @@ test("a rostered name unmatched everywhere is still reported when another client
     configModule.clients.push(...original);
   }
 });
+
+// --- Results metrics -------------------------------------------------------
+
+test("the delta is suppressed when the prior period is too small", () => {
+  // Below 30 prior events a percentage change is noise wearing a
+  // signal's clothing, so no delta is shown at all.
+  const payload = computeFull(CLIENT);
+  for (const key of ["week", "month", "quarter", "full"]) {
+    const block = payload.scopes.all.results[key];
+    assert.ok(block, `results.${key} must exist`);
+    if (block.priorEvents != null && block.priorEvents < 30) {
+      assert.strictEqual(block.deltaSuppressed, true, `${key}: delta must be suppressed on ${block.priorEvents} prior events`);
+    }
+  }
+});
+
+test("the full period is the baseline and carries no prior comparison", () => {
+  const payload = computeFull(CLIENT);
+  const full = payload.scopes.all.results.full;
+  assert.strictEqual(full.isBaseline, true);
+  assert.strictEqual(full.prior, null, "a baseline must not invent a prior period to compare against");
+  assert.strictEqual(full.deltaSuppressed, true);
+});
+
+test("every Results metric declares which direction is an improvement", () => {
+  // The UI colours by improvement, not by sign — a down arrow must not
+  // read as red on a metric where down is the goal.
+  const d = computeFull(CLIENT).scopes.all.results.full.direction;
+  for (const metric of ["bookingTurnaround", "stageGap", "shortNotice", "cancellationWithoutRebook", "rescheduleRate"]) {
+    assert.strictEqual(d[metric], "lower", `${metric} must declare its direction`);
+  }
+});
+
+test("a metric with no data reports null, never zero", () => {
+  // Zero turnaround and "no turnaround measured" are different claims,
+  // and the second must not render as a perfect score.
+  const empty = { ...CLIENT, id: "empty-results", coordinators: ["Nobody At All"] };
+  const r = computeFull(empty).scopes.coordinated.results.full.current;
+  assert.strictEqual(r.bookingTurnaround.medianHours, null);
+  assert.strictEqual(r.shortNotice.share, null);
+  assert.strictEqual(r.cancellationWithoutRebook.share, null);
+  assert.strictEqual(r.rescheduleRate.share, null);
+});
+
+test("the areas-to-work-on panel only surfaces groups above the client's own average", () => {
+  const a = computeFull(CLIENT).scopes.all.areasToWorkOn;
+  assert.ok(a, "the panel data must exist");
+  if (a.clientAverage != null) {
+    for (const row of [...a.byRole, ...a.byStage]) {
+      assert.ok(row.total >= a.minGroupSize, `${row.name} is below the minimum group size`);
+      assert.ok(row.share > a.clientAverage, `${row.name} is not worse than the client average`);
+    }
+  }
+});

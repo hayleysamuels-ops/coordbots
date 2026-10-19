@@ -164,6 +164,25 @@ CREATE INDEX IF NOT EXISTS idx_applications_job ON applications (client_id, job_
 -- Small key/value side table for facts about the sync itself that aren't
 -- rows of Ashby data — currently just when interview definitions were last
 -- resolved, which the dashboard shows so this can't silently go stale.
+-- One row per stage an application has occupied, from application.info's
+-- embedded applicationHistory[]. This is the only way to know when a
+-- candidate became schedulable for a given round: Ashby records no
+-- timestamp for a schedule entering NeedsScheduling, and a schedule's own
+-- createdAt is the moment the coordinator started work, not the moment
+-- the work became available. Verified present with a matching stageId on
+-- 100% of sampled schedules across all six clients.
+CREATE TABLE IF NOT EXISTS application_stages (
+  client_id       TEXT NOT NULL,
+  application_id  TEXT NOT NULL,
+  stage_id        TEXT NOT NULL,
+  title           TEXT,
+  stage_number    INTEGER,
+  entered_at      TEXT,
+  left_at         TEXT,
+  PRIMARY KEY (client_id, application_id, stage_id)
+);
+CREATE INDEX IF NOT EXISTS idx_appstages_lookup ON application_stages (client_id, application_id, stage_id);
+
 CREATE TABLE IF NOT EXISTS sync_meta (
   client_id  TEXT NOT NULL,
   key        TEXT NOT NULL,
@@ -336,6 +355,14 @@ const writeSchedulePage = transaction((clientId, schedules, observedAt) => {
   return rescheduleCount;
 });
 
+const upsertApplicationStage = db.prepare(`
+  INSERT INTO application_stages (client_id, application_id, stage_id, title, stage_number, entered_at, left_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT (client_id, application_id, stage_id) DO UPDATE SET
+    title = excluded.title, stage_number = excluded.stage_number,
+    entered_at = excluded.entered_at, left_at = excluded.left_at
+`);
+
 const writeApplicationPage = transaction((clientId, applications) => {
   for (const app of applications) {
     const team = Array.isArray(app.hiringTeam) ? app.hiringTeam : [];
@@ -363,6 +390,23 @@ const writeApplicationPage = transaction((clientId, applications) => {
       coordinator: named("Recruiting Coordinator"),
       recruiter: named("Recruiter"),
     });
+
+    // Only application.info carries applicationHistory; application.list
+    // does not. Absent on a row means that application has not been
+    // re-fetched since this table existed, which syncApplications treats
+    // as a reason to refetch.
+    for (const entry of app.applicationHistory || []) {
+      if (!entry || !entry.stageId) continue;
+      upsertApplicationStage.run(
+        clientId,
+        app.id,
+        entry.stageId,
+        entry.title || null,
+        Number.isFinite(entry.stageNumber) ? entry.stageNumber : null,
+        entry.enteredStageAt || null,
+        entry.leftStageAt || null
+      );
+    }
   }
 });
 
@@ -419,6 +463,27 @@ function unresolvedInterviewIds(clientId) {
  * "Business Operations - Compliance & Trust" is status Draft and absent
  * from the list). An event whose job is missing renders as "Unknown role".
  */
+/**
+ * Applications stored without any stage history.
+ *
+ * They were fetched before application_stages existed, so booking
+ * turnaround cannot be computed for them. Re-fetching is the only way to
+ * fill the gap; this is drained over successive full syncs rather than
+ * all at once, since it is ~17,000 calls across the six clients.
+ */
+function applicationsMissingHistory(clientId, limit) {
+  return db
+    .prepare(
+      `SELECT a.id FROM applications a
+       WHERE a.client_id = ?
+         AND EXISTS (SELECT 1 FROM schedules s WHERE s.client_id = a.client_id AND s.application_id = a.id)
+         AND NOT EXISTS (SELECT 1 FROM application_stages st WHERE st.client_id = a.client_id AND st.application_id = a.id)
+       LIMIT ?`
+    )
+    .all(clientId, limit)
+    .map((r) => r.id);
+}
+
 function unresolvedJobIds(clientId) {
   return db
     .prepare(
@@ -461,6 +526,7 @@ module.exports = {
   getMeta,
   unresolvedInterviewIds,
   unresolvedJobIds,
+  applicationsMissingHistory,
   writeSchedulePage,
   writeApplicationPage,
   writeReference,

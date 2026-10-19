@@ -38,11 +38,15 @@ function arg(name, fallback) {
     await sync.syncAll(kind);
   }
 
+  // Reads through scopes.all — the payload gained scope keys and this
+  // summary was left behind, which is why it crashed after the refactor
+  // while every test passed. Scripts are outside the payload contract.
   const payload = metrics.getOverview();
-  if (payload) {
+  const scope = payload && payload.scopes ? payload.scopes.all : null;
+  if (scope) {
     console.log(
-      `[sync-once] overview: ${payload.totals.events} events, ${payload.totals.hours}h, ` +
-        `${payload.totals.candidates} candidates across ${payload.byClient.length} clients`
+      `[sync-once] overview: ${scope.totals.events} events, ${scope.totals.hours}h, ` +
+        `${scope.totals.candidates} candidates across ${scope.byClient.length} clients`
     );
   }
   process.exit(0);

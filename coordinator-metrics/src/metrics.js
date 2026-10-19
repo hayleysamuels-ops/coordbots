@@ -2,6 +2,7 @@
 
 const config = require("./config");
 const store = require("./db");
+const { businessHoursBetween } = require("./business-hours");
 
 const { db } = store;
 
@@ -375,6 +376,145 @@ const selectTimeToSchedule = db.prepare(`
   GROUP BY s.id
 `);
 
+/**
+ * Booking turnaround: when a round became schedulable, and when it was
+ * first confirmed on a calendar.
+ *
+ * "Became schedulable" is the application entering the schedule's own
+ * interview stage, from application_stages. Ashby records no timestamp
+ * for a schedule entering NeedsScheduling, and the schedule's createdAt
+ * is when the coordinator started rather than when the work arrived —
+ * measuring from it gave a median of 0.2 hours, because a direct booking
+ * creates the schedule and the event in the same instant.
+ */
+const selectTurnaround = db.prepare(`
+  SELECT s.id, s.scheduled_by_name, st.entered_at, MIN(e.created_at) AS booked_at
+  FROM schedules s
+  JOIN events e ON e.client_id = s.client_id AND e.schedule_id = s.id
+  JOIN application_stages st
+    ON st.client_id = s.client_id AND st.application_id = s.application_id AND st.stage_id = s.interview_stage_id
+  WHERE s.client_id = ? AND e.created_at IS NOT NULL AND st.entered_at IS NOT NULL
+  GROUP BY s.id
+`);
+
+// Stage-to-stage timing, anchored on interviews actually held rather
+// than on history entries. History transitions are useless for this: a
+// bulk stage advance moves an application through several stages in
+// milliseconds, which made the median transition ~0 days.
+const selectStageSpans = db.prepare(`
+  SELECT s.application_id, s.interview_stage_id, s.scheduled_by_name,
+         COALESCE(st.title, 'Unknown stage') AS stage,
+         MIN(e.start_time) AS first_start, MAX(e.end_time) AS last_end
+  FROM events e
+  JOIN schedules s ON s.client_id = e.client_id AND s.id = e.schedule_id
+  LEFT JOIN stages st ON st.client_id = s.client_id AND st.id = s.interview_stage_id
+  WHERE e.client_id = ? AND e.start_time IS NOT NULL
+    AND s.application_id IS NOT NULL AND s.interview_stage_id IS NOT NULL
+  GROUP BY s.application_id, s.interview_stage_id
+`);
+
+// Reschedule rate is schedule-level: a booked round that moved at least
+// once, over all booked rounds.
+const selectBookedSchedules = db.prepare(`
+  SELECT s.id, s.status, s.scheduled_by_name, s.application_id, s.interview_stage_id,
+         MIN(e.start_time) AS first_start,
+         EXISTS (SELECT 1 FROM reschedules r
+                 JOIN events e2 ON e2.client_id = r.client_id AND e2.id = r.event_id
+                 WHERE r.client_id = s.client_id AND e2.schedule_id = s.id) AS observed_moved
+  FROM schedules s
+  JOIN events e ON e.client_id = s.client_id AND e.schedule_id = s.id
+  WHERE s.client_id = ? AND e.start_time IS NOT NULL
+  GROUP BY s.id
+`);
+
+/**
+ * "Areas to work on": cancellations that were never re-booked, grouped
+ * by role and by stage.
+ *
+ * Returns the individual schedule ids per group as well as the counts.
+ * Ashby has no URL that expresses a filtered list view — the only link
+ * shapes that work are a candidate's application feed, a candidate
+ * profile, and /schedules/{id} — so a group cannot be linked to a
+ * filtered Ashby page. Carrying the ids lets a row expand to the actual
+ * records instead.
+ */
+const selectCancellationDetail = db.prepare(`
+  SELECT c.id, c.updated_at, c.created_at,
+         -- The SAME attribution fallback the cancellation rate uses.
+         -- Filtering on c.scheduled_by_name alone drops the 92% of
+         -- Luminai's cancelled schedules Ashby leaves unattributed, which
+         -- collapsed this panel to a single row.
+         ${ATTRIBUTED_SCHEDULER} AS scheduled_by_name,
+         COALESCE(j.title, 'Unknown role') AS role,
+         COALESCE(st.title, 'Unknown stage') AS stage,
+         a.candidate_name, a.candidate_id, c.application_id,
+         EXISTS (
+           SELECT 1 FROM schedules l
+           WHERE l.client_id = c.client_id AND l.application_id = c.application_id
+             AND l.interview_stage_id = c.interview_stage_id AND l.id != c.id
+             AND l.created_at > c.created_at
+         ) AS rebooked
+  FROM schedules c
+  LEFT JOIN applications a ON a.client_id = c.client_id AND a.id = c.application_id
+  LEFT JOIN jobs j ON j.client_id = a.client_id AND j.id = a.job_id
+  LEFT JOIN stages st ON st.client_id = c.client_id AND st.id = c.interview_stage_id
+  WHERE c.client_id = ? AND c.status = 'Cancelled'
+`);
+
+// A group below this many cancellations is coincidence, not a pattern:
+// Forus's 37 recent cancellations spread over 15 roles would otherwise
+// produce a list of ones and twos.
+const MIN_GROUP_SIZE = 5;
+
+function buildAreasToWorkOn(client, keep, inWindow, appBaseUrl) {
+  const graceCutoff = new Date(Date.now() - REBOOK_GRACE_DAYS * 86400000).toISOString();
+  const rows = selectCancellationDetail.all(client.id).filter((r) => {
+    const at = r.updated_at || r.created_at;
+    return keep(r.scheduled_by_name) && inWindow(at) && at < graceCutoff;
+  });
+
+  if (rows.length === 0) return { clientAverage: null, byRole: [], byStage: [], sample: 0 };
+
+  const neverRebooked = rows.filter((r) => !r.rebooked).length;
+  const clientAverage = Math.round((neverRebooked / rows.length) * 1000) / 10;
+
+  const group = (field) => {
+    const buckets = new Map();
+    for (const r of rows) {
+      const key = r[field];
+      if (!buckets.has(key)) buckets.set(key, { name: key, total: 0, neverRebooked: 0, examples: [] });
+      const b = buckets.get(key);
+      b.total += 1;
+      if (!r.rebooked) {
+        b.neverRebooked += 1;
+        if (b.examples.length < 8) {
+          b.examples.push({
+            scheduleId: r.id,
+            candidate: r.candidate_name || null,
+            at: r.updated_at || r.created_at,
+            scheduleUrl: `${appBaseUrl}/schedules/${r.id}`,
+            candidateUrl:
+              r.candidate_id && r.application_id
+                ? `${appBaseUrl}/candidates/pipeline/active/right-side/candidates/${r.candidate_id}` +
+                  `/applications/${r.application_id}/feed`
+                : null,
+          });
+        }
+      }
+    }
+    return [...buckets.values()]
+      .filter((b) => b.total >= MIN_GROUP_SIZE)
+      .map((b) => ({ ...b, share: Math.round((b.neverRebooked / b.total) * 1000) / 10 }))
+      // Only groups doing worse than this client's own average are worth
+      // surfacing — an absolute standard would flag every group at a
+      // client that cancels a lot, and none at one that does not.
+      .filter((b) => b.share > clientAverage)
+      .sort((a, b) => b.share - a.share || b.total - a.total);
+  };
+
+  return { clientAverage, minGroupSize: MIN_GROUP_SIZE, sample: rows.length, byRole: group("role"), byStage: group("stage") };
+}
+
 // --- Aggregation -----------------------------------------------------------
 
 function median(values) {
@@ -463,6 +603,157 @@ function dayKeyOffset(days, timeZone) {
  * Computes the whole payload for one client. One pass over the event rows
  * feeds every series and breakdown rather than re-querying per metric.
  */
+// Below this many events in the PRIOR period, a change is noise and no
+// delta is shown at all. Agreed threshold.
+const MIN_PRIOR_EVENTS_FOR_DELTA = 30;
+
+// A cancellation inside this window may still be re-booked, so it is
+// excluded from both halves of the without-rebook rate. Measured across
+// 9,173 real rebooks: median 0 days, p90 exactly 14.0 days, so this
+// captures ~90% — the ~10% that re-book later are counted as
+// never-rebooked and silently corrected once they are.
+const REBOOK_GRACE_DAYS = 14;
+
+function sliceByWindow(samples, fromIso, toIso) {
+  return samples.filter((s) => s.at >= fromIso && s.at < toIso);
+}
+
+/**
+ * One Results block for a window. `null` for a metric means "not enough
+ * data to say", which the UI renders as a dash rather than a zero.
+ */
+function resultsForWindow(samples, cancellations, events, fromIso, toIso) {
+  const turnaround = sliceByWindow(samples.turnaround, fromIso, toIso).map((s) => s.value);
+  const gaps = sliceByWindow(samples.stageGaps, fromIso, toIso);
+  const rounds = sliceByWindow(samples.reschedules, fromIso, toIso);
+
+  const graceCutoff = new Date(Date.now() - REBOOK_GRACE_DAYS * 86400000).toISOString();
+  const settled = cancellations.filter((c) => {
+    const at = c.updated_at || c.created_at;
+    return at >= fromIso && at < toIso && at < graceCutoff;
+  });
+  const neverRebooked = settled.filter((c) => !c.rebooked).length;
+
+  // Slowest transition by name, with a floor so a single unlucky pair
+  // cannot be named as the worst.
+  const byLabel = new Map();
+  for (const g of gaps) {
+    if (!byLabel.has(g.label)) byLabel.set(g.label, []);
+    byLabel.get(g.label).push(g.value);
+  }
+  let slowest = null;
+  for (const [label, values] of byLabel) {
+    if (values.length < 5) continue;
+    const m = median(values);
+    if (!slowest || m > slowest.medianDays) slowest = { label, medianDays: Math.round(m * 10) / 10, count: values.length };
+  }
+
+  const shortNoticeCount = events.filter((e) => e.shortNotice && e.at >= fromIso && e.at < toIso).length;
+  const eventCount = events.filter((e) => e.at >= fromIso && e.at < toIso).length;
+
+  return {
+    events: eventCount,
+    bookingTurnaround: {
+      medianHours: turnaround.length ? Math.round(median(turnaround) * 10) / 10 : null,
+      p90Hours: turnaround.length ? Math.round(percentile(turnaround, 90) * 10) / 10 : null,
+      sample: turnaround.length,
+    },
+    stageGap: {
+      medianDays: gaps.length ? Math.round(median(gaps.map((g) => g.value)) * 10) / 10 : null,
+      slowest,
+      sample: gaps.length,
+    },
+    shortNotice: {
+      share: eventCount ? Math.round((shortNoticeCount / eventCount) * 1000) / 10 : null,
+      count: shortNoticeCount,
+      sample: eventCount,
+    },
+    cancellationWithoutRebook: {
+      share: settled.length ? Math.round((neverRebooked / settled.length) * 1000) / 10 : null,
+      count: neverRebooked,
+      sample: settled.length,
+    },
+    rescheduleRate: {
+      share: rounds.length ? Math.round((rounds.filter((r) => r.moved).length / rounds.length) * 1000) / 10 : null,
+      count: rounds.filter((r) => r.moved).length,
+      sample: rounds.length,
+    },
+  };
+}
+
+/**
+ * The five Results metrics, as samples timestamped so any window can be
+ * sliced out of them.
+ *
+ * Each sample is computed ONCE here and filtered per period afterwards.
+ * Booking turnaround in particular walks hour by hour through a business
+ * calendar; recomputing it for four periods times two scopes times a
+ * prior period would be sixteen passes over every schedule.
+ */
+function buildResultSamples(client, keep, inWindow) {
+  const tz = client.timeZone;
+  const hours = { start: config.businessHourStart, end: config.businessHourEnd };
+
+  const turnaround = [];
+  for (const row of selectTurnaround.all(client.id)) {
+    if (!keep(row.scheduled_by_name) || !inWindow(row.booked_at)) continue;
+    const value = businessHoursBetween(row.entered_at, row.booked_at, tz, hours);
+    if (value == null) continue;
+    turnaround.push({ at: row.booked_at, value });
+  }
+
+  // Stage gaps: order each application's interviewed stages by their own
+  // first interview, then measure the end of one to the start of the
+  // next. No stage-order metadata is needed, and stages the application
+  // passed through without an interview are correctly absent.
+  const byApplication = new Map();
+  for (const row of selectStageSpans.all(client.id)) {
+    if (!keep(row.scheduled_by_name)) continue;
+    if (!byApplication.has(row.application_id)) byApplication.set(row.application_id, []);
+    byApplication.get(row.application_id).push(row);
+  }
+  const stageGaps = [];
+  for (const spans of byApplication.values()) {
+    if (spans.length < 2) continue;
+    spans.sort((a, b) => (a.first_start < b.first_start ? -1 : 1));
+    for (let i = 1; i < spans.length; i++) {
+      const previous = spans[i - 1];
+      const next = spans[i];
+      if (!previous.last_end || !next.first_start) continue;
+      if (!inWindow(next.first_start)) continue;
+      const days = (new Date(next.first_start) - new Date(previous.last_end)) / 86400000;
+      if (days < 0 || days > 365) continue;
+      stageGaps.push({ at: next.first_start, value: days, label: `${previous.stage} → ${next.stage}` });
+    }
+  }
+
+  // Reschedule rate is measured per ROUND (application + stage), not per
+  // schedule. A round that was cancelled and re-booked appears as two
+  // schedules; counting schedules would record the same round twice and
+  // call one of them untouched. A round counts as moved if it has more
+  // than one schedule, or if an event's start time was directly observed
+  // changing — the observed signal is exact but only exists from the
+  // first sync onward, so the derived one carries the history.
+  const rounds = new Map();
+  for (const row of selectBookedSchedules.all(client.id)) {
+    if (!keep(row.scheduled_by_name) || !row.first_start) continue;
+    const key = `${row.application_id}|${row.interview_stage_id}`;
+    const existing = rounds.get(key);
+    if (!existing) {
+      rounds.set(key, { at: row.first_start, schedules: 1, moved: row.observed_moved === 1 });
+    } else {
+      existing.schedules += 1;
+      existing.moved = existing.moved || row.observed_moved === 1;
+      if (row.first_start < existing.at) existing.at = row.first_start;
+    }
+  }
+  const reschedules = [...rounds.values()]
+    .filter((r) => inWindow(r.at))
+    .map((r) => ({ at: r.at, moved: r.moved || r.schedules > 1 }));
+
+  return { turnaround, stageGaps, reschedules };
+}
+
 /**
  * Builds one scope's worth of metrics. `keepScheduler` decides which rows
  * belong to it: everything, or only schedules created by a rostered
@@ -518,6 +809,9 @@ function computeScope(client, keepScheduler) {
   let meals = 0;
   let bookedAhead = 0;
   let bookedAheadHours = 0;
+  // Counted events, kept for the Results metrics so they slice by the
+  // same population the Volume tiles count.
+  const countedEvents = [];
   let hours = 0;
   let interviewerSlots = 0;
   let shortNotice = 0;
@@ -598,10 +892,15 @@ function computeScope(client, keepScheduler) {
 
     // Short notice: booked less than SHORT_NOTICE_HOURS before it starts.
     // Pure firefighting, and completely invisible in a raw total.
+    let isShortNotice = false;
     if (row.event_created_at) {
       const noticeHours = (new Date(row.start_time) - new Date(row.event_created_at)) / 3600000;
-      if (noticeHours >= 0 && noticeHours < config.shortNoticeHours) shortNotice += 1;
+      if (noticeHours >= 0 && noticeHours < config.shortNoticeHours) {
+        shortNotice += 1;
+        isShortNotice = true;
+      }
     }
+    countedEvents.push({ start_time: row.start_time, shortNotice: isShortNotice });
 
     if (buckets.hour < config.businessHourStart || buckets.hour >= config.businessHourEnd) outOfHours += 1;
 
@@ -727,7 +1026,61 @@ function computeScope(client, keepScheduler) {
     };
   }
 
+  // --- Results, per period, each against its own prior period ---------
+  //
+  // Direction says which way is an improvement, so the UI can colour by
+  // improvement rather than by sign: turnaround falling is good, and a
+  // down arrow must not read as red on a metric where down is the goal.
+  const RESULT_DIRECTION = {
+    bookingTurnaround: "lower",
+    stageGap: "lower",
+    shortNotice: "lower",
+    cancellationWithoutRebook: "lower",
+    rescheduleRate: "lower",
+  };
+
+  const eventSamples = countedEvents.map((e) => ({ at: e.start_time, shortNotice: e.shortNotice }));
+  const resultSamples = buildResultSamples(client, keep, inWindow);
+
+  const results = {};
+  for (const period of PERIODS) {
+    const days = period.days == null ? null : period.days;
+    let currentFrom;
+    let currentTo;
+    let priorFrom;
+
+    if (days == null) {
+      // The full window is the baseline; it has no prior period to
+      // compare against, by design — targets come later, from watching
+      // these, not from unexamined history.
+      currentFrom = window.fixed ? window.from : new Date(Date.now() - config.historyMonths * 30 * 86400000).toISOString();
+      currentTo = new Date(Date.now() + 86400000).toISOString();
+      priorFrom = null;
+    } else {
+      currentTo = new Date(Date.now() + 86400000).toISOString();
+      currentFrom = new Date(Date.now() - days * 86400000).toISOString();
+      priorFrom = new Date(Date.now() - days * 2 * 86400000).toISOString();
+    }
+
+    const current = resultsForWindow(resultSamples, cancellations, eventSamples, currentFrom, currentTo);
+    const prior = priorFrom ? resultsForWindow(resultSamples, cancellations, eventSamples, priorFrom, currentFrom) : null;
+
+    results[period.key] = {
+      isBaseline: days == null,
+      current,
+      prior,
+      // Suppressed entirely below the threshold: a percentage off a
+      // handful of events is noise wearing a signal's clothing.
+      deltaSuppressed: !prior || prior.events < MIN_PRIOR_EVENTS_FOR_DELTA,
+      priorEvents: prior ? prior.events : null,
+      minPriorEvents: MIN_PRIOR_EVENTS_FOR_DELTA,
+      direction: RESULT_DIRECTION,
+    };
+  }
+
   return {
+    results,
+    areasToWorkOn: buildAreasToWorkOn(client, keep, inWindow, client.appBaseUrl || "https://app.ashbyhq.com"),
     totals: {
       // Derived from the full-period figure rather than counted
       // separately, so the hero tile and the "last 12 months" tile are

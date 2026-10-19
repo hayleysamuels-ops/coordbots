@@ -529,3 +529,20 @@ button.link {
   margin: 0 0 6px;
   max-width: 80ch;
 }
+
+/* --- Tile groups and the drill-down --- */
+
+.group-heading { margin: 32px 0 12px; }
+.group-heading h2 { margin: 0 0 2px; }
+.group-heading .section-note { margin: 0; }
+
+.record-list { margin: 8px 0 0; padding-left: 18px; }
+.record-list li { font-size: 12px; margin-bottom: 4px; }
+.record-list a { color: var(--accent, var(--ember)); }
+
+details summary {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}

@@ -50,6 +50,9 @@ const SCOPE_PATHS = [
   "timeToSchedule.sample",
   "timeToSchedule.directBookings",
   "excludedTitleBreakdown",
+  "areasToWorkOn.clientAverage",
+  "areasToWorkOn.byRole",
+  "areasToWorkOn.byStage",
 ];
 
 /**
@@ -72,6 +75,15 @@ function dynamicClientPaths({ scopes, periods }) {
   const paths = [];
   for (const scope of scopes) {
     for (const period of periods) {
+      // The Results group is period-keyed like the breakdowns, and the
+      // page reads it through the same dynamic lookup.
+      paths.push(`scopes.${scope}.results.${period}.current.bookingTurnaround.medianHours`);
+      paths.push(`scopes.${scope}.results.${period}.current.stageGap.medianDays`);
+      paths.push(`scopes.${scope}.results.${period}.current.shortNotice.share`);
+      paths.push(`scopes.${scope}.results.${period}.current.cancellationWithoutRebook.share`);
+      paths.push(`scopes.${scope}.results.${period}.current.rescheduleRate.share`);
+      paths.push(`scopes.${scope}.results.${period}.deltaSuppressed`);
+      paths.push(`scopes.${scope}.results.${period}.isBaseline`);
       paths.push(`scopes.${scope}.periods.${period}.current.events`);
       paths.push(`scopes.${scope}.periods.${period}.previous.events`);
       paths.push(`scopes.${scope}.periods.${period}.change.events`);

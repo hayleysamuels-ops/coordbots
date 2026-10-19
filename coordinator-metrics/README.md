@@ -75,6 +75,25 @@ trusting the defaults.** It prints every interview title, which ones the
 current keywords would exclude, whether the org uses `isDebrief` at all, and
 what twelve months of their data will cost to pull.
 
+## Results metrics
+
+Five measures of how well the work ran, separate from how much of it
+there was. All are lower-is-better, and the UI colours them by
+improvement rather than by sign.
+
+| Metric | Derived from |
+|---|---|
+| Booking turnaround | `application_stages.entered_at` → first event's `createdAt`, in business hours |
+| Time between stages | Last interview of one stage ending → first interview of the next starting |
+| Short-notice bookings | Share confirmed under `SHORT_NOTICE_HOURS` before start |
+| Cancelled, never rebooked | Cancelled schedules with no later schedule for the same application and stage |
+| Reschedule rate | Rounds (application + stage) with more than one schedule, or a directly observed start-time change |
+
+Deltas compare against the equivalent prior period and are **suppressed
+below 30 prior events**. The full window is labelled a baseline and
+carries no comparison: targets come from watching these, not from
+unexamined history. Deltas are never shown on a raw count.
+
 ## Roles
 
 **A role is one Ashby job record, keyed by job id — never by title.** The

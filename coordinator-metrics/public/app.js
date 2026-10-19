@@ -114,6 +114,52 @@ function weekDelta(current, previous) {
   });
 }
 
+/**
+ * A Results tile: current value, and the change from the equivalent
+ * prior period.
+ *
+ * Coloured by IMPROVEMENT, not by sign. Turnaround falling is good and
+ * must not render red just because the arrow points down; the same
+ * green/amber decision is made from `direction` rather than from the
+ * sign of the change.
+ */
+function resultTile(label, { value, unit = "", prior, direction = "lower", suppressed, note, sub, baseline }) {
+  const shown = value == null ? "—" : `${num(value)}${unit}`;
+
+  let delta = null;
+  if (!suppressed && value != null && prior != null && prior !== 0) {
+    const diff = value - prior;
+    if (Math.abs(diff) >= 0.05) {
+      const improved = direction === "lower" ? diff < 0 : diff > 0;
+      delta = el("span", {
+        class: `delta ${improved ? "up" : "down"}`,
+        // The arrow follows the VALUE; the colour follows whether that
+        // is an improvement. They disagree on a lower-is-better metric,
+        // which is the point.
+        text: `${diff > 0 ? "▲" : "▼"} ${num(Math.round(Math.abs(diff) * 10) / 10)}${unit}`,
+      });
+    }
+  }
+
+  return el("div", { class: "stat" }, [
+    el("div", { class: "stat-number" }, [shown, delta]),
+    el("div", { class: "stat-label", text: label }),
+    sub ? el("div", { class: "stat-sub", text: sub }) : null,
+    baseline ? el("div", { class: "stat-sub", text: "12-month baseline — no target set" }) : null,
+    suppressed && !baseline
+      ? el("div", { class: "stat-sub", text: "no comparison — too few interviews in the prior period" })
+      : null,
+    note ? el("div", { class: "stat-sub", style: "font-style:italic", text: note }) : null,
+  ]);
+}
+
+function groupHeading(title, blurb) {
+  return el("div", { class: "group-heading" }, [
+    el("h2", { text: title }),
+    el("p", { class: "section-note", text: blurb }),
+  ]);
+}
+
 function stat(number, label, { sub, hero, deltaValue } = {}) {
   return el("div", { class: `stat${hero ? " hero" : ""}` }, [
     el("div", { class: "stat-number" }, [String(number), deltaValue !== undefined ? delta(deltaValue) : null]),
@@ -394,6 +440,76 @@ function section(title, note, body, toolbar) {
 
 // --- Client panel ----------------------------------------------------------
 
+/**
+ * The Results group: how well the work ran, as distinct from how much of
+ * it there was.
+ */
+function resultsGroup(payload, label) {
+  const block = payload.results && payload.results[state.period];
+  if (!block) return document.createComment("no results for this period");
+
+  const c = block.current;
+  const p = block.prior;
+  const suppressed = block.deltaSuppressed;
+  const baseline = block.isBaseline;
+  const d = (metric, field) => (p && p[metric] ? p[metric][field] : null);
+
+  return el("div", {}, [
+    groupHeading(
+      "Results — how well it ran",
+      baseline
+        ? `Over the ${label}. Shown as the baseline: no targets are set until these have been watched for a quarter.`
+        : `Over the ${label}, against the previous ${label.replace("last ", "")}. Lower is better on every metric here.`
+    ),
+    el("div", { class: "stat-grid" }, [
+      resultTile("Booking turnaround (median)", {
+        value: c.bookingTurnaround.medianHours,
+        unit: "bh",
+        prior: d("bookingTurnaround", "medianHours"),
+        suppressed, baseline,
+        sub:
+          c.bookingTurnaround.p90Hours == null
+            ? `${num(c.bookingTurnaround.sample)} rounds`
+            : `90th percentile ${num(c.bookingTurnaround.p90Hours)}bh · ${num(c.bookingTurnaround.sample)} rounds`,
+        note: "business hours from becoming schedulable to being confirmed",
+      }),
+      resultTile("Time between stages (median)", {
+        value: c.stageGap.medianDays,
+        unit: "d",
+        prior: d("stageGap", "medianDays"),
+        suppressed, baseline,
+        sub: c.stageGap.slowest
+          ? `slowest: ${c.stageGap.slowest.label} at ${c.stageGap.slowest.medianDays}d (${num(c.stageGap.slowest.count)})`
+          : `${num(c.stageGap.sample)} transitions`,
+      }),
+      resultTile("Short-notice bookings", {
+        value: c.shortNotice.share,
+        unit: "%",
+        prior: d("shortNotice", "share"),
+        suppressed, baseline,
+        sub: `${num(c.shortNotice.count)} of ${num(c.shortNotice.sample)} confirmed under ${state.config.shortNoticeHours}h before start`,
+        note: "partly client-driven, not purely a coordination measure",
+      }),
+      resultTile("Cancelled, never rebooked", {
+        value: c.cancellationWithoutRebook.share,
+        unit: "%",
+        prior: d("cancellationWithoutRebook", "share"),
+        suppressed, baseline,
+        sub: `${num(c.cancellationWithoutRebook.count)} of ${num(c.cancellationWithoutRebook.sample)} settled cancellations`,
+        note: "excludes the last 14 days, which may still be rebooked",
+      }),
+      resultTile("Reschedule rate", {
+        value: c.rescheduleRate.share,
+        unit: "%",
+        prior: d("rescheduleRate", "share"),
+        suppressed, baseline,
+        sub: `${num(c.rescheduleRate.count)} of ${num(c.rescheduleRate.sample)} rounds moved at least once`,
+        note: "context-dependent",
+      }),
+    ]),
+  ]);
+}
+
 function renderClient(fullPayload) {
   const payload = fullPayload.scopes[state.scope];
   const period = payload.periods[state.period];
@@ -432,6 +548,8 @@ function renderClient(fullPayload) {
       ])
     );
   }
+
+  frag.appendChild(groupHeading("Volume — what we did", "Counts. No targets and no judgement attached."));
 
   frag.appendChild(
     el("div", { class: "stat-grid" }, [
@@ -473,6 +591,8 @@ function renderClient(fullPayload) {
       stat(num(payload.totals.candidates), "Candidates, 12 months"),
     ])
   );
+
+  frag.appendChild(resultsGroup(payload, label));
 
   // Disruption: the work that a raw volume count makes invisible.
   frag.appendChild(
@@ -573,6 +693,7 @@ function renderClient(fullPayload) {
     );
   }
 
+  frag.appendChild(areasToWorkOn(payload, fullPayload.clientName));
   frag.appendChild(renderRoster(fullPayload));
   frag.appendChild(renderDataQuality(fullPayload, payload));
 
@@ -592,6 +713,105 @@ function renderClient(fullPayload) {
  * here, so neither is allowed to just return nothing: a rostered name
  * that matches no events, and one name resolving to two Ashby accounts.
  */
+/**
+ * "Areas to work on" — client tabs only, never the Overview.
+ *
+ * Each group is compared against this client's OWN average rather than
+ * an absolute standard: "8 of 11 never rebooked against a client average
+ * of 3 in 10" is actionable, where a bare count is not, and an absolute
+ * bar would flag everything at a client that cancels a lot and nothing
+ * at one that does not.
+ *
+ * Rows link to the individual records rather than to a filtered Ashby
+ * view: Ashby has no URL that expresses "cancelled, role = X", so a
+ * group-level link is not possible. Expanding a row gives the actual
+ * schedules.
+ */
+function areasToWorkOn(payload, clientName) {
+  const a = payload.areasToWorkOn;
+  if (!a || a.clientAverage == null) return document.createComment("no cancellation data");
+
+  const groups = [["By role", a.byRole], ["By stage", a.byStage]].filter(([, rows]) => rows.length);
+  if (!groups.length) {
+    return el("div", { class: "section" }, [
+      groupHeading("Areas to work on", "Cancellations that were never rebooked."),
+      el("div", { class: "card" }, [
+        el("div", {
+          class: "empty",
+          text:
+            `No role or stage is doing worse than ${clientName}'s own average of ${a.clientAverage}%, ` +
+            `among groups with at least ${a.minGroupSize} cancellations. Nothing stands out.`,
+        }),
+      ]),
+    ]);
+  }
+
+  const table = (rows) =>
+    el("div", { class: "table-wrap" }, [
+      el("table", {}, [
+        el("thead", {}, [
+          el("tr", {}, [
+            el("th", { text: "Group" }),
+            el("th", { class: "num", text: "Never rebooked" }),
+            el("th", { class: "num", text: "Share" }),
+            el("th", { class: "num", text: "vs client avg" }),
+            el("th", { text: "Records" }),
+          ]),
+        ]),
+        el(
+          "tbody",
+          {},
+          rows.map((row) => {
+            const gap = Math.round((row.share - a.clientAverage) * 10) / 10;
+            return el("tr", {}, [
+              el("td", { class: "lead", text: row.name }),
+              el("td", { class: "num", text: `${num(row.neverRebooked)} of ${num(row.total)}` }),
+              el("td", { class: "num", text: `${row.share}%` }),
+              el("td", { class: "num" }, [el("span", { class: "delta down", text: `+${gap}pp` })]),
+              el("td", {}, [
+                el(
+                  "details",
+                  {},
+                  [
+                    el("summary", { text: `${row.examples.length} example${row.examples.length === 1 ? "" : "s"}` }),
+                    el(
+                      "ul",
+                      { class: "record-list" },
+                      row.examples.map((x) =>
+                        el("li", {}, [
+                          el("a", { href: x.scheduleUrl, target: "_blank", rel: "noopener", text: "schedule" }),
+                          x.candidate ? ` · ${x.candidate}` : "",
+                          x.candidateUrl
+                            ? el("a", { href: x.candidateUrl, target: "_blank", rel: "noopener", style: "margin-left:6px", text: "profile" })
+                            : null,
+                          el("span", { class: "muted", style: "margin-left:6px", text: formatDay(String(x.at).slice(0, 10)) }),
+                        ])
+                      )
+                    ),
+                  ]
+                ),
+              ]),
+            ]);
+          })
+        ),
+      ]),
+    ]);
+
+  return el("div", { class: "section" }, [
+    groupHeading(
+      "Areas to work on",
+      `Cancellations never rebooked, against ${clientName}'s own average of ${a.clientAverage}% ` +
+        `(${num(a.sample)} settled cancellations). Only groups of ${a.minGroupSize} or more, doing worse than that average.`
+    ),
+    ...groups.map(([title, rows]) =>
+      el("div", { class: "card", style: "margin-bottom:16px" }, [
+        el("p", { class: "eyebrow", text: title }),
+        table(rows),
+      ])
+    ),
+  ]);
+}
+
 function renderRoster(fullPayload) {
   const roster = fullPayload.roster;
   if (!roster) return null;
@@ -774,6 +994,7 @@ function renderOverview(fullPayload) {
   }
 
   // Four tiles. Ten made the page a wall of numbers with no hierarchy.
+  frag.appendChild(groupHeading("Volume — what we did", "Counts across every client. Results and drill-downs live on each client tab."));
   frag.appendChild(
     el("div", { class: "stat-grid" }, [
       stat(num(payload.totals.events), "Interviews held, 12 months", {

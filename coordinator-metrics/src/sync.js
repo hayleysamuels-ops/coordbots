@@ -69,6 +69,11 @@ async function mapWithConcurrency(items, limit, worker) {
  */
 const APPLICATION_CONCURRENCY = 8;
 
+// Ceiling on application.info calls per client per full sync. The stage
+// history backfill is ~17,000 calls across six clients; draining it over
+// a few nightly runs keeps any one sync bounded.
+const HISTORY_BACKFILL_PER_SYNC = 4000;
+
 function applicationIdsToResolve(clientId, kind) {
   const missing = store.db
     .prepare(
@@ -92,7 +97,13 @@ function applicationIdsToResolve(clientId, kind) {
     .all(clientId)
     .map((row) => row.id);
 
-  return [...new Set([...missing, ...stale])];
+  // Applications stored before stage history was captured. Draining
+  // these is what makes booking turnaround computable for the existing
+  // 12 months rather than only for work scheduled from today onward.
+  const backfillCap = Math.max(0, HISTORY_BACKFILL_PER_SYNC - missing.length - stale.length);
+  const missingHistory = backfillCap > 0 ? store.applicationsMissingHistory(clientId, backfillCap) : [];
+
+  return [...new Set([...missing, ...stale, ...missingHistory])];
 }
 
 async function syncApplications(client, kind) {
