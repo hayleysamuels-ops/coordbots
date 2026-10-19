@@ -157,6 +157,21 @@ test('a stale confirmation email (an earlier date) refuses',()=>{
   assert.throws(()=>c.checkConfirmationEmail(stale,plan),/doesn't show Tue, Oct 20, 2026.*It may be out of date/);
 });
 
+test('the dropdown invite layout: exactly two "Send calendar invites" and one "Send one invite per block", or it refuses',()=>{
+  const ok={start:true,end:true,dropdowns:['Send calendar invites','Send calendar invites','Send one invite per block']};
+  c.checkInviteDropdowns(ok);
+  c.checkInviteDropdowns({...ok,dropdowns:['Send one invite per block','Send calendar invites','Send calendar invites']});
+  for(const [read,why] of [
+    [{...ok,dropdowns:['Send calendar invites',"Don't send calendar invites",'Send one invite per block']},/"Don't send calendar invites"/],
+    [{...ok,dropdowns:['Send calendar invites','Send calendar invites','Send one invite per interview']},/"Send one invite per interview"; they must be exactly two/],
+    [{...ok,dropdowns:['Send calendar invites','Send calendar invites']},/must be exactly two/],
+    [{...ok,dropdowns:[...ok.dropdowns,'Send reminders']},/"Send reminders"/],
+    [{...ok,dropdowns:[]},/show no dropdowns/],
+    [{...ok,start:false},/"Calendar Invites and Notifications" heading is missing/],
+    [{...ok,end:false},/"Candidate Invite" heading is missing/]])
+    assert.throws(()=>c.checkInviteDropdowns(read),why);
+});
+
 test('dialogs: the past-time warning is never confirmed, and anything unrecognised stops',()=>{
   // Ashby's exact text, observed October 13, 2026.
   const past=c.classifyDialog('Heads up: The interview time is in the past. Confirm Anyway Cancel');

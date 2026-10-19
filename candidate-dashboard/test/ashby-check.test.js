@@ -198,3 +198,26 @@ test("a posted option carries the check's plan: the activity holding its intervi
   assert.match(bookingPlanForPost({ fullPlan: { ...fullPlan, activities: [] }, option, timezone: "America/Denver" }).reason, /No scheduling activity/);
   assert.match(bookingPlanForPost({ fullPlan: { ...fullPlan, candidateEmail: null }, option, timezone: "America/Denver" }).reason, /candidate email/);
 });
+
+test("a confirmation email that's off is recorded, and said first and plainly in Slack, never silently", async () => {
+  const s = setup({ compose: { ...composed, wouldSend: { from: null }, confirmationEmail: "off",
+    checks: [{ name: "candidate confirmation email is OFF for this schedule in Ashby: no confirmation email will be sent to the candidate" }] } });
+  await s.check.start((await s.store.list())[0]);await s.check.idle();
+  const c = s.store.data.d1.ashbyCheck;
+  assert.equal(c.state, "composed");assert.equal(c.confirmationEmail, "off");assert.equal(c.from, null);
+  assert.match(s.replies[0], /no confirmation email will be sent to the candidate/);
+  // On by default, from an older worker that doesn't say.
+  const on = setup({ compose: composed });await on.check.start((await on.store.list())[0]);await on.check.idle();
+  assert.equal(on.store.data.d1.ashbyCheck.confirmationEmail, "on");
+  const calls = [];
+  const slack = createSlack("x", async (url, o) => { calls.push(JSON.parse(o.body)); return { ok: true, json: async () => ({ ok: true }) }; }, { displayTimeZone: "America/Los_Angeles", interactive: true });
+  const at = "2099-10-14T22:00:00Z", row = check => ({ id: "d1", plan: { candidateName: "TEST", jobTitle: "TEST", bookingPlan, sessions: [], notes: "" }, slackApproval: { email: "anna@carrara.is", name: "Anna Jones", at }, ashbyCheck: check });
+  await slack.markApproved({ channel: "C1", ts: "1.2", row: row({ state: "composed", composedAt: at, deleteBy: "2099-10-15T22:00:00Z", from: null, confirmationEmail: "off" }) });
+  const approval = calls[0].blocks.at(-1).text.text;
+  assert.match(approval, /^\*Approved\* by .*\n⚠️ \*No candidate confirmation email will be sent:\* it's turned off for this schedule in Ashby\./);
+  assert.doesNotMatch(approval, /confirmation email will come from/);
+  assert.match(calls[0].text, /composed in Ashby, not sent yet; no candidate confirmation email will be sent\.$/);
+  calls.length = 0;
+  await slack.markApproved({ channel: "C1", ts: "1.2", row: row({ state: "composed", composedAt: at, deleteBy: "2099-10-15T22:00:00Z", from: "Anna Jones <anna@luminai.com>", confirmationEmail: "on" }) });
+  assert.doesNotMatch(calls[0].blocks.at(-1).text.text + calls[0].text, /No candidate confirmation email/i);
+});

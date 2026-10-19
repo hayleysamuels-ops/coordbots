@@ -226,6 +226,23 @@ function checkConfirmationEmail({subject,body},plan){
   if(why.length)fail(`The candidate confirmation email doesn't match the approval: ${why.join('; ')}. It may be out of date.`,why);
 }
 
+// The Calendar Invites screen's settings, in its dropdown layout (seen
+// October 19 on TEST's six-session Onsite schedule; a one-session schedule
+// shows "Send Candidate Invite" and "Send Interviewer Invite(s)" checkboxes
+// instead). Between the "Calendar Invites and Notifications" and "Candidate
+// Invite" headings there must be exactly three dropdowns: two reading "Send
+// calendar invites" and one "Send one invite per block". Which of the two is
+// the candidate's isn't shown in the markup, and needn't be: both must send.
+// Anything else (an invite not sent, another invite mode, another dropdown)
+// refuses. The robot never opens or changes them.
+const INVITE_DROPDOWNS=['Send calendar invites','Send calendar invites','Send one invite per block'];
+function checkInviteDropdowns({start,end,dropdowns}){
+  if(!start||!end)fail(`Couldn't find the Calendar Invites settings: the "${!start?'Calendar Invites and Notifications':'Candidate Invite'}" heading is missing.`);
+  const shown=(dropdowns||[]).map(t=>String(t).replace(/\s+/g,' ').trim());
+  if(!same([...shown].sort(),[...INVITE_DROPDOWNS].sort()))
+    fail(`The Calendar Invites settings show ${shown.length?shown.map(t=>`"${t.slice(0,60)}"`).join(', '):'no dropdowns'}; they must be exactly two "Send calendar invites" and one "Send one invite per block".`);
+}
+
 // Dialogs. Confirmable warnings are an explicit allowlist (empty for now);
 // some are named as never confirmable; anything else stops the run.
 const CONFIRMABLE=[];
@@ -238,4 +255,4 @@ function classifyDialog(text){
   return {action:'stop',reason:`Ashby showed a dialog the booking doesn't recognise: "${t.slice(0,160)}". Nothing was confirmed.`};
 }
 
-module.exports={selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};
+module.exports={selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};

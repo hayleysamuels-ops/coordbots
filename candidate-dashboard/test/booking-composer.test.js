@@ -201,3 +201,22 @@ test('the screen snapshot lists each control and its state, hidden ones marked, 
   assert.deepEqual(snap.headings,['Calendar Invites']);
   assert.deepEqual(snap.loading,{ariaBusy:1,progressbars:1,spinners:0,text:['Loading previews'],graphqlInFlight:2});
 });
+
+test('the invite settings are read between their two headings, as the six-session Onsite screen lays them out',async t=>{
+  const {readInviteSettings}=require('../worker/booking-composer');
+  const browser=await launch();if(!browser){t.skip('no Chromium available');return;}
+  t.after(()=>browser.close());
+  const page=await browser.newPage();
+  // As seen October 19: the settings dropdowns, then the previews; the Schedule
+  // dropdown and the "Learn More" button aren't settings.
+  const screen=(extra='')=>`<button aria-expanded="false">Schedule</button><h2>Calendar Invites</h2><h2>Calendar Invites and Notifications</h2>
+    <button aria-expanded="false">Send calendar invites</button><button aria-expanded="false">Send calendar invites</button><button>Learn More</button>
+    <h2>Manage Candidate Invites</h2><button aria-expanded="false">Send one invite per block</button>${extra}
+    <h2>Candidate Invite</h2><button aria-expanded="false">Not a setting</button><h2>Interviewer Invites</h2>`;
+  await page.setContent(screen());
+  assert.deepEqual(await readInviteSettings(page),{start:true,end:true,dropdowns:['Send calendar invites','Send calendar invites','Send one invite per block']});
+  await page.setContent(screen('<div role="combobox" aria-expanded="false">Something new</div>'));
+  assert.deepEqual((await readInviteSettings(page)).dropdowns,['Send calendar invites','Send calendar invites','Send one invite per block','Something new']);
+  await page.setContent(screen().replace('<h2>Candidate Invite</h2>',''));
+  assert.deepEqual(await readInviteSettings(page),{start:true,end:false,dropdowns:[]});
+});

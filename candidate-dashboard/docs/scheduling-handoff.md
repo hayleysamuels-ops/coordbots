@@ -736,6 +736,30 @@ file permits it or the composer clicks Schedule.
   misread zone refuses rather than booking a different time. Consequence: a
   Pacific candidate's invite and confirmation email state the times in
   Ashby's zone (MDT in this case), as Ashby shows them.
+- **Two Communications layouts** (October 19). The Calendar Invites screen isn't
+  the same for every schedule, so a check built against one layout refuses on the
+  other:
+  - One-session schedules (TEST's First Round): "Send Candidate Invite" and
+    "Send Interviewer Invite(s)" checkboxes.
+  - TEST's six-session Onsite: no checkboxes. Between the "Calendar Invites and
+    Notifications" and "Candidate Invite" headings there are dropdowns: two
+    reading "Send calendar invites" and one "Send one invite per block". The
+    markup doesn't say which "Send calendar invites" is the candidate's; both
+    must read it. The first Onsite runs refused with "Couldn't find 'Send
+    Candidate Invite'" until the screen snapshot in the log showed this.
+
+  The check accepts either layout, whichever appears. For the dropdowns it
+  requires exactly those three, each reading exactly that, and accepts only
+  "Send one invite per block"; anything else, or both layouts, or neither,
+  refuses. It never opens or changes them (`checkInviteDropdowns` in
+  `worker/booking-check.js`).
+- **Candidate confirmation email Off** (October 19). TEST's Onsite schedule had
+  "Candidate Confirmation Email Off", though the SOP requires one for onsites
+  (Hayley is turning it on in Luminai's Onsite template). The check accepts Off
+  and never turns it on, but it is never silent: a composed draft's Slack
+  message opens with "⚠️ No candidate confirmation email will be sent", the
+  notification text says so, and so does the thread reply. With it On, the
+  email is opened and checked as before.
 - **The worker logs each check** (`[booking]` lines): when it starts
   (application, schedule, sessions, plan zone, any draft it replaces), then its
   outcome: composed, refused or uncertain at which step and why, each draft

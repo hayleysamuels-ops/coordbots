@@ -99,7 +99,8 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, now = () =
       if (result?.status === "skipped") check = { state: "skipped", reason: result.reason };
       else if (result?.status === "composed" && result.cleanup?.kept && result.draftId) {
         const composedAt = iso();
-        check = { state: "composed", draftId: result.draftId, composedAt, deleteBy: deleteByFor(plan, composedAt), from: result.wouldSend?.from || null, checks: (result.checks || []).map(c => c.name) };
+        check = { state: "composed", draftId: result.draftId, composedAt, deleteBy: deleteByFor(plan, composedAt), from: result.wouldSend?.from || null,
+          confirmationEmail: result.confirmationEmail === "off" ? "off" : "on", checks: (result.checks || []).map(c => c.name) };
       } else if (result?.status === "refused" || result?.status === "error") check = { state: "refused", step: result.step, reason: result.reason, draftId: result.draftId || null, cleanup: result.cleanup || null };
       else check = { state: "uncertain", reason: result?.reason || "The Ashby check gave no clear result.", draftId: result?.draftId || null };
     }

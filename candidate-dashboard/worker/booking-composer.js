@@ -16,7 +16,7 @@
 // load-bearing; neither may be relaxed.
 const {guardWrites}=require('./template-guard');
 const {installBookingPermits,installPermit,ORIGIN,OP}=require('./booking-permit');
-const {checkFinal,formats,composerZone,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog}=require('./booking-check');
+const {checkFinal,formats,composerZone,checkInviteDropdowns,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog}=require('./booking-check');
 
 class Refusal extends Error{constructor(step,message){super(message);this.step=step;this.status=409;}}
 const esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
@@ -112,6 +112,24 @@ async function screenSnapshot(page,net){
   });
   if(net)snap.loading.graphqlInFlight=net.inflight();
   return snap;
+}
+
+// The Calendar Invites settings, as booking-check.js checkInviteDropdowns
+// reads them: the dropdown buttons (those with aria-expanded) between the
+// "Calendar Invites and Notifications" and "Candidate Invite" headings, in
+// page order, by their text. Reads only; nothing is opened.
+async function readInviteSettings(page){
+  return page.evaluate(()=>{
+    const text=el=>(el.innerText||'').replace(/\s+/g,' ').trim();
+    const headings=[...document.querySelectorAll('h1,h2,h3,h4,[role="heading"]')];
+    const exactly=t=>headings.filter(h=>text(h)===t);
+    const starts=exactly('Calendar Invites and Notifications'),ends=exactly('Candidate Invite');
+    if(starts.length!==1||ends.length!==1)return {start:starts.length===1,end:ends.length===1,dropdowns:[]};
+    const [start,end]=[starts[0],ends[0]];
+    const between=el=>(start.compareDocumentPosition(el)&Node.DOCUMENT_POSITION_FOLLOWING)&&(el.compareDocumentPosition(end)&Node.DOCUMENT_POSITION_FOLLOWING);
+    const dropdowns=[...document.querySelectorAll('button[aria-expanded],[role="button"][aria-expanded],[role="combobox"]')].filter(between).map(text);
+    return {start:true,end:true,dropdowns};
+  });
 }
 
 // Waiting and finding, shared by the run and by deleting a draft on its own.
@@ -332,11 +350,22 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     // What the screen holds on arrival, before anything is looked for on it.
     await sleep(T.settle);
     note({type:'screen',at:'arrived',...await screenSnapshot(page,net).catch(e=>({error:e.message}))});
+    // Two layouts (October 2026): checkboxes on a one-session schedule,
+    // dropdowns on TEST's six-session Onsite. Whichever appears is checked;
+    // both, or neither within the wait, refuses.
     // "Send Interviewer Invite" for one session, "...Invites" for several.
-    const interviewerBox=page.getByRole('checkbox',{name:/^Send Interviewer Invites?$/});
-    for(const [box,name] of [[page.getByRole('checkbox',{name:'Send Candidate Invite',exact:true}),'Send Candidate Invite'],[interviewerBox,'Send Interviewer Invite(s)']])
-      if(!(await (await one(box,`"${name}"`)).isChecked()))refuse(`"${name}" is off; it must be on.`);
-    pass('candidate and interviewer invites are on');
+    const candidateBox=page.getByRole('checkbox',{name:'Send Candidate Invite',exact:true}),interviewerBox=page.getByRole('checkbox',{name:/^Send Interviewer Invites?$/});
+    let settings={dropdowns:[]},boxes=0;
+    {const d=Date.now()+T.wait;while(Date.now()<d){boxes=await candidateBox.count()+await interviewerBox.count();settings=await readInviteSettings(page);if(boxes||settings.dropdowns.length)break;await sleep(250);}}
+    if(boxes&&settings.dropdowns.length)refuse(`The Calendar Invites screen shows both invite checkboxes and invite dropdowns (${settings.dropdowns.map(t=>`"${t}"`).join(', ')}).`);
+    if(boxes){
+      for(const [box,name] of [[candidateBox,'Send Candidate Invite'],[interviewerBox,'Send Interviewer Invite(s)']])
+        if(!(await (await one(box,`"${name}"`)).isChecked()))refuse(`"${name}" is off; it must be on.`);
+      pass('candidate and interviewer invites are on (checkboxes)');
+    }else if(settings.dropdowns.length){
+      try{checkInviteDropdowns(settings);}catch(e){refuse(e.message);}
+      pass('candidate and interviewer invites are on (both "Send calendar invites", and "Send one invite per block")');
+    }else refuse('Couldn\'t find the invite settings: neither the "Send Candidate Invite" checkbox nor the "Send calendar invites" dropdowns.');
     // Previews: the candidate's first, then one per session for interviewers.
     const previews=page.getByRole('tabpanel',{name:'Preview'});
     // Ashby draws the previews after the screen opens: read until their
@@ -365,25 +394,35 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     checkInterviewerInvitePreviews(read.interviewerTexts,shown);
     pass('each session\'s interviewer invite goes to exactly its approved interviewers');
     step='candidate confirmation email';
-    await after(async()=>(await one(page.getByRole('link',{name:'Candidate Confirmation Email On',exact:true}),'"Candidate Confirmation Email On"')).click());
-    if(!(await (await one(page.getByRole('checkbox',{name:'Send Candidate Confirmation Email',exact:true}),'"Send Candidate Confirmation Email"')).isChecked()))refuse('"Send Candidate Confirmation Email" is off; it must be on.');
-    await until(()=>state.lastRefreshAt>state.lastSaveAt,'the candidate email preview to refresh after the last draft save');
-    await sleep(T.short);
-    // By structure. Each field is a <label> ("Subject"; its "*" is drawn by
-    // CSS) in a wrapper, followed by the field's content: for the subject an
-    // editable box (template placeholders render as chips inside it), for the
-    // sender a button.
-    const field=async(name,inner,what)=>{
-      const label=await one(page.locator('label').filter({hasText:new RegExp(`^${name}$`)}),`the email's "${name}" label`);
-      return one(label.locator(`xpath=../following-sibling::div[1]//${inner}`),what);
-    };
-    const subject=(await (await field('Subject','*[@contenteditable="true"]','the email\'s subject')).innerText()).replace(/\s+/g,' ').trim();
-    const body=await (await one(page.getByRole('combobox',{name:'Rich text editor',exact:true}),'the email body')).innerText();
-    if(!subject)refuse('Couldn\'t read the confirmation email\'s subject.');
-    checkConfirmationEmail({subject,body},shown);
-    const from=(await (await field('From','button','the email\'s sender')).innerText()).replace(/\s+/g,' ').trim()||null;
-    if(!from||!/<[^>]+@[^>]+>/.test(from))refuse('Couldn\'t read who the confirmation email is from.');
-    pass('candidate confirmation email is fresh and shows the approved date and times',{from});
+    // On or Off in the communications list. Off is accepted and reported (the
+    // Slack message says no confirmation email will be sent); the robot never
+    // turns it on. On is opened and checked.
+    const emailLink=await one(page.getByRole('link',{name:/^Candidate Confirmation Email (On|Off)$/}),'"Candidate Confirmation Email On" or "Off"');
+    const emailState=/Off$/.test(((await emailLink.getAttribute('aria-label'))||(await emailLink.innerText())).replace(/\s+/g,' ').trim())?'off':'on';
+    report.confirmationEmail=emailState;
+    let from=null;
+    if(emailState==='off')pass('candidate confirmation email is OFF for this schedule in Ashby: no confirmation email will be sent to the candidate');
+    else{
+      await after(()=>emailLink.click());
+      if(!(await (await one(page.getByRole('checkbox',{name:'Send Candidate Confirmation Email',exact:true}),'"Send Candidate Confirmation Email"')).isChecked()))refuse('"Send Candidate Confirmation Email" is off; it must be on.');
+      await until(()=>state.lastRefreshAt>state.lastSaveAt,'the candidate email preview to refresh after the last draft save');
+      await sleep(T.short);
+      // By structure. Each field is a <label> ("Subject"; its "*" is drawn by
+      // CSS) in a wrapper, followed by the field's content: for the subject an
+      // editable box (template placeholders render as chips inside it), for the
+      // sender a button.
+      const field=async(name,inner,what)=>{
+        const label=await one(page.locator('label').filter({hasText:new RegExp(`^${name}$`)}),`the email's "${name}" label`);
+        return one(label.locator(`xpath=../following-sibling::div[1]//${inner}`),what);
+      };
+      const subject=(await (await field('Subject','*[@contenteditable="true"]','the email\'s subject')).innerText()).replace(/\s+/g,' ').trim();
+      const body=await (await one(page.getByRole('combobox',{name:'Rich text editor',exact:true}),'the email body')).innerText();
+      if(!subject)refuse('Couldn\'t read the confirmation email\'s subject.');
+      checkConfirmationEmail({subject,body},shown);
+      from=(await (await field('From','button','the email\'s sender')).innerText()).replace(/\s+/g,' ').trim()||null;
+      if(!from||!/<[^>]+@[^>]+>/.test(from))refuse('Couldn\'t read who the confirmation email is from.');
+      pass('candidate confirmation email is fresh and shows the approved date and times',{from});
+    }
     // 5. The Schedule button: found, and never clicked in a dry run.
     step='find Schedule';
     const schedule=await one(page.getByRole('button',{name:'Schedule',exact:true}),'the Schedule button');
@@ -473,4 +512,4 @@ async function discardDraft({context,page,plan,draftId,log=()=>{},timing={},resp
   finally{log({type:'blocked-summary',blocked:[...new Set(guard.blocked.filter(b=>b.ashby).map(b=>b.summary))]});}
 }
 
-module.exports={dryRun,discardDraft,openApplication,networkWatch,screenSnapshot,Refusal};
+module.exports={dryRun,discardDraft,openApplication,networkWatch,screenSnapshot,readInviteSettings,Refusal};
