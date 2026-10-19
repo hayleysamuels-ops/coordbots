@@ -75,6 +75,14 @@ trusting the defaults.** It prints every interview title, which ones the
 current keywords would exclude, whether the org uses `isDebrief` at all, and
 what twelve months of their data will cost to pull.
 
+## Who this is for
+
+Internal to Carrara leadership. The client tabs carry an "areas to work
+on" panel naming roles and stages where cancellations were never
+rebooked, with links to individual candidate records. Not for
+distribution to clients or to coordinators. One shared password; the
+page states this on itself.
+
 ## Results metrics
 
 Five measures of how well the work ran, separate from how much of it
@@ -88,6 +96,14 @@ improvement rather than by sign.
 | Short-notice bookings | Share confirmed under `SHORT_NOTICE_HOURS` before start |
 | Cancelled, never rebooked | Cancelled schedules with no later schedule for the same application and stage |
 | Reschedule rate | Rounds (application + stage) with more than one schedule, or a directly observed start-time change |
+
+**These are not comparable between clients.** Each reflects that
+client's own interview mix, stage design and volume, so they live on
+client tabs measured against that client's own prior period. The
+Overview shows a range with no client named, and nothing ranks clients
+on them. They are also not individual performance measures: several
+coordinators work a client, and Ashby records only who created a
+booking, not who chased or re-planned it.
 
 Deltas compare against the equivalent prior period and are **suppressed
 below 30 prior events**. The full window is labelled a baseline and

@@ -1379,6 +1379,43 @@ function computeOverview(clientPayloads, scopeKey) {
     totals,
     periods,
     series: { weekly: [...weekly.values()].sort((a, b) => (a.key < b.key ? -1 : 1)) },
+    /**
+     * Results as a RANGE across clients, with no client named.
+     *
+     * These measures are not comparable between clients: each reflects
+     * that client's own interview mix, stage design and volume. Luminai
+     * at 10 business hours against Runlayer at 6 looks like a gap, but
+     * Luminai has a fifth of the volume and a 40% longer tail — the
+     * spread is the real signal, not the ordering.
+     *
+     * So the overview reports the spread and withholds the attribution.
+     * Naming values here would turn the page into a client league table,
+     * and anyone reading it as one would be reading something the data
+     * cannot support.
+     */
+    resultsRange: (() => {
+      const metrics = {
+        bookingTurnaround: "medianHours",
+        stageGap: "medianDays",
+        shortNotice: "share",
+        cancellationWithoutRebook: "share",
+        rescheduleRate: "share",
+      };
+      const out = {};
+      for (const [metric, field] of Object.entries(metrics)) {
+        const values = clientPayloads
+          .map((p) => {
+            const block = scopeOf(p).results && scopeOf(p).results.full;
+            return block ? block.current[metric][field] : null;
+          })
+          .filter((v) => v != null);
+        out[metric] = values.length
+          ? { low: Math.min(...values), high: Math.max(...values), clients: values.length }
+          : null;
+      }
+      return out;
+    })(),
+
     // Per-group summaries. A share-of-activity percentage is computed
     // ONLY within a group, never across one — see groupOf().
     groups: ["core", "clientScheduled", "ended"].reduce((acc, key) => {

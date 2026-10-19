@@ -459,8 +459,21 @@ function resultsGroup(payload, label) {
       "Results — how well it ran",
       baseline
         ? `Over the ${label}. Shown as the baseline: no targets are set until these have been watched for a quarter.`
-        : `Over the ${label}, against the previous ${label.replace("last ", "")}. Lower is better on every metric here.`
+        : `Over the ${label}, against this client's own previous ${label.replace("last ", "")}. Lower is better on every metric here.`
     ),
+    el("div", { class: "scope-note" }, [
+      el("p", {
+        text:
+          "These reflect this client's own interview mix, stage design and volume, and are not comparable " +
+          "between clients. Each is measured only against this client's own prior period.",
+      }),
+      el("p", {
+        text:
+          "They are measures of how a process ran, not of how an individual performed. Several coordinators " +
+          "work a client, work moves between them, and Ashby records only who created a booking — not who " +
+          "chased it, re-planned it, or picked it up from someone else.",
+      }),
+    ]),
     el("div", { class: "stat-grid" }, [
       resultTile("Booking turnaround (median)", {
         value: c.bookingTurnaround.medianHours,
@@ -605,8 +618,8 @@ function renderClient(fullPayload) {
       stat(num(payload.totals.cancellations), "Cancellations, 12 months", {
         sub: "cancelled with no re-booking",
       }),
-      stat(num(payload.totals.dropOffs), "Applications archived after interviewing", {
-        sub: "candidates who reached a scheduled interview, then were archived — counts applications, not interviews",
+      stat(num(payload.totals.dropOffs), "Archived after interviewing", {
+        sub: "counts applications, not people",
       }),
       stat(num(payload.totals.shortNotice), "Short-notice bookings", {
         sub: `booked under ${state.config.shortNoticeHours}h before the interview`,
@@ -1009,6 +1022,32 @@ function renderOverview(fullPayload) {
     ])
   );
 
+  const range = payload.resultsRange;
+  if (range && range.bookingTurnaround) {
+    const span = (r, unit, dp = 0) =>
+      r == null ? "—" : r.low === r.high ? `${r.low.toFixed(dp)}${unit}` : `${r.low.toFixed(dp)}${unit}–${r.high.toFixed(dp)}${unit}`;
+    frag.appendChild(
+      el("div", { class: "notice" }, [
+        el("h3", { text: "Results across clients" }),
+        el("p", {
+          text:
+            `Across ${range.bookingTurnaround.clients} clients: booking turnaround ` +
+            `${span(range.bookingTurnaround, "bh")} median · time between stages ${span(range.stageGap, "d", 1)} · ` +
+            `short notice ${span(range.shortNotice, "%", 1)} · never rebooked ` +
+            `${span(range.cancellationWithoutRebook, "%", 1)} · reschedule rate ${span(range.rescheduleRate, "%", 1)}.`,
+        }),
+        el("p", {
+          style: "margin-top:8px",
+          text:
+            "Shown as a range, with no client named, on purpose. These measures reflect each client's own " +
+            "interview mix and volume and are not comparable between them — ranking clients on them would read " +
+            "a difference the data cannot support. The per-client figures are on each client's own tab, " +
+            "measured against that client's own prior period.",
+        }),
+      ])
+    );
+  }
+
   frag.appendChild(
     section(
       "Volume by week",
@@ -1210,6 +1249,14 @@ async function renderFooter() {
   if (status && status.progress && status.progress.running) {
     children.push(el("p", { text: `Sync in progress (${status.progress.kind}, ${status.progress.client || "starting"})…` }));
   }
+
+  // The access decision, stated where someone about to forward a link
+  // will see it. Internal to Carrara leadership: the client tabs carry a
+  // named list of roles and stages where work went wrong, plus links to
+  // individual candidate records.
+  children.unshift(
+    el("p", { class: "internal-only", text: "Internal to Carrara leadership — not for distribution to clients or coordinators." })
+  );
 
   children.push(
     el("p", {}, [

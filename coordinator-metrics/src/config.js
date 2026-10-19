@@ -124,7 +124,10 @@ const DEFAULT_COORDINATORS = [
   // name) rather than needing to be guessed in advance.
   "Tess Wicks",
   "Kelley Lantigua",
-  "Sadiqeh Agah",
+  // Sadiqeh Agah is deliberately absent: she matched no scheduled work
+  // at any of the six clients here, because she works on one of the four
+  // that have no dashboard yet. Listing her only produced a standing
+  // "no matching work anywhere" warning.
   "Anna Jones",
   "Hayley Samuels",
   "Meredith Faria",

@@ -546,3 +546,32 @@ details summary {
   font-size: 11px;
   color: var(--text-secondary);
 }
+
+/* --- Non-comparability framing under the Results group --- */
+
+.scope-note {
+  border-left: 3px solid var(--border);
+  padding: 2px 0 2px 12px;
+  margin: 0 0 16px;
+}
+
+.scope-note p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 6px;
+  max-width: 82ch;
+}
+
+.scope-note p:last-child { margin-bottom: 0; }
+
+.internal-only {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--critical);
+  background: var(--critical-wash);
+  border-radius: var(--radius-pill);
+  padding: 4px 12px;
+  margin-bottom: 10px;
+}

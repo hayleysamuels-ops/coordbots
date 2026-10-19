@@ -285,6 +285,26 @@ is the short list of things that look wrong and are not.
   `/schedules/{id}`. A group row therefore cannot link to "cancelled,
   role = X"; rows expand to the individual records instead.
 
+- **Results metrics are NOT comparable between clients, and the page is
+  built to prevent that reading.** Each reflects that client's own
+  interview mix, stage design and volume. They appear on client tabs
+  only, measured against that client's own prior period; the Overview
+  shows a RANGE with no client named; nothing ranks clients on them.
+  Luminai at 10 business hours against Runlayer at 6 looks like a gap,
+  but Luminai has a fifth of the volume and a 40% longer tail. Don't add
+  a Results column to the by-client table or sort anything by them.
+
+- **They are not individual performance measures either.** Several
+  coordinators work a client, work moves between them, and Ashby records
+  only who CREATED a booking — not who chased it, re-planned it, or
+  picked it up. The Results group says so on the page.
+
+- **Access: internal to Carrara leadership.** The client tabs name roles
+  and stages where work went wrong and link to individual candidate
+  records. One shared password, holder list deliberately short; the page
+  carries a visible internal-only marking so it is stated where someone
+  about to forward a link will see it. Not for clients or coordinators.
+
 ## Conventions
 
 - No build step and no frontend framework, matching the sibling dashboards.

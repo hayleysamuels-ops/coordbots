@@ -928,3 +928,32 @@ test("the areas-to-work-on panel only surfaces groups above the client's own ave
     }
   }
 });
+
+test("the overview reports Results as a range and names no client", () => {
+  // Ranking clients on these would read a difference the data cannot
+  // support: each reflects that client's own interview mix and volume.
+  const metricsModule = require("../src/metrics");
+  const configModule = require("../src/config");
+  const a = { ...CLIENT, id: "rng-a", name: "Alpha", coordinators: ["Anna Jones"] };
+  const b = { ...CLIENT, id: "rng-b", name: "Beta", coordinators: ["Anna Jones"] };
+
+  const original = configModule.clients.slice();
+  configModule.clients.length = 0;
+  configModule.clients.push(a, b);
+  try {
+    metricsModule.rebuild();
+    const range = metricsModule.getOverview().scopes.coordinated.resultsRange;
+    assert.ok(range, "the overview must carry a results range");
+    for (const metric of ["bookingTurnaround", "stageGap", "shortNotice", "cancellationWithoutRebook", "rescheduleRate"]) {
+      assert.ok(metric in range, `${metric} must be present in the range`);
+      if (range[metric]) {
+        assert.ok("low" in range[metric] && "high" in range[metric], `${metric} must expose a low and a high`);
+        assert.ok(!("clientId" in range[metric]) && !("clientName" in range[metric]),
+          `${metric} must not attribute a value to a named client`);
+      }
+    }
+  } finally {
+    configModule.clients.length = 0;
+    configModule.clients.push(...original);
+  }
+});
