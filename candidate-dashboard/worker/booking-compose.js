@@ -82,12 +82,22 @@ function detailLine(e){
     case 'save-result':return `save ${e.seq} ${e.accepted?'accepted by Ashby':`NOT accepted by Ashby (HTTP ${e.status}${e.errors?.length?`: ${e.errors.join('; ')}`:''})`}`;
     case 'screen':{const {type,at,...rest}=e;return rest.note?`screen (${at}): ${rest.note}`:`screen (${at}): ${JSON.stringify(rest)}`;}
     case 'dialog':return `dialog: ${short(e.text)}`;
+    case 'email-lines':return `confirmation email date/time lines (TEMPORARY, once on TEST): ${JSON.stringify(e.lines)}`;
     case 'send-recipients':return e.allowed?'send recipients: all on the send allowlist':`send recipients: outside the send allowlist: ${e.outside.join(', ')} (reported only; nothing is sent)`;
     default:return null;
   }
 }
 
-async function compose({env,payload,chromium,loadSession,clientId,expectedIdentity,now=Date.now(),log=()=>{},say=console.log,composer=require('./booking-composer')}){
+// TEMPORARY (Hayley, 2026-10-19): log the confirmation email's date and time
+// lines once, on TEST only, to see its format; remove once seen. A marker file
+// beside the saved session records that it's been done, so later runs don't
+// log them even before this is removed.
+const TEST_APPLICATION='8dfd8f14-83c4-41f8-aaf1-416b75cb0892';
+function emailLinesMarker(env){
+  return env.ASHBY_SESSION_FILE?require('path').join(require('path').dirname(env.ASHBY_SESSION_FILE),'email-lines-logged'):null;
+}
+
+async function compose({env,payload,chromium,loadSession,clientId,expectedIdentity,now=Date.now(),log=()=>{},say=console.log,composer=require('./booking-composer'),fs=require('fs'),markerFile=emailLinesMarker(env)}){
   const plan=payload?.plan,supersedeDraftId=payload?.supersedeDraftId??null;
   const tag=`[booking] Ashby check${ID.test(String(payload?.proposalId||''))?` for ${payload.proposalId}`:''}`;
   say(`${tag} started: application ${short(plan?.applicationId)}, schedule ${short(plan?.interviewScheduleId)}, ${plan?.sessions?.length??0} session(s), plan zone ${short(plan?.timeZone)}${supersedeDraftId?`, replacing draft ${short(supersedeDraftId)}`:''}`);
@@ -101,8 +111,10 @@ async function compose({env,payload,chromium,loadSession,clientId,expectedIdenti
     if(ready.skip){say(`${tag} ${composeOutcome(ready.skip)}`);return ready.skip;}
     const isolation=env.ASHBY_BROWSER_ISOLATION||'sandbox';
     if(!['sandbox','container'].includes(isolation))throw Object.assign(Error('Unknown browser isolation configuration.'),{status:503});
+    const logEmailLines=plan.applicationId===TEST_APPLICATION&&!!markerFile&&!fs.existsSync(markerFile);
     const result=await withBrowser({chromium,saved:ready.saved,isolation},({context,page})=>
-      composer.dryRun({context,page,plan,log:note,expectedIdentity,checkExistingDrafts:true,supersedeDraftId,keepOnSuccess:true}));
+      composer.dryRun({context,page,plan,log:note,expectedIdentity,checkExistingDrafts:true,supersedeDraftId,keepOnSuccess:true,logEmailLines}));
+    if(result?.emailLinesLogged)try{fs.writeFileSync(markerFile,new Date(now).toISOString());}catch(e){say(`${tag} couldn't record that the email lines were logged (${short(e.message)})`);}
     say(`${tag} ${composeOutcome(result)}`);
     return result;
   }catch(e){

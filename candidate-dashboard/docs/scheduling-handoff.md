@@ -806,7 +806,15 @@ file permits it or the composer clicks Schedule.
      it is clicked, and the write guard still blocks any write the click might
      attempt. A plain "Schedule" button is never clicked.
   2. **The confirmation email check must pass on its own** before Send goes
-     live. It's now on in Luminai's Onsite template, and its date and times are
+     live. It first passed on October 19, but it only looks for each start
+     time as text in the composer's zone, and Pacific and Mountain start times
+     overlap, so that pass is weak. TEMPORARY: to see the email's format, the
+     next TEST check logs just the email's lines that hold a date or time
+     (`confirmation email date/time lines`), once: a marker file beside the
+     saved session (`email-lines-logged`) stops any later run. Hayley asked
+     for it to be removed once seen, so candidate-facing email text doesn't
+     accumulate in logs; remove the logging and the marker then, and fix the
+     check to read the email's times as the invite check does. It's now on in Luminai's Onsite template, and its date and times are
      still compared as text in the composer's zone; enabling Send while that's
      unproven would dispatch an email nothing has verified.
   3. **Then Send**: a re-read of the draft compared with the approval right

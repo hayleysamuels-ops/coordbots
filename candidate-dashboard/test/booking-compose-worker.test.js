@@ -133,6 +133,29 @@ test('a robot Send may reach only the allowlisted recipients; until Send exists 
   assert.equal(detailLine({type:'screen',at:'schedule-menu',note:'"Schedule" is a plain button here'}),'screen (schedule-menu): "Schedule" is a plain button here');
 });
 
+test('TEMPORARY: the confirmation email\'s date and time lines are logged once, on TEST only, then never again',async t=>{
+  const fsMod=require('fs'),os=require('os'),pathMod=require('path');
+  const dir=fsMod.mkdtempSync(pathMod.join(os.tmpdir(),'email-lines-'));t.after(()=>fsMod.rmSync(dir,{recursive:true,force:true}));
+  const markerFile=pathMod.join(dir,'email-lines-logged');
+  const run=async(p,report={status:'composed',draftId:DRAFT,cleanup:{kept:true,draftId:DRAFT},emailLinesLogged:true})=>{
+    const {seen,deps}=fakes(report);await compose({env,payload:{plan:p},...deps,markerFile,say:()=>{}});return seen.dryRun.logEmailLines;};
+  // Another application never logs (here it's skipped by the allowlist before the composer, so check the flag path directly).
+  assert.equal(await run(plan),true,'TEST, first run');
+  assert.ok(fsMod.existsSync(markerFile),'the marker is written once logged');
+  assert.equal(await run(plan),false,'never again');
+  fsMod.rmSync(markerFile);
+  assert.equal(await run({...plan,applicationId:'00000000-0000-4000-8000-000000000000'}).catch(()=>'skipped'),'skipped');
+  // Without a session directory to mark, it doesn't log at all.
+  const {seen,deps}=fakes();await compose({env,payload:{plan},...deps,markerFile:null,say:()=>{}});
+  assert.equal(seen.dryRun.logEmailLines,false);
+  // Only lines with a date or time.
+  const {emailDateTimeLines}=require('../worker/booking-check');
+  assert.deepEqual(emailDateTimeLines({subject:'Confirmed: Interview with Luminai - Thu, Oct 22, 2026',body:'Hi TEST,\nThanks for your time.\nThursday, October 22, 2026\n10:00 AM - 10:30 AM PDT Onsite\nSee you then.\nhttps://meet.google.com/abc'}),
+    ['Subject: Confirmed: Interview with Luminai - Thu, Oct 22, 2026','Thursday, October 22, 2026','10:00 AM - 10:30 AM PDT Onsite']);
+  const {detailLine}=require('../worker/booking-compose');
+  assert.equal(detailLine({type:'email-lines',lines:['a']}),'confirmation email date/time lines (TEMPORARY, once on TEST): ["a"]');
+});
+
 // The routes, over HTTP, with a stand-in draft reader and check.
 async function serve({inspect,chromium=null,writeWaitMs=400,signIn=false}){
   const secret='s'.repeat(40);

@@ -321,6 +321,16 @@ function checkInviteDropdowns({start,end,dropdowns}){
     fail(`The Calendar Invites settings show ${shown.length?shown.map(t=>`"${t.slice(0,60)}"`).join(', '):'no dropdowns'}; they must be exactly two "Send calendar invites" and one "Send one invite per block".`);
 }
 
+// TEMPORARY (Hayley, 2026-10-19): the confirmation email's lines that hold a
+// date or time, logged once on TEST to see the email's format, so its check
+// can read times with their zone as the invite check does. Removed once seen;
+// no other email text is logged. Capped at 20 lines of 200 characters.
+const DATE_OR_TIME=/\b\d{1,2}:\d\d\b|\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*\b|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.? \d{1,2}\b/;
+function emailDateTimeLines({subject,body}){
+  const lines=[`Subject: ${subject||''}`,...String(body||'').split(/\n+/)].map(l=>l.replace(/\s+/g,' ').trim()).filter(l=>DATE_OR_TIME.test(l));
+  return lines.slice(0,20).map(l=>l.slice(0,200));
+}
+
 // Dialogs. Confirmable warnings are an explicit allowlist (empty for now);
 // some are named as never confirmable; anything else stops the run.
 const CONFIRMABLE=[];
@@ -347,4 +357,4 @@ function classifyDialog(text){
   return {action:'stop',reason:`Ashby showed a dialog the booking doesn't recognise: "${t.slice(0,160)}". Nothing was confirmed.`};
 }
 
-module.exports={zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};
+module.exports={emailDateTimeLines,zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};
