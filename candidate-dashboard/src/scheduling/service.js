@@ -1,5 +1,6 @@
 "use strict";
 const { validFlags } = require("./flags");
+const { blocksRepost } = require("./store");
 // Server-supplied only (from the candidate's Ashby profile); https LinkedIn URLs.
 const linkedIn = v => { try { const u = new URL(v); return u.protocol === "https:" && /(^|\.)linkedin\.com$/i.test(u.hostname) ? u.href : null; } catch (_) { return null; } };
 const crypto = require("crypto");
@@ -113,7 +114,10 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
       // Checked before drafting so a missing destination doesn't leave a draft
       // behind that blocks this candidate's next post.
       if (!clientId || !channelId || !slack) fail(503, "Configure this client's Slack destination first.");
-      if ((await store.list()).some(r => r.clientId === clientId && r.plan.sourceRef === sourceRef && r.state !== "rejected")) fail(409, "This option was already posted to Slack. Check the channel.");
+      // An earlier post of this option blocks it while it could still lead to a
+      // booking or leave a draft in Ashby (store.js, blocksRepost).
+      const earlier = (await store.list()).find(r => r.clientId === clientId && r.plan.sourceRef === sourceRef && blocksRepost(r));
+      if (earlier) fail(409, `This option was already posted to Slack and that post is still open (${earlier.ashbyCheck ? `Ashby check: ${earlier.ashbyCheck.state.replace(/_/g, " ")}` : earlier.state.replace(/_/g, " ")}). Check the channel.`);
       if (!Array.isArray(attendance) || attendance.length !== option.events.length || attendance.some(a => !["in_person", "video"].includes(a))) fail(503, "Interviewer attendance could not be confirmed from this client's scheduling rules.");
       const source = availabilitySource === "ashby" ? "candidate-submitted availability" : "coordinator-entered availability";
       const checked = calendarCheck ? `Checked against interviewers' primary Google calendars at ${new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(calendarCheck.checkedAt))}.${calendarCheck.meetingHoursAssumed ? " Meeting hours are assumed from client rules, not verified." : ""} Other calendars and non-zero interview limits were not checked.` : "Not calendar-checked: suggested interviewers are eligible choices, not confirmed available.";

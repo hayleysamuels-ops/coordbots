@@ -65,10 +65,20 @@ candidate confirmation email). Approving books nothing, and the message says so.
   `destination()`. A missing channel or token refuses with 503 before any draft is
   written.
 - **Posting the same option twice.** Each draft records
-  `sourceRef = full-schedule:<scheduleId>:<optionDigest>`. The store refuses a second
-  row with the same `sourceRef` unless the first was rejected. It checks this under
-  its lock, so overlapping requests can't both post. A different option for the same
-  candidate can be posted once the first is `shared`.
+  `sourceRef = full-schedule:<scheduleId>:<optionDigest>`; Suggest regenerates the
+  same digest for the same option. The store refuses a second row with the same
+  `sourceRef` while the first could still lead to a booking or leave a draft in
+  Ashby (`blocksRepost` in `src/scheduling/store.js`): unposted or unconfirmed,
+  posted and awaiting approval, approved with its check queued, running,
+  composed or sent, approved and booked by hand (no check, skipped, too close),
+  a draft possibly left (uncertain, delete failed, refused without a confirmed
+  delete), or superseded (the approval that replaced it may still be waiting to
+  be booked by hand, so reposting could book it twice). It stops blocking once
+  rejected, or once the check ended with nothing booked and no draft left:
+  refused with no draft made or its delete confirmed, not started, deleted or
+  gone (October 19, 2026). The service checks first and the store again under
+  its lock, so overlapping requests can't both post. A different option for the
+  same candidate can be posted once the first is `shared`.
 - **Plain message.** The Slack message is today's plain-text discussion message. The
   notes say the option isn't calendar-checked and that nothing was booked.
 - **Uncertain deliveries.** If Slack's response can't be verified, the draft is left

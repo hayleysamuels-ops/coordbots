@@ -377,3 +377,54 @@ test("a message that fails Slack's Block Kit check is reported, never sent, and 
   assert.equal((await service.postScheduleOption(post(), user)).state, "shared");
   assert.equal(sent.length, 1);
 });
+
+// ---- reposting an option ----------------------------------------------------
+
+const { blocksRepost } = require("../src/scheduling/store");
+test("an earlier post blocks a repost while it could still book or leave a draft; a check that ended with nothing booked and no draft frees it", () => {
+  const approved = check => ({ state: "discussion_approved", ashbyCheck: check });
+  const free = [
+    { state: "rejected" },
+    approved({ state: "refused", draftId: null, cleanup: { deleted: false, reason: "no draft was created" } }),
+    approved({ state: "refused", draftId: "d", cleanup: { deleted: true, draftId: "d" } }),
+    approved({ state: "not_started", reason: "x" }),
+    approved({ state: "deleted", draftId: "d" }),
+    approved({ state: "gone", draftId: "d" }),
+  ];
+  const blocks = [
+    { state: "draft" }, { state: "sharing" }, { state: "discussion_uncertain" }, { state: "shared" },
+    { state: "discussion_approved" },// approved before checks existed: booked by hand
+    ...["queued", "running", "composed", "sent", "skipped", "too_close", "uncertain", "delete_failed", "superseded", "something_new"].map(state => approved({ state, draftId: "d" })),
+    approved({ state: "refused", draftId: "d", cleanup: { deleted: false, reason: "Ashby didn't confirm the delete" } }),
+    approved({ state: "refused", draftId: "d", cleanup: null }),
+    { state: "some_future_state" },
+  ];
+  for (const row of free) assert.equal(blocksRepost(row), false, JSON.stringify(row));
+  for (const row of blocks) assert.equal(blocksRepost(row), true, JSON.stringify(row));
+});
+
+test("an option whose Ashby check refused and deleted its draft can be posted again; a superseded one can't", async t => {
+  const { service, store, sent } = setup(t);
+  const first = await service.postScheduleOption(post(), user);
+  await assert.rejects(service.postScheduleOption(post(), user), { status: 409, message: /still open \(shared\)/ });
+  const settle = async check => {
+    const row = await store.get(first.id);
+    assert.equal(await store.replace(first.id, row.revision, { ...row, state: "discussion_approved", ashbyCheck: check, revision: row.revision + 1 }), true);
+  };
+  await settle({ state: "superseded", draftId: "d", by: "later" });
+  await assert.rejects(service.postScheduleOption(post(), user), { status: 409, message: /Ashby check: superseded/ });
+  await settle({ state: "refused", step: "configure communications", draftId: "d", cleanup: { deleted: true, draftId: "d" } });
+  const again = await service.postScheduleOption(post(), user);
+  assert.equal(again.state, "shared");assert.notEqual(again.id, first.id);
+  assert.equal(sent.length, 2);
+  // The new post blocks the option in turn, until it settles the same way.
+  await assert.rejects(service.postScheduleOption(post(), user), { status: 409 });
+});
+
+test("the store's own check under its lock follows the same rule", async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "coord-option-store-")); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const store = createStore(dir), row = (id, extra) => ({ id, clientId: "luminai", revision: 1, plan: { candidateId: "candidate", sourceRef: "full-schedule:s:abc" }, ...extra });
+  assert.equal(await store.insert(row("1", { state: "discussion_approved", ashbyCheck: { state: "refused", draftId: null } })), true);
+  assert.equal(await store.insert(row("2", { state: "shared" })), true, "a refused, draftless check doesn't block");
+  assert.equal(await store.insert(row("3", { state: "shared" })), false, "a post awaiting approval does");
+});
