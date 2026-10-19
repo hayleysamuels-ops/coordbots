@@ -322,9 +322,17 @@ async function syncAll(kind) {
     if (!c.apiKey) return false;
     if (!c.isEnded) return true;
     const already = store.getMeta(c.id, "ended_backfill_completed_at");
-    if (already) {
+    // "Synced once" is conditional on that sync having captured what we
+    // now need. The rule predates application_stages, so Profound was
+    // marked complete and then skipped forever — leaving it the only
+    // client without booking turnaround. An ended client missing stage
+    // history earns exactly one more full sync.
+    if (already && store.hasStageHistory(c.id)) {
       console.log(`[sync] skipping ${c.id} — ended engagement, backfilled ${already}`);
       return false;
+    }
+    if (already) {
+      console.log(`[sync] re-syncing ${c.id} once — ended engagement with no stage history captured`);
     }
     if (kind !== "full") {
       console.log(`[sync] skipping ${c.id} — ended engagement needs a full backfill, not an incremental`);

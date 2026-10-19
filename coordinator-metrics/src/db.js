@@ -484,6 +484,16 @@ function applicationsMissingHistory(clientId, limit) {
     .map((r) => r.id);
 }
 
+// Whether any stage history has been captured for a client at all.
+// An ended engagement is normally synced once and never again, but that
+// rule was written before application_stages existed — Profound was
+// marked complete and then skipped forever, leaving it the one client
+// with no booking turnaround.
+function hasStageHistory(clientId) {
+  const row = db.prepare(`SELECT 1 AS present FROM application_stages WHERE client_id = ? LIMIT 1`).get(clientId);
+  return Boolean(row);
+}
+
 function unresolvedJobIds(clientId) {
   return db
     .prepare(
@@ -527,6 +537,7 @@ module.exports = {
   unresolvedInterviewIds,
   unresolvedJobIds,
   applicationsMissingHistory,
+  hasStageHistory,
   writeSchedulePage,
   writeApplicationPage,
   writeReference,
