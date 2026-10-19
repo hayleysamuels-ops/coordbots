@@ -17,6 +17,18 @@ const ALLOWED_APPLICATIONS={
   },
 };
 
+// Who a robot Send may reach (Hayley, 2026-10-19): the candidate and every
+// interviewer must be on this list. Send isn't built yet; until it is, the
+// check only reports whether a composed schedule would pass. TEST's Onsite
+// interviewers include colleagues (Joe, Mary, Anna), so a TEST-only Send
+// still needs this to keep real invites off their calendars.
+const SEND_RECIPIENTS=new Set(['hayleysamuels511@gmail.com','hayley@luminai.com']);
+// The plan's recipients outside SEND_RECIPIENTS, [] when all are on it.
+function sendRecipientsOutside(plan){
+  const all=[plan?.candidate?.email,...(plan?.sessions||[]).flatMap(s=>(s.interviewers||[]).map(x=>x.email))].map(e=>String(e||'').toLowerCase());
+  return [...new Set(all)].filter(e=>!SEND_RECIPIENTS.has(e)).sort();
+}
+
 class Stop extends Error{constructor(message,code=2){super(message);this.code=code;}}
 const stop=(message,code)=>{throw new Stop(message,code);};
 const isUuid=v=>typeof v==='string'&&/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(v);
@@ -48,4 +60,4 @@ function checkPlan(plan,{now=Date.now()}={}){
   return plan;
 }
 
-module.exports={ALLOWED_APPLICATIONS,checkPlan,Stop,stop,NOTICE_MINUTES};
+module.exports={ALLOWED_APPLICATIONS,SEND_RECIPIENTS,sendRecipientsOutside,checkPlan,Stop,stop,NOTICE_MINUTES};

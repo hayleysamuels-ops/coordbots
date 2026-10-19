@@ -119,6 +119,20 @@ test('typed times, each save and the communications screen are logged as the che
   assert.equal(lines[1],'[booking] Ashby check session 1 ("First Round") entered: Thu, Oct 15, 1:00pm – 1:30pm MDT; approved a–b');
 });
 
+test('a robot Send may reach only the allowlisted recipients; until Send exists that is only reported',()=>{
+  const {SEND_RECIPIENTS,sendRecipientsOutside}=require('../worker/booking-locks');
+  assert.deepEqual([...SEND_RECIPIENTS].sort(),['hayley@luminai.com','hayleysamuels511@gmail.com']);
+  assert.deepEqual(sendRecipientsOutside(plan),[]);
+  // TEST's Onsite, as approved on October 19: colleagues on four sessions.
+  const onsite={...plan,sessions:['hayley@luminai.com','joe@luminai.com','Mary@Luminai.com','anna@luminai.com','hayley@luminai.com'].map(email=>({...plan.sessions[0],interviewers:[{...plan.sessions[0].interviewers[0],email}]}))};
+  assert.deepEqual(sendRecipientsOutside(onsite),['anna@luminai.com','joe@luminai.com','mary@luminai.com']);
+  assert.deepEqual(sendRecipientsOutside({...plan,candidate:{...plan.candidate,email:'someone@example.com'}}),['someone@example.com']);
+  const {detailLine}=require('../worker/booking-compose');
+  assert.equal(detailLine({type:'send-recipients',allowed:true}),'send recipients: all on the send allowlist');
+  assert.equal(detailLine({type:'send-recipients',allowed:false,outside:['joe@luminai.com']}),'send recipients: outside the send allowlist: joe@luminai.com (reported only; nothing is sent)');
+  assert.equal(detailLine({type:'screen',at:'schedule-menu',note:'"Schedule" is a plain button here'}),'screen (schedule-menu): "Schedule" is a plain button here');
+});
+
 // The routes, over HTTP, with a stand-in draft reader and check.
 async function serve({inspect,chromium=null,writeWaitMs=400,signIn=false}){
   const secret='s'.repeat(40);

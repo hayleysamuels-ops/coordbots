@@ -787,6 +787,31 @@ file permits it or the composer clicks Schedule.
   message opens with "⚠️ No candidate confirmation email will be sent", the
   notification text says so, and so does the thread reply. With it On, the
   email is opened and checked as before.
+- **Robot Send: the rule is being reversed** (Hayley, October 19). "Send stays
+  off the permission list" was Hayley's instruction. It's being reversed because
+  invites come from whoever clicks Send: a person clicking it means the
+  candidate hears from them rather than Anna, which the SOP forbids. Nothing
+  sends yet; the order is fixed:
+  1. **Observe the Schedule menu** (done in the check now). On the six-session
+     layout "Schedule" is a dropdown. The check opens it once, logs everything
+     it offers (`screen (schedule-menu)`), and closes it with Escape. Nothing in
+     it is clicked, and the write guard still blocks any write the click might
+     attempt. A plain "Schedule" button is never clicked.
+  2. **The confirmation email check must pass on its own** before Send goes
+     live. It's now on in Luminai's Onsite template, and its date and times are
+     still compared as text in the composer's zone; enabling Send while that's
+     unproven would dispatch an email nothing has verified.
+  3. **Then Send**: a re-read of the draft compared with the approval right
+     before the click, one permit for this draft only, verification from
+     Ashby's API afterwards, never a retry, Slack wording that says approving
+     sends, and its own `BOOKING_SEND` switch and application allowlist on top
+     of the compose check's locks.
+  - **Recipient allowlist** (`SEND_RECIPIENTS` in `worker/booking-locks.js`):
+    a robot Send may reach only hayleysamuels511@gmail.com and
+    hayley@luminai.com, as candidate and every interviewer. TEST's Onsite has
+    colleagues (Joe, Mary, Anna) as interviewers, so "TEST-only" alone wouldn't
+    keep real invites off their calendars. Until Send exists, each check logs
+    whether its recipients would pass (`send recipients: …`).
 - **The worker logs each check** (`[booking]` lines): when it starts
   (application, schedule, sessions, plan zone, any draft it replaces), then its
   outcome: composed, refused or uncertain at which step and why, each draft
