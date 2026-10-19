@@ -324,10 +324,24 @@ function checkInviteDropdowns({start,end,dropdowns}){
 // Dialogs. Confirmable warnings are an explicit allowlist (empty for now);
 // some are named as never confirmable; anything else stops the run.
 const CONFIRMABLE=[];
-const NEVER_CONFIRM=[/The interview time is in the past/i];
+// Never confirmed, each with what it means, by Ashby's exact text:
+//   "Heads up: The interview time is in the past." (October 13): freshness
+//     requires the start to be 15+ minutes away, so something upstream is wrong.
+//   "Heads Up No Location is set for this interview's calendar invites. You
+//     can add an address or conference link on the Invite Settings page."
+//     (October 19, on opening Schedule; buttons Cancel / Submit): the SOP
+//     requires Google Meet as an onsite's interview room, so the schedule
+//     needs a location set in Ashby, not an invite sent without one.
+const NEVER_CONFIRM=[
+  {match:/The interview time is in the past/i,
+    reason:t=>`Ashby warned: "${t.slice(0,160)}". This is never confirmed; something upstream is wrong (the start should be at least 15 minutes away).`},
+  {match:/No Location is set for this interview'?s calendar invites/i,
+    reason:()=>'This schedule has no location set for its calendar invites, and it needs one: the SOP requires Google Meet as the interview room for onsites. Set it in Ashby on the schedule\'s Invite Settings page (or on the interview template), then approve again. Ashby\'s "No Location" warning is never confirmed.'},
+];
 function classifyDialog(text){
   const t=(text||'').replace(/\s+/g,' ').trim();
-  if(NEVER_CONFIRM.some(r=>r.test(t)))return {action:'stop',reason:`Ashby warned: "${t.slice(0,160)}". This is never confirmed; something upstream is wrong (the start should be at least 15 minutes away).`};
+  const never=NEVER_CONFIRM.find(n=>n.match.test(t));
+  if(never)return {action:'stop',reason:never.reason(t)};
   const ok=CONFIRMABLE.find(c=>c.match.test(t));
   if(ok)return {action:'confirm',button:ok.button};
   return {action:'stop',reason:`Ashby showed a dialog the booking doesn't recognise: "${t.slice(0,160)}". Nothing was confirmed.`};

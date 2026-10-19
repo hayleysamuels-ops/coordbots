@@ -220,10 +220,15 @@ test('the dropdown invite layout: exactly two "Send calendar invites" and one "S
     assert.throws(()=>c.checkInviteDropdowns(read),why);
 });
 
-test('dialogs: the past-time warning is never confirmed, and anything unrecognised stops',()=>{
+test('dialogs: the past-time and no-location warnings are never confirmed, and anything unrecognised stops',()=>{
   // Ashby's exact text, observed October 13, 2026.
   const past=c.classifyDialog('Heads up: The interview time is in the past. Confirm Anyway Cancel');
   assert.equal(past.action,'stop');assert.match(past.reason,/never confirmed/);
   assert.equal(c.classifyDialog('Something new and unexpected OK').action,'stop');
+  // Ashby's exact text, observed October 19 on opening Schedule (Cancel / Submit).
+  const noLocation=c.classifyDialog("Heads Up No Location is set for this interview's calendar invites. You can add an address or conference link on the Invite Settings page. Cancel Submit");
+  assert.equal(noLocation.action,'stop');
+  assert.equal(noLocation.reason,'This schedule has no location set for its calendar invites, and it needs one: the SOP requires Google Meet as the interview room for onsites. Set it in Ashby on the schedule\'s Invite Settings page (or on the interview template), then approve again. Ashby\'s "No Location" warning is never confirmed.');
   assert.deepEqual(c.CONFIRMABLE,[]);
+  assert.equal(c.NEVER_CONFIRM.length,2);
 });

@@ -792,7 +792,15 @@ file permits it or the composer clicks Schedule.
   invites come from whoever clicks Send: a person clicking it means the
   candidate hears from them rather than Anna, which the SOP forbids. Nothing
   sends yet; the order is fixed:
-  1. **Observe the Schedule menu** (done in the check now). On the six-session
+  1. **Observe the Schedule menu** (done in the check now). The first try
+     (October 19) was stopped by a dialog on opening Schedule: "Heads Up — No
+     Location is set for this interview's calendar invites… Invite Settings
+     page. Cancel / Submit". It's a real configuration gap (the SOP requires
+     Google Meet as an onsite's interview room), so it's on the never-confirm
+     list beside "the interview time is in the past": the check refuses and
+     says the schedule needs a location in Ashby's Invite Settings. Hayley is
+     setting it on Luminai's Onsite template; once that's done the menu
+     observation can proceed. On the six-session
      layout "Schedule" is a dropdown. The check opens it once, logs everything
      it offers (`screen (schedule-menu)`), and closes it with Escape. Nothing in
      it is clicked, and the write guard still blocks any write the click might
