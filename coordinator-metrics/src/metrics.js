@@ -1213,7 +1213,11 @@ function buildRosterReport(client) {
 
   return {
     configured: roster,
-    matched: matched.sort((a, b) => b.events - a.events),
+    // Alphabetical, deliberately NOT by event count. Sorted by number
+    // this reads as a leaderboard whatever the heading says, and it is a
+    // check that each rostered name resolves to real scheduled work —
+    // not a measure of how much anyone did.
+    matched: matched.sort((a, b) => a.name.localeCompare(b.name)),
     // A rostered name with no events HERE.
     //
     // Only reported when this client has an explicit roster of its own.
@@ -1221,7 +1225,9 @@ function buildRosterReport(client) {
     // client would appear here — six of seven on Luminai — which drowns
     // the case worth seeing. Names matching nothing at ANY client are
     // reported separately on the overview regardless.
-    unmatched: roster.filter((name) => !matchedNames.has(config.normalizeName(name))),
+    unmatched: roster
+      .filter((name) => !matchedNames.has(config.normalizeName(name)))
+      .sort((a, b) => a.localeCompare(b)),
     reportUnmatched: Boolean(client.hasOwnRoster),
     collisions: [...idsByName.entries()]
       .filter(([key, ids]) => ids.size > 1 && rosterSet.has(key))

@@ -299,6 +299,15 @@ is the short list of things that look wrong and are not.
   only who CREATED a booking — not who chased it, re-planned it, or
   picked it up. The Results group says so on the page.
 
+- **The roster panel is a MATCH CHECK, collapsed and alphabetical.** It
+  confirms each rostered name resolves to real scheduled work — that is
+  how a misspelled name, a renamed account or a coordinator assigned to
+  the wrong client gets caught (it found Meredith Faria and Sadiqeh
+  Agah). It is not a workload or performance measure, and the page says
+  so rather than leaving it implied. Sorted by event count it reads as a
+  leaderboard whatever the heading says, so it is ordered by NAME; don't
+  "improve" it by sorting on volume, and don't expand it by default.
+
 - **Access: internal to Carrara leadership.** The client tabs name roles
   and stages where work went wrong and link to individual candidate
   records. One shared password, holder list deliberately short; the page

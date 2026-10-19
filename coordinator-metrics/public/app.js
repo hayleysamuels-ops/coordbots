@@ -831,11 +831,21 @@ function renderRoster(fullPayload) {
   if (state.scope !== "coordinated") return document.createComment("roster shown only in coordinated scope");
 
   const children = [
-    el("h3", { text: "Who this counts" }),
+    // Said on the page, not only in the code: this is a check that the
+    // roster resolves, and a reader who takes it for a workload summary
+    // would be reading something it is not.
+    el("p", {
+      class: "section-note",
+      text:
+        "A roster match check. It confirms each rostered coordinator resolves to real scheduled work in Ashby, " +
+        "which is how a misspelled name, a renamed account or a coordinator assigned to the wrong client gets " +
+        "caught. It is not a workload or performance measure: several coordinators work a client, work moves " +
+        "between them, and Ashby records only who created a booking.",
+    }),
     el("p", {
       text:
-        `${roster.matched.length} of the ${roster.configured.length} rostered coordinators scheduled at ` +
-        `${fullPayload.clientName}: ` +
+        `${roster.matched.length} of the ${roster.configured.length} rostered coordinators resolve at ` +
+        `${fullPayload.clientName}, listed alphabetically: ` +
         (roster.matched.length
           ? roster.matched.map((m) => `${m.name} (${num(m.events)})`).join(", ")
           : "none"),
@@ -877,7 +887,12 @@ function renderRoster(fullPayload) {
     );
   }
 
-  return el("div", { class: "notice" }, children);
+  // Collapsed. Open, a list of names beside numbers is the most
+  // leaderboard-shaped thing on the page, whatever the heading says.
+  return el("details", { class: "data-quality" }, [
+    el("summary", { text: "Data quality — roster match check" }),
+    el("div", { class: "notice" }, children),
+  ]);
 }
 
 function renderDataQuality(fullPayload, payload) {

@@ -957,3 +957,45 @@ test("the overview reports Results as a range and names no client", () => {
     configModule.clients.push(...original);
   }
 });
+
+test("the roster match check is ordered alphabetically, never by volume", () => {
+  // Sorted by count it reads as a leaderboard whatever the heading
+  // says. It is a check that each rostered name resolves to real
+  // scheduled work, not a measure of how much anyone did.
+  const R = {
+    ...CLIENT,
+    id: "roster-order",
+    coordinators: ["Zoe Last", "Anna Jones", "Mia Middle"],
+    hasOwnRoster: true,
+  };
+
+  store.writeReference(R.id, {
+    interviews: [{ id: "i1", title: "Interview", isDebrief: false }],
+    jobs: [{ id: "j1", title: "Engineer", status: "Open" }], departments: [], stages: [],
+  });
+  store.writeApplicationPage(R.id, [
+    { id: "a1", candidate: { id: "c1", name: "X" }, job: { id: "j1" }, status: "Active",
+      createdAt: iso(-50), updatedAt: iso(-1), hiringTeam: [] },
+  ]);
+
+  // Zoe schedules the most, Anna the least — so count order and
+  // alphabetical order disagree, which is the point of the test.
+  const mk = (n, who, idx) =>
+    Array.from({ length: n }, (_, i) => ({
+      id: `s-${idx}-${i}`, status: "Complete", applicationId: "a1", interviewStageId: "st",
+      createdAt: iso(-4), updatedAt: iso(-3),
+      scheduledBy: { id: `u-${idx}`, firstName: who.split(" ")[0], lastName: who.split(" ")[1], email: `${idx}@x.com` },
+      interviewEvents: [{
+        id: `e-${idx}-${i}`, interviewId: "i1", interviewScheduleId: `s-${idx}-${i}`, interviewerUserIds: ["u9"],
+        createdAt: iso(-4), updatedAt: iso(-3), startTime: iso(-3, 10 + i), endTime: iso(-3, 11 + i),
+        hasSubmittedFeedback: true,
+      }],
+    }));
+  store.writeSchedulePage(R.id, [...mk(5, "Zoe Last", 1), ...mk(3, "Mia Middle", 2), ...mk(1, "Anna Jones", 3)], new Date().toISOString());
+
+  const roster = computeFull(R).roster;
+  const names = roster.matched.map((m) => m.name);
+  assert.deepStrictEqual(names, [...names].sort((a, b) => a.localeCompare(b)), "matched names must be alphabetical");
+  assert.strictEqual(names[0], "Anna Jones", "the lowest count sorts first alphabetically, proving it is not count-ordered");
+  assert.deepStrictEqual(roster.unmatched, [...roster.unmatched].sort((a, b) => a.localeCompare(b)));
+});
