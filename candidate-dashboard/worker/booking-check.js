@@ -139,8 +139,10 @@ function formats(iso,timeZone){
     upper:time,lower:time.replace(' AM','am').replace(' PM','pm')};
 }
 
-// The zone Ashby's composer shows times in, from its "Select a timezone"
-// buttons (seen October 14 and 16: two, reading "America/Denver" and "MDT").
+// The zone Ashby's composer shows times in: a per-draft dropdown in the
+// scheduling view, not the account's zone or the candidate's. Read from its
+// "Select a timezone" buttons (seen October 14 and 16: two, reading
+// "America/Denver" and "MDT").
 // Exactly one must be an IANA zone name, and anything else shown must be that
 // zone's own abbreviation at `atIso`; anything else refuses. The approved
 // instants are then typed and checked in this zone. A misread zone still

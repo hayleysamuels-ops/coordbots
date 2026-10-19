@@ -194,8 +194,8 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
       const d=Date.now()+T.wait;while(Date.now()<d&&await loc.count()<plan.sessions.length)await sleep(250);
       if(await loc.count()!==plan.sessions.length)refuse(`The composer has ${await loc.count()} ${what}, but ${plan.sessions.length} session${plan.sessions.length===1?' was':'s were'} approved.`);
     }
-    // The zone Ashby shows times in. It needn't be the plan's (the candidate's
-    // availability zone): the approved instants are converted into it, and
+    // The draft's zone (a per-draft dropdown in Ashby). It needn't be the
+    // plan's (the candidate's availability zone): the approved instants are converted into it, and
     // `shown` is the plan as Ashby displays it, for typing and for reading
     // previews back. The approval itself, and every save check, stay instants.
     step='read the composer\'s time zone';

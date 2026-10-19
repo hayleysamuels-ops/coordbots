@@ -7,10 +7,12 @@
 // solver's interviewer, with Ashby user ID, name and email. Everything else
 // comes from the application, never from the browser.
 //
-// Two different time zones: the preview's `timezone` is the candidate's
-// availability zone. `accountTimeZone` is the zone Ashby displays for the
-// account doing the booking (Anna's in production), which the robot types
-// times in. They are separate inputs and are never inferred from each other.
+// `accountTimeZone` becomes the plan's `timeZone`. For a posted option it's
+// the candidate's availability zone (bookingPlanForPost below). It isn't the
+// zone the robot types in: Ashby's composer zone is a per-draft dropdown, not
+// derived from the account (Anna's is America/Los_Angeles) or the candidate,
+// and the composer reads it and converts the approved instants into it
+// (composerZone in worker/booking-check.js).
 const fail=message=>{throw Object.assign(Error(message),{status:422});};
 const isUuid=v=>typeof v==='string'&&/^[0-9a-f-]{36}$/i.test(v);
 const isInstant=v=>typeof v==='string'&&/T.*(?:Z|[+-]\d\d:\d\d)$/.test(v)&&Number.isFinite(Date.parse(v));
@@ -42,11 +44,8 @@ function bookingPlanFromOption({option,application,accountTimeZone}){
 // schedule). The scheduling activity is the one stage activity holding every
 // session's interview; its title is the card heading Ashby shows.
 //
-// The zone the robot types times in is the candidate's availability zone,
-// not Anna's account zone: in Anna's session (October 14, 2026) TEST's
-// composer showed America/Denver, TEST's availability zone, and the Denver
-// plan passed every check. Still unconfirmed for other candidates; a wrong
-// zone refuses at the composer before any save.
+// The plan's zone is the candidate's availability zone, which labels the
+// plan's times; the composer enters them in the draft's own zone.
 //
 // Returns {plan} or {plan:null,reason}; a post never fails for want of one.
 function bookingPlanForPost({fullPlan,option,timezone}){

@@ -526,8 +526,9 @@ done and verified, in this order:
     the worker after every action. An in-page observer missed this real dialog.
   - **Entry:** load Ashby's shell, then navigate inside the app. Cold-loading a deep URL
     (a draft, or the job pipeline's candidate panel) shows an error page under the guard.
-  - **Time zone:** the composer shows times in the signed-in account's zone (MDT for
-    hayley@luminai.com). Compare instants, never displayed text.
+  - **Time zone:** the composer's zone is a per-draft dropdown in Ashby's scheduling
+    view, not the signed-in account's zone or the candidate's availability zone.
+    Compare instants, never displayed text.
   - **Accounts:** invites go out as Anna's account in production (intended, per the SOP).
     The first real send uses hayleysamuels511@gmail.com as candidate and hayley@luminai.com as
     interviewer. Development runs locally against TEST with Hayley's session first.
@@ -664,19 +665,17 @@ even if clicked.
   account button reads exactly that identity (for example "Anna Jones Luminai").
 - **Running it:**
   1. Build the plan locally from the dashboard's calendar-checked preview with
-     `src/scheduling/booking-plan.js`, with `accountTimeZone` set to the zone the
-     draft composer shows, **not** Anna's account zone (America/New_York). The
-     robot types and checks times in that zone. On October 14, in Anna's session,
-     TEST's composer had two "Select a timezone" buttons reading
-     "America/Denver" and "MDT", and the composer, candidate invite,
-     interviewer invites and confirmation email were all in MDT. So the zone
-     seems to come from the draft, probably the candidate's availability zone
-     (TEST's is America/Denver). That's unconfirmed: every run so far had a
-     Denver candidate, and on October 16 it wasn't: see "The composer's zone is
-     read" below. The robot now reads the zone and enters times in it; a zone
-     it can't read refuses before any save, and the draft is deleted. The buttons suggest
-     the zone can be picked per draft; picking one would be a new kind of write
-     and isn't permitted.
+     `src/scheduling/booking-plan.js`. Anna's Ashby account zone is
+     America/Los_Angeles (it was recorded here earlier as America/New_York,
+     which was wrong). Neither that nor the candidate's availability zone sets
+     the composer's zone: it's a per-draft dropdown in Ashby's scheduling view
+     (the "Select a timezone" buttons; on October 14 and 16, in Anna's session,
+     they read "America/Denver" and "MDT", and the composer, candidate invite,
+     interviewer invites and confirmation email were all in MDT). The robot
+     reads the draft's zone and enters the approved times in it (see "The
+     composer's zone is read" below); a zone it can't read refuses before any
+     save, and the draft is deleted. It never changes the dropdown: picking a
+     zone would be a new kind of write and isn't permitted.
   2. Run `railway ssh -s scheduling-worker -- node worker/booking-dry-run.js
      --plan-base64 <base64 plan JSON>`. It runs as the worker's user, has a
      240-second deadline (exit 124, naming any draft left behind), and prints a
@@ -684,7 +683,8 @@ even if clicked.
   3. Check the schedule's Drafts tab is empty.
 - **Run in the worker, October 14, 2026** (TEST, First Round, Hayley then Mary on
   October 15, 19:00–20:00Z), Anna's saved session:
-  - Two plans in America/New_York refused at the composer's zone check (0 saves;
+  - Two plans in America/New_York (taken then, wrongly, to be Anna's account
+    zone) refused at the composer's zone check (0 saves;
     drafts deleted). The second, with the zone label in the refusal (commit
     `9abfb9f`), showed "America/Denver" and "MDT".
   - The same plan in America/Denver: `dry_run_complete`, 11/11 checks, 3 saves
@@ -692,8 +692,9 @@ even if clicked.
     <anna@luminai.com>", the draft deleted, and the Drafts tab empty afterwards.
     The only blocked write was the expected `ApiUpdateDraftScheduleCalendarSettings`.
 - **Not yet verified:**
-  - Where the composer's zone comes from: not the candidate's availability zone
-    (October 16, a Pacific submission still showed Denver).
+  - What sets the per-draft zone dropdown's starting value on a new draft. It has
+    been America/Denver every time so far, in Anna's session (her account zone is
+    America/Los_Angeles) and with a Pacific candidate (October 16).
   - A session copied from a local Chrome profile into a fresh context is signed
     out by Ashby about 3 seconds after load, so the worker's session path
     can't be reproduced locally; it works in the worker.
@@ -724,8 +725,9 @@ file permits it or the composer clicks Schedule.
 - **The composer's zone is read, not required to match** (October 16). The first
   Slack-triggered check (TEST, Onsite) refused because the plan was in
   America/Los_Angeles (TEST's availability had been resubmitted in Pacific) while
-  the composer showed "America/Denver" and "MDT". So the composer's zone isn't the
-  candidate's availability zone, and where it comes from is still unknown. The
+  the composer showed "America/Denver" and "MDT". The composer's zone is a
+  per-draft dropdown in Ashby's scheduling view, not derived from the account
+  (Anna's is America/Los_Angeles) or the candidate's availability. The
   composer now reads it (`composerZone` in `worker/booking-check.js`): exactly one
   "Select a timezone" button must hold an IANA name, and any other may only be
   that zone's own abbreviation, or the check refuses. The approved instants are
