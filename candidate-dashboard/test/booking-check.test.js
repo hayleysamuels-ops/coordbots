@@ -181,6 +181,22 @@ test('invite previews in another zone are compared as instants: the candidate\'s
   assert.equal(c.clockMinutes('12:30 AM'),30);assert.equal(c.clockMinutes('12:30pm'),750);assert.equal(c.clockMinutes('13:00 PM'),null);
 });
 
+test('invite previews are whose their place says: one candidate preview between the headings, one interviewer preview per session after',()=>{
+  const ok={candidateHeadings:1,interviewerHeadings:1,ordered:true};
+  // October 19, TEST's Onsite: one combined candidate invite, then six.
+  assert.deepEqual(c.partitionPreviews({...ok,where:['candidate',...Array(6).fill('interviewer')]},6),{candidate:0,interviewers:[1,2,3,4,5,6]});
+  assert.deepEqual(c.partitionPreviews({...ok,where:['candidate','interviewer']},1),{candidate:0,interviewers:[1]});
+  for(const [read,n,why] of [
+    [{...ok,candidateHeadings:0,where:[]},6,/found 0 "Candidate Invite" and 1 "Interviewer Invites" headings; each must appear exactly once/],
+    [{...ok,interviewerHeadings:2,where:[]},6,/found 1 "Candidate Invite" and 2 "Interviewer Invites"/],
+    [{...ok,ordered:false,where:[]},6,/"Interviewer Invites" heading comes before "Candidate Invite"/],
+    [{...ok,where:['candidate','candidate',...Array(6).fill('interviewer')]},6,/2 candidate invite previews .* not 1/],
+    [{...ok,where:['candidate',...Array(5).fill('interviewer')]},6,/5 interviewer invite previews .* not one for each of the 6 sessions/],
+    [{...ok,where:Array(7).fill('interviewer')},6,/0 candidate invite previews.*7 interviewer invite previews/],
+    [{...ok,where:['before','candidate',...Array(6).fill('interviewer')]},6,/1 preview is above the "Candidate Invite" heading/]])
+    assert.throws(()=>c.partitionPreviews(read,n),why);
+});
+
 test('a stale confirmation email (an earlier date) refuses',()=>{
   const fresh={subject:'Confirmed: Interview with Luminai - Tue, Oct 20, 2026',body:'Hi TEST, Agenda: Tuesday, October 20, 2026 1:05 PM - 1:35 PM Initial'};
   c.checkConfirmationEmail(fresh,plan);

@@ -271,6 +271,28 @@ function checkInterviewerInvitePreviews(texts,plan){
   if(why.length)fail(`The interviewers' calendar invite previews don't match the approval: ${why.join('; ')}.`,why);
 }
 
+// Which invite preview is whose, by where each sits between the "Candidate
+// Invite" and "Interviewer Invites" headings (booking-composer.js
+// readPreviewSections): the candidate's between them, the interviewers' after
+// the second. Seen October 19 on TEST's six-session Onsite: one combined
+// candidate invite ("Invite for Onsite, Onsite, … and Lunch"), then one
+// interviewer invite per session. Each heading must appear exactly once, in
+// that order, with exactly one candidate preview, one interviewer preview per
+// session, and none before the candidate's heading; anything else refuses.
+// Returns the preview indexes: {candidate, interviewers:[…]}.
+function partitionPreviews({candidateHeadings,interviewerHeadings,ordered,where},sessions){
+  if(candidateHeadings!==1||interviewerHeadings!==1)fail(`Couldn't tell the candidate invite from the interviewer invites: found ${candidateHeadings} "Candidate Invite" and ${interviewerHeadings} "Interviewer Invites" headings; each must appear exactly once.`);
+  if(!ordered)fail('Couldn\'t tell the candidate invite from the interviewer invites: the "Interviewer Invites" heading comes before "Candidate Invite".');
+  const at=s=>where.map((w,k)=>w===s?k:-1).filter(k=>k>=0);
+  const candidate=at('candidate'),interviewers=at('interviewer'),before=at('before');
+  const why=[];
+  if(before.length)why.push(`${before.length} preview${before.length===1?' is':'s are'} above the "Candidate Invite" heading`);
+  if(candidate.length!==1)why.push(`${candidate.length} candidate invite previews (between "Candidate Invite" and "Interviewer Invites"), not 1`);
+  if(interviewers.length!==sessions)why.push(`${interviewers.length} interviewer invite previews (after "Interviewer Invites"), not one for each of the ${sessions} session${sessions===1?'':'s'}`);
+  if(why.length)fail(`The invite previews aren't laid out as expected: ${why.join('; ')}.`);
+  return {candidate:candidate[0],interviewers};
+}
+
 // The candidate confirmation email: the subject's date, the body's date, and
 // each session's start time. A stale preview (an earlier date) refuses.
 function checkConfirmationEmail({subject,body},plan){
@@ -311,4 +333,4 @@ function classifyDialog(text){
   return {action:'stop',reason:`Ashby showed a dialog the booking doesn't recognise: "${t.slice(0,160)}". Nothing was confirmed.`};
 }
 
-module.exports={zoneOffset,clockMinutes,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};
+module.exports={zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};

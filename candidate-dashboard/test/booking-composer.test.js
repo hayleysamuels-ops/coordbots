@@ -220,3 +220,22 @@ test('the invite settings are read between their two headings, as the six-sessio
   await page.setContent(screen().replace('<h2>Candidate Invite</h2>',''));
   assert.deepEqual(await readInviteSettings(page),{start:true,end:false,dropdowns:[]});
 });
+
+test('previews are placed by document order around the two headings, whatever their heading levels',async t=>{
+  const {readPreviewSections}=require('../worker/booking-composer');
+  const browser=await launch();if(!browser){t.skip('no Chromium available');return;}
+  t.after(()=>browser.close());
+  const page=await browser.newPage();
+  const panel=text=>`<div role="tabpanel" aria-label="Preview">${text}</div>`;
+  // As seen October 19 (headings in this order), with the two section headings at different levels.
+  const layout=(extra='')=>`<h2>Calendar Invites and Notifications</h2><h2>Manage Candidate Invites</h2>${extra}
+    <h2>Candidate Invite</h2><h3>Invite for Onsite, Onsite, Onsite, Onsite, Onsite, and Lunch</h3>${panel('candidate')}
+    <h3>Interviewer Invites</h3>${['Onsite','Onsite','Onsite','Onsite','Onsite','Lunch'].map(t=>`<h4>${t} - TEST - TEST</h4>${panel(t)}`).join('')}`;
+  const previews=page.getByRole('tabpanel',{name:'Preview'});
+  await page.setContent(layout());
+  assert.deepEqual(await readPreviewSections(page,previews),{candidateHeadings:1,interviewerHeadings:1,ordered:true,where:['candidate',...Array(6).fill('interviewer')]});
+  await page.setContent(layout(panel('stray')));
+  assert.deepEqual((await readPreviewSections(page,previews)).where,['before','candidate',...Array(6).fill('interviewer')]);
+  await page.setContent(layout().replace('<h3>Interviewer Invites</h3>',''));
+  assert.deepEqual(await readPreviewSections(page,previews),{candidateHeadings:1,interviewerHeadings:0,ordered:false,where:[]});
+});

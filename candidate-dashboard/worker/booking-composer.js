@@ -16,7 +16,7 @@
 // load-bearing; neither may be relaxed.
 const {guardWrites}=require('./template-guard');
 const {installBookingPermits,installPermit,ORIGIN,OP}=require('./booking-permit');
-const {checkFinal,formats,composerZone,checkInviteDropdowns,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog}=require('./booking-check');
+const {checkFinal,formats,composerZone,checkInviteDropdowns,partitionPreviews,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog}=require('./booking-check');
 
 class Refusal extends Error{constructor(step,message){super(message);this.step=step;this.status=409;}}
 const esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
@@ -130,6 +130,30 @@ async function readInviteSettings(page){
     const dropdowns=[...document.querySelectorAll('button[aria-expanded],[role="button"][aria-expanded],[role="combobox"]')].filter(between).map(text);
     return {start:true,end:true,dropdowns};
   });
+}
+
+// Where each invite preview sits, for booking-check.js partitionPreviews:
+// the "Candidate Invite" and "Interviewer Invites" headings (any level, by
+// exact text) and, for each preview in `previews`, whether it comes before
+// the first heading, between them, or after the second. Reads only.
+async function readPreviewSections(page,previews){
+  const headings=await page.evaluate(()=>{
+    const text=el=>(el.innerText||'').replace(/\s+/g,' ').trim();
+    document.querySelectorAll('[data-booking-section]').forEach(el=>el.removeAttribute('data-booking-section'));
+    const all=[...document.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]')];
+    const c=all.filter(h=>text(h)==='Candidate Invite'),i=all.filter(h=>/^Interviewer Invites?$/.test(text(h)));
+    if(c.length===1)c[0].setAttribute('data-booking-section','candidate');
+    if(i.length===1)i[0].setAttribute('data-booking-section','interviewer');
+    return {candidateHeadings:c.length,interviewerHeadings:i.length,
+      ordered:c.length===1&&i.length===1&&!!(c[0].compareDocumentPosition(i[0])&Node.DOCUMENT_POSITION_FOLLOWING)};
+  });
+  const where=[];
+  if(headings.candidateHeadings===1&&headings.interviewerHeadings===1)
+    for(let k=0;k<await previews.count();k++)where.push(await previews.nth(k).evaluate(el=>{
+      const after=h=>!!(h.compareDocumentPosition(el)&Node.DOCUMENT_POSITION_FOLLOWING);
+      return after(document.querySelector('[data-booking-section="interviewer"]'))?'interviewer':after(document.querySelector('[data-booking-section="candidate"]'))?'candidate':'before';
+    }));
+  return {...headings,where};
 }
 
 // Waiting and finding, shared by the run and by deleting a draft on its own.
@@ -366,29 +390,31 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
       try{checkInviteDropdowns(settings);}catch(e){refuse(e.message);}
       pass('candidate and interviewer invites are on (both "Send calendar invites", and "Send one invite per block")');
     }else refuse('Couldn\'t find the invite settings: neither the "Send Candidate Invite" checkbox nor the "Send calendar invites" dropdowns.');
-    // Previews: the candidate's first, then one per session for interviewers.
+    // Previews: whose each one is comes from where it sits, by document order
+    // (partitionPreviews): the candidate's single combined invite between the
+    // "Candidate Invite" and "Interviewer Invites" headings, then one per
+    // session for interviewers.
     const previews=page.getByRole('tabpanel',{name:'Preview'});
     // Ashby draws the previews after the screen opens: read until their
     // content is present (bounded by T.wait), then check that read. If it
     // never fills in, the checks below refuse, naming what was missing.
     const readPreviews=async()=>{
-      const n=await previews.count();if(n!==1+plan.sessions.length)return {n};
+      const sections=await readPreviewSections(page,previews);
+      let parts;try{parts=partitionPreviews(sections,plan.sessions.length);}catch(e){return {layout:e.message};}
+      const candidate=previews.nth(parts.candidate);
       // The agenda's top-level items, each as text (a name may sit in a nested list).
-      const agendaItems=await previews.nth(0).evaluate(panel=>{
+      const agendaItems=await candidate.evaluate(panel=>{
         const list=[...panel.querySelectorAll('ul,ol')].find(l=>[...l.children].length&&[...l.children].every(li=>/^\s*\d{1,2}:\d\d [AP]M - /.test(li.innerText)));
         return list?[...list.children].map(li=>li.innerText):[];
       });
-      const candidateText=await previews.nth(0).innerText();
-      const interviewerTexts=[];for(let k=1;k<=plan.sessions.length;k++)interviewerTexts.push(await previews.nth(k).innerText());
-      return {n,agendaItems,candidateText,interviewerTexts};
+      const candidateText=await candidate.innerText();
+      const interviewerTexts=[];for(const k of parts.interviewers)interviewerTexts.push(await previews.nth(k).innerText());
+      return {agendaItems,candidateText,interviewerTexts};
     };
-    const present=r=>r.agendaItems?.length===plan.sessions.length&&r.candidateText.trim()&&r.interviewerTexts.every(t=>t.trim());
+    const present=r=>!r.layout&&r.agendaItems.length===plan.sessions.length&&r.candidateText.trim()&&r.interviewerTexts.every(t=>t.trim());
     let read;const readBy=Date.now()+T.wait;
     while(!present(read=await readPreviews())&&Date.now()<readBy)await sleep(250);
-    if(read.n!==1+plan.sessions.length)refuse(`Expected a candidate invite preview and ${plan.sessions.length} interviewer invite preview${plan.sessions.length===1?'':'s'}; found ${read.n} previews.`);
-    const order=await page.getByRole('heading',{level:2}).allInnerTexts();
-    const ci=order.indexOf('Candidate Invite'),ii=order.findIndex(h=>/^Interviewer Invites?$/.test(h));
-    if(ci<0||ii<ci)refuse('Couldn\'t tell the candidate invite from the interviewer invites.');
+    if(read.layout)refuse(read.layout);
     // Content checks fail as refusals, naming what differs.
     try{checkInvitePreview(read.candidateText,shown,read.agendaItems);}catch(e){refuse(e.message);}
     pass('candidate invite preview shows the approved date, agenda and only the candidate');
@@ -513,4 +539,4 @@ async function discardDraft({context,page,plan,draftId,log=()=>{},timing={},resp
   finally{log({type:'blocked-summary',blocked:[...new Set(guard.blocked.filter(b=>b.ashby).map(b=>b.summary))]});}
 }
 
-module.exports={dryRun,discardDraft,openApplication,networkWatch,screenSnapshot,readInviteSettings,Refusal};
+module.exports={dryRun,discardDraft,openApplication,networkWatch,screenSnapshot,readInviteSettings,readPreviewSections,Refusal};

@@ -770,6 +770,16 @@ file permits it or the composer clicks Schedule.
   "Send one invite per block"; anything else, or both layouts, or neither,
   refuses. It never opens or changes them (`checkInviteDropdowns` in
   `worker/booking-check.js`).
+
+  The previews below them are told apart by document order, not position or
+  heading level (`partitionPreviews`): the candidate's single combined invite
+  ("Invite for Onsite, Onsite, … and Lunch" on the Onsite) sits between the
+  "Candidate Invite" and "Interviewer Invites" headings, and one interviewer
+  invite per session after the second. Each heading must appear once, in that
+  order, with exactly one candidate preview and one interviewer preview per
+  session; anything else refuses. (The previous check looked only at level-2
+  headings and refused on the Onsite with "Couldn't tell the candidate invite
+  from the interviewer invites".)
 - **Candidate confirmation email Off** (October 19). TEST's Onsite schedule had
   "Candidate Confirmation Email Off", though the SOP requires one for onsites
   (Hayley is turning it on in Luminai's Onsite template). The check accepts Off
