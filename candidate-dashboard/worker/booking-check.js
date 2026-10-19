@@ -194,7 +194,8 @@ const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov',
 function wallClock(iso,offset){
   const d=new Date(Date.parse(iso)+offset*60000);
   return {minutes:d.getUTCHours()*60+d.getUTCMinutes(),
-    shortDate:`${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getUTCDay()]}, ${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`};
+    shortDate:`${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getUTCDay()]}, ${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`,
+    longDate:`${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][d.getUTCDay()]}, ${['January','February','March','April','May','June','July','August','September','October','November','December'][d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`};
 }
 const hhmm=min=>`${String(Math.floor(min/60)).padStart(2,'0')}:${String(min%60).padStart(2,'0')}`;
 // Whether "start - end" at `offset` is the session's approved instants: the
@@ -293,14 +294,46 @@ function partitionPreviews({candidateHeadings,interviewerHeadings,ordered,where}
   return {candidate:candidate[0],interviewers};
 }
 
-// The candidate confirmation email: the subject's date, the body's date, and
-// each session's start time. A stale preview (an earlier date) refuses.
+// The candidate confirmation email. Its body has the same agenda as the
+// candidate's invite (seen October 19): one line per session, "11:00 AM -
+// 11:30 AM (PDT) - Onsite - Hayley Samuels", in the candidate's zone. An
+// interviewer's name may sit on its own line below the time instead, as Mary
+// Petrino's did, like "(LinkedIn)" in the invite's agenda.
+//
+// The check used to look for each start time, in the composer's zone, as a
+// substring of the body. That passed without understanding anything: on
+// October 19 the Mountain "2:00 PM" and "2:30 PM" matched inside the Pacific
+// "12:00 PM" and "12:30 PM". So it now reads each agenda line with its zone
+// and compares instants, as the invite check does (agendaWhy), and checks the
+// dates in that zone. A stale preview (an earlier date) still refuses.
+const AGENDA_TIME=/^\d{1,2}:\d\d\s*[AP]M - \d{1,2}:\d\d\s*[AP]M \([^)]+\)/;
+// A line that is only a name, or pieces of "(LinkedIn)": Ashby splits it over
+// lines ("Mary Petrino (", "LinkedIn", ")"). Brackets and "LinkedIn" are set
+// aside, and what's left must be empty or two to four capitalised words.
+const NAME=/^\p{Lu}[\p{L}'’.-]*(?: \p{Lu}[\p{L}'’.-]*){1,3}$/u;
+const isNameLine=l=>{const core=l.replace(/[()]/g,' ').replace(/\bLinkedIn\b/g,' ').replace(/\s+/g,' ').trim();return !core||NAME.test(core);};
+// The body's agenda items: each time line, with the name-only lines directly
+// below it. Any other line ends the item. Every item is then checked by
+// agendaWhy, so a name that isn't approved still refuses.
+function emailAgendaItems(body){
+  const items=[];let open=false;
+  for(const raw of String(body||'').split(/\n+/)){
+    const l=raw.replace(/\s+/g,' ').trim();
+    if(!l)continue;
+    if(AGENDA_TIME.test(l)){items.push(l);open=true;}
+    else if(open&&isNameLine(l))items[items.length-1]+='\n'+l;
+    else open=false;
+  }
+  return items;
+}
 function checkConfirmationEmail({subject,body},plan){
-  const s=(subject||'').replace(/\s+/g,' '),b=(body||'').replace(/\s+/g,' '),why=[];
-  const first=formats(plan.sessions[0].start,plan.timeZone);
-  if(!s.includes(first.shortDate))why.push(`the subject ("${s.slice(0,120)}") doesn't show ${first.shortDate}`);
-  if(!b.includes(first.longDate))why.push(`the body doesn't show ${first.longDate}`);
-  for(const x of plan.sessions){const f=formats(x.start,plan.timeZone);if(!b.includes(f.upper)&&!b.includes(f.lower))why.push(`the body doesn't show "${x.title}" starting at ${f.upper}`);}
+  const s=(subject||'').replace(/\s+/g,' '),b=(body||'').replace(/\s+/g,' ');
+  const {why,firstOffset}=agendaWhy(emailAgendaItems(body),plan);
+  if(firstOffset!==null){
+    const day=wallClock(plan.sessions[0].start,firstOffset);
+    if(!s.includes(day.shortDate))why.unshift(`the subject ("${s.slice(0,120)}") doesn't show ${day.shortDate}`);
+    if(!b.includes(day.longDate))why.unshift(`the body doesn't show ${day.longDate}`);
+  }
   if(why.length)fail(`The candidate confirmation email doesn't match the approval: ${why.join('; ')}. It may be out of date.`,why);
 }
 
@@ -319,16 +352,6 @@ function checkInviteDropdowns({start,end,dropdowns}){
   const shown=(dropdowns||[]).map(t=>String(t).replace(/\s+/g,' ').trim());
   if(!same([...shown].sort(),[...INVITE_DROPDOWNS].sort()))
     fail(`The Calendar Invites settings show ${shown.length?shown.map(t=>`"${t.slice(0,60)}"`).join(', '):'no dropdowns'}; they must be exactly two "Send calendar invites" and one "Send one invite per block".`);
-}
-
-// TEMPORARY (Hayley, 2026-10-19): the confirmation email's lines that hold a
-// date or time, logged once on TEST to see the email's format, so its check
-// can read times with their zone as the invite check does. Removed once seen;
-// no other email text is logged. Capped at 20 lines of 200 characters.
-const DATE_OR_TIME=/\b\d{1,2}:\d\d\b|\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*\b|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.? \d{1,2}\b/;
-function emailDateTimeLines({subject,body}){
-  const lines=[`Subject: ${subject||''}`,...String(body||'').split(/\n+/)].map(l=>l.replace(/\s+/g,' ').trim()).filter(l=>DATE_OR_TIME.test(l));
-  return lines.slice(0,20).map(l=>l.slice(0,200));
 }
 
 // Dialogs. Confirmable warnings are an explicit allowlist (empty for now);
@@ -357,4 +380,4 @@ function classifyDialog(text){
   return {action:'stop',reason:`Ashby showed a dialog the booking doesn't recognise: "${t.slice(0,160)}". Nothing was confirmed.`};
 }
 
-module.exports={emailDateTimeLines,zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};
+module.exports={emailAgendaItems,zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};

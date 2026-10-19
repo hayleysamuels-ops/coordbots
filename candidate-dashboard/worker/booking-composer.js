@@ -19,7 +19,7 @@
 const {guardWrites}=require('./template-guard');
 const {sendRecipientsOutside}=require('./booking-locks');
 const {installBookingPermits,installPermit,ORIGIN,OP}=require('./booking-permit');
-const {emailDateTimeLines,checkFinal,formats,composerZone,checkInviteDropdowns,partitionPreviews,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog}=require('./booking-check');
+const {checkFinal,formats,composerZone,checkInviteDropdowns,partitionPreviews,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog}=require('./booking-check');
 
 class Refusal extends Error{constructor(step,message){super(message);this.step=step;this.status=409;}}
 const esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
@@ -182,7 +182,7 @@ const replied=json=>!!json&&!(json.errors&&json.errors.length);
 //     draft for this schedule), which is deleted first;
 //   `keepOnSuccess` leaves the composed draft in Ashby for a person to send.
 //     Any refusal still deletes it.
-async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,expectedIdentity,checkExistingDrafts=false,supersedeDraftId=null,keepOnSuccess=false,logEmailLines=false}){
+async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,expectedIdentity,checkExistingDrafts=false,supersedeDraftId=null,keepOnSuccess=false}){
   const T={settle:700,short:1500,wait:15000,...timing};
   const events=[];const note=e=>{events.push(e);log(e);};
   const guard=await guardWrites(context,{warn:m=>note({type:'blocked',detail:m.replace('[write-guard] ','')})});
@@ -448,9 +448,6 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
       const subject=(await (await field('Subject','*[@contenteditable="true"]','the email\'s subject')).innerText()).replace(/\s+/g,' ').trim();
       const body=await (await one(page.getByRole('combobox',{name:'Rich text editor',exact:true}),'the email body')).innerText();
       if(!subject)refuse('Couldn\'t read the confirmation email\'s subject.');
-      // TEMPORARY, once on TEST (booking-compose.js decides): the email's date
-      // and time lines, before the check, so they're seen even if it refuses.
-      if(logEmailLines){note({type:'email-lines',lines:emailDateTimeLines({subject,body})});report.emailLinesLogged=true;}
       try{checkConfirmationEmail({subject,body},shown);}catch(e){refuse(e.message);}
       from=(await (await field('From','button','the email\'s sender')).innerText()).replace(/\s+/g,' ').trim()||null;
       if(!from||!/<[^>]+@[^>]+>/.test(from))refuse('Couldn\'t read who the confirmation email is from.');

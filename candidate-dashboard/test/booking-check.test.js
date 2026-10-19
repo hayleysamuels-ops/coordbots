@@ -197,14 +197,45 @@ test('invite previews are whose their place says: one candidate preview between 
     assert.throws(()=>c.partitionPreviews(read,n),why);
 });
 
-test('a stale confirmation email (an earlier date) refuses',()=>{
-  const fresh={subject:'Confirmed: Interview with Luminai - Tue, Oct 20, 2026',body:'Hi TEST, Agenda: Tuesday, October 20, 2026 1:05 PM - 1:35 PM Initial'};
-  c.checkConfirmationEmail(fresh,plan);
-  // Seen live: the preview kept Wed, Oct 14 after the draft moved, until it was refreshed.
-  const stale={subject:'Confirmed: Interview with Luminai - Wed, Oct 14, 2026',body:'Agenda: Wednesday, October 14, 2026 10:00 AM'};
-  assert.throws(()=>c.checkConfirmationEmail(stale,plan),/doesn't show Tue, Oct 20, 2026.*It may be out of date/);
+// The confirmation email as logged on October 19 (TEST's Onsite, approved for
+// Tue Oct 20 18:00Z), in the candidate's zone; Mary's name on its own line.
+const person=(name,email)=>({userId:'u-'+name.split(' ')[0].toLowerCase(),name,email});
+const JOE=person('Joe Penn','joe@luminai.com'),ANNA=person('Anna Jones','anna@luminai.com');
+const oct20={...plan,sessions:[[18,HAYLEY],[18.5,JOE],[19,MARY2],[19.5,ANNA],[20,HAYLEY]].map(([h,who])=>({title:'Onsite',interviewId:'i',interviewers:[who],
+  start:new Date(Date.UTC(2026,9,20,Math.floor(h),(h%1)*60)).toISOString(),end:new Date(Date.UTC(2026,9,20,Math.floor(h),(h%1)*60+30)).toISOString()})).concat([
+  {title:'Lunch',interviewId:'i',interviewers:[HAYLEY],start:'2026-10-20T20:30:00.000Z',end:'2026-10-20T21:00:00.000Z'}])};
+const email={subject:'Confirmed: Interview with Luminai - Tue, Oct 20, 2026',body:['Hi TEST,','Here is your schedule.','Tuesday, October 20, 2026',
+  '11:00 AM - 11:30 AM (PDT) - Onsite - Hayley Samuels','11:30 AM - 12:00 PM (PDT) - Onsite - Joe Penn','12:00 PM - 12:30 PM (PDT) - Onsite','Mary Petrino (','LinkedIn',')',
+  '12:30 PM - 1:00 PM (PDT) - Onsite - Anna Jones','1:00 PM - 1:30 PM (PDT) - Onsite - Hayley Samuels','1:30 PM - 2:00 PM (PDT) - Lunch - Hayley Samuels','See you then.','Luminai Recruiting'].join('\n')};
+
+test('the confirmation email is read like the invite: each agenda line\'s zone, compared as instants, with names on their own lines',()=>{
+  c.checkConfirmationEmail(email,oct20);
+  // Mary's name sits on its own line, and is attached to her session.
+  assert.equal(c.emailAgendaItems(email.body)[2],'12:00 PM - 12:30 PM (PDT) - Onsite\nMary Petrino (\nLinkedIn\n)');
+  // A line that isn't a name ends the item: "See you then." isn't read as an interviewer.
+  assert.equal(c.emailAgendaItems(email.body)[5],'1:30 PM - 2:00 PM (PDT) - Lunch - Hayley Samuels');
+  // The same instants in Mountain time pass too.
+  const mountain=email.body.replace(/(\d{1,2}):(\d\d) ([AP]M) - (\d{1,2}):(\d\d) ([AP]M) \(PDT\)/g,(m,h1,m1,a1,h2,m2,a2)=>{
+    const t=(h,mm,ap)=>{let x=(Number(h)%12+(ap==='PM'?12:0))*60+Number(mm)+60;const hh=Math.floor(x/60)%24;return `${hh%12||12}:${String(x%60).padStart(2,'0')} ${hh>=12?'PM':'AM'}`;};
+    return `${t(h1,m1,a1)} - ${t(h2,m2,a2)} (MDT)`;});
+  c.checkConfirmationEmail({...email,body:mountain},oct20);
 });
 
+test('the old substring check passed by coincidence; reading zones and instants doesn\'t',()=>{
+  // October 19: the old check looked for Mountain start times as substrings,
+  // and "2:00 PM" and "2:30 PM" matched inside the Pacific "12:00 PM" and
+  // "12:30 PM". Labelled as Mountain, those same lines are an hour early: refused.
+  assert.throws(()=>c.checkConfirmationEmail({...email,body:email.body.replace(/\(PDT\)/g,'(MDT)')},oct20),/agenda item 1 reads "11:00 AM - 11:30 AM \(MDT\)", not the approved 12:00–12:30 at that offset/);
+});
+
+test('the confirmation email refuses on a stale date, a missing zone, a stranger, or a missing name',()=>{
+  // Seen live on October 13: the preview kept an earlier date until it was refreshed.
+  assert.throws(()=>c.checkConfirmationEmail({...email,subject:'Confirmed: Interview with Luminai - Mon, Oct 19, 2026'},oct20),/the subject .* doesn't show Tue, Oct 20, 2026.*It may be out of date/);
+  assert.throws(()=>c.checkConfirmationEmail({...email,body:email.body.replace('Tuesday, October 20','Monday, October 19')},oct20),/the body doesn't show Tuesday, October 20, 2026/);
+  assert.throws(()=>c.checkConfirmationEmail({...email,body:email.body.replace(/ \(PDT\)/g,'')},oct20),/its agenda has 0 items, but 6 sessions were approved/);
+  assert.throws(()=>c.checkConfirmationEmail({...email,body:email.body.replace('Mary Petrino (','Gabrielle Struckell (')},oct20),/agenda item 3 doesn't name Mary Petrino; agenda item 3 also names "Gabrielle Struckell", who wasn't approved/);
+  assert.throws(()=>c.checkConfirmationEmail({...email,body:email.body.replace(' - Joe Penn','')},oct20),/agenda item 2 doesn't name Joe Penn/);
+});
 test('the dropdown invite layout: exactly two "Send calendar invites" and one "Send one invite per block", or it refuses',()=>{
   const ok={start:true,end:true,dropdowns:['Send calendar invites','Send calendar invites','Send one invite per block']};
   c.checkInviteDropdowns(ok);

@@ -806,15 +806,22 @@ file permits it or the composer clicks Schedule.
      it is clicked, and the write guard still blocks any write the click might
      attempt. A plain "Schedule" button is never clicked.
   2. **The confirmation email check must pass on its own** before Send goes
-     live. It first passed on October 19, but it only looks for each start
-     time as text in the composer's zone, and Pacific and Mountain start times
-     overlap, so that pass is weak. TEMPORARY: to see the email's format, the
-     next TEST check logs just the email's lines that hold a date or time
-     (`confirmation email date/time lines`), once: a marker file beside the
-     saved session (`email-lines-logged`) stops any later run. Hayley asked
-     for it to be removed once seen, so candidate-facing email text doesn't
-     accumulate in logs; remove the logging and the marker then, and fix the
-     check to read the email's times as the invite check does. It's now on in Luminai's Onsite template, and its date and times are
+     live. Why the old check was wrong: it searched the email body for each
+     session's start time, in the composer's zone (Mountain), as a substring.
+     On October 19 it passed on an email whose times were all Pacific, because
+     "2:00 PM" matched inside "12:00 PM" and "2:30 PM" inside "12:30 PM". A
+     contains-match can pass without understanding anything. The email's
+     format was seen by logging only its date and time lines, once, on TEST
+     (since removed, with its marker, so no candidate-facing email text stays
+     in the logs): the same agenda as the candidate invite, one line per
+     session such as "11:00 AM - 11:30 AM (PDT) - Onsite - Hayley Samuels", in
+     the candidate's zone, with a name sometimes on its own line instead
+     (Mary Petrino's, split as "Mary Petrino (", "LinkedIn", ")"). The check
+     now reads it like the invite: each agenda line's zone, times compared as
+     moments, the subject's and body's dates in that zone, every approved
+     interviewer named (a name-only line below a time line belongs to it) and
+     no one else. A stale date, a missing zone, a stranger or a missing name
+     refuses. It's now on in Luminai's Onsite template, and its date and times are
      still compared as text in the composer's zone; enabling Send while that's
      unproven would dispatch an email nothing has verified.
   3. **Then Send**: a re-read of the draft compared with the approval right
