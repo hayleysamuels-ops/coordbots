@@ -53,13 +53,17 @@ async function installPermit(context,{origin=ORIGIN,op,max=1,bound,respond=async
   return {get count(){return count;}};
 }
 
+// A save as the log shows it: each event's times and selected interviewers.
+const hm=ms=>Number.isFinite(ms)?new Date(ms).toISOString().slice(0,16)+'Z':'?';
+const saveSummary=events=>events.map((e,i)=>`${i+1} ${hm(e.start)}–${hm(e.end).slice(11)} ${e.slots.map(s=>s.selected||'-').join('+')}`);
+
 // The booking's permits, sharing one `state`:
 //   draftId     set from the create response; until then, nothing draft-bound passes
 //   last        the last accepted draft contents
 //   refusals    every save refused on content, with the reason
 //   cleanup     true only while the draft is being deleted
 async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxSaves=25,maxRefreshes=10}){
-  Object.assign(state,{draftId:null,last:null,saves:0,lastSaveAt:0,lastRefreshAt:0,refusals:[],baselineError:null,cleanup:false,sent:0,lastSeq:0,zone:null});
+  Object.assign(state,{draftId:null,last:null,saves:0,lastSaveAt:0,lastRefreshAt:0,refusals:[],baselineError:null,cleanup:false,sent:0,lastSeq:0,zone:null,attempts:0});
   const forDraft=v=>!!state.draftId&&v.draftInterviewScheduleId===state.draftId;
   const ok=json=>json&&!(json.errors&&json.errors.length);
   const permits={};
@@ -77,12 +81,18 @@ async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxS
   permits.save=await installPermit(context,{op:OP.save,max:maxSaves,respond,log,
     bound:v=>{
       if(!forDraft(v)||!state.last||state.baselineError)return false;
-      try{const next=normalizeDraft(v.draftSchedule);checkSave(state.last,next,plan,{compareRest:state.saves>0,timeZone:state.zone});return {next,seq:++state.sent};}
-      catch(e){state.refusals.push(e.message);log({type:'refused-save',reason:e.message});return false;}
+      // Every save attempt is numbered once, passed or refused, for the log;
+      // `seq` orders the replies.
+      const attempt=++state.attempts;
+      try{const next=normalizeDraft(v.draftSchedule);checkSave(state.last,next,plan,{compareRest:state.saves>0,timeZone:state.zone});
+        const seq=++state.sent;log({type:'save-checked',seq:attempt,ok:true,events:saveSummary(next)});return {next,seq,attempt};}
+      catch(e){state.refusals.push(e.message);log({type:'refused-save',seq:attempt,reason:e.message});return false;}
     },
     // Replies can arrive out of order; only the most recently sent accepted
     // save becomes the draft's current contents.
-    onResponse:(json,_status,verdict)=>{if(ok(json)){state.saves++;state.lastSaveAt=Date.now();if(verdict.seq>state.lastSeq){state.last=verdict.next;state.lastSeq=verdict.seq;}}}});
+    onResponse:(json,status,verdict)=>{
+      log({type:'save-result',seq:verdict.attempt,accepted:ok(json),status,...(ok(json)?{}:{errors:(json?.errors||[]).map(e=>String(e.message).slice(0,160)).slice(0,3)})});
+      if(ok(json)){state.saves++;state.lastSaveAt=Date.now();if(verdict.seq>state.lastSeq){state.last=verdict.next;state.lastSeq=verdict.seq;}}}});
   permits.refresh=await installPermit(context,{op:OP.refresh,max:maxRefreshes,respond,log,bound:forDraft,
     onResponse:json=>{if(ok(json))state.lastRefreshAt=Date.now();}});
   permits.discard=await installPermit(context,{op:OP.discard,max:1,respond,log,

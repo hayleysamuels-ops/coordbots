@@ -97,6 +97,28 @@ test('each sweep delete is logged with what happened to the draft',async()=>{
     `[booking] Unsent draft ${DRAFT} for 22222222-3333-4444-8555-666666666666: deleted`]);
 });
 
+test('typed times, each save and the communications screen are logged as the check runs',async()=>{
+  const {detailLine}=require('../worker/booking-compose');
+  assert.equal(detailLine({type:'typed',session:1,title:'Onsite',zone:'MDT',approved:'2026-10-20T18:00:00.000Z–2026-10-20T18:30:00.000Z',
+    date:{value:'Tue, Oct 20',typed:true},start:{value:'12:00pm',typed:true},end:{value:'12:30pm',typed:false}}),
+    'session 1 ("Onsite") entered: Tue, Oct 20, 12:00pm – 12:30pm (already set) MDT; approved 2026-10-20T18:00:00.000Z–2026-10-20T18:30:00.000Z');
+  assert.equal(detailLine({type:'save-checked',seq:2,events:['1 2026-10-20T18:00Z–18:30Z u-h']}),'save 2 passed the content check: 1 2026-10-20T18:00Z–18:30Z u-h');
+  assert.equal(detailLine({type:'refused-save',seq:3,reason:'A draft save was refused: x.'}),'save 3 REFUSED by the content check: A draft save was refused: x.');
+  assert.equal(detailLine({type:'save-result',seq:2,accepted:true,status:200}),'save 2 accepted by Ashby');
+  assert.equal(detailLine({type:'save-result',seq:4,accepted:false,status:200,errors:['nope']}),'save 4 NOT accepted by Ashby (HTTP 200: nope)');
+  assert.equal(detailLine({type:'screen',at:'refused',path:'/p',controls:[{el:'input',type:'checkbox',name:'Send Candidate Invite',checked:true}]}),
+    'screen (refused): {"path":"/p","controls":[{"el":"input","type":"checkbox","name":"Send Candidate Invite","checked":true}]}');
+  assert.equal(detailLine({type:'permitted'}),null);
+  // Printed as the run goes, under the check's tag.
+  const lines=[];
+  const {deps}=fakes();
+  deps.composer={dryRun:async o=>{o.log({type:'typed',session:1,title:'First Round',zone:'MDT',approved:'a–b',date:{value:'Thu, Oct 15',typed:true},start:{value:'1:00pm',typed:true},end:{value:'1:30pm',typed:true}});
+    o.log({type:'permitted'});return {status:'composed',draftId:DRAFT,cleanup:{kept:true,draftId:DRAFT}};}};
+  await compose({env,payload:{plan},...deps,say:l=>lines.push(l)});
+  assert.equal(lines.length,3);
+  assert.equal(lines[1],'[booking] Ashby check session 1 ("First Round") entered: Thu, Oct 15, 1:00pm – 1:30pm MDT; approved a–b');
+});
+
 // The routes, over HTTP, with a stand-in draft reader and check.
 async function serve({inspect,chromium=null,writeWaitMs=400,signIn=false}){
   const secret='s'.repeat(40);

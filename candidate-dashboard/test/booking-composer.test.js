@@ -175,3 +175,29 @@ test('the sweep\'s delete removes exactly the named draft, and reports one that\
   assert.deepEqual(gone.report,{deleted:false,absent:true,draftId:'d-old'});
   assert.deepEqual(gone.received,[]);
 });
+
+test('the screen snapshot lists each control and its state, hidden ones marked, and whether anything is loading, but never field values or editor text',async t=>{
+  const {screenSnapshot}=require('../worker/booking-composer');
+  const browser=await launch();if(!browser){t.skip('no Chromium available');return;}
+  t.after(()=>browser.close());
+  const page=await browser.newPage();
+  await page.setContent(`<h2>Calendar Invites</h2>
+    <label><input type="checkbox" checked> Send Candidate Invite</label>
+    <div role="checkbox" aria-checked="false" aria-label="Send Interviewer Invites" tabindex="0"></div>
+    <button disabled>Next</button><a href="/schedules/drafts/d/communication/email?x=1">Candidate Confirmation Email On</a>
+    <input aria-label="Subject" value="secret subject"><div contenteditable="true">Dear candidate, private text</div>
+    <div aria-busy="true"></div><div role="progressbar"></div><p>Loading previews</p><button style="display:none">Hidden</button>`);
+  const snap=await screenSnapshot(page,{inflight:()=>2});
+  const by=n=>snap.controls.find(c=>c.name===n||c.text===n);
+  assert.deepEqual(by('Send Candidate Invite'),{el:'input',type:'checkbox',name:'Send Candidate Invite',checked:true});
+  // Zero-size, like a styled checkbox's real input: kept, and marked hidden.
+  assert.deepEqual(by('Send Interviewer Invites'),{el:'div',role:'checkbox',name:'Send Interviewer Invites',checked:false,hidden:true});
+  assert.deepEqual(by('Next'),{el:'button',text:'Next',disabled:true});
+  assert.equal(by('Candidate Confirmation Email On').path,'/schedules/drafts/d/communication/email');
+  assert.deepEqual(by('Subject'),{el:'input',type:'text',name:'Subject'});
+  assert.ok(snap.controls.some(c=>c.editorLength===28));
+  assert.deepEqual(by('Hidden'),{el:'button',text:'Hidden',hidden:true});
+  assert.doesNotMatch(JSON.stringify(snap),/secret subject|private text/);
+  assert.deepEqual(snap.headings,['Calendar Invites']);
+  assert.deepEqual(snap.loading,{ariaBusy:1,progressbars:1,spinners:0,text:['Loading previews'],graphqlInFlight:2});
+});

@@ -69,13 +69,31 @@ function composeOutcome(r){
   return `${head}; ${made}${kept?`, ${kept}`:''}${replaced}${zone}${writes}`;
 }
 
+// A composer event as a log line, for the ones worth reading afterwards:
+// each session's entered times, each save's check and Ashby's answer, and
+// the communications screen's controls (as JSON, which is what resolves an
+// unrecognised screen). Other events return null.
+function detailLine(e){
+  const field=f=>f?`${f.value}${f.typed?'':' (already set)'}`:'?';
+  switch(e.type){
+    case 'typed':return `session ${e.session} ("${short(e.title)}") entered: ${field(e.date)}, ${field(e.start)} – ${field(e.end)} ${e.zone}; approved ${e.approved}`;
+    case 'save-checked':return `save ${e.seq} passed the content check: ${e.events.join('; ')}`;
+    case 'refused-save':return `save ${e.seq} REFUSED by the content check: ${short(e.reason)}`;
+    case 'save-result':return `save ${e.seq} ${e.accepted?'accepted by Ashby':`NOT accepted by Ashby (HTTP ${e.status}${e.errors?.length?`: ${e.errors.join('; ')}`:''})`}`;
+    case 'screen':{const {type,at,...rest}=e;return `screen (${at}): ${JSON.stringify(rest)}`;}
+    case 'dialog':return `dialog: ${short(e.text)}`;
+    default:return null;
+  }
+}
+
 async function compose({env,payload,chromium,loadSession,clientId,expectedIdentity,now=Date.now(),log=()=>{},say=console.log,composer=require('./booking-composer')}){
   const plan=payload?.plan,supersedeDraftId=payload?.supersedeDraftId??null;
   const tag=`[booking] Ashby check${ID.test(String(payload?.proposalId||''))?` for ${payload.proposalId}`:''}`;
   say(`${tag} started: application ${short(plan?.applicationId)}, schedule ${short(plan?.interviewScheduleId)}, ${plan?.sessions?.length??0} session(s), plan zone ${short(plan?.timeZone)}${supersedeDraftId?`, replacing draft ${short(supersedeDraftId)}`:''}`);
   // Draft IDs as they're learned, so a deadline can still name the draft.
+  // The steps worth reading afterwards are logged as they happen.
   let draftId=null;
-  const note=e=>{if(e.draftId)draftId=e.draftId;log(e);};
+  const note=e=>{if(e.draftId)draftId=e.draftId;log(e);const line=detailLine(e);if(line)say(`${tag} ${line}`);};
   try{
     if(supersedeDraftId!==null&&!ID.test(String(supersedeDraftId)))throw Object.assign(Error('The earlier draft reference isn\'t a draft ID.'),{status:422});
     const ready=await prepare({env,plan,loadSession,clientId,expectedIdentity,now});
@@ -117,4 +135,4 @@ async function discard({env,payload,chromium,loadSession,clientId,expectedIdenti
   }
 }
 
-module.exports={compose,discard,composeOutcome,DEADLINE_MS};
+module.exports={compose,discard,composeOutcome,detailLine,DEADLINE_MS};

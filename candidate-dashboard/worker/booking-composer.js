@@ -36,7 +36,7 @@ function networkWatch(page,{sleep,wait}){
   const gql=r=>r.url().startsWith(ORIGIN+'/api/graphql');
   page.on('request',r=>{if(gql(r)){inflight++;lastChange=Date.now();}});
   for(const ev of ['requestfinished','requestfailed'])page.on(ev,r=>{if(gql(r)){inflight=Math.max(0,inflight-1);finished++;lastChange=Date.now();}});
-  return {mark(){since=finished;},async settled(){const d=Date.now()+wait;while(Date.now()<d){if(finished>since&&inflight===0&&Date.now()-lastChange>=1000)return true;await sleep(200);}return false;}};
+  return {inflight:()=>inflight,mark(){since=finished;},async settled(){const d=Date.now()+wait;while(Date.now()<d){if(finished>since&&inflight===0&&Date.now()-lastChange>=1000)return true;await sleep(200);}return false;}};
 }
 const NETWORK_ERROR=/problem with the network connection/;
 // Open the candidate's application panel. Read-only: it navigates and reads,
@@ -73,6 +73,45 @@ async function openApplication(page,plan,{refuse,sleep,go,net,T,expectedIdentity
     }
   }
   refuse(`Couldn't open ${plan.candidate.name}'s application: Ashby showed a network error or the panel never showed ${plan.candidate.email}, twice.`);
+}
+
+// What a screen holds, for the log when the run arrives at one it may not
+// recognise, or stops on it: every control (role or tag, type, accessible
+// name, visible text, and its checked, disabled, expanded, selected and
+// hidden states), the headings, and whether anything is still loading. Never field
+// values or editable text: inputs give their type and name only, and an
+// editor its length. Capped so a log line stays readable.
+async function screenSnapshot(page,net){
+  const snap=await page.evaluate(()=>{
+    const clip=(v,n=60)=>String(v||'').replace(/\s+/g,' ').trim().slice(0,n);
+    const visible=el=>{const r=el.getBoundingClientRect();return r.width>0&&r.height>0&&getComputedStyle(el).visibility!=='hidden';};
+    const sel='button,a[href],input,select,textarea,[contenteditable="true"],[role="button"],[role="link"],[role="checkbox"],[role="switch"],[role="radio"],[role="tab"],[role="combobox"],[role="menuitem"],[role="option"],[role="textbox"]';
+    const all=[...document.querySelectorAll(sel)];
+    // Hidden controls are kept and marked: a styled checkbox is often a
+    // zero-size input behind its label, and that's the one a lookup finds.
+    const controls=all.slice(0,150).map(el=>{
+      const c={el:el.tagName.toLowerCase()};
+      const role=el.getAttribute('role');if(role)c.role=role;
+      if(el.type&&el.tagName!=='BUTTON'&&el.tagName!=='A')c.type=el.type;
+      const name=el.getAttribute('aria-label')||(el.getAttribute('aria-labelledby')||'').split(/\s+/).map(id=>document.getElementById(id)?.innerText||'').join(' ').trim()||(el.labels&&el.labels[0]?.innerText)||el.getAttribute('placeholder')||el.getAttribute('title')||'';
+      if(name)c.name=clip(name);
+      if(el.isContentEditable)c.editorLength=(el.innerText||'').length;
+      else if(!['INPUT','SELECT','TEXTAREA'].includes(el.tagName)){const t=clip(el.innerText);if(t&&t!==c.name)c.text=t;}
+      if(el.tagName==='A')c.path=(el.getAttribute('href')||'').split(/[?#]/)[0].slice(0,80);
+      const checked=el.type==='checkbox'||el.type==='radio'?el.checked:el.getAttribute('aria-checked');if(checked!=null&&checked!==undefined)c.checked=checked===true||checked==='true'?true:checked===false||checked==='false'?false:checked;
+      if(el.disabled||el.getAttribute('aria-disabled')==='true')c.disabled=true;
+      for(const a of ['aria-expanded','aria-selected','aria-pressed'])if(el.hasAttribute(a))c[a.slice(5)]=el.getAttribute(a);
+      if(!visible(el))c.hidden=true;
+      return c;
+    });
+    const loadingText=(document.body.innerText.match(/\bLoading\b[^\n]{0,30}/gi)||[]).slice(0,5);
+    return {path:location.pathname,controls,controlsTotal:all.length,
+      headings:[...document.querySelectorAll('h1,h2,h3,[role="heading"]')].filter(visible).map(h=>clip(h.innerText,80)).filter(Boolean).slice(0,30),
+      loading:{ariaBusy:document.querySelectorAll('[aria-busy="true"]').length,progressbars:document.querySelectorAll('[role="progressbar"]').length,
+        spinners:document.querySelectorAll('[class*="spinner" i],[class*="loading" i],[class*="skeleton" i]').length,text:loadingText}};
+  });
+  if(net)snap.loading.graphqlInFlight=net.inflight();
+  return snap;
 }
 
 // Waiting and finding, shared by the run and by deleting a draft on its own.
@@ -241,14 +280,20 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
       try{if(composerZone(await zoneButtons.allInnerTexts(),s.start)!==state.zone)refuse(`The composer's time zone changed from ${state.zone} while composing.`);}
       catch(e){if(e instanceof Refusal)throw e;refuse(`${e.message} (at ${what}'s date)`);}
       const wantDate=a.shortDate.replace(/, \d{4}$/,'');// "Tue, Oct 20"
+      // What was entered, for the log: each field's value, and whether it had
+      // to be typed or already matched.
+      const typed={type:'typed',session:i+1,title:s.title,zone:a.zone,approved:`${s.start}–${s.end}`};
       {const {date}=await editor(eventId,what);
-        if(await date.inputValue()!==wantDate)await after(async()=>{await date.click();await date.fill(wantDate);await page.keyboard.press('Enter');});}
+        typed.date={value:wantDate,typed:await date.inputValue()!==wantDate};
+        if(typed.date.typed)await after(async()=>{await date.click();await date.fill(wantDate);await page.keyboard.press('Enter');});}
       for(const [k,want] of [['start',a.lower],['end',b.lower]]){
         const field=(await editor(eventId,what))[k];
-        if(await field.inputValue()===want)continue;
+        typed[k]={value:want,typed:await field.inputValue()!==want};
+        if(!typed[k].typed)continue;
         await after(async()=>{await field.click();await field.fill(want);
           const option=await one(timeOption(want),`the "${want}" option for ${what}'s ${k}`);await option.click();});
       }
+      note(typed);
       for(let j=0;j<s.interviewers.length;j++){
         const p=s.interviewers[j];
         if(state.last[i].slots[j].selected===p.userId)continue;
@@ -284,6 +329,9 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     step='configure communications';
     await after(async()=>(await one(page.getByRole('button',{name:'Configure Communications',exact:true}),'"Configure Communications"')).click());
     await until(async()=>new URL(page.url()).pathname===`/schedules/drafts/${state.draftId}/communication/calendar-invites`,'the Calendar Invites screen');
+    // What the screen holds on arrival, before anything is looked for on it.
+    await sleep(T.settle);
+    note({type:'screen',at:'arrived',...await screenSnapshot(page,net).catch(e=>({error:e.message}))});
     // "Send Interviewer Invite" for one session, "...Invites" for several.
     const interviewerBox=page.getByRole('checkbox',{name:/^Send Interviewer Invites?$/});
     for(const [box,name] of [[page.getByRole('checkbox',{name:'Send Candidate Invite',exact:true}),'Send Candidate Invite'],[interviewerBox,'Send Interviewer Invite(s)']])
@@ -347,6 +395,9 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
   }catch(e){
     report.step=e.step||step;report.reason=e.message;
     if(!(e instanceof Refusal))report.status='error';
+    // Stopped on a communications screen: what it holds now, after the wait.
+    if(/\/communication\//.test(page.url())||['configure communications','candidate confirmation email'].includes(report.step))
+      note({type:'screen',at:'refused',...await screenSnapshot(page,net).catch(err=>({error:err.message}))});
     // Where it stopped, without page contents: the path, dialog names, and
     // whether Ashby was showing one of its own error states.
     report.pageState=await page.evaluate(()=>({path:location.pathname,
@@ -422,4 +473,4 @@ async function discardDraft({context,page,plan,draftId,log=()=>{},timing={},resp
   finally{log({type:'blocked-summary',blocked:[...new Set(guard.blocked.filter(b=>b.ashby).map(b=>b.summary))]});}
 }
 
-module.exports={dryRun,discardDraft,openApplication,networkWatch,Refusal};
+module.exports={dryRun,discardDraft,openApplication,networkWatch,screenSnapshot,Refusal};

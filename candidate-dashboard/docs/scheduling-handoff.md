@@ -742,6 +742,16 @@ file permits it or the composer clicks Schedule.
   created, kept, deleted or left (and to delete by hand), the composer's zone and
   the save count. Each sweep delete logs what happened to the draft. Lines carry
   the dashboard draft's ID, which is the Slack post's "Draft reference".
+  As it runs, it also logs each session's entered date, start and end (and
+  whether each had to be typed or was already set), every save attempt by
+  number (passed or REFUSED by the content check, with its times and selected
+  interviewers, then whether Ashby accepted it), any dialog, and the
+  communications screen as JSON: on arrival, and again if the check stops on
+  it. The screen line lists every control (role or tag, type, name, text, and
+  checked, disabled, expanded, selected and hidden states), the headings, and
+  loading signals (GraphQL requests in flight, `aria-busy`, progress bars,
+  spinners, "Loading" text). Never field values or email text: inputs give
+  their type and name, the email editor its length.
 - **How it runs** (`src/scheduling/ashby-check.js`): the approving click queues the
   check (`ashbyCheck` on the draft, revision-checked). Checks run one at a time in
   approval order, each as one signed `compose` request to the worker

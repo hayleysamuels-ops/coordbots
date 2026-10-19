@@ -78,3 +78,16 @@ test('a draft that doesn\'t match the approval still records its ID for cleanup,
   s.state.cleanup=true;
   assert.equal(await s.send(OP.discard,{draftInterviewScheduleId:'draft-1'}),200,'it can still be cleaned up');
 });
+
+test('each save is logged with its number, its check result and its times, then whether Ashby accepted it',async t=>{
+  const s=await setup(t);if(!s)return;
+  await s.send(OP.create,{interviewScheduleId:'sched-1'});
+  await s.send(OP.save,save({interviewSlots:[{selected:'u-hayley',alternates:[]}]}));
+  await s.send(OP.save,save({interviewSlots:[{selected:'u-stranger',alternates:[]}]}));
+  await s.send(OP.save,save({startTimeISO:'2099-10-20T19:05:00.000Z',endTimeISO:'2099-10-20T19:35:00.000Z',interviewSlots:[{selected:'u-hayley',alternates:[]}]}));
+  const saves=s.log.filter(e=>['save-checked','refused-save','save-result'].includes(e.type)).map(({type,seq,events,accepted,reason})=>({type,seq,...(events?{events}:{}),...(accepted!==undefined?{accepted}:{}),...(reason?{reason:/wasn't approved/.test(reason)}:{})}));
+  assert.deepEqual(saves,[
+    {type:'save-checked',seq:1,events:['1 2099-10-12T17:00Z–17:30Z u-hayley']},{type:'save-result',seq:1,accepted:true},
+    {type:'refused-save',seq:2,reason:true},
+    {type:'save-checked',seq:3,events:['1 2099-10-20T19:05Z–19:35Z u-hayley']},{type:'save-result',seq:3,accepted:true}]);
+});
