@@ -1452,7 +1452,9 @@ function computeOverview(clientPayloads, scopeKey) {
       roles: scopeOf(p).totals.roles,
       cancellations: scopeOf(p).totals.cancellations,
       reschedules: scopeOf(p).totals.reschedulesDerived,
-      shortNotice: scopeOf(p).totals.shortNotice,
+      // No Results metric belongs in the cross-client table — short
+      // notice was carried here with no renderer, which is how a
+      // not-comparable measure quietly becomes a column later.
       thisWeek: scopeOf(p).periods.week.current.events,
       // Absolute week-on-week change is rendered from these two, rather
       // than a percentage: on a base of two interviews a percentage

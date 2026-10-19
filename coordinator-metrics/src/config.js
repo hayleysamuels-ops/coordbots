@@ -126,8 +126,12 @@ const DEFAULT_COORDINATORS = [
   "Kelley Lantigua",
   // Sadiqeh Agah is deliberately absent: she matched no scheduled work
   // at any of the six clients here, because she works on one of the four
-  // that have no dashboard yet. Listing her only produced a standing
-  // "no matching work anywhere" warning.
+  // that have no dashboard yet — Polymarket, OpenAI Foundation, Source
+  // Foundry, Modal. Listing her only produced a standing "no matching
+  // work anywhere" warning.
+  //
+  // RE-ADD HER when any of those four is onboarded, or her work there
+  // will be counted as someone else's client activity rather than ours.
   "Anna Jones",
   "Hayley Samuels",
   "Meredith Faria",

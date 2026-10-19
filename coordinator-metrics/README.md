@@ -265,10 +265,15 @@ colour. Railway variables are not parsed by dotenv, so no quotes there.
    `EXCLUDED_TITLE_KEYWORDS_<ID>`.
 3. Redeploy, then `POST /api/sync?kind=full` to backfill the new tab.
 
-Clients with a Railway dashboard project today: January, Forus, Luminai,
-Poetic, Runlayer (and Profound, whose dashboard is switched off but whose
-key still works). Polymarket, OpenAI Foundation, Source Foundry and Modal
-have no key provisioned yet.
+Configured today: January, Forus, Luminai, Poetic, Runlayer and Profound
+(ended). Polymarket, OpenAI Foundation, Source Foundry and Modal have no
+key provisioned yet.
+
+**When one of those four is onboarded, add Sadiqeh Agah back to the
+roster.** She was removed because she matched no scheduled work at any
+configured client — she works on one of the four — and without her, her
+work there will be counted as the client's own activity rather than
+ours.
 
 ## Time zones
 
