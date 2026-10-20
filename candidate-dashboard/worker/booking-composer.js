@@ -3,9 +3,9 @@
 // dry run (booking-dry-run.js) then deletes the draft; the Slack-approved
 // check (booking-compose.js) leaves it for a person to send, and deletes it on
 // any refusal. Nothing is sent: Send isn't a permitted write
-// (booking-permit.js). Where "Schedule" is a dropdown (the six-session
-// layout), it's opened once to log its menu and closed with Escape; no item
-// in it is ever clicked (the observation before a robot Send, 2026-10-19).
+// (booking-permit.js). "Schedule" itself is clicked once, with the write
+// guard on, to log what it does (the observation before a robot Send,
+// 2026-10-19); nothing that follows is confirmed or clicked.
 //
 // Fail closed: every control is found by exact role and name and must appear
 // exactly once, or the run refuses. Every draft save is checked on content
@@ -464,26 +464,40 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     const outside=sendRecipientsOutside(plan);
     report.sendRecipients=outside.length?{allowed:false,outside}:{allowed:true};
     note({type:'send-recipients',...report.sendRecipients});
-    // The observation before a robot Send: where "Schedule" is a dropdown, open
-    // it once, log what it offers, and close it. Nothing in it is clicked, and
-    // the write guard still blocks any write the click might attempt (after()
-    // then refuses, naming it).
-    if((await schedule.getAttribute('aria-expanded'))!==null){
-      step='observe the Schedule menu';
-      await after(()=>schedule.click());
-      await sleep(T.short);
-      note({type:'screen',at:'schedule-menu',...await screenSnapshot(page,net).catch(e=>({error:e.message}))});
-      await page.keyboard.press('Escape');await sleep(T.settle);
-      if((await schedule.getAttribute('aria-expanded'))==='true')refuse('The Schedule menu didn\'t close after Escape.');
-      pass('Schedule menu opened, logged and closed; nothing in it was clicked');
-    }else note({type:'screen',at:'schedule-menu',note:'"Schedule" is a plain button here, not a dropdown; it was not clicked'});
+    // The observation before a robot Send (Hayley, 2026-10-19): click Schedule,
+    // plain button or dropdown, with the write guard on and no permit for Send,
+    // and log what follows: the path before and after, every write Ashby
+    // attempted (all blocked: Send can't leave the browser), any dialog, any
+    // menu, and the screen. Nothing is confirmed and nothing else is clicked. A
+    // dialog or a blocked write refuses (after(), once the log is written); so
+    // does a navigation, so no person inherits a draft in an unknown state. A
+    // menu is closed with Escape.
+    step='observe Schedule';
+    {
+      const pathBefore=new URL(page.url()).pathname,blockedBefore=guard.blocked.length,dropdown=(await schedule.getAttribute('aria-expanded'))!==null;
+      let stopped=null;
+      try{await after(()=>schedule.click());}catch(e){stopped=e;}
+      if(!stopped)await sleep(T.short);
+      const pathAfter=new URL(page.url()).pathname,expanded=await schedule.getAttribute('aria-expanded').catch(()=>null);
+      note({type:'screen',at:'schedule-clicked',dropdown,expanded,pathBefore,pathAfter,
+        attemptedWrites:guard.blocked.slice(blockedBefore).filter(x=>x.ashby).map(x=>x.summary),
+        stoppedBy:stopped?String(stopped.message).slice(0,300):null,
+        ...await screenSnapshot(page,net).catch(e=>({error:e.message}))});
+      if(stopped)throw stopped;
+      if(pathAfter!==pathBefore)refuse(`Clicking Schedule went to ${pathAfter}. Nothing was confirmed; the draft is deleted so no one inherits it mid-flow.`);
+      if(expanded==='true'){
+        await page.keyboard.press('Escape');await sleep(T.settle);
+        if((await schedule.getAttribute('aria-expanded'))==='true')refuse('The Schedule menu didn\'t close after Escape.');
+      }
+      pass(`Schedule clicked and logged (${expanded==='true'?'a menu opened and was closed':'nothing opened'}); nothing was confirmed`);
+    }
     pass(`Schedule button found and enabled (not clicked: ${keepOnSuccess?'left for a person to send':'dry run'})`);
     report.status=keepOnSuccess?'composed':'dry_run_complete';
   }catch(e){
     report.step=e.step||step;report.reason=e.message;
     if(!(e instanceof Refusal))report.status='error';
     // Stopped on a communications screen: what it holds now, after the wait.
-    if(/\/communication\//.test(page.url())||['configure communications','candidate confirmation email','observe the Schedule menu'].includes(report.step))
+    if(/\/communication\//.test(page.url())||['configure communications','candidate confirmation email'].includes(report.step))
       note({type:'screen',at:'refused',...await screenSnapshot(page,net).catch(err=>({error:err.message}))});
     // Where it stopped, without page contents: the path, dialog names, and
     // whether Ashby was showing one of its own error states.

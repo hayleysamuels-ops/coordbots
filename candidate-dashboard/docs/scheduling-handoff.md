@@ -800,7 +800,18 @@ file permits it or the composer clicks Schedule.
      list beside "the interview time is in the past": the check refuses and
      says the schedule needs a location in Ashby's Invite Settings. Hayley is
      setting it on Luminai's Onsite template; once that's done the menu
-     observation can proceed. On the six-session
+     observation can proceed. With the location set, the next run showed
+     "Schedule" as a plain button, so the dropdown-only observation didn't
+     click it. Since then (October 20) the check clicks Schedule whatever it
+     is, with the write guard on and no permit for Send, and logs one
+     `screen (schedule-clicked)` line: the path before and after, every write
+     Ashby attempted (blocked; a click that sends at once shows
+     `ApiScheduleInterviewScheduleFromDraft` here), any dialog, any menu, and
+     the screen. Nothing is confirmed or clicked after it. A dialog, a blocked
+     write or a navigation refuses (and deletes the draft); a menu is closed
+     with Escape.
+  - The confirmation email check passed on a real run (October 20), clearing
+    the gate for Send. On the six-session
      layout "Schedule" is a dropdown. The check opens it once, logs everything
      it offers (`screen (schedule-menu)`), and closes it with Escape. Nothing in
      it is clicked, and the write guard still blocks any write the click might

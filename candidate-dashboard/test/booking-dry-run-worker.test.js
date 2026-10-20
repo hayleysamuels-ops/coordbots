@@ -7,7 +7,7 @@
 // booking routes for the Slack-approved check (worker/booking-compose.js),
 // which load nothing else of it. Nothing the dashboard runs may load it, and
 // Send is never a permitted write anywhere, and Schedule is clicked only to
-// open its dropdown for the log.
+// log what it does.
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const fs=require('fs'),path=require('path');
 const {run,Stop}=require('../worker/booking-dry-run');
@@ -38,7 +38,7 @@ test('only the worker\'s booking routes reach the robot, through the Slack-appro
   assert.match(fs.readFileSync(path.join(root,'worker/Dockerfile'),'utf8'),/CMD \["node", "worker\/bootstrap\.js"\]/);
 });
 
-test('Send is never a permitted write, and the Schedule button is clicked only to open its dropdown for the log',()=>{
+test('Send is never a permitted write, and Schedule is clicked only to log what it does',()=>{
   const read=f=>fs.readFileSync(path.join(root,'worker',f),'utf8');
   for(const f of fs.readdirSync(path.join(root,'worker')).filter(f=>f.endsWith('.js'))){
     const src=read(f);
@@ -48,18 +48,19 @@ test('Send is never a permitted write, and the Schedule button is clicked only t
     assert.doesNotMatch(src,/op\s*:\s*['"]ApiScheduleInterviewScheduleFromDraft['"]/,`worker/${f} must not permit Send`);
   }
   // The composer finds Ashby's Schedule button and checks it. Its one click is
-  // the observation before a robot Send (October 19): only where Schedule is a
-  // dropdown, inside the block that logs the menu and closes it with Escape,
-  // and nothing else in that block is clicked.
+  // the observation before a robot Send (October 19): inside the block that
+  // logs what follows, closes a menu with Escape, and clicks nothing else.
+  // Send itself is never permitted (above), so the click can't send.
   const composer=read('booking-composer.js');
   assert.match(composer,/const schedule=await one\(page\.getByRole\('button',\{name:'Schedule',exact:true\}\)/);
   assert.doesNotMatch(composer,/schedule\.(?:press|tap|dispatchEvent|dblclick)\(/);
   assert.equal((composer.match(/schedule\.click\(/g)||[]).length,1,'exactly one click on Schedule');
-  const gate="if((await schedule.getAttribute('aria-expanded'))!==null){",start=composer.indexOf(gate),end=composer.indexOf('}else note(',start);
-  assert.ok(start>0&&end>start,'the click is inside the dropdown-only observation block');
+  const start=composer.indexOf("step='observe Schedule';"),end=composer.indexOf("pass(`Schedule clicked and logged",start);
+  assert.ok(start>0&&end>start,'the click is inside the observation block');
   const block=composer.slice(start,end);
-  assert.ok(block.includes('schedule.click()')&&block.includes("page.keyboard.press('Escape')"),'it opens the menu and closes it with Escape');
+  assert.ok(block.includes('schedule.click()')&&block.includes("page.keyboard.press('Escape')")&&block.includes("at:'schedule-clicked'"),'it logs what follows and closes a menu with Escape');
   assert.equal((block.match(/\.click\(/g)||[]).length,1,'nothing else in the block is clicked');
+  assert.doesNotMatch(block,/Confirm|Submit|getByRole\('(?:menuitem|option)'/,'nothing in a dialog or menu is chosen');
 });
 
 // The First Round plan that passed locally on October 13, moved into the future.
