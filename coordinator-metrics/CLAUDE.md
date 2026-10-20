@@ -299,6 +299,25 @@ is the short list of things that look wrong and are not.
   only who CREATED a booking — not who chased it, re-planned it, or
   picked it up. The Results group says so on the page.
 
+- **A client tab is a left rail plus one open page, not an accordion.**
+  The accordion hid every number behind a click, so a tab told you
+  nothing at a glance and comparing two sections meant opening one and
+  closing the other. The rail is both the contents list and the summary
+  — it carries each section's key figure — and the sections below stay
+  open. `trackRail()` highlights whichever section is in view. Don't
+  reintroduce collapsing for the main sections; the two genuinely
+  secondary ones (data quality, method) stay collapsed at the foot.
+
+- **The Overview's period toggle lives on the chart, not in the page
+  head.** The overview's `periods` carry only `events` and `hours`, so
+  the four tiles, the Results ranges and the by-client table are all
+  12-month figures and cannot follow it. At the top of the page it read
+  as driving all of them, and the by-client heading dutifully relabelled
+  itself "last 30 days" over numbers that had not moved. The window the
+  rest of the page covers is stated once, in the head. If the toggle
+  should ever drive the tiles, `computeOverview` has to produce
+  candidates/roles/interviewerSlots per period first.
+
 - **The roster panel is a MATCH CHECK, collapsed and alphabetical.** It
   confirms each rostered name resolves to real scheduled work — that is
   how a misspelled name, a renamed account or a coordinator assigned to
@@ -310,9 +329,10 @@ is the short list of things that look wrong and are not.
 
 - **Access: internal to Carrara leadership.** The client tabs name roles
   and stages where work went wrong and link to individual candidate
-  records. One shared password, holder list deliberately short; the page
-  carries a visible internal-only marking so it is stated where someone
-  about to forward a link will see it. Not for clients or coordinators.
+  records. One shared password, holder list deliberately short. The
+  decision is unchanged, but the on-page "Carrara leadership only"
+  marking was removed on request — don't add it back. Not for clients
+  or coordinators.
 
 ## Conventions
 

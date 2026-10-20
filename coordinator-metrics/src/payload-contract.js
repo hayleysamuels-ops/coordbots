@@ -135,6 +135,11 @@ const OVERVIEW_SCOPE_PATHS = [
   "totals.bookedAheadHours",
   "series.weekly",
   "byClient",
+  // The window the overview header states. Taken from a live client's
+  // own window rather than recomputed, so the header cannot describe a
+  // range the figures were not drawn from.
+  "window.from",
+  "window.to",
 ];
 
 const OVERVIEW_PATHS = [

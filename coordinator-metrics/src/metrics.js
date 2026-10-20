@@ -1142,6 +1142,33 @@ function computeScope(client, keepScheduler) {
       ])
     ),
 
+    // A short readout beside the heatmap: a 7x24 grid is hard to read a
+    // number off, so the three facts worth stating are stated.
+    heatmapSummary: Object.fromEntries(
+      PERIOD_KEYS.map((key) => {
+        const cells = [...scopes[key].heatmap.entries()].map(([heatKey, count]) => {
+          const [dow, hour] = heatKey.split(":").map(Number);
+          return { dow, hour, count };
+        });
+        const total = cells.reduce((n, c) => n + c.count, 0);
+        if (!total) return [key, null];
+        const busiest = cells.reduce((best, c) => (!best || c.count > best.count ? c : best), null);
+        const inHours = cells
+          .filter((c) => c.hour >= config.businessHourStart && c.hour < config.businessHourEnd && c.dow !== 0 && c.dow !== 6)
+          .reduce((n, c) => n + c.count, 0);
+        return [
+          key,
+          {
+            busiest: { dow: busiest.dow, hour: busiest.hour, count: busiest.count,
+                       share: Math.round((busiest.count / total) * 1000) / 10 },
+            inHoursShare: Math.round((inHours / total) * 1000) / 10,
+            outOfHours: total - inHours,
+            total,
+          },
+        ];
+      })
+    ),
+
     heatmap: Object.fromEntries(
       PERIOD_KEYS.map((key) => [
         key,
@@ -1404,6 +1431,14 @@ function computeOverview(clientPayloads, scopeKey) {
     // different populations.
     totals,
     periods,
+    // The rolling window the page header states. Taken from an active
+    // client rather than a constant so it cannot drift from the window
+    // the figures were actually drawn from; ended clients read their own
+    // fixed range and would misdescribe the page.
+    window: (() => {
+      const active = clientPayloads.find((p) => p.status !== "ended") || clientPayloads[0];
+      return active ? active.window : null;
+    })(),
     series: { weekly: [...weekly.values()].sort((a, b) => (a.key < b.key ? -1 : 1)) },
     /**
      * Results as a RANGE across clients, with no client named.
@@ -1491,6 +1526,12 @@ function computeOverview(clientPayloads, scopeKey) {
       // share of a client's activity was ours without a second request.
       allEvents: p.scopes.all.totals.events,
       coordinatedEvents: p.scopes.coordinated.totals.events,
+      // Last 12 complete weeks, for the row's sparkline. A single number
+      // says where a client is; the shape says where it is going.
+      sparkline: scopeOf(p)
+        .series.weekly.filter((w) => w.key < p.currentWeek)
+        .slice(-12)
+        .map((w) => w.events),
     })).sort((a, b) => b.events - a.events),
   };
 }

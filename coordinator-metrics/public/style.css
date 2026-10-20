@@ -487,47 +487,302 @@ button.link {
   .stat-number { font-size: 24px; }
 }
 
-/* --- Overview headline --- */
+/* --- Overview --- */
 
-.headline {
-  background: var(--surface);
-  border: 1px solid var(--border-subtle);
-  border-left: 4px solid var(--accent, var(--ember));
-  border-radius: var(--radius-card);
-  padding: 20px 24px;
-  margin-bottom: 16px;
-  box-shadow: var(--shadow-xs);
+.ov-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
 }
 
-.headline-lead {
+.ov-window {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* The claim and the comparison that supports it, side by side. The
+   comparison is narrower on purpose — the sentence is what someone
+   reads, the bar is what they check it against. */
+.ov-hero {
+  display: grid;
+  grid-template-columns: 1fr minmax(260px, 340px);
+  gap: 40px;
+  align-items: start;
+  margin-bottom: 28px;
+}
+
+.ov-headline {
   font-family: var(--font-serif);
-  font-size: 20px;
-  line-height: 1.35;
+  font-size: 26px;
+  line-height: 1.3;
+  font-weight: 400;
   margin: 0;
   color: var(--text-primary);
+  max-width: 34ch;
 }
 
-.headline-lead strong {
+.ov-headline strong {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
-.headline-sub {
-  font-family: var(--font-mono);
+.ov-asides {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+}
+
+.ov-asides li {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 6px;
+  padding-left: 16px;
+  position: relative;
+  max-width: 72ch;
+}
+
+.ov-asides li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent, var(--ember));
+}
+
+.compare-heads {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+}
+
+.compare-right { text-align: right; }
+
+.compare-label {
   font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.compare-value {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  margin: 2px 0 0;
+}
+
+.compare-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+  margin-top: 10px;
+}
+
+.compare-fill { height: 100%; background: var(--accent, var(--ember)); }
+
+.compare-caption {
+  font-family: var(--font-mono);
+  font-size: 11px;
   color: var(--text-muted);
   margin: 8px 0 0;
 }
 
-.headline-asides {
-  margin-bottom: 24px;
+/* One bordered row rather than four cards: the four are one reading,
+   and four separate boxes gave each its own weight. */
+.ov-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-xs);
+  margin-bottom: 20px;
+  overflow: hidden;
 }
 
-.headline-asides p {
-  font-size: 13px;
+.ov-tile { padding: 16px 20px; }
+.ov-tile + .ov-tile { border-left: 1px solid var(--gridline); }
+
+.ov-tile-label {
+  font-size: 12px;
   color: var(--text-secondary);
-  margin: 0 0 6px;
-  max-width: 80ch;
+  margin: 0;
+}
+
+.ov-tile-value {
+  font-family: var(--font-mono);
+  font-size: 28px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  margin: 6px 0 0;
+}
+
+.ov-tile-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 6px 0 0;
+}
+
+.ov-split {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 16px;
+  margin-bottom: 28px;
+  align-items: start;
+}
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.card-title {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.card-note {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 4px 0 0;
+  max-width: 60ch;
+}
+
+.chart-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.chart-controls .legend { margin: 0; }
+
+.range-list { margin-top: 14px; }
+
+.range-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 9px 0;
+  border-top: 1px solid var(--gridline);
+}
+
+.range-row:first-child { border-top: 0; }
+
+.range-label { font-size: 13px; color: var(--text-secondary); }
+
+.range-value {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.range-unit { color: var(--text-muted); margin-left: 5px; font-size: 11px; }
+
+.ov-section { margin-bottom: 28px; }
+
+.ov-section-title {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.ov-section-note {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 4px 0 12px;
+}
+
+.ov-table tbody tr { cursor: pointer; }
+.ov-table td.lead { white-space: nowrap; }
+.ov-table td.lead .tab-dot { margin-right: 8px; }
+.ov-table td.lead .pill { margin-left: 8px; vertical-align: 1px; }
+
+.pill {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  padding: 2px 6px;
+}
+
+.share-cell { min-width: 190px; }
+
+.share-cell-top {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.share-cell-ours { font-weight: 600; }
+
+.share-cell-pct { margin-left: auto; font-size: 12px; }
+
+.share-cell-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-sunken);
+  overflow: hidden;
+  margin-top: 5px;
+}
+
+.share-cell-fill { height: 100%; }
+
+.spark-cell { width: 110px; }
+
+.spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 22px;
+}
+
+.spark-bar { display: block; flex: 1; border-radius: 1px; opacity: 0.75; }
+
+.ov-foot {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--gridline);
+}
+
+@media (max-width: 1000px) {
+  .ov-hero { grid-template-columns: 1fr; gap: 20px; }
+  .ov-tiles { grid-template-columns: repeat(2, 1fr); }
+  .ov-tile:nth-child(3) { border-left: 0; }
+  .ov-tile:nth-child(n + 3) { border-top: 1px solid var(--gridline); }
+  .ov-split { grid-template-columns: 1fr; }
 }
 
 /* --- Tile groups and the drill-down --- */
@@ -575,6 +830,28 @@ details summary {
   padding: 4px 12px;
   margin-bottom: 10px;
 }
+
+/* --- Collapsed data-quality section --- */
+
+details.data-quality {
+  margin: 24px 0 8px;
+  border-top: 1px solid var(--gridline);
+  padding-top: 12px;
+}
+
+details.data-quality > summary {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+details.data-quality > summary:hover { color: var(--text-secondary); }
+details.data-quality .notice { margin-top: 12px; border-left-color: var(--border); }
 
 /* --- Collapsed data-quality section --- */
 
@@ -651,3 +928,174 @@ details.data-quality .notice { margin-top: 12px; border-left-color: var(--border
 
 .acc-body { padding: 4px 0 28px; }
 .acc-body .group-heading { margin-top: 0; }
+
+/* --- Client tab: left rail + full page ---------------------------------
+   Replaces the one-open-at-a-time accordion. The accordion hid every
+   number until a section was opened, so the tab said nothing at a
+   glance; the rail is navigation and summary at once. */
+
+.client-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.client-name {
+  font-family: var(--font-serif);
+  font-size: 26px;
+  font-weight: 700;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.client-name .tab-dot { width: 10px; height: 10px; margin: 0; vertical-align: 0; }
+
+.client-context {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 4px 0 0;
+}
+
+.client-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.rail-layout {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  gap: 36px;
+  align-items: start;
+}
+
+.rail {
+  position: sticky;
+  top: 16px;
+  border-right: 1px solid var(--gridline);
+  padding-right: 16px;
+}
+
+.rail-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  margin: 0 0 10px;
+}
+
+.rail-item {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 7px 8px 7px 0;
+  border-left: 2px solid transparent;
+  padding-left: 10px;
+  text-decoration: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.rail-item:hover { color: var(--text-primary); }
+
+.rail-item.on {
+  border-left-color: var(--accent, var(--ember));
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.rail-num { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+.rail-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.rail-figure {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rail-item.on .rail-figure { color: var(--accent, var(--ember)); }
+
+.rail-foot { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--gridline); }
+.rail-minor { grid-template-columns: 1fr; font-size: 12px; color: var(--text-muted); }
+
+/* --- Numbered sections --- */
+
+.pg-section { padding: 10px 0 36px; scroll-margin-top: 16px; }
+.pg-section + .pg-section { border-top: 1px solid var(--gridline); padding-top: 28px; }
+
+.pg-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; }
+
+.pg-num {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  flex: none;
+  padding-top: 4px;
+}
+
+.pg-title { font-family: var(--font-serif); font-size: 20px; font-weight: 700; margin: 0; }
+.pg-def { font-size: 13px; color: var(--text-secondary); margin: 2px 0 0; max-width: 78ch; }
+
+.pg-aside {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  flex: none;
+}
+
+/* --- Level of support --- */
+
+.share-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 28px; margin-bottom: 8px; }
+.share-value { display: flex; align-items: baseline; gap: 8px; }
+.share-pct { font-size: 38px; font-weight: 700; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.share-label { font-size: 13px; color: var(--text-secondary); }
+.share-track { height: 4px; background: var(--surface-sunken); border-radius: var(--radius-pill); margin-top: 10px; overflow: hidden; }
+.share-fill { height: 100%; background: var(--accent, var(--ember)); }
+.share-sub { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); margin: 6px 0 0; }
+
+/* --- Volume bands --- */
+
+.band-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+}
+
+.stat-grid.tight { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.stat-grid.tight .stat { padding: 14px 16px; }
+.stat-grid.tight .stat-number { font-size: 22px; }
+
+/* --- Heatmap with a readout beside it --- */
+
+.heat-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 190px; gap: 24px; align-items: start; }
+.readout + .readout { margin-top: 16px; }
+.readout-label { font-family: var(--font-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); margin: 0; }
+.readout-value { font-size: 20px; font-weight: 700; margin: 2px 0 0; font-variant-numeric: tabular-nums; }
+.readout-sub { font-size: 12px; color: var(--text-secondary); margin: 2px 0 0; }
+
+/* --- By stage, as two columns of bars --- */
+
+.stage-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px 32px; }
+.stage-row { margin-bottom: 12px; }
+.stage-top { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+.stage-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stage-count { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+.stage-track { height: 4px; background: var(--surface-sunken); border-radius: var(--radius-pill); margin-top: 5px; overflow: hidden; }
+/* Grey, not ember: with every bar on the page in the accent colour the
+   page reads as solid orange and colour stops meaning state. */
+.stage-fill { height: 100%; background: var(--ardesia); }
+
+@media (max-width: 1000px) {
+  .rail-layout { grid-template-columns: 1fr; gap: 16px; }
+  .rail { position: static; border-right: 0; border-bottom: 1px solid var(--gridline); padding: 0 0 12px; }
+  .heat-wrap { grid-template-columns: 1fr; }
+}

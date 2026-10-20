@@ -87,6 +87,23 @@ function formatDay(key) {
   });
 }
 
+/**
+ * Same date with the year, for the window a page states.
+ *
+ * "Oct 25 – Oct 20" is the one place a missing year is actively
+ * misleading: the two ends of a 12-month window land in different years
+ * and read as a five-day range without it.
+ */
+function formatDayLong(key) {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-US", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 function formatWhen(iso) {
   if (!iso) return "never";
   return new Date(iso).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
@@ -539,32 +556,94 @@ function resultsGroup(payload, label) {
  * the heatmap and the two tables are the expensive ones, and on a tab
  * where only one section is open at a time most of them never run.
  */
-function accordionSection(key, title, blurb, renderBody) {
-  // NOT named `render`: that shadowed the page-level render() inside the
-  // click handler below, so toggling a section updated the state and
-  // never repainted. Every click looked like it did nothing, and two
-  // clicks silently toggled back to nothing open.
-  const open = state.openSection === key;
-  const body = el("div", { class: "acc-body" }, open ? [renderBody()] : []);
-  body.hidden = !open;
+const DOW_LABEL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-  const head = el("button", {
-    class: "acc-head",
-    type: "button",
-    "aria-expanded": String(open),
-    onclick: () => {
-      // One at a time: opening a section closes the others. Clicking the
-      // open one closes it, so the whole tab can be collapsed to an
-      // index of what is there.
-      state.openSection = state.openSection === key ? null : key;
-      render();
-    },
-  }, [
-    el("span", {}, [el("span", { class: "acc-title", text: title }), blurb ? el("span", { class: "acc-blurb", text: blurb }) : null]),
-    el("span", { class: "acc-mark", text: open ? "\u2013" : "+" }),
+/**
+ * A numbered section with a one-line definition under its title.
+ *
+ * The number is not decoration: it pairs the section with its row in the
+ * rail, so "03" in the rail and "03" on the page are the same thing when
+ * you jump between them.
+ */
+function pageSection(id, index, title, definition, body, aside) {
+  return el("section", { class: "pg-section", id: `s-${id}` }, [
+    el("div", { class: "pg-head" }, [
+      el("span", { class: "pg-num", text: String(index).padStart(2, "0") }),
+      el("div", {}, [
+        el("h2", { class: "pg-title", text: title }),
+        definition ? el("p", { class: "pg-def", text: definition }) : null,
+      ]),
+      aside ? el("span", { class: "pg-aside", text: aside }) : null,
+    ]),
+    el("div", { class: "pg-body" }, [body]),
   ]);
+}
 
-  return el("section", { class: "acc-section", "data-open": String(open) }, [head, body]);
+/**
+ * The left rail: a contents list that also carries each section's key
+ * figure.
+ *
+ * This replaced a one-open-at-a-time accordion. The accordion hid every
+ * number until you opened it, so the tab told you nothing at a glance;
+ * the rail is both the navigation and the summary, and the sections
+ * below stay open.
+ */
+function sectionRail(items) {
+  return el(
+    "nav",
+    { class: "rail", "aria-label": "Sections on this tab" },
+    [
+      el("p", { class: "rail-eyebrow", text: "On this tab" }),
+      ...items.map((item, i) =>
+        el(
+          "a",
+          {
+            class: "rail-item",
+            href: `#s-${item.id}`,
+            onclick: (e) => {
+              // Scrolled rather than jumped: a hard jump loses the sense
+              // of where the section sits in the page.
+              e.preventDefault();
+              const target = document.getElementById(`s-${item.id}`);
+              if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+            },
+          },
+          [
+            el("span", { class: "rail-num", text: String(i + 1) }),
+            el("span", { class: "rail-label", text: item.title }),
+            el("span", { class: "rail-figure", text: item.figure ?? "" }),
+          ]
+        )
+      ),
+      el("div", { class: "rail-foot" }, [
+        el("a", { class: "rail-item rail-minor", href: "#s-quality", text: "Data quality check",
+          onclick: (e) => { e.preventDefault(); document.getElementById("s-quality")?.scrollIntoView({ behavior: "smooth" }); } }),
+        el("a", { class: "rail-item rail-minor", href: "#s-method", text: "How the numbers are built",
+          onclick: (e) => { e.preventDefault(); document.getElementById("s-method")?.scrollIntoView({ behavior: "smooth" }); } }),
+      ]),
+    ]
+  );
+}
+
+// Highlights the rail row for whichever section is currently in view.
+function trackRail(root) {
+  const sections = [...root.querySelectorAll(".pg-section")];
+  const links = [...root.querySelectorAll(".rail-item[href^='#s-']")];
+  if (!sections.length || !("IntersectionObserver" in window)) return;
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const id = entry.target.id;
+        links.forEach((a) => a.classList.toggle("on", a.getAttribute("href") === `#${id}`));
+      }
+    },
+    // Fires when a section crosses the upper third, so the highlight
+    // matches what is being read rather than what is merely on screen.
+    { rootMargin: "-10% 0px -70% 0px", threshold: 0 }
+  );
+  sections.forEach((s) => observer.observe(s));
 }
 
 function renderClient(fullPayload) {
@@ -573,21 +652,26 @@ function renderClient(fullPayload) {
   const label = periodLabel(state.period);
   const isEnded = fullPayload.status === "ended";
   const sup = fullPayload.support;
+  const t = payload.totals;
+  const resultsBlock = payload.results[state.period];
+  const r = resultsBlock.current;
   const frag = document.createDocumentFragment();
 
-  // Both controls sit ABOVE the accordion. The period control used to
-  // live inside the chart's own section, which in a one-open-at-a-time
-  // layout means the control disappears whenever that section is shut.
   frag.appendChild(
-    el("div", { class: "toolbar" }, [
-      el("p", {
-        class: "eyebrow",
-        style: "margin:0",
-        text:
-          `${fullPayload.clientName} · ${fullPayload.timeZone} · ` +
-          (state.scope === "coordinated" ? "work Carrara coordinated" : "all interview activity"),
-      }),
-      el("div", { style: "display:flex;gap:8px;flex-wrap:wrap" }, [
+    el("div", { class: "client-head" }, [
+      el("div", {}, [
+        el("h2", { class: "client-name" }, [
+          el("span", { class: "tab-dot" }),
+          fullPayload.clientName,
+        ]),
+        el("p", {
+          class: "client-context",
+          text:
+            `${state.scope === "coordinated" ? "Carrara-coordinated" : "All activity"} · ${label} · ` +
+            `${fullPayload.timeZone}`,
+        }),
+      ]),
+      el("div", { class: "client-controls" }, [
         scopeControl(() => render()),
         periodControl(() => render(), { onlyFull: isEnded }),
       ]),
@@ -602,147 +686,172 @@ function renderClient(fullPayload) {
           text:
             `Carrara coordinated for ${fullPayload.clientName} from ${formatDay(fullPayload.engagementStart)} ` +
             `to ${formatDay(fullPayload.engagementEnd)}. Every figure here covers that period, not a rolling ` +
-            "12 months, so the work does not fade out as time passes. It is excluded from current-period " +
-            "totals and the trend chart on the Overview.",
+            "12 months, so the work does not fade out as time passes.",
         }),
       ])
     );
   }
 
   const sections = [];
+  const railItems = [];
+  const add = (id, title, figure, definition, body, aside) => {
+    railItems.push({ id, title, figure });
+    sections.push(pageSection(id, railItems.length, title, definition, body, aside));
+  };
 
-  // Level of support leads: it is the one number that says how much of
-  // this client's hiring we carried.
-  sections.push(
-    accordionSection("support", "Level of support", "How much of this client's hiring was ours", () =>
-      el("div", {}, [
-        el("div", { class: "stat-grid" }, [
-          stat(sup.interviews.share == null ? "—" : sup.interviews.share + "%", "of interviews were ours", {
-            hero: true,
-            sub: `${num(sup.interviews.ours)} of ${num(sup.interviews.all)} that ran`,
-          }),
-          stat(sup.candidates.share == null ? "—" : sup.candidates.share + "%", "of candidates", {
-            sub: `${num(sup.candidates.ours)} of ${num(sup.candidates.all)}`,
-          }),
-          stat(sup.roles.share == null ? "—" : sup.roles.share + "%", "of roles", {
-            sub: `${num(sup.roles.ours)} of ${num(sup.roles.all)}`,
-          }),
-        ]),
-        el("p", {
-          class: "section-note",
-          text:
-            "Shown as three shares rather than one blended figure: being named on a req is not the same as " +
-            "running its interviews, and a single average hides where those two diverge.",
-        }),
-      ])
-    )
+  add("support", "Level of support", sup.interviews.share == null ? "—" : sup.interviews.share + "%",
+    `Share of everything that ran at ${fullPayload.clientName} that Carrara coordinated.`,
+    el("div", {}, [
+      el("div", { class: "share-row" }, [
+        shareBlock("of interviews", sup.interviews),
+        shareBlock("of candidates", sup.candidates),
+        shareBlock("of roles", sup.roles),
+      ]),
+      el("p", { class: "section-note", text:
+        "Three shares rather than one blended figure: being named on a req is not the same as running its " +
+        "interviews, and an average hides where those two diverge." }),
+    ]),
+    "Coordinated vs all activity");
+
+  add("results", "Results", r.bookingTurnaround.medianHours == null ? "—" : r.bookingTurnaround.medianHours + " bh",
+    `Measured against ${fullPayload.clientName}'s own previous period. Colour shows better or worse, not up or down.`,
+    resultsGroup(payload, label));
+
+  add("volume", "Volume", num(t.events),
+    "Counts for the selected period. Meals are counted; holds are not.",
+    el("div", {}, [
+      el("p", { class: "band-label", text: "Work delivered" }),
+      el("div", { class: "stat-grid tight" }, [
+        stat(num(period.current.events), "Interviews", { sub: `incl. ${num(t.meals)} meals` }),
+        stat(num(Math.round(period.current.hours)) + "h", "Interview hours"),
+        stat(num(period.current.candidates), "Candidates"),
+        stat(num(t.roles), "Roles"),
+        stat(num(t.interviewerSlots), "Interviewer seats"),
+      ]),
+      el("p", { class: "band-label", text: "Changes and outcomes" }),
+      el("div", { class: "stat-grid tight" }, [
+        stat(num(t.bookedAhead), "Booked ahead", { sub: "after today" }),
+        stat(num(t.reschedulesDerived), "Reschedules", { sub: "derived" }),
+        stat(num(t.cancellations), "Cancellations"),
+        stat(num(t.dropOffs), "Archived after interviewing", { sub: "counts applications, not people" }),
+        stat(num(t.outOfHours), "Out of hours",
+          { sub: `before ${state.config.businessHours.start} or after ${state.config.businessHours.end}` }),
+      ]),
+    ]));
+
+  add("trend", "Volume over time", payload.series.weekly.length + " wk",
+    "Faded bars are the current week and interviews booked ahead.",
+    el("div", {}, [
+      state.period === "week"
+        ? barChart(payload.series.daily.slice(-28), { fadeFrom: nextDay(fullPayload.today), labelFn: formatDay })
+        : state.period === "month"
+        ? barChart(payload.series.daily.slice(-60), { fadeFrom: nextDay(fullPayload.today), labelFn: formatDay })
+        : barChart(state.period === "quarter" ? payload.series.weekly.slice(-13) : payload.series.weekly, {
+            fadeFrom: fullPayload.currentWeek, labelFn: formatDay }),
+    ]));
+
+  add("byRole", "By role", num(payload.byRole[state.period].length),
+    "Grouped by job record, not by title. Identically titled reqs are numbered, never merged.",
+    roleTable(payload.byRole[state.period]));
+
+  add("byStage", "By stage", num(payload.byStage[state.period].length),
+    "Interviews held in each stage. Stages passed without an interview are absent.",
+    stageBars(payload.byStage[state.period]));
+
+  const hs = payload.heatmapSummary ? payload.heatmapSummary[state.period] : null;
+  add("heatmap", "When the work happens", hs ? DOW_LABEL[hs.busiest.dow] : "—",
+    `Interview start times by weekday and hour, in ${fullPayload.timeZone}.`,
+    el("div", { class: "heat-wrap" }, [
+      heatmapGrid(payload.heatmap[state.period], fullPayload.timeZone),
+      hs
+        ? el("div", { class: "heat-readout" }, [
+            readout("Busiest window", `${DOW_LABEL[hs.busiest.dow]} ${String(hs.busiest.hour).padStart(2, "0")}:00`,
+              `${hs.busiest.share}% of all starts`),
+            readout("In business hours", hs.inHoursShare + "%",
+              `start between ${state.config.businessHours.start}:00 and ${state.config.businessHours.end}:00`),
+            readout("Out of hours", num(hs.outOfHours), "evenings, early mornings and weekends"),
+          ])
+        : null,
+    ]));
+
+  add("areas", "Areas to work on",
+    String((payload.areasToWorkOn.byRole.length + payload.areasToWorkOn.byStage.length) || 0) + " flagged",
+    "Roles and stages where cancelled interviews were most often never rebooked.",
+    areasToWorkOn(payload, fullPayload.clientName));
+
+  frag.appendChild(
+    el("div", { class: "rail-layout" }, [sectionRail(railItems), el("div", { class: "rail-main" }, sections)])
   );
-
-  sections.push(
-    accordionSection("results", "Results — how well it ran", "Turnaround, short notice, and three more", () =>
-      resultsGroup(payload, label)
-    )
-  );
-
-  sections.push(
-    accordionSection("volume", "Volume — what we did", "Counts, with no judgement attached", () =>
-      el("div", {}, [
-        el("div", { class: "stat-grid" }, [
-          stat(num(period.current.events), `Interviews coordinated, ${label}`, {
-            hero: true,
-            deltaValue: period.change.events,
-            sub: period.change.events == null ? null : `${num(period.previous.events)} in the previous period`,
-          }),
-          stat(num(Math.round(period.current.hours)) + "h", `Interview time placed on calendars, ${label}`, {
-            deltaValue: period.change.hours,
-            sub: period.change.hours == null ? null : `${num(Math.round(period.previous.hours))}h in the previous period`,
-          }),
-          stat(num(period.current.candidates), `Candidates scheduled, ${label}`),
-          stat(num(payload.totals.roles), "Roles supported", { sub: "distinct jobs with interview activity" }),
-          stat(num(payload.totals.interviewerSlots), "Interviewer seats filled", {
-            sub: `${payload.totals.averagePanelSize} interviewers per interview on average`,
-          }),
-          stat(num(payload.totals.bookedAhead), "Booked ahead", {
-            sub: `${num(payload.totals.bookedAheadHours)}h already on the calendar for future dates`,
-          }),
-        ]),
-        el("div", { class: "stat-grid" }, [
-          stat(num(payload.totals.reschedulesDerived), "Reschedules, 12 months", {
-            sub: payload.totals.reschedulesObserved
-              ? `${num(payload.totals.reschedulesObserved)} directly observed since tracking began`
-              : "derived — see how these are built, below",
-          }),
-          stat(num(payload.totals.cancellations), "Cancellations, 12 months", { sub: "cancelled with no re-booking" }),
-          stat(num(payload.totals.dropOffs), "Archived after interviewing", { sub: "counts applications, not people" }),
-          stat(num(payload.totals.outOfHours), "Out-of-hours interviews", {
-            sub: `starting before ${state.config.businessHours.start}:00 or after ${state.config.businessHours.end}:00 local`,
-          }),
-        ]),
-      ])
-    )
-  );
-
-  sections.push(
-    accordionSection("trend", "Volume over time", state.period === "week" || state.period === "month" ? "One bar per day" : "One bar per week", () =>
-      el("div", {}, [
-        state.period === "week"
-          ? barChart(payload.series.daily.slice(-28), { fadeFrom: nextDay(fullPayload.today), labelFn: formatDay })
-          : state.period === "month"
-          ? barChart(payload.series.daily.slice(-60), { fadeFrom: nextDay(fullPayload.today), labelFn: formatDay })
-          : barChart(state.period === "quarter" ? payload.series.weekly.slice(-13) : payload.series.weekly, {
-              fadeFrom: fullPayload.currentWeek,
-              labelFn: formatDay,
-            }),
-        el("div", { class: "legend" }, [
-          el("span", {}, [el("i", { class: "swatch", style: "background:var(--accent,#eb4e19)" }), "Interviews"]),
-          el("span", {}, [
-            el("i", { class: "swatch", style: "background:var(--accent,#eb4e19);opacity:.3" }),
-            state.period === "quarter" || state.period === "full" ? "This week so far, and booked ahead" : "Today, and booked ahead",
-          ]),
-          el("span", {}, [el("i", { class: "swatch", style: "background:var(--critical)" }), "Cancelled or rescheduled"]),
-        ]),
-      ])
-    )
-  );
-
-  sections.push(
-    accordionSection("byRole", "By role", `Every job with activity in the ${label}`, () => roleTable(payload.byRole[state.period]))
-  );
-
-  sections.push(
-    accordionSection("byStage", "By stage", "Which rounds the volume sits in", () => stageTable(payload.byStage[state.period]))
-  );
-
-  sections.push(
-    accordionSection("heatmap", "When the work happens", `Start times by day and hour, ${fullPayload.timeZone}`, () =>
-      heatmapGrid(payload.heatmap[state.period], fullPayload.timeZone)
-    )
-  );
-
-  sections.push(
-    accordionSection("areas", "Areas to work on", "Cancellations never rebooked, by role and stage", () =>
-      areasToWorkOn(payload, fullPayload.clientName)
-    )
-  );
-
-  frag.appendChild(el("div", { class: "accordion" }, sections));
 
   if (payload.records && payload.records.busiestDay) {
     frag.appendChild(
       el("div", { class: "notice" }, [
         el("h3", { text: "Busiest day" }),
-        el("p", {
-          text: `${formatDay(payload.records.busiestDay.date)} — ${payload.records.busiestDay.events} interviews coordinated in a single day.`,
-        }),
+        el("p", { text: `${formatDay(payload.records.busiestDay.date)} — ${payload.records.busiestDay.events} interviews coordinated in a single day.` }),
       ])
     );
   }
 
-  frag.appendChild(renderRoster(fullPayload));
-  frag.appendChild(renderDataQuality(fullPayload, payload));
+  const quality = renderRoster(fullPayload);
+  quality.id = "s-quality";
+  frag.appendChild(quality);
+  const method = renderDataQuality(fullPayload, payload);
+  method.id = "s-method";
+  frag.appendChild(method);
+
+  // Observed after the fragment is in the document, from render().
+  queueMicrotask(() => trackRail(document.getElementById("main") || document));
 
   return frag;
 }
+
+// One share: a big percentage, its ratio, and a bar.
+function shareBlock(label, share) {
+  return el("div", { class: "share-block" }, [
+    el("div", { class: "share-value" }, [
+      el("span", { class: "share-pct", text: share.share == null ? "—" : share.share + "%" }),
+      el("span", { class: "share-label", text: label }),
+    ]),
+    el("div", { class: "share-track" }, [
+      el("div", { class: "share-fill", style: `width:${Math.max(0, Math.min(100, share.share || 0))}%` }),
+    ]),
+    el("p", { class: "share-sub", text: `${num(share.ours)} of ${num(share.all)}` }),
+  ]);
+}
+
+function readout(label, value, sub) {
+  return el("div", { class: "readout" }, [
+    el("p", { class: "readout-label", text: label }),
+    el("p", { class: "readout-value", text: value }),
+    sub ? el("p", { class: "readout-sub", text: sub }) : null,
+  ]);
+}
+
+/**
+ * By stage as a two-column bar list rather than a second table — beside
+ * By role, two tables of the same shape read as one undifferentiated
+ * block.
+ */
+function stageBars(rows) {
+  if (!rows || !rows.length) return el("div", { class: "empty", text: "No stage data for this period." });
+  const max = Math.max(...rows.map((r) => r.events), 1);
+  const shown = rows.slice(0, 14);
+  const half = Math.ceil(shown.length / 2);
+  const column = (list) =>
+    el("div", { class: "stage-col" }, list.map((row) =>
+      el("div", { class: "stage-row" }, [
+        el("div", { class: "stage-top" }, [
+          el("span", { class: "stage-name", text: row.title }),
+          el("span", { class: "stage-count", text: num(row.events) }),
+        ]),
+        el("div", { class: "stage-track" }, [
+          el("div", { class: "stage-fill", style: `width:${Math.max(1, (row.events / max) * 100)}%` }),
+        ]),
+      ])
+    ));
+  return el("div", { class: "stage-cols" }, [column(shown.slice(0, half)), column(shown.slice(half))]);
+}
+
 function areasToWorkOn(payload, clientName) {
   const a = payload.areasToWorkOn;
   if (!a || a.clientAverage == null) return document.createComment("no cancellation data");
@@ -977,139 +1086,224 @@ function overviewSeries(payload) {
   return payload.series.weekly.slice(-(weeks[state.period] || payload.series.weekly.length));
 }
 
+/**
+ * A row's last twelve complete weeks, as a miniature bar chart.
+ *
+ * A single "this week" number says where a client is; the shape says
+ * where it is going, and a ramp or a cliff is the thing worth clicking
+ * into. Deliberately unlabelled — it is a shape, not a reading.
+ */
+function sparkline(values, accent) {
+  if (!values || !values.length) return el("span", { class: "muted", text: "—" });
+  const max = Math.max(...values, 1);
+  return el(
+    "div",
+    { class: "spark", title: `Last ${values.length} complete weeks` },
+    values.map((v) =>
+      el("i", {
+        class: "spark-bar",
+        style: `height:${Math.max(8, (v / max) * 100)}%;background:${accent || "var(--ember)"}`,
+      })
+    )
+  );
+}
+
+/**
+ * The headline comparison: what we coordinated, against everything that
+ * ran at the same clients.
+ *
+ * Two stacked tracks rather than one percentage. "10,120 of 13,493" is
+ * the claim worth making, and showing the remainder keeps a roster gap
+ * visible instead of reading as low output.
+ */
+function compareBar(ours, all, caption) {
+  const pct = all ? (ours / all) * 100 : 0;
+  return el("div", { class: "compare" }, [
+    el("div", { class: "compare-heads" }, [
+      el("div", {}, [
+        el("p", { class: "compare-label", text: "Coordinated by Carrara" }),
+        el("p", { class: "compare-value", text: num(ours) }),
+      ]),
+      el("div", { class: "compare-right" }, [
+        el("p", { class: "compare-label", text: "All that ran" }),
+        el("p", { class: "compare-value muted", text: num(all) }),
+      ]),
+    ]),
+    el("div", { class: "compare-track" }, [
+      el("div", { class: "compare-fill", style: `width:${Math.max(0, Math.min(100, pct))}%` }),
+    ]),
+    caption ? el("p", { class: "compare-caption", text: caption }) : null,
+  ]);
+}
+
+/** One of the four overview tiles: label above, number, explanation under. */
+function ovTile(label, value, sub) {
+  return el("div", { class: "ov-tile" }, [
+    el("p", { class: "ov-tile-label", text: label }),
+    el("p", { class: "ov-tile-value", text: value }),
+    el("p", { class: "ov-tile-sub", text: sub }),
+  ]);
+}
+
 function renderOverview(fullPayload) {
   const payload = fullPayload.scopes[state.scope];
-  const period = payload.periods[state.period];
   const label = periodLabel(state.period);
   const groups = payload.groups || {};
   const core = groups.core || { clientNames: [], coordinated: 0, all: 0, sharePct: null };
   const frag = document.createDocumentFragment();
 
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const w = payload.window;
+
+  // Head: the window every figure below is drawn from, and the scope
+  // toggle. The scope toggle belongs here as much as on a client tab —
+  // the overview reads state.scope either way, and without a control it
+  // was stuck on the default with nothing on screen to say so.
+  //
+  // The PERIOD control is deliberately not here. The overview's periods
+  // carry only events and hours, so the tiles, the Results ranges and
+  // the by-client table are all 12-month figures and cannot follow it.
+  // Sitting at the top of the page it looked like it drove all of them,
+  // and the by-client heading obediently relabelled itself "last 30
+  // days" over numbers that had not moved. It lives on the chart, which
+  // is the one thing it changes.
+  frag.appendChild(
+    el("div", { class: "ov-head" }, [
+      el("p", {
+        class: "ov-window",
+        text: w
+          ? `Last 12 months · ${formatDayLong(w.from.slice(0, 10))} – ${formatDayLong(fullPayload.today)}`
+          : "Last 12 months",
+      }),
+      el("div", { class: "client-controls" }, [scopeControl(() => render())]),
+    ])
+  );
 
   // The headline states what was coordinated and out of what, for ONE
   // engagement group. Forus is client-scheduled and Profound has ended,
   // so both are stated separately rather than folded into a percentage
   // that would describe neither.
-  frag.appendChild(
-    el("div", { class: "headline" }, [
-      el("p", { class: "headline-lead" }, [
-        "Carrara coordinated ",
-        el("strong", { text: num(core.coordinated) }),
-        " interviews across the ",
-        plural(core.clientNames.length, "client", "clients"),
-        " we schedule for",
-        core.sharePct == null ? "" : ` — ${core.sharePct}% of everything that ran there`,
-        ".",
-      ]),
-      el("p", { class: "headline-sub", text: core.clientNames.join(", ") }),
-    ])
-  );
-
   const asides = [];
   const cs = groups.clientScheduled;
   if (cs && cs.clientIds.length) {
-    asides.push(
-      `At ${cs.clientNames.join(", ")}, where the client schedules its own interviews, Carrara coordinated ` +
-        `${num(cs.coordinated)} of ${num(cs.all)}.`
-    );
+    asides.push(`${cs.clientNames.join(", ")} schedules its own interviews — counted in volume, left out of the share.`);
   }
   const ended = groups.ended;
   if (ended && ended.clientIds.length) {
     asides.push(
-      `${ended.clientNames.join(", ")} — engagement ended — accounts for a further ${num(ended.coordinated)}, ` +
-        "not included in any current-period figure or the trend below."
+      `${ended.clientNames.join(", ")} — engagement ended — kept in totals, not in this week or the trend.`
     );
   }
-  if (asides.length) {
-    frag.appendChild(el("div", { class: "headline-asides" }, asides.map((text) => el("p", { text }))));
-  }
 
-  // Four tiles. Ten made the page a wall of numbers with no hierarchy.
-  frag.appendChild(groupHeading("Volume — what we did", "Counts across every client. Results and drill-downs live on each client tab."));
   frag.appendChild(
-    el("div", { class: "stat-grid" }, [
-      stat(num(payload.totals.events), "Interviews held, 12 months", {
-        hero: true,
-        sub: `includes ${num(payload.totals.debriefs)} debriefs and ${num(payload.totals.meals)} candidate meals`,
-      }),
-      stat(num(payload.totals.hours) + "h", "Interview time placed on calendars"),
-      stat(num(payload.totals.candidates), "Candidates scheduled"),
-      stat(num(payload.totals.interviewerSlots), "Interviewer seats filled", {
-        sub: `across ${num(payload.totals.roles)} roles`,
-      }),
+    el("div", { class: "ov-hero" }, [
+      el("div", {}, [
+        el("h2", { class: "ov-headline" }, [
+          "Carrara coordinated ",
+          el("strong", { text: num(core.coordinated) }),
+          ` interviews across the ${plural(core.clientNames.length, "client", "clients")} we schedule for`,
+          core.sharePct == null ? "." : ` — ${core.sharePct}% of everything that ran there.`,
+        ]),
+        asides.length
+          ? el("ul", { class: "ov-asides" }, asides.map((text) => el("li", { text })))
+          : null,
+      ]),
+      compareBar(
+        core.coordinated,
+        core.all,
+        core.sharePct == null ? null : `${core.sharePct}% across ${core.clientNames.join(", ")}`
+      ),
     ])
   );
 
-  const range = payload.resultsRange;
-  if (range && range.bookingTurnaround) {
-    const span = (r, unit, dp = 0) =>
-      r == null ? "—" : r.low === r.high ? `${r.low.toFixed(dp)}${unit}` : `${r.low.toFixed(dp)}${unit}–${r.high.toFixed(dp)}${unit}`;
-    frag.appendChild(
-      el("div", { class: "notice" }, [
-        el("h3", { text: "Results across clients" }),
-        el("p", {
-          text:
-            `Across ${range.bookingTurnaround.clients} clients: booking turnaround ` +
-            `${span(range.bookingTurnaround, "bh")} median · time between stages ${span(range.stageGap, "d", 1)} · ` +
-            `short notice ${span(range.shortNotice, "%", 1)} · never rebooked ` +
-            `${span(range.cancellationWithoutRebook, "%", 1)} · reschedule rate ${span(range.rescheduleRate, "%", 1)}.`,
-        }),
-        el("p", {
-          style: "margin-top:8px",
-          text:
-            "Shown as a range, with no client named, on purpose. These measures reflect each client's own " +
-            "interview mix and volume and are not comparable between them — ranking clients on them would read " +
-            "a difference the data cannot support. The per-client figures are on each client's own tab, " +
-            "measured against that client's own prior period.",
-        }),
-      ])
-    );
-  }
-
+  // Four tiles. Ten made the page a wall of numbers with no hierarchy.
+  // Each carries a one-line explanation, because "interviewer seats" and
+  // "candidates" were both read as "people" by two different readers.
+  const clientCount = (payload.byClient || []).length;
   frag.appendChild(
-    section(
-      "Volume by week",
-      `Active clients only, over the ${label}. Weeks are Monday-start.`,
-      el("div", {}, [
-        barChart(overviewSeries(payload), { fadeFrom: fullPayload.currentWeek, labelFn: formatDay }),
-        el("div", { class: "legend" }, [
-          el("span", {}, [el("i", { class: "swatch", style: "background:var(--accent,#eb4e19)" }), "Interviews"]),
-          el("span", {}, [
-            el("i", { class: "swatch", style: "background:var(--accent,#eb4e19);opacity:.3" }),
-            "This week so far, and booked ahead",
-          ]),
-          el("span", {}, [el("i", { class: "swatch", style: "background:var(--critical)" }), "Cancelled or rescheduled"]),
-        ]),
-      ]),
-      periodControl(() => render())
-    )
+    el("div", { class: "ov-tiles" }, [
+      ovTile("Interviews held", num(payload.totals.events), `All ${clientCount} clients, every engagement type`),
+      ovTile("Interview hours", num(payload.totals.hours) + "h", "Scheduled time on interviewers' calendars"),
+      ovTile("Candidates", num(payload.totals.candidates), "Unique people with at least one interview"),
+      ovTile("Interviewer seats", num(payload.totals.interviewerSlots), `Across ${num(payload.totals.roles)} roles`),
+    ])
   );
 
-  const max = Math.max(...payload.byClient.map((c) => c.allEvents), 1);
-  const GROUP_NOTE = {
-    core: "",
-    clientScheduled: "client-scheduled",
-    ended: "engagement ended",
-  };
+  // Chart and the Results range side by side: the range is a short list
+  // and full width made it look like the page's main claim, which is
+  // exactly the reading it is built to prevent.
+  const range = payload.resultsRange;
+  const span = (r, unit, dp = 0) =>
+    r == null ? "—" : r.low === r.high ? `${r.low.toFixed(dp)}${unit}` : `${r.low.toFixed(dp)} – ${r.high.toFixed(dp)}${unit}`;
 
   frag.appendChild(
-    section(
-      "By client",
-      "Ours against everything that ran. Click a tab above for the detail.",
-      el("div", { class: "table-wrap" }, [
-        el("table", {}, [
+    el("div", { class: "ov-split" }, [
+      el("div", { class: "card" }, [
+        el("div", { class: "card-head" }, [
+          el("div", {}, [
+            el("h3", { class: "card-title", text: "Interviews per week" }),
+            el("p", {
+              class: "card-note",
+              text: `Active clients only, over the ${label}. Weeks are Monday-start.`,
+            }),
+          ]),
+          el("div", { class: "chart-controls" }, [
+            periodControl(() => render()),
+            el("div", { class: "legend" }, [
+              el("span", {}, [el("i", { class: "swatch", style: "background:var(--accent,#eb4e19)" }), "Complete week"]),
+              el("span", {}, [
+                el("i", { class: "swatch", style: "background:var(--accent,#eb4e19);opacity:.3" }),
+                "In progress or booked ahead",
+              ]),
+            ]),
+          ]),
+        ]),
+        barChart(overviewSeries(payload), { fadeFrom: fullPayload.currentWeek, labelFn: formatDay, height: 200 }),
+      ]),
+      range && range.bookingTurnaround
+        ? el("div", { class: "card" }, [
+            el("h3", { class: "card-title", text: "Results across clients" }),
+            el("p", {
+              class: "card-note",
+              text: `Lowest to highest client figure. Ranges only — each client is read against its own prior period, on its tab.`,
+            }),
+            el("div", { class: "range-list" }, [
+              rangeRow("Booking turnaround, median", span(range.bookingTurnaround, ""), "business hours"),
+              rangeRow("Short-notice bookings", span(range.shortNotice, "", 1), "%"),
+              rangeRow("Time between stages", span(range.stageGap, "", 1), "days"),
+              rangeRow("Cancelled, never rebooked", span(range.cancellationWithoutRebook, "", 0), "%"),
+              rangeRow("Reschedule rate", span(range.rescheduleRate, "", 0), "%"),
+            ]),
+          ])
+        : null,
+    ])
+  );
+
+  // By client. Ours against everything that ran, with the trend shape
+  // beside it — the ordering here is by volume, and deliberately carries
+  // no Results column: those are not comparable between clients.
+  const GROUP_NOTE = { core: "", clientScheduled: "Client-scheduled", ended: "Ended" };
+
+  frag.appendChild(
+    el("div", { class: "ov-section" }, [
+      el("h3", { class: "ov-section-title", text: "By client" }),
+      // Fixed at 12 months, never `label`: these rows have no per-period
+      // variant, so following the chart's toggle would retitle numbers
+      // that had not changed.
+      el("p", { class: "ov-section-note", text: "Last 12 months. Select a row to open that client's tab." }),
+      el("div", { class: "card table-wrap" }, [
+        el("table", { class: "ov-table" }, [
           el("thead", {}, [
             el("tr", {}, [
               el("th", { text: "Client" }),
-              el("th", { class: "num", text: "Ours / all" }),
+              el("th", { text: "Coordinated / all that ran" }),
               el("th", { class: "num", text: "Hours" }),
               el("th", { class: "num", text: "Candidates" }),
               el("th", { class: "num", text: "Roles" }),
               el("th", { class: "num", text: "Reschedules" }),
               el("th", { class: "num", text: "Cancelled" }),
               el("th", { class: "num", text: "This week" }),
-              el("th", { text: "" }),
+              el("th", { text: "Last 12 weeks" }),
             ]),
           ]),
           el(
@@ -1117,18 +1311,34 @@ function renderOverview(fullPayload) {
             {},
             payload.byClient.map((row) => {
               const note = GROUP_NOTE[row.group];
-              const share = row.allEvents ? Math.round((row.coordinatedEvents / row.allEvents) * 100) : null;
-              return el("tr", { style: "cursor:pointer", onclick: () => selectTab(row.clientId) }, [
+              const share = row.allEvents ? (row.coordinatedEvents / row.allEvents) * 100 : null;
+              // A share is only meaningful inside one engagement type —
+              // Forus's own team books most of its interviews, so a
+              // percentage there would describe a different thing to the
+              // same column on the row above it.
+              const showShare = row.group === "core";
+              return el("tr", { onclick: () => selectTab(row.clientId) }, [
                 el("td", { class: "lead" }, [
                   el("span", { class: "tab-dot", style: `--tab-accent:${row.accentColor || "var(--ember)"}` }),
                   row.clientName,
-                  note ? el("div", { class: "muted", style: "font-size:12px", text: note }) : null,
+                  note ? el("span", { class: "pill", text: note }) : null,
                 ]),
-                el("td", { class: "num" }, [
-                  `${num(row.coordinatedEvents)} / ${num(row.allEvents)}`,
-                  share == null ? null : el("div", { class: "muted", style: "font-size:12px", text: `${share}%` }),
+                el("td", { class: "share-cell" }, [
+                  el("div", { class: "share-cell-top" }, [
+                    el("span", { class: "share-cell-ours", text: num(row.coordinatedEvents) }),
+                    el("span", { class: "muted", text: ` / ${num(row.allEvents)}` }),
+                    showShare
+                      ? el("span", { class: "share-cell-pct", text: `${share.toFixed(1)}%` })
+                      : el("span", { class: "share-cell-pct muted", text: note ? "not in share" : "" }),
+                  ]),
+                  el("div", { class: "share-cell-track" }, [
+                    el("div", {
+                      class: "share-cell-fill",
+                      style: `width:${Math.max(1, Math.min(100, share || 0))}%;background:${row.accentColor || "var(--ember)"}`,
+                    }),
+                  ]),
                 ]),
-                el("td", { class: "num", text: num(row.hours) + "h" }),
+                el("td", { class: "num", text: num(row.hours) }),
                 el("td", { class: "num", text: num(row.candidates) }),
                 el("td", { class: "num", text: num(row.roles) }),
                 el("td", { class: "num", text: num(row.reschedules) }),
@@ -1139,18 +1349,13 @@ function renderOverview(fullPayload) {
                   row.status === "ended" ? el("span", { class: "muted", text: "—" }) : String(row.thisWeek),
                   row.status === "ended" ? null : weekDelta(row.thisWeek, row.lastWeek),
                 ]),
-                el("td", { style: "width:140px" }, [
-                  el("div", {
-                    class: "meter",
-                    style: `width:${Math.max(2, (row.allEvents / max) * 100)}%;background:${row.accentColor || "var(--ember)"}`,
-                  }),
-                ]),
+                el("td", { class: "spark-cell" }, [sparkline(row.sparkline, row.accentColor)]),
               ]);
             })
           ),
         ]),
-      ])
-    )
+      ]),
+    ])
   );
 
   if (fullPayload.rosterUnmatchedEverywhere && fullPayload.rosterUnmatchedEverywhere.length) {
@@ -1166,7 +1371,24 @@ function renderOverview(fullPayload) {
     );
   }
 
+  frag.appendChild(
+    el("p", {
+      class: "ov-foot",
+      text:
+        "Counts include meals; holds are excluded by whole-word title match. Booked-ahead interviews appear in " +
+        "the chart, faded, and never in a total.",
+    })
+  );
+
   return frag;
+}
+
+/** One label / value / unit row in the Results range card. */
+function rangeRow(label, value, unit) {
+  return el("div", { class: "range-row" }, [
+    el("span", { class: "range-label", text: label }),
+    el("span", { class: "range-value" }, [value, unit ? el("span", { class: "range-unit", text: unit }) : null]),
+  ]);
 }
 
 // --- Shell -----------------------------------------------------------------
@@ -1268,14 +1490,6 @@ async function renderFooter() {
   if (status && status.progress && status.progress.running) {
     children.push(el("p", { text: `Sync in progress (${status.progress.kind}, ${status.progress.client || "starting"})…` }));
   }
-
-  // The access decision, stated where someone about to forward a link
-  // will see it. Internal to Carrara leadership: the client tabs carry a
-  // named list of roles and stages where work went wrong, plus links to
-  // individual candidate records.
-  children.unshift(
-    el("p", { class: "internal-only", text: "Internal to Carrara leadership — not for distribution to clients or coordinators." })
-  );
 
   children.push(
     el("p", {}, [
