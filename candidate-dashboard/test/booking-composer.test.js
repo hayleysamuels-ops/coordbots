@@ -214,11 +214,14 @@ test('the invite settings are read between their two headings, as the six-sessio
     <h2>Manage Candidate Invites</h2><button aria-expanded="false">Send one invite per block</button>${extra}
     <h2>Candidate Invite</h2><button aria-expanded="false">Not a setting</button><h2>Interviewer Invites</h2>`;
   await page.setContent(screen());
-  assert.deepEqual(await readInviteSettings(page),{start:true,end:true,dropdowns:['Send calendar invites','Send calendar invites','Send one invite per block']});
+  assert.deepEqual(await readInviteSettings(page),{start:true,end:true,manageHeadings:1,dropdowns:['Send calendar invites','Send calendar invites','Send one invite per block']});
   await page.setContent(screen('<div role="combobox" aria-expanded="false">Something new</div>'));
   assert.deepEqual((await readInviteSettings(page)).dropdowns,['Send calendar invites','Send calendar invites','Send one invite per block','Something new']);
   await page.setContent(screen().replace('<h2>Candidate Invite</h2>',''));
-  assert.deepEqual(await readInviteSettings(page),{start:true,end:false,dropdowns:[]});
+  assert.deepEqual(await readInviteSettings(page),{start:true,end:false,manageHeadings:1,dropdowns:[]});
+  // One session, as seen settled on October 20: no "Manage Candidate Invites" section.
+  await page.setContent(screen().replace(/<h2>Manage Candidate Invites<\/h2><button aria-expanded="false">Send one invite per block<\/button>/,''));
+  assert.deepEqual(await readInviteSettings(page),{start:true,end:true,manageHeadings:0,dropdowns:['Send calendar invites','Send calendar invites']});
 });
 
 test('previews are placed by document order around the two headings, whatever their heading levels',async t=>{

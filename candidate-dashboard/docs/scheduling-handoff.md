@@ -771,8 +771,12 @@ file permits it or the composer clicks Schedule.
   read mid-load (2 requests in flight, 24 spinners), so no one-session rule was
   built from it: the check now waits for the Calendar Invites screen to settle
   (no requests in flight and a second of quiet, within 15 seconds; otherwise it
-  refuses) before reading anything on it, and the next run shows what a
-  settled one-session screen holds.
+  refuses) before reading anything on it. The next run, settled (nothing in
+  flight, previews drawn), showed the same: two "Send calendar invites", no
+  per-block setting, no "Manage Candidate Invites" heading. So for a
+  one-session plan the check requires exactly those two and that heading's
+  absence; several sessions still need "Send one invite per block"; anything
+  else refuses.
 
   The check accepts either layout, whichever appears. For the dropdowns it
   requires exactly those three, each reading exactly that, and accepts only

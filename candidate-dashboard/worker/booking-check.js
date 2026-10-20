@@ -363,21 +363,31 @@ function checkConfirmationEmail({subject,body},plan){
   if(why.length)fail(`The candidate confirmation email doesn't match the approval: ${why.join('; ')}. It may be out of date.`,why);
 }
 
-// The Calendar Invites screen's settings, in its dropdown layout (seen
-// October 19 on TEST's six-session Onsite schedule; a one-session schedule
-// shows "Send Candidate Invite" and "Send Interviewer Invite(s)" checkboxes
-// instead). Between the "Calendar Invites and Notifications" and "Candidate
-// Invite" headings there must be exactly three dropdowns: two reading "Send
-// calendar invites" and one "Send one invite per block". Which of the two is
-// the candidate's isn't shown in the markup, and needn't be: both must send.
-// Anything else (an invite not sent, another invite mode, another dropdown)
+// The Calendar Invites screen's settings, in its dropdown layout. Between the
+// "Calendar Invites and Notifications" and "Candidate Invite" headings:
+//   several sessions (TEST's six-session Onsite, October 19): exactly three
+//     dropdowns, two reading "Send calendar invites" and one "Send one invite
+//     per block" (under a "Manage Candidate Invites" heading);
+//   one session (TEST's First Round, October 20, read once the screen had
+//     settled): exactly two "Send calendar invites", and no "Manage Candidate
+//     Invites" heading; with one session there's no block to split.
+// Which "Send calendar invites" is the candidate's isn't shown in the markup,
+// and needn't be: both must send. Anything else (an invite not sent, another
+// invite mode, another dropdown, a per-block setting on a one-session screen)
 // refuses. The robot never opens or changes them.
 const INVITE_DROPDOWNS=['Send calendar invites','Send calendar invites','Send one invite per block'];
-function checkInviteDropdowns({start,end,dropdowns}){
+const ONE_SESSION_DROPDOWNS=['Send calendar invites','Send calendar invites'];
+function checkInviteDropdowns({start,end,dropdowns,manageHeadings=0},sessions){
   if(!start||!end)fail(`Couldn't find the Calendar Invites settings: the "${!start?'Calendar Invites and Notifications':'Candidate Invite'}" heading is missing.`);
   const shown=(dropdowns||[]).map(t=>String(t).replace(/\s+/g,' ').trim());
+  const said=shown.length?shown.map(t=>`"${t.slice(0,60)}"`).join(', '):'no dropdowns';
+  if(sessions===1){
+    if(manageHeadings)fail(`The Calendar Invites screen for one session has a "Manage Candidate Invites" section, which only several sessions should have; it shows ${said}.`);
+    if(!same([...shown].sort(),ONE_SESSION_DROPDOWNS))fail(`The Calendar Invites settings show ${said}; for one session they must be exactly two "Send calendar invites".`);
+    return;
+  }
   if(!same([...shown].sort(),[...INVITE_DROPDOWNS].sort()))
-    fail(`The Calendar Invites settings show ${shown.length?shown.map(t=>`"${t.slice(0,60)}"`).join(', '):'no dropdowns'}; they must be exactly two "Send calendar invites" and one "Send one invite per block".`);
+    fail(`The Calendar Invites settings show ${said}; they must be exactly two "Send calendar invites" and one "Send one invite per block".`);
 }
 
 // Dialogs. Confirmable warnings are an explicit allowlist (empty for now);
@@ -406,4 +416,4 @@ function classifyDialog(text){
   return {action:'stop',reason:`Ashby showed a dialog the booking doesn't recognise: "${t.slice(0,160)}". Nothing was confirmed.`};
 }
 
-module.exports={draftsIn,maskAgendaItem,emailAgendaItems,zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};
+module.exports={draftsIn,maskAgendaItem,emailAgendaItems,zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,ONE_SESSION_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};

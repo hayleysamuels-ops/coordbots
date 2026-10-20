@@ -246,10 +246,10 @@ test('the confirmation email refuses on a stale date, a missing zone, a stranger
   assert.throws(()=>c.checkConfirmationEmail({...email,body:email.body.replace('Mary Petrino (','Gabrielle Struckell (')},oct20),/agenda item 3 doesn't name Mary Petrino; agenda item 3 also names "Gabrielle Struckell", who wasn't approved/);
   assert.throws(()=>c.checkConfirmationEmail({...email,body:email.body.replace(' - Joe Penn','')},oct20),/agenda item 2 doesn't name Joe Penn/);
 });
-test('the dropdown invite layout: exactly two "Send calendar invites" and one "Send one invite per block", or it refuses',()=>{
+test('the dropdown invite layout: two "Send calendar invites", plus "Send one invite per block" for several sessions, or it refuses',()=>{
   const ok={start:true,end:true,dropdowns:['Send calendar invites','Send calendar invites','Send one invite per block']};
-  c.checkInviteDropdowns(ok);
-  c.checkInviteDropdowns({...ok,dropdowns:['Send one invite per block','Send calendar invites','Send calendar invites']});
+  c.checkInviteDropdowns(ok,6);
+  c.checkInviteDropdowns({...ok,dropdowns:['Send one invite per block','Send calendar invites','Send calendar invites']},6);
   for(const [read,why] of [
     [{...ok,dropdowns:['Send calendar invites',"Don't send calendar invites",'Send one invite per block']},/"Don't send calendar invites"/],
     [{...ok,dropdowns:['Send calendar invites','Send calendar invites','Send one invite per interview']},/"Send one invite per interview"; they must be exactly two/],
@@ -258,7 +258,20 @@ test('the dropdown invite layout: exactly two "Send calendar invites" and one "S
     [{...ok,dropdowns:[]},/show no dropdowns/],
     [{...ok,start:false},/"Calendar Invites and Notifications" heading is missing/],
     [{...ok,end:false},/"Candidate Invite" heading is missing/]])
-    assert.throws(()=>c.checkInviteDropdowns(read),why);
+    assert.throws(()=>c.checkInviteDropdowns(read,6),why);
+  // One session (TEST's First Round, October 20, settled): two "Send calendar
+  // invites" and no "Manage Candidate Invites" section.
+  const one={start:true,end:true,manageHeadings:0,dropdowns:['Send calendar invites','Send calendar invites']};
+  c.checkInviteDropdowns(one,1);
+  for(const [read,why] of [
+    [{...one,dropdowns:[...one.dropdowns,'Send one invite per block']},/for one session they must be exactly two "Send calendar invites"/],
+    [{...one,manageHeadings:1},/for one session has a "Manage Candidate Invites" section, which only several sessions should have/],
+    [{...one,dropdowns:['Send calendar invites',"Don't send calendar invites"]},/"Don't send calendar invites"; for one session/],
+    [{...one,dropdowns:['Send calendar invites']},/for one session they must be exactly two/],
+    [{...one,end:false},/"Candidate Invite" heading is missing/]])
+    assert.throws(()=>c.checkInviteDropdowns(read,1),why);
+  // Several sessions still need the per-block setting.
+  assert.throws(()=>c.checkInviteDropdowns(one,2),/must be exactly two "Send calendar invites" and one "Send one invite per block"/);
 });
 
 test('dialogs: the past-time and no-location warnings are never confirmed, and anything unrecognised stops',()=>{

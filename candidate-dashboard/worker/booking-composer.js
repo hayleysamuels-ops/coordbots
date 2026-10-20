@@ -128,12 +128,12 @@ async function readInviteSettings(page){
     const text=el=>(el.innerText||'').replace(/\s+/g,' ').trim();
     const headings=[...document.querySelectorAll('h1,h2,h3,h4,[role="heading"]')];
     const exactly=t=>headings.filter(h=>text(h)===t);
-    const starts=exactly('Calendar Invites and Notifications'),ends=exactly('Candidate Invite');
-    if(starts.length!==1||ends.length!==1)return {start:starts.length===1,end:ends.length===1,dropdowns:[]};
+    const starts=exactly('Calendar Invites and Notifications'),ends=exactly('Candidate Invite'),manageHeadings=exactly('Manage Candidate Invites').length;
+    if(starts.length!==1||ends.length!==1)return {start:starts.length===1,end:ends.length===1,manageHeadings,dropdowns:[]};
     const [start,end]=[starts[0],ends[0]];
     const between=el=>(start.compareDocumentPosition(el)&Node.DOCUMENT_POSITION_FOLLOWING)&&(el.compareDocumentPosition(end)&Node.DOCUMENT_POSITION_FOLLOWING);
     const dropdowns=[...document.querySelectorAll('button[aria-expanded],[role="button"][aria-expanded],[role="combobox"]')].filter(between).map(text);
-    return {start:true,end:true,dropdowns};
+    return {start:true,end:true,manageHeadings,dropdowns};
   });
 }
 
@@ -425,8 +425,8 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
         if(!(await (await one(box,`"${name}"`)).isChecked()))refuse(`"${name}" is off; it must be on.`);
       pass('candidate and interviewer invites are on (checkboxes)');
     }else if(settings.dropdowns.length){
-      try{checkInviteDropdowns(settings);}catch(e){refuse(e.message);}
-      pass('candidate and interviewer invites are on (both "Send calendar invites", and "Send one invite per block")');
+      try{checkInviteDropdowns(settings,plan.sessions.length);}catch(e){refuse(e.message);}
+      pass(plan.sessions.length===1?'candidate and interviewer invites are on (both "Send calendar invites"; one session, no per-block setting)':'candidate and interviewer invites are on (both "Send calendar invites", and "Send one invite per block")');
     }else refuse('Couldn\'t find the invite settings: neither the "Send Candidate Invite" checkbox nor the "Send calendar invites" dropdowns.');
     // Previews: whose each one is comes from where it sits, by document order
     // (partitionPreviews): the candidate's single combined invite between the
