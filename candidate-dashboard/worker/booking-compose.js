@@ -69,7 +69,9 @@ function composeOutcome(r){
   const head=r.status==='composed'?`composed${r.sendSkipped?` (not sent: ${clause(r.sendSkipped)})`:''}`:r.status==='sent'?`SENT by clicking Schedule once (${sendReply})`
     :r.status==='send_uncertain'?`SEND UNCERTAIN after clicking Schedule once (${sendReply}); not retried`
     :r.status==='skipped'?`skipped: ${clause(r.reason)}`:`${r.status}${r.step?` at "${short(r.step)}"`:''}: ${clause(r.reason)}`;
-  return `${head}; ${made}${kept?`, ${kept}`:''}${replaced}${zone}${writes}`;
+  const publish=r.send?.publish?`; invites: ${r.send.publish.reply?`publish answered HTTP ${r.send.publish.reply.status}${r.send.publish.reply.accepted?', accepted':', not accepted'}`:r.send.publish.blockedByGuard?`publish BLOCKED by the guard (variables: ${short(r.send.publish.variables||'none seen')})`:'no publish seen'}`:'';
+  const invites=r.invites?`; Ashby shows the invites ${r.invites.state.toUpperCase()}`:'';
+  return `${head}; ${made}${kept?`, ${kept}`:''}${replaced}${zone}${writes}${publish}${invites}`;
 }
 
 // A composer event as a log line, for the ones worth reading afterwards:
@@ -86,6 +88,7 @@ function detailLine(e){
     case 'screen':{const {type,at,...rest}=e;return rest.note?`screen (${at}): ${rest.note}`:`screen (${at}): ${JSON.stringify(rest)}`;}
     case 'dialog':return `dialog: ${short(e.text)}`;
     case 'send-skipped':return `not sending: ${short(e.reason)}`;
+    case 'invites':return `invites on the schedule's page: ${e.state.toUpperCase()} (${(e.evidence||[]).map(short).join(' | ')||'nothing shown'})`;
     case 'draft-mentions':{const {type,...rest}=e;return `no draft read found; the requests that mentioned the draft (structure only): ${JSON.stringify(rest)}`;}
     case 'send':{const {type,...rest}=e;return `send: ${JSON.stringify(rest)}`;}
     case 'agenda-shape':{const {type,...rest}=e;return `candidate invite agenda unreadable, its shape (letters masked): ${JSON.stringify(rest)}`;}
@@ -128,6 +131,26 @@ async function compose({env,payload,chromium,loadSession,clientId,expectedIdenti
   }
 }
 
+// What Ashby's schedule page shows for a booked schedule's invites, for the
+// dashboard (booking-composer.js readInviteStatus). Read-only; allowed after
+// the interview has passed, like a delete.
+async function inviteStatus({env,payload,chromium,loadSession,clientId,expectedIdentity,log=()=>{},say=console.log,composer=require('./booking-composer')}){
+  const plan=payload?.plan;
+  const tag=`[booking] Invite status${ID.test(String(payload?.proposalId||''))?` for ${payload.proposalId}`:''}`;
+  const ready=await prepare({env,plan,loadSession,clientId,expectedIdentity,now:0});
+  if(ready.skip){say(`${tag}: not read (${clause(ready.skip.reason)})`);return ready.skip;}
+  const isolation=env.ASHBY_BROWSER_ISOLATION||'sandbox';
+  try{
+    const r=await withBrowser({chromium,saved:ready.saved,isolation},({context,page})=>composer.readInviteStatus({context,page,plan,log,expectedIdentity}));
+    say(`${tag}: ${r.state.toUpperCase()} (${(r.evidence||[]).map(short).join(' | ')||'nothing shown'})`);
+    return {status:'read',invites:r};
+  }catch(e){
+    say(`${tag}: not read (${clause(e.message)})`);
+    if(e.deadline)return {status:'read',invites:{state:'unknown',evidence:[e.message]}};
+    throw e;
+  }
+}
+
 // Whether an option would be sent if approved, for the dashboard at posting
 // (it marks the plan `send: true` and words the Slack button). Read-only: no
 // session, no browser. The plan must pass the compose locks too.
@@ -159,4 +182,4 @@ async function discard({env,payload,chromium,loadSession,clientId,expectedIdenti
   }
 }
 
-module.exports={compose,discard,sendStatus,composeOutcome,detailLine,DEADLINE_MS};
+module.exports={compose,discard,inviteStatus,sendStatus,composeOutcome,detailLine,DEADLINE_MS};

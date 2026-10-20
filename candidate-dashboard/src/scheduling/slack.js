@@ -143,12 +143,14 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       // A confirmation email that's off is said first and plainly: the SOP
       // expects one, and nothing else would tell the sender it won't go.
       case "composed": return `${check.sendSkipped ? `*Not sent automatically:* ${escape(check.sendSkipped)} A person needs to send it.\n` : ""}${check.confirmationEmail === "off" ? "⚠️ *No candidate confirmation email will be sent:* it's turned off for this schedule in Ashby. If the candidate needs one, turn it on in the draft before sending and check it there.\n" : ""}*Composed and waiting in Ashby* (checked ${escape(when(check.composedAt))}): open ${scheduleIn(plan)}, go to its Drafts tab, open the draft and click Send.${check.from ? ` The candidate's confirmation email will come from ${escape(check.from)}.` : ""}\n*Not sent yet.* If it isn't sent by ${escape(when(check.deleteBy))}, the draft is deleted and this needs booking by hand. If you change it in Ashby, or send it much later, check calendars again first.`;
-      // Sent by the robot's one click (ashby-check.js read it back from Ashby).
+      // Sent by the robot's one click: only with Ashby's own evidence that the
+      // invitations went out (ashby-check.js). The confirmation email isn't
+      // claimed delivered, only whether it was on.
       case "sent": if (check.sentBy === "robot") {
-        const what = `invitations${check.confirmationEmail === "off" ? " (no candidate confirmation email: it's off for this schedule)" : " and the candidate's confirmation email"}`;
+        const email = check.confirmationEmail === "off" ? " No candidate confirmation email: it's off for this schedule." : " The candidate's confirmation email was on for this schedule.";
         return check.differences?.length
-          ? `*Sent from ${sendsAs(plan)}'s account* at ${escape(when(check.attemptedAt || check.sentSeenAt))}: ${what} went out, *but what Ashby booked differs from this approval:* ${escape(check.differences.join("; "))}. Check it in Ashby.`
-          : `*Sent from ${sendsAs(plan)}'s account* at ${escape(when(check.attemptedAt || check.sentSeenAt))}: ${what} went out. Ashby shows it Scheduled, matching this approval.`;
+          ? `*Sent from ${sendsAs(plan)}'s account* at ${escape(when(check.attemptedAt || check.sentSeenAt))}: Ashby shows the invitations sent, *but what it booked differs from this approval:* ${escape(check.differences.join("; "))}. Check it in Ashby.${email}`
+          : `*Sent from ${sendsAs(plan)}'s account* at ${escape(when(check.attemptedAt || check.sentSeenAt))}: Ashby shows it Scheduled, matching this approval, and its invitations sent.${email}`;
       }
       return check.differences?.length
         ? `*Sent in Ashby* (seen ${escape(when(check.sentSeenAt))}), *but what was booked differs from this approval:* ${escape(check.differences.join("; "))}. Check it in Ashby.`
@@ -159,6 +161,8 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       case "superseded": return `*Superseded* at ${escape(when(check.supersededAt))} by a later approval for this schedule${check.draftDeleted ? "; its draft was deleted" : ""}. Nothing from this message was sent.`;
       case "refused": return `*The Ashby check stopped*${check.step ? ` at "${escape(check.step)}"` : ""}: ${escape(check.reason || "no reason was given")}\nNothing was sent. ${!check.draftId ? "No draft was made." : check.cleanup?.deleted ? "The draft it made was deleted." : `The draft it made may still be in Ashby. ${deleteByHand(plan)}`} ${byHand}`;
       case "not_started": return `*The Ashby check didn't start:* ${escape(check.reason)} Nothing was sent and no draft was made. ${byHand}`;
+      case "booked_invites_pending": return `⚠️ *Booked, but the invitations were not sent.* Schedule was clicked once${check.attemptedAt ? ` at ${escape(when(check.attemptedAt))}` : ""} and Ashby shows ${scheduleIn(plan)} Scheduled${check.differences?.length ? ` (differing from this approval: ${escape(check.differences.join("; "))})` : ", matching this approval"}, with its invites *pending*. Send them by hand from the schedule's page in Ashby ("Send to Candidate" and "Send to Interviewers"); nothing will be retried.`;
+      case "booked_invites_unknown": return `⚠️ *Booked; whether the invitations went out is unknown.* Ashby shows ${scheduleIn(plan)} Scheduled${check.differences?.length ? ` (differing from this approval: ${escape(check.differences.join("; "))})` : ", matching this approval"}, but its page didn't show the invites as sent. Check it in Ashby, and send them by hand if they're pending; nothing will be retried.`;
       case "send_uncertain": return `⚠️ *The send may have gone:* Schedule was clicked once${check.attemptedAt ? ` at ${escape(when(check.attemptedAt))}` : ""} (${escape(check.reason || "Ashby's answer wasn't a clear acceptance")}), and Ashby doesn't show the schedule as Scheduled yet. Check ${scheduleIn(plan)}: if it isn't Scheduled, book it by hand. Nothing will be retried.`;
       case "uncertain": return `*The Ashby check didn't finish* (${escape(check.reason)}). Nothing was sent, but a draft may be left in Ashby. ${deleteByHand(plan)} ${byHand}`;
       case "too_close": return "*Not booked:* too close to the first interview — book this in Ashby by hand. Nothing has been scheduled in Ashby, and no invitations or candidate email have been sent.";
@@ -236,7 +240,7 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
   send.markApproved = async ({ channel, ts, row }) => {
     const { blocks } = await calendarChecked(row.plan, { proposalId: row.id, approver: row.discussionApproval?.by || "a coordinator" }, row.slackApproval, row.ashbyCheck);
     // The notification text: no names beyond the approver's, and the state.
-    const status = { queued: "waiting to be checked in Ashby; not booked", running: "being checked in Ashby; not booked", composed: `composed in Ashby, not sent yet${row.ashbyCheck?.confirmationEmail === "off" ? "; no candidate confirmation email will be sent" : ""}`, sent: "sent in Ashby", send_uncertain: "the send may have gone; check Ashby" }[row.ashbyCheck?.state] || "not booked";
+    const status = { queued: "waiting to be checked in Ashby; not booked", running: "being checked in Ashby; not booked", composed: `composed in Ashby, not sent yet${row.ashbyCheck?.confirmationEmail === "off" ? "; no candidate confirmation email will be sent" : ""}`, sent: "sent in Ashby", booked_invites_pending: "booked, but invitations NOT sent; send them by hand", booked_invites_unknown: "booked; invitations unknown, check Ashby", send_uncertain: "the send may have gone; check Ashby" }[row.ashbyCheck?.state] || "not booked";
     const text = `Interview schedule for ${row.plan.candidateName} · ${row.plan.jobTitle}: approved by ${row.slackApproval.name || row.slackApproval.email}; ${status}.`;
     const problems = blockProblems({ text, blocks });
     if (problems.length) throw invalid(problems);

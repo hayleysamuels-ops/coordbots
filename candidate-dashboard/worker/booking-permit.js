@@ -18,7 +18,10 @@ const {normalizeDraft,checkBaseline,checkSave}=require('./booking-check');
 const ORIGIN='https://app.ashbyhq.com';
 const OP={create:'ApiCreateTemplateDraftScheduleForInterviewSchedule',save:'ApiUpdateDraftSchedule',
   refresh:'ApiRefreshDraftInterviewScheduleCandidateConfirmationEmailPreview',discard:'ApiDeleteDraftInterviewSchedule',
-  send:'ApiScheduleInterviewScheduleFromDraft'};
+  send:'ApiScheduleInterviewScheduleFromDraft',
+  // Sent by Ashby right after a schedule is booked; it publishes the calendar
+  // invites (October 20: blocked, the booking stood with "Pending invites").
+  publish:'ApiPublishPendingCalendarUpdates'};
 
 function parsedOps(body){try{const p=JSON.parse(body||'');return Array.isArray(p)?p:[p];}catch(_){return null;}}
 function isMutation(o){return typeof o?.query==='string'&&/^\s*mutation\b/.test(o.query.replace(/#[^\n]*/g,''));}

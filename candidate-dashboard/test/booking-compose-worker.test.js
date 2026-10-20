@@ -216,6 +216,34 @@ test('when no draft read is found, the requests that mentioned the draft are log
     'no draft read found; the requests that mentioned the draft (structure only): {"count":1,"mentions":[{"operations":["ApiGetDraft"],"read":true}]}');
 });
 
+test('invite status comes from what Ashby shows: pending on its pending signs, sent only on an explicit sent, otherwise unknown',()=>{
+  const {classifyInviteStatus}=require('../worker/booking-check');
+  // TEST's First Round on October 20, after the publish was blocked.
+  const seen={headings:['Schedule TEST TEST First Round Scheduled Pending invites Pending invite','SEND CALENDAR INVITES'],lines:['Pending invites','Pending invite','SEND CALENDAR INVITES','Send to Candidate','Send to Interviewers'],
+    buttons:['Send to Candidate','Send to Interviewers','Manual Reschedule','Cancel Interview']};
+  const pending=classifyInviteStatus(seen);
+  assert.equal(pending.state,'pending');assert.ok(pending.evidence.includes('Pending invites')&&pending.evidence.includes('button: Send to Candidate'));
+  assert.equal(classifyInviteStatus({lines:['Candidate Invite Not Sent']}).state,'pending');
+  assert.equal(classifyInviteStatus({buttons:['Send to Interviewers']}).state,'pending');
+  assert.equal(classifyInviteStatus({lines:['Invites sent']}).state,'sent');
+  assert.equal(classifyInviteStatus({lines:['Invites sent','Pending invite']}).state,'pending','any pending sign wins');
+  assert.equal(classifyInviteStatus({headings:['Schedule TEST TEST First Round Scheduled'],lines:['SEND CALENDAR INVITES']}).state,'unknown','no sign either way is unknown, never sent');
+  assert.equal(classifyInviteStatus({}).state,'unknown');
+});
+
+test('the publish permit is one, armed with Send, and only for a request that names this schedule or draft',()=>{
+  const fsMod=require('fs'),pathMod=require('path');
+  const composer=fsMod.readFileSync(pathMod.join(__dirname,'..','worker','booking-composer.js'),'utf8');
+  assert.equal((composer.match(/op:OP\.publish\b/g)||[]).length,1,'one publish permit');
+  assert.match(composer,/if\(send&&keepOnSuccess\)await installPermit\(context,\{op:OP\.publish,max:1,/);
+  assert.match(composer,/if\(!publishing\.armed\)return false;[\s\S]{0,200}return t\.includes\(plan\.interviewScheduleId\)\|\|\(!!state\.draftId&&t\.includes\(state\.draftId\)\);/);
+  assert.equal((composer.match(/publishing\.armed=true/g)||[]).length,1,'armed in one place');
+  assert.match(composer,/sending\.armed=true;publishing\.armed=true;\s*try\{\s*try\{await schedule\.click\(\);/,'armed with Send, right before the one click');
+  const {composeOutcome}=require('../worker/booking-compose');
+  assert.match(composeOutcome({status:'sent',draftId:DRAFT,send:{attempted:true,reply:{status:200,accepted:true},publish:{reply:null,blockedByGuard:true,variables:'input'}},invites:{state:'pending'},cleanup:{kept:true}}),
+    /invites: publish BLOCKED by the guard \(variables: input\); Ashby shows the invites PENDING$/);
+});
+
 test('the log says plainly whether the check sent',()=>{
   const {composeOutcome}=require('../worker/booking-compose');
   assert.match(composeOutcome({status:'sent',draftId:DRAFT,send:{attempted:true,reply:{status:200,accepted:true}},cleanup:{kept:true}}),/^SENT by clicking Schedule once \(Ashby answered HTTP 200, accepted\); draft .* created, kept \(a send was attempted\)/);

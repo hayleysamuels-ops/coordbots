@@ -21,7 +21,7 @@
 const {guardWrites,classify}=require('./template-guard');
 const {sendRecipientsOutside,sendBlocked}=require('./booking-locks');
 const {installBookingPermits,installPermit,ORIGIN,OP}=require('./booking-permit');
-const {DRAFT_READ_OP,draftReadCopy,draftShape,draftsIn,normalizeDraft,maskAgendaItem,checkFinal,formats,composerZone,checkInviteDropdowns,partitionPreviews,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog}=require('./booking-check');
+const {classifyInviteStatus,DRAFT_READ_OP,draftReadCopy,draftShape,draftsIn,normalizeDraft,maskAgendaItem,checkFinal,formats,composerZone,checkInviteDropdowns,partitionPreviews,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog}=require('./booking-check');
 
 class Refusal extends Error{constructor(step,message){super(message);this.step=step;this.status=409;}}
 const esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
@@ -161,6 +161,22 @@ async function readPreviewSections(page,previews){
   return {...headings,where};
 }
 
+// The schedule's page in Ashby, read for its invite status (booking-check.js
+// classifyInviteStatus): reached in-app, once loaded; headings, the lines
+// that mention invites or sending, and the visible buttons. Reads only.
+async function inviteStatusOnPage(page,plan,{go,net,sleep}){
+  net.mark();await go(`/schedules/${plan.interviewScheduleId}`);await net.settled();await sleep(1500);
+  const seen=await page.evaluate(()=>{
+    const visible=el=>{const r=el.getBoundingClientRect();return r.width>0&&r.height>0;};
+    return {path:location.pathname,
+      headings:[...document.querySelectorAll('h1,h2,h3,[role="heading"]')].filter(visible).map(h=>h.innerText.replace(/\s+/g,' ').trim()).filter(Boolean).slice(0,30),
+      lines:(document.body.innerText||'').split('\n').map(l=>l.trim()).filter(l=>/invit|\bsent\b|pending|calendar/i.test(l)).slice(0,40),
+      buttons:[...document.querySelectorAll('button,[role="button"]')].filter(visible).map(b=>b.innerText.replace(/\s+/g,' ').trim()).filter(Boolean).slice(0,80)};
+  });
+  if(seen.path!==`/schedules/${plan.interviewScheduleId}`)return {state:'unknown',evidence:[`the schedule's page didn't open (${seen.path})`]};
+  return classifyInviteStatus(seen);
+}
+
 // Waiting and finding, shared by the run and by deleting a draft on its own.
 function helpers(page,T,refuse){
   const sleep=ms=>page.waitForTimeout(ms);
@@ -208,6 +224,20 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
       sending.mismatch=Object.keys(v||{}).sort().join(', ')||'(no variables)';return false;
     },
     onResponse:(json,status)=>{sending.reply={status,accepted:replied(json),errors:(json?.errors||[]).map(e=>String(e.message).slice(0,200)).slice(0,3)};}});
+  // Ashby's second write on that click, which publishes the calendar invites:
+  // once, while armed (with Send, until Ashby has tried it), and only if its
+  // variables name this schedule or this draft. Its variable names are kept
+  // for the log; a request that doesn't name either stays blocked by the
+  // guard, and the invites show as pending.
+  const publishing={armed:false,reply:undefined,variables:null};
+  if(send&&keepOnSuccess)await installPermit(context,{op:OP.publish,max:1,log:note,...(respond?{respond}:{}),
+    bound:v=>{
+      if(!publishing.armed)return false;
+      publishing.variables=Object.keys(v||{}).sort().join(', ')||'(no variables)';
+      const t=JSON.stringify(v||{});
+      return t.includes(plan.interviewScheduleId)||(!!state.draftId&&t.includes(state.draftId));
+    },
+    onResponse:(json,status)=>{publishing.reply={status,accepted:replied(json),errors:(json?.errors||[]).map(e=>String(e.message).slice(0,200)).slice(0,3)};}});
   // Ashby's own read of this run's draft, recorded as the composer loads it,
   // so it can be repeated just before Schedule (step 5): Ashby's
   // ApiGetDraftSchedule, a read as the write guard counts one (classify), one
@@ -556,16 +586,19 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
       step='send';
       report.send={attempted:true,at:new Date().toISOString(),pathBefore:new URL(page.url()).pathname};
       const blockedBefore=guard.blocked.length;
-      sending.armed=true;
+      sending.armed=true;publishing.armed=true;
       try{
         try{await schedule.click();}catch(e){report.send.clickError=String(e.message).slice(0,200);}
-        const sendBlockedByGuard=()=>guard.blocked.slice(blockedBefore).some(x=>x.summary.endsWith(' '+OP.send));
+        const blockedOp=op=>guard.blocked.slice(blockedBefore).some(x=>x.summary.endsWith(' '+op));
+        const sendBlockedByGuard=()=>blockedOp(OP.send),publishSettled=()=>publishing.reply!==undefined||blockedOp(OP.publish);
+        // Both writes: the booking, then (after its reply) the invites.
         const until30=Date.now()+30000;
-        while(Date.now()<until30&&sending.reply===undefined&&!sendBlockedByGuard())await sleep(250);
-        sending.armed=false;
+        while(Date.now()<until30&&!((sending.reply!==undefined||sendBlockedByGuard())&&publishSettled()))await sleep(250);
+        sending.armed=false;publishing.armed=false;
         await sleep(T.short);
         report.send.reply=sending.reply||null;
         report.send.blockedByGuard=sendBlockedByGuard();
+        report.send.publish={reply:publishing.reply||null,blockedByGuard:blockedOp(OP.publish),variables:publishing.variables};
         if(sending.mismatch)report.send.unmatchedVariables=sending.mismatch;
         report.send.attemptedWrites=guard.blocked.slice(blockedBefore).filter(x=>x.ashby).map(x=>x.summary);
         report.send.pathAfter=new URL(page.url()).pathname;
@@ -574,8 +607,12 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
           .map(t=>t.replace(/\s+/g,' ').trim().slice(0,300)).filter(t=>t&&!structuralDialogs(plan).has(t));
         note({type:'send',...report.send});
         note({type:'screen',at:'after-send',...await screenSnapshot(page,net).catch(e=>({error:e.message}))});
+        // What Ashby shows for the invites: never claimed sent without this.
+        report.invites=await inviteStatusOnPage(page,plan,{go,net,sleep}).catch(e=>({state:'unknown',evidence:[`couldn't read the schedule's page: ${String(e.message).slice(0,120)}`]}));
+        note({type:'invites',...report.invites});
       }catch(e){report.send.reportError=String(e.message).slice(0,200);}
-      finally{sending.armed=false;}
+      finally{sending.armed=false;publishing.armed=false;}
+      if(!report.invites)report.invites={state:'unknown',evidence:['not read']};
       report.status=report.send.reply?.accepted?'sent':'send_uncertain';
       pass(report.status==='sent'?'Schedule clicked once and Ashby accepted the send':'Schedule clicked once; Ashby\'s answer to the send wasn\'t a clear acceptance (reported, not retried)');
     }
@@ -643,6 +680,21 @@ async function discard(page,plan,state,h){
   return deleteDraft(page,plan,state.draftId,{arm:()=>{state.cleanup=true;},done:()=>state.discarded},h);
 }
 
+// The invite status of a booked schedule, for the dashboard (a send that
+// wasn't confirmed, or a robot send recorded without this evidence). Read
+// only: no permits, every write blocked. Never throws: unknown on failure.
+async function readInviteStatus({context,page,plan,log=()=>{},timing={},expectedIdentity}){
+  const T={settle:700,short:1500,wait:15000,...timing};
+  const guard=await guardWrites(context,{warn:m=>log({type:'blocked',detail:m.replace('[write-guard] ','')})});
+  const refuse=m=>{throw new Refusal('read invite status',m);};
+  const h=helpers(page,T,refuse),net=networkWatch(page,{sleep:h.sleep,wait:T.wait});
+  try{
+    await openApplication(page,plan,{refuse,sleep:h.sleep,go:h.go,net,T,expectedIdentity});
+    return await inviteStatusOnPage(page,plan,{go:h.go,net,sleep:h.sleep});
+  }catch(e){return {state:'unknown',evidence:[`couldn't read the schedule's page: ${String(e.message).slice(0,120)}`]};}
+  finally{log({type:'blocked-summary',blocked:[...new Set(guard.blocked.filter(b=>b.ashby).map(b=>b.summary))]});}
+}
+
 // Delete a draft the Slack-approved check left in Ashby (the dashboard's sweep):
 // open the application, then delete exactly that draft. Its only permitted
 // write is that one delete; a draft no longer listed (sent, or deleted by a
@@ -664,4 +716,4 @@ async function discardDraft({context,page,plan,draftId,log=()=>{},timing={},resp
   finally{log({type:'blocked-summary',blocked:[...new Set(guard.blocked.filter(b=>b.ashby).map(b=>b.summary))]});}
 }
 
-module.exports={dryRun,discardDraft,openApplication,networkWatch,screenSnapshot,readInviteSettings,readPreviewSections,Refusal};
+module.exports={dryRun,discardDraft,readInviteStatus,openApplication,networkWatch,screenSnapshot,readInviteSettings,readPreviewSections,Refusal};

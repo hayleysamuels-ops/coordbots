@@ -915,6 +915,37 @@ file permits it or the composer clicks Schedule.
        it Scheduled, matching this approval", or "⚠️ The send may have gone …
        nothing will be retried". An announced post that didn't send says why
        ("Not sent automatically: …").
+     - **The first real send (October 20, `32cf646b`) booked but didn't
+       invite.** Clicking Schedule fires two writes: the booking
+       (`ApiScheduleInterviewScheduleFromDraft`, permitted, accepted) and then
+       `ApiPublishPendingCalendarUpdates`, which publishes the calendar
+       invites. The guard blocked the second, so Ashby showed the schedule
+       "Scheduled · Pending invites" with "Send to Candidate" / "Send to
+       Interviewers" buttons, and nothing arrived. The check then called it
+       sent from "Scheduled" alone, and Slack said the invitations and the
+       confirmation email went out. That was false. Fixed (`BOOKING_SEND`
+       was turned off first):
+       - **Never sent without evidence.** After the click the check reads the
+         schedule's page in Ashby (`classifyInviteStatus`): pending on "Pending
+         invites", "Not Sent" or the Send to … buttons; sent only on an explicit
+         "invites sent" with no pending sign; otherwise unknown. The page for
+         invites that went out hasn't been seen yet, so the first good send may
+         read as unknown. States: `sent` (Scheduled and invites sent),
+         `booked_invites_pending` ("Booked, but the invitations were not sent
+         … send them by hand"), `booked_invites_unknown`. The confirmation
+         email is never claimed delivered, only whether it was on.
+       - **The second write is permitted**: one `ApiPublishPendingCalendarUpdates`,
+         armed with Send at the same click and until Ashby has tried it, only if
+         its variables name this schedule or draft (their names are logged); a
+         request that doesn't stays blocked and the invites show pending.
+       - **The false message is corrected by the sweep**: a robot `sent` with no
+         invite evidence is re-read (worker `invite-status`, read-only) and
+         restated, with a "Correction:" reply in its thread.
+       - The invite dropdowns' values weren't read (Hayley: Ashby plainly tried
+         to send, so they were set to send; opening them isn't worth a new kind
+         of action).
+       - That booking's invites are still pending; they can be sent from the
+         schedule's page in Ashby.
      - **To watch the first send:** set `BOOKING_SEND=on` on the scheduling
        worker (and `railway redeploy` if a variable change doesn't redeploy),
        then post a fresh TEST First Round option (only a post made with Send on

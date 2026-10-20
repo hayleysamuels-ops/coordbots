@@ -127,6 +127,24 @@ function draftsIn(json,draftId){
   return found;
 }
 
+// The invite status on a schedule's page in Ashby, from what it shows
+// (booking-composer.js readInviteStatus). Seen October 20 after a booking
+// whose invites were blocked: "Scheduled Pending invites" in the heading,
+// "Pending invites", and "Send to Candidate" / "Send to Interviewers" buttons.
+//   pending: any of those, or "Not Sent";
+//   sent: an explicit "invite(s) sent" and no sign of pending;
+//   unknown: anything else. The page for invites that went out hasn't been
+//     seen yet, so "unknown" is the honest answer until it has.
+// Invitations are never reported sent without this evidence.
+function classifyInviteStatus({headings=[],lines=[],buttons=[]}){
+  const text=[...headings,...lines].map(t=>String(t).replace(/\s+/g,' ').trim()).filter(Boolean);
+  const evidence=[...new Set(text.filter(t=>/invit|\bsent\b|pending/i.test(t)).map(t=>t.slice(0,100)))].slice(0,10);
+  const sendButtons=[...new Set(buttons.map(b=>String(b).trim()).filter(b=>/^Send to (?:Candidate|Interviewers?)$/.test(b)))];
+  if(text.some(t=>/\bPending invites?\b|\bNot Sent\b/i.test(t))||sendButtons.length)return {state:'pending',evidence:[...evidence,...sendButtons.map(b=>`button: ${b}`)]};
+  if(text.some(t=>/\binvites? (?:were |have been )?sent\b/i.test(t)))return {state:'sent',evidence};
+  return {state:'unknown',evidence};
+}
+
 // Ashby's read of a draft (seen October 20): the query ApiGetDraftSchedule,
 // with the draft at data.draftInterviewSchedule. The same response also lists
 // the schedule's drafts (data.draftInterviewSchedule.interviewSchedule.drafts),
@@ -458,4 +476,4 @@ function classifyDialog(text){
   return {action:'stop',reason:`Ashby showed a dialog the booking doesn't recognise: "${t.slice(0,160)}". Nothing was confirmed.`};
 }
 
-module.exports={DRAFT_READ_OP,draftReadCopy,draftShape,draftsIn,maskAgendaItem,emailAgendaItems,zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,ONE_SESSION_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};
+module.exports={classifyInviteStatus,DRAFT_READ_OP,draftReadCopy,draftShape,draftsIn,maskAgendaItem,emailAgendaItems,zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,ONE_SESSION_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};

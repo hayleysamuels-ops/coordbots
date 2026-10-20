@@ -22,11 +22,12 @@ function memoryStore(rows) {
   return { data, list: async () => Object.values(data).map(r => structuredClone(r)), get: async id => structuredClone(data[id] || null),
     replace: async (id, revision, next) => { if (data[id]?.revision !== revision) return false; data[id] = structuredClone(next); return true; } };
 }
-function setup({ rows = [row("d1")], compose, discard, booked = null, at = Date.parse("2099-10-14T12:00:00Z") } = {}) {
+function setup({ rows = [row("d1")], compose, discard, inviteStatus = null, booked = null, at = Date.parse("2099-10-14T12:00:00Z") } = {}) {
   const store = memoryStore(rows), calls = [], shown = [], replies = [];
   let clock = at;
   const worker = { call: async (action, payload) => { calls.push({ action, payload });
     if (action === "compose") return typeof compose === "function" ? compose(payload) : compose;
+    if (action === "invite-status") return typeof inviteStatus === "function" ? inviteStatus(payload) : inviteStatus;
     return typeof discard === "function" ? discard(payload) : discard; } };
   const facts = { scheduleState: async () => (typeof booked === "function" ? booked() : booked) };
   const slackApi = { markApproved: async ({ row }) => { shown.push(row.ashbyCheck?.state); }, threadReply: async ({ text }) => { replies.push(text); } };
@@ -228,15 +229,16 @@ test("a confirmation email that's off is recorded, and said first and plainly in
 const sendingRow = (extra = {}) => row("d1", { plan: { candidateName: "TEST", jobTitle: "TEST", bookingPlan: { ...bookingPlan, send: true, sendAs: "Anna Jones Luminai" }, sessions: [] }, ...extra });
 const bookedAsApproved = { status: "Scheduled", events: bookingPlan.sessions.map(s => ({ start: s.start, end: s.end, interviewers: s.interviewers.map(i => i.email) })) };
 const sent = { status: "sent", draftId: "dr-1", confirmationEmail: "on", wouldSend: { from: "Anna Jones <anna@luminai.com>" }, cleanup: { deleted: false, kept: true, draftId: "dr-1" },
-  send: { attempted: true, at: "2099-10-14T12:00:05.000Z", reply: { status: 200, accepted: true, errors: [] } } };
+  send: { attempted: true, at: "2099-10-14T12:00:05.000Z", reply: { status: 200, accepted: true, errors: [] } }, invites: { state: "sent", evidence: ["Invites sent"] } };
 
-test("a send Ashby accepted is recorded as sent only once Ashby's API shows it Scheduled, matching the approval", async () => {
+test("a send is recorded as sent only when Ashby's API shows it Scheduled and its page shows the invitations sent", async () => {
   const s = setup({ rows: [sendingRow()], compose: sent, booked: bookedAsApproved });
   await s.check.start((await s.store.list())[0]);await s.check.idle();
   const c = s.store.data.d1.ashbyCheck;
   assert.equal(c.state, "sent");assert.equal(c.sentBy, "robot");assert.deepEqual(c.differences, []);assert.equal(c.attemptedAt, "2099-10-14T12:00:05.000Z");
   assert.deepEqual(s.shown, ["running", "sent"]);
-  assert.match(s.replies.at(-1), /^Sent by clicking Schedule once.*Scheduled, matching this approval\.$/);
+  assert.deepEqual(c.invites, { state: "sent", evidence: ["Invites sent"] });
+  assert.match(s.replies.at(-1), /^Sent by clicking Schedule once.*Scheduled and its invitations sent, matching this approval\.$/);
   assert.deepEqual(s.calls.map(c => c.action), ["compose"], "nothing deleted, nothing retried");
   // What Ashby booked, if it differs, is said.
   const d = setup({ rows: [sendingRow()], compose: sent, booked: { ...bookedAsApproved, events: bookedAsApproved.events.slice(1) } });
@@ -246,7 +248,8 @@ test("a send Ashby accepted is recorded as sent only once Ashby's API shows it S
 
 test("a send Ashby doesn't show as Scheduled is uncertain: read three times, never retried, never deleted; the sweep records it once it shows", async () => {
   let booked = { status: "CandidateAvailabilitySubmitted", events: [] };
-  const s = setup({ rows: [sendingRow()], compose: { ...sent, status: "send_uncertain", send: { attempted: true, at: "2099-10-14T12:00:05.000Z", reply: null, blockedByGuard: false } }, booked: () => booked });
+  const s = setup({ rows: [sendingRow()], compose: { ...sent, status: "send_uncertain", send: { attempted: true, at: "2099-10-14T12:00:05.000Z", reply: null, blockedByGuard: false } }, booked: () => booked,
+    inviteStatus: { status: "read", invites: { state: "sent", evidence: ["Invites sent"] } } });
   await s.check.start((await s.store.list())[0]);await s.check.idle();
   let c = s.store.data.d1.ashbyCheck;
   assert.equal(c.state, "send_uncertain");assert.match(c.reason, /no answer from Ashby/);
@@ -257,8 +260,8 @@ test("a send Ashby doesn't show as Scheduled is uncertain: read three times, nev
   assert.equal(s.store.data.d1.ashbyCheck.state, "send_uncertain");
   booked = bookedAsApproved;await s.check.sweep();
   c = s.store.data.d1.ashbyCheck;
-  assert.equal(c.state, "sent");assert.equal(c.sentBy, "robot");assert.deepEqual(c.differences, []);
-  assert.deepEqual(s.calls.map(c => c.action), ["compose"], "no delete and no second compose");
+  assert.equal(c.state, "sent");assert.equal(c.sentBy, "robot");assert.deepEqual(c.differences, []);assert.equal(c.invites.state, "sent");
+  assert.deepEqual(s.calls.map(c => c.action), ["compose", "invite-status"], "no delete and no second compose; the invites read from Ashby");
 });
 
 test("a worker failure on a post that could send is a possible send, never 'nothing was sent'", async () => {
@@ -295,11 +298,44 @@ test("Slack, where Send is on: the button says approving sends, from Anna; each 
   const text = async check => { calls.length = 0; await slack.markApproved({ channel: "C1", ts: "1.2", row: approved(check) }); return { body: calls[0].blocks.at(-1).text.text, note: calls[0].text }; };
   assert.match((await text({ state: "running", startedAt: at })).body, /Checking and sending in Ashby\* \(started .*\) from Anna Jones's account: once every check passes, Schedule is clicked once/);
   assert.match((await text({ state: "queued" })).body, /Waiting to be checked and sent in Ashby,\* .* from Anna Jones's account\. Nothing is sent yet\./);
-  const ok = await text({ state: "sent", sentBy: "robot", attemptedAt: at, sentSeenAt: at, differences: [], confirmationEmail: "on" });
-  assert.match(ok.body, /\*Sent from Anna Jones's account\* at Oct 14, 3:00 PM PDT: invitations and the candidate's confirmation email went out\. Ashby shows it Scheduled, matching this approval\./);
+  const ok = await text({ state: "sent", sentBy: "robot", attemptedAt: at, sentSeenAt: at, differences: [], confirmationEmail: "on", invites: { state: "sent", evidence: [] } });
+  assert.match(ok.body, /\*Sent from Anna Jones's account\* at Oct 14, 3:00 PM PDT: Ashby shows it Scheduled, matching this approval, and its invitations sent\. The candidate's confirmation email was on for this schedule\./);
+  assert.doesNotMatch(ok.body, /went out/, "the confirmation email is never claimed delivered");
+  const pending = await text({ state: "booked_invites_pending", sentBy: "robot", attemptedAt: at, differences: [], invites: { state: "pending", evidence: ["Pending invites"] } });
+  assert.match(pending.body, /⚠️ \*Booked, but the invitations were not sent\.\* .* with its invites \*pending\*\. Send them by hand from the schedule's page in Ashby \("Send to Candidate" and "Send to Interviewers"\)/);
+  assert.match(pending.note, /booked, but invitations NOT sent; send them by hand\.$/);
+  assert.match((await text({ state: "booked_invites_unknown", sentBy: "robot", differences: [] })).body, /⚠️ \*Booked; whether the invitations went out is unknown\.\*/);
   assert.match(ok.note, /sent in Ashby\.$/);
   const unsure = await text({ state: "send_uncertain", sentBy: "robot", attemptedAt: at, reason: "no answer from Ashby" });
   assert.match(unsure.body, /⚠️ \*The send may have gone:\* Schedule was clicked once at Oct 14, 3:00 PM PDT \(no answer from Ashby\).*if it isn't Scheduled, book it by hand\. Nothing will be retried\./);
   assert.match(unsure.note, /the send may have gone; check Ashby\.$/);
   assert.match((await text({ state: "composed", composedAt: at, deleteBy: at, sendSkipped: "Send is switched off on the scheduling worker (BOOKING_SEND)." })).body, /^\*Approved\*.*\n\*Not sent automatically:\* Send is switched off .* A person needs to send it\./s);
+});
+
+test("a booking Ashby shows with its invites pending is never called sent; unknown is said as unknown", async () => {
+  for (const [invites, state, said] of [[{ state: "pending", evidence: ["Pending invites", "button: Send to Candidate"] }, "booked_invites_pending", /NOT sent: Ashby shows them pending/],
+    [{ state: "unknown", evidence: [] }, "booked_invites_unknown", /whether the invitations went out is unknown/], [undefined, "booked_invites_unknown", /unknown/]]) {
+    const s = setup({ rows: [sendingRow()], compose: { ...sent, invites }, booked: bookedAsApproved });
+    await s.check.start((await s.store.list())[0]);await s.check.idle();
+    assert.equal(s.store.data.d1.ashbyCheck.state, state);
+    assert.match(s.replies.at(-1), said);
+    assert.doesNotMatch(s.replies.join(" "), /its invitations sent|invitations and the confirmation email went out|^Sent by clicking/, "never a claim that they were sent");
+  }
+});
+
+test("a robot send recorded as sent without invite evidence is re-read and corrected in Slack, once", async () => {
+  // As 32cf646b was recorded on October 20, before invites needed evidence.
+  const old = sendingRow({ ashbyCheck: { state: "sent", sentBy: "robot", attemptedAt: "2099-10-14T12:00:05.000Z", sentSeenAt: "2099-10-14T12:00:20.000Z", differences: [], confirmationEmail: "on", at: "2099-10-14T12:00:20.000Z" } });
+  const s = setup({ rows: [old], inviteStatus: { status: "read", invites: { state: "pending", evidence: ["Pending invites"] } } });
+  await s.check.sweep();
+  const c = s.store.data.d1.ashbyCheck;
+  assert.equal(c.state, "booked_invites_pending");assert.deepEqual(c.invites.evidence, ["Pending invites"]);
+  assert.deepEqual(s.shown, ["booked_invites_pending"]);
+  assert.match(s.replies[0], /^Correction: this message said the invitations and the confirmation email went out\. Booked in Ashby, but the invitations were NOT sent/);
+  await s.check.sweep();
+  assert.equal(s.calls.filter(c => c.action === "invite-status").length, 1, "read once");
+  // If the worker can't say, it's left for the next sweep.
+  const w = setup({ rows: [old], inviteStatus: () => { throw new Error("busy"); } });
+  await w.check.sweep();
+  assert.equal(w.store.data.d1.ashbyCheck.state, "sent");assert.deepEqual(w.replies, []);
 });

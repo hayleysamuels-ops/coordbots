@@ -47,9 +47,9 @@ function bookingRoutes({secret,clientId,expectedIdentity,adapter=null,draftReade
         if(!ashby)return res.status(503).json({error:'The Ashby check is not connected.'});
         result=require('./booking-compose').sendStatus({env:ashby.env,payload:data.payload,expectedIdentity});
       }
-      else if(data.action==='compose'||data.action==='discard-draft'){
+      else if(data.action==='compose'||data.action==='discard-draft'||data.action==='invite-status'){
         if(!ashby)return res.status(503).json({error:'The Ashby check is not connected.'});
-        const run=require('./booking-compose')[data.action==='compose'?'compose':'discard'];
+        const run=require('./booking-compose')[{compose:'compose','discard-draft':'discard','invite-status':'inviteStatus'}[data.action]];
         result=await exclusively(()=>run({...ashby,payload:data.payload,clientId,expectedIdentity}));
       }
       else if(data.action==='status')result=adapter?await adapter.status():{availabilityVerified:false,bookingVerified:false,reason:'The saved Ashby connection is available for sign-in. Automatic calendar reading and booking still need verification.'};
