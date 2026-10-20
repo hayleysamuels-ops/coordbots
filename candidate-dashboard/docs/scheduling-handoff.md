@@ -876,8 +876,9 @@ file permits it or the composer clicks Schedule.
      - **Locks, all checked again at approval:** the plan's `send: true`;
        `BOOKING_SEND` exactly `on` (separate from `BOOKING_COMPOSE`); the
        application and activity on `SEND_ALLOWED` (TEST's First Round
-       `8dc8e6b6` since October 20, 21:57Z, when the earlier `bbf93574` was
-       cancelled; Hayley the only interviewer); every recipient on
+       `199e1b3d` since October 20, 23:39Z, a never-booked activity; the earlier
+       `bbf93574` and `8dc8e6b6` are cancelled and on neither list; Hayley the
+       only interviewer); every recipient on
        `SEND_RECIPIENTS`; Anna's session. The composer checks them once more
        before arming.
      - **Fresh re-read before the click** (every check, sending or not): the
@@ -964,6 +965,14 @@ file permits it or the composer clicks Schedule.
        from Ashby's answer to it ("not sent: send it by hand" otherwise). That
        booking's message got a thread note: invitations sent, confirmation
        email not sent.
+     - **A re-used activity composes as "Rescheduling".** After its interview
+       was cancelled, `8dc8e6b6` came back to NeedsScheduling in the API (the
+       page still said "Provided availability", so Ready to schedule showed 0
+       until availability was requested and submitted again), left a draft at
+       the cancelled time, and its next draft's composer read "Rescheduling TEST
+       TEST First Round Unsaved", which the check refuses (it requires
+       "Scheduling …"). Send tests use a never-booked activity instead; whether
+       to accept reschedules is a separate decision.
      - **To watch the first send:** set `BOOKING_SEND=on` on the scheduling
        worker (and `railway redeploy` if a variable change doesn't redeploy),
        then post a fresh TEST First Round option (only a post made with Send on
