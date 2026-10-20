@@ -132,6 +132,12 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
   const deleteByHand = plan => `Delete it from the Drafts tab of ${scheduleIn(plan)}, with the button beside the draft (never "Delete Activity").`;
   // The Ashby check's state, under the approval (ashby-check.js). Every line
   // says plainly whether anything is booked or sent.
+  // The candidate's confirmation email after a robot send, from Ashby's answer
+  // to its own request (ashby-check.js): never claimed sent otherwise. A not
+  // sent email is said first and plainly, like a confirmation email that's off.
+  const emailLine = check => check.confirmationEmail === "off" || check.confirmationEmailSent === "off" ? " No candidate confirmation email: it's off for this schedule."
+    : check.confirmationEmailSent === "sent" ? " Ashby accepted the candidate's confirmation email." : "";
+  const emailWarning = check => check.confirmationEmailSent === "not_sent" ? "⚠️ *The candidate's confirmation email was not sent:* send it by hand from the schedule in Ashby.\n" : "";
   function checkText(plan, check) {
     const byHand = "*Not booked:* book this schedule in Ashby by hand.";
     switch (check?.state) {
@@ -147,12 +153,12 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       // Sent by the robot's one click: only with Ashby's own evidence that the
       // invitations went out (ashby-check.js). The confirmation email isn't
       // claimed delivered, only whether it was on.
-      case "sent": if (check.sentBy === "robot") {
-        const email = check.confirmationEmail === "off" ? " No candidate confirmation email: it's off for this schedule." : " The candidate's confirmation email was on for this schedule.";
+      case "sent": if (check.sentBy === "robot") return emailWarning(check) + (() => {
+        const email = emailLine(check);
         return check.differences?.length
           ? `*Sent from ${sendsAs(plan)}'s account* at ${escape(when(check.attemptedAt || check.sentSeenAt))}: Ashby shows the invitations sent, *but what it booked differs from this approval:* ${escape(check.differences.join("; "))}. Check it in Ashby.${email}`
           : `*Sent from ${sendsAs(plan)}'s account* at ${escape(when(check.attemptedAt || check.sentSeenAt))}: Ashby shows it Scheduled, matching this approval, and its invitations sent.${email}`;
-      }
+      })();
       return check.differences?.length
         ? `*Sent in Ashby* (seen ${escape(when(check.sentSeenAt))}), *but what was booked differs from this approval:* ${escape(check.differences.join("; "))}. Check it in Ashby.`
         : `*Sent in Ashby* (seen ${escape(when(check.sentSeenAt))}): what was booked matches this approval.`;
@@ -162,8 +168,8 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       case "superseded": return `*Superseded* at ${escape(when(check.supersededAt))} by a later approval for this schedule${check.draftDeleted ? "; its draft was deleted" : ""}. Nothing from this message was sent.`;
       case "refused": return `*The Ashby check stopped*${check.step ? ` at "${escape(check.step)}"` : ""}: ${escape(check.reason || "no reason was given")}\nNothing was sent. ${!check.draftId ? "No draft was made." : check.cleanup?.deleted ? "The draft it made was deleted." : `The draft it made may still be in Ashby. ${deleteByHand(plan)}`} ${byHand}`;
       case "not_started": return `*The Ashby check didn't start:* ${escape(check.reason)} Nothing was sent and no draft was made. ${byHand}`;
-      case "booked_invites_pending": return `⚠️ *Booked, but the invitations were not sent.* Schedule was clicked once${check.attemptedAt ? ` at ${escape(when(check.attemptedAt))}` : ""} and Ashby shows ${scheduleName(plan)} as Scheduled${check.differences?.length ? ` (differing from this approval: ${escape(check.differences.join("; "))})` : ", matching this approval"}, with its invites *pending*. Send them by hand from the schedule's page in Ashby ("Send to Candidate" and "Send to Interviewers"); nothing will be retried.`;
-      case "booked_invites_unknown": return `⚠️ *Booked; whether the invitations went out is unknown.* Ashby shows ${scheduleName(plan)} as Scheduled${check.differences?.length ? ` (differing from this approval: ${escape(check.differences.join("; "))})` : ", matching this approval"}, but its page didn't show the invites as sent. Check it in Ashby, and send them by hand if they're pending; nothing will be retried.`;
+      case "booked_invites_pending": return emailWarning(check) + `⚠️ *Booked, but the invitations were not sent.* Schedule was clicked once${check.attemptedAt ? ` at ${escape(when(check.attemptedAt))}` : ""} and Ashby shows ${scheduleName(plan)} as Scheduled${check.differences?.length ? ` (differing from this approval: ${escape(check.differences.join("; "))})` : ", matching this approval"}, with its invites *pending*. Send them by hand from the schedule's page in Ashby ("Send to Candidate" and "Send to Interviewers"); nothing will be retried.`;
+      case "booked_invites_unknown": return emailWarning(check) + `⚠️ *Booked; whether the invitations went out is unknown.* Ashby shows ${scheduleName(plan)} as Scheduled${check.differences?.length ? ` (differing from this approval: ${escape(check.differences.join("; "))})` : ", matching this approval"}, but its page didn't show the invites as sent. Check it in Ashby, and send them by hand if they're pending; nothing will be retried.`;
       case "send_uncertain": return `⚠️ *The send may have gone:* Schedule was clicked once${check.attemptedAt ? ` at ${escape(when(check.attemptedAt))}` : ""} (${escape(check.reason || "Ashby's answer wasn't a clear acceptance")}), and Ashby doesn't show the schedule as Scheduled yet. Check ${scheduleIn(plan)}: if it isn't Scheduled, book it by hand. Nothing will be retried.`;
       case "uncertain": return `*The Ashby check didn't finish* (${escape(check.reason)}). Nothing was sent, but a draft may be left in Ashby. ${deleteByHand(plan)} ${byHand}`;
       case "too_close": return "*Not booked:* too close to the first interview — book this in Ashby by hand. Nothing has been scheduled in Ashby, and no invitations or candidate email have been sent.";

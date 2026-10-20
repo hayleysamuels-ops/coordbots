@@ -21,7 +21,10 @@ const OP={create:'ApiCreateTemplateDraftScheduleForInterviewSchedule',save:'ApiU
   send:'ApiScheduleInterviewScheduleFromDraft',
   // Sent by Ashby right after a schedule is booked; it publishes the calendar
   // invites (October 20: blocked, the booking stood with "Pending invites").
-  publish:'ApiPublishPendingCalendarUpdates'};
+  publish:'ApiPublishPendingCalendarUpdates',
+  // Sent by Ashby on the same click when the confirmation email is on
+  // (October 20: blocked, so the candidate got no confirmation email).
+  confirmationEmail:'ApiSendPersonalizedCandidateConfirmationEmailForDraftInterviewSchedule'};
 
 function parsedOps(body){try{const p=JSON.parse(body||'');return Array.isArray(p)?p:[p];}catch(_){return null;}}
 function isMutation(o){return typeof o?.query==='string'&&/^\s*mutation\b/.test(o.query.replace(/#[^\n]*/g,''));}

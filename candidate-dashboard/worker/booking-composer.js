@@ -251,6 +251,20 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
       return t.includes(plan.interviewScheduleId)||(!!state.draftId&&t.includes(state.draftId));
     },
     onResponse:(json,status)=>{publishing.reply={status,accepted:replied(json),errors:(json?.errors||[]).map(e=>String(e.message).slice(0,200)).slice(0,3)};}});
+  // Ashby's third write on that click when the confirmation email is on: it
+  // sends the candidate's confirmation email. Same rule as the publish: once,
+  // while armed with Send, only if its variables name this schedule or draft,
+  // with their names logged. Its answer is what the report says about the
+  // email; nothing else is taken as proof it was sent.
+  const emailing={armed:false,reply:undefined,variables:null};
+  if(send&&keepOnSuccess)await installPermit(context,{op:OP.confirmationEmail,max:1,log:note,...(respond?{respond}:{}),
+    bound:v=>{
+      if(!emailing.armed)return false;
+      emailing.variables=Object.keys(v||{}).sort().join(', ')||'(no variables)';
+      const t=JSON.stringify(v||{});
+      return t.includes(plan.interviewScheduleId)||(!!state.draftId&&t.includes(state.draftId));
+    },
+    onResponse:(json,status)=>{emailing.reply={status,accepted:replied(json),errors:(json?.errors||[]).map(e=>String(e.message).slice(0,200)).slice(0,3)};}});
   // Ashby's own read of this run's draft, recorded as the composer loads it,
   // so it can be repeated just before Schedule (step 5): Ashby's
   // ApiGetDraftSchedule, a read as the write guard counts one (classify), one
@@ -612,19 +626,22 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
       step='send';
       report.send={attempted:true,at:new Date().toISOString(),pathBefore:new URL(page.url()).pathname};
       const blockedBefore=guard.blocked.length;
-      sending.armed=true;publishing.armed=true;
+      sending.armed=true;publishing.armed=true;emailing.armed=true;
       try{
         try{await schedule.click();}catch(e){report.send.clickError=String(e.message).slice(0,200);}
         const blockedOp=op=>guard.blocked.slice(blockedBefore).some(x=>x.summary.endsWith(' '+op));
         const sendBlockedByGuard=()=>blockedOp(OP.send),publishSettled=()=>publishing.reply!==undefined||blockedOp(OP.publish);
-        // Both writes: the booking, then (after its reply) the invites.
+        // The confirmation email is only sent when it's on.
+        const emailExpected=report.confirmationEmail==='on',emailSettled=()=>!emailExpected||emailing.reply!==undefined||blockedOp(OP.confirmationEmail);
+        // Every write: the booking, then (after its reply) the invites and the email.
         const until30=Date.now()+30000;
-        while(Date.now()<until30&&!((sending.reply!==undefined||sendBlockedByGuard())&&publishSettled()))await sleep(250);
-        sending.armed=false;publishing.armed=false;
+        while(Date.now()<until30&&!((sending.reply!==undefined||sendBlockedByGuard())&&publishSettled()&&emailSettled()))await sleep(250);
+        sending.armed=false;publishing.armed=false;emailing.armed=false;
         await sleep(T.short);
         report.send.reply=sending.reply||null;
         report.send.blockedByGuard=sendBlockedByGuard();
         report.send.publish={reply:publishing.reply||null,blockedByGuard:blockedOp(OP.publish),variables:publishing.variables};
+        report.send.confirmationEmail={expected:emailExpected,reply:emailing.reply||null,blockedByGuard:blockedOp(OP.confirmationEmail),variables:emailing.variables};
         if(sending.mismatch)report.send.unmatchedVariables=sending.mismatch;
         report.send.attemptedWrites=guard.blocked.slice(blockedBefore).filter(x=>x.ashby).map(x=>x.summary);
         report.send.pathAfter=new URL(page.url()).pathname;
@@ -637,7 +654,7 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
         report.invites=await inviteStatusOnPage(page,plan,{go,net,sleep}).catch(e=>({state:'unknown',evidence:[`couldn't read the schedule's page: ${String(e.message).slice(0,120)}`]}));
         note({type:'invites',...report.invites});
       }catch(e){report.send.reportError=String(e.message).slice(0,200);}
-      finally{sending.armed=false;publishing.armed=false;}
+      finally{sending.armed=false;publishing.armed=false;emailing.armed=false;}
       if(!report.invites)report.invites={state:'unknown',evidence:['not read']};
       report.status=report.send.reply?.accepted?'sent':'send_uncertain';
       pass(report.status==='sent'?'Schedule clicked once and Ashby accepted the send':'Schedule clicked once; Ashby\'s answer to the send wasn\'t a clear acceptance (reported, not retried)');

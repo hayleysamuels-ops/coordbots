@@ -81,11 +81,13 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, now = () =
 
   // A booked schedule's state from what Ashby's page shows for its invites.
   const bookedState = invites => invites?.state === "sent" ? "sent" : invites?.state === "pending" ? "booked_invites_pending" : "booked_invites_unknown";
+  const emailSentence = check => ({ sent: " Ashby accepted the candidate's confirmation email.", not_sent: " The candidate's confirmation email was NOT sent: send it by hand from the schedule in Ashby.", off: " The confirmation email is off for this schedule." })[check.confirmationEmailSent] || "";
   const invitesReply = check => check.state === "sent"
     ? `Sent by clicking Schedule once, from the connected Ashby account. Ashby shows it Scheduled and its invitations sent${check.differences?.length ? `, but it differs from this approval: ${check.differences.join("; ")}` : ", matching this approval"}.`
     : check.state === "booked_invites_pending"
       ? `Booked in Ashby, but the invitations were NOT sent: Ashby shows them pending (${(check.invites?.evidence || []).join("; ")}). Send them by hand from the schedule's page in Ashby. Nothing will be retried.`
       : `Booked in Ashby, but whether the invitations went out is unknown (${(check.invites?.evidence || []).join("; ") || "nothing shown"}). Check the schedule's page in Ashby and send them by hand if they're pending.`;
+  const invitesAndEmailReply = check => invitesReply(check) + emailSentence(check);
   // What Ashby's schedule page shows for the invites, from the worker (read
   // only). Unknown when the worker can't say.
   async function readInvites(row) {
@@ -147,7 +149,11 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, now = () =
         const reply = result.send?.reply, readBack = await readBackSent(plan);
         const said = reply ? `Ashby answered HTTP ${reply.status}${reply.accepted ? ", accepted" : `, not accepted${reply.errors?.length ? `: ${reply.errors.join("; ")}` : ""}`}` : result.send?.blockedByGuard ? "the write guard blocked it" : "no answer from Ashby";
         const invites = result.invites?.state ? result.invites : { state: "unknown", evidence: ["the worker didn't read it"] };
+        // The confirmation email, from Ashby's answer to its own request only.
+        const ce = result.send?.confirmationEmail;
+        const confirmationEmailSent = result.confirmationEmail === "off" || ce?.expected === false ? "off" : ce?.reply?.accepted ? "sent" : ce ? "not_sent" : "unknown";
         check = { sentBy: "robot", draftId: result.draftId || null, attemptedAt: result.send?.at || iso(), confirmationEmail: result.confirmationEmail === "off" ? "off" : "on", from: result.wouldSend?.from || null,
+          confirmationEmailSent,
           ...(readBack ? { state: bookedState(invites), sentSeenAt: iso(), differences: readBack.differences, invites } : { state: "send_uncertain", reason: said }) };
       } else if (result?.status === "refused" || result?.status === "error") check = { state: "refused", step: result.step, reason: result.reason, draftId: result.draftId || null, cleanup: result.cleanup || null };
       else check = { state: "uncertain", reason: result?.reason || "The Ashby check gave no clear result.", draftId: result?.draftId || null };
@@ -156,7 +162,7 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, now = () =
     if (!row) return;
     await show(row);
     if (check.state === "composed") await reply(row, `Ashby check passed: ${check.checks.join("; ")}.`);
-    if (check.sentBy === "robot" && ["sent", "booked_invites_pending", "booked_invites_unknown"].includes(check.state)) await reply(row, invitesReply(check));
+    if (check.sentBy === "robot" && ["sent", "booked_invites_pending", "booked_invites_unknown"].includes(check.state)) await reply(row, invitesAndEmailReply(check));
     if (check.state === "send_uncertain") await reply(row, `The send may have gone (${check.reason}). Check the schedule in Ashby; nothing will be retried.`);
     if (result?.superseded?.draftId) {
       for (const old of earlier.filter(r => r.ashbyCheck.draftId === result.superseded.draftId)) {

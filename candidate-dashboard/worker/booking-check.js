@@ -132,16 +132,19 @@ function draftsIn(json,draftId){
 // whose invites were blocked: "Scheduled Pending invites" in the heading,
 // "Pending invites", and "Send to Candidate" / "Send to Interviewers" buttons.
 //   pending: any of those, or "Not Sent";
-//   sent: an explicit "invite(s) sent" and no sign of pending;
-//   unknown: anything else. The page for invites that went out hasn't been
-//     seen yet, so "unknown" is the honest answer until it has.
+//   sent: "Waiting on RSVP(s)" (seen October 20 once the invites went out:
+//     "Scheduled Waiting on RSVPs Waiting on RSVP", no Send Calendar Invites
+//     section), or an explicit "invite(s) sent", and in either case no sign of
+//     pending and no "Send to …" button (Hayley, 2026-10-20);
+//   unknown: anything else.
 // Invitations are never reported sent without this evidence.
 function classifyInviteStatus({headings=[],lines=[],buttons=[]}){
   const text=[...headings,...lines].map(t=>String(t).replace(/\s+/g,' ').trim()).filter(Boolean);
   const evidence=[...new Set(text.filter(t=>/invit|\bsent\b|pending/i.test(t)).map(t=>t.slice(0,100)))].slice(0,10);
   const sendButtons=[...new Set(buttons.map(b=>String(b).trim()).filter(b=>/^Send to (?:Candidate|Interviewers?)$/.test(b)))];
   if(text.some(t=>/\bPending invites?\b|\bNot Sent\b/i.test(t))||sendButtons.length)return {state:'pending',evidence:[...evidence,...sendButtons.map(b=>`button: ${b}`)]};
-  if(text.some(t=>/\binvites? (?:were |have been )?sent\b/i.test(t)))return {state:'sent',evidence};
+  const sentSign=text.filter(t=>/\bWaiting on RSVPs?\b/i.test(t)||/\binvites? (?:were |have been )?sent\b/i.test(t));
+  if(sentSign.length)return {state:'sent',evidence:[...new Set([...sentSign.map(t=>t.slice(0,100)),...evidence])].slice(0,10)};
   return {state:'unknown',evidence};
 }
 

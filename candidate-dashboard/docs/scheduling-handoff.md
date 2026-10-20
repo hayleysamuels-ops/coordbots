@@ -947,6 +947,23 @@ file permits it or the composer clicks Schedule.
          of action).
        - That booking's invites are still pending; they can be sent from the
          schedule's page in Ashby.
+     - **The second real send (October 20, `9837bf0e`, TEST First Round
+       `8dc8e6b6`, Mon 26 Oct) invited but sent no confirmation email.** The
+       click fired three writes: the booking and the publish (both permitted,
+       accepted; the publish named the schedule, its variables
+       `externalCalendarNotificationSettings, internalCalendarNotificationSettings,
+       interviewScheduleId, scopes`), then
+       `ApiSendPersonalizedCandidateConfirmationEmailForDraftInterviewSchedule`,
+       which the guard blocked. The schedule's page then read "Scheduled ·
+       Waiting on RSVPs" with no Send Calendar Invites section, which the
+       check didn't yet count as sent, so it recorded "invites unknown". Since
+       then: "Waiting on RSVP(s)" with no pending sign and no "Send to …" button
+       counts as sent; the confirmation email write is permitted like the
+       publish (once, armed with Send, only if its variables name this
+       schedule or draft, their names logged), and the email is reported only
+       from Ashby's answer to it ("not sent: send it by hand" otherwise). That
+       booking's message got a thread note: invitations sent, confirmation
+       email not sent.
      - **To watch the first send:** set `BOOKING_SEND=on` on the scheduling
        worker (and `railway redeploy` if a variable change doesn't redeploy),
        then post a fresh TEST First Round option (only a post made with Send on

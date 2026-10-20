@@ -298,8 +298,12 @@ test("Slack, where Send is on: the button says approving sends, from Anna; each 
   const text = async check => { calls.length = 0; await slack.markApproved({ channel: "C1", ts: "1.2", row: approved(check) }); return { body: calls[0].blocks.at(-1).text.text, note: calls[0].text }; };
   assert.match((await text({ state: "running", startedAt: at })).body, /Checking and sending in Ashby\* \(started .*\) from Anna Jones's account: once every check passes, Schedule is clicked once/);
   assert.match((await text({ state: "queued" })).body, /Waiting to be checked and sent in Ashby,\* .* from Anna Jones's account\. Nothing is sent yet\./);
-  const ok = await text({ state: "sent", sentBy: "robot", attemptedAt: at, sentSeenAt: at, differences: [], confirmationEmail: "on", invites: { state: "sent", evidence: [] } });
-  assert.match(ok.body, /\*Sent from Anna Jones's account\* at Oct 14, 3:00 PM PDT: Ashby shows it Scheduled, matching this approval, and its invitations sent\. The candidate's confirmation email was on for this schedule\./);
+  const ok = await text({ state: "sent", sentBy: "robot", attemptedAt: at, sentSeenAt: at, differences: [], confirmationEmail: "on", confirmationEmailSent: "sent", invites: { state: "sent", evidence: [] } });
+  assert.match(ok.body, /\*Sent from Anna Jones's account\* at Oct 14, 3:00 PM PDT: Ashby shows it Scheduled, matching this approval, and its invitations sent\. Ashby accepted the candidate's confirmation email\./);
+  // A confirmation email Ashby didn't accept is said first and plainly.
+  const noEmail = await text({ state: "sent", sentBy: "robot", attemptedAt: at, sentSeenAt: at, differences: [], confirmationEmail: "on", confirmationEmailSent: "not_sent", invites: { state: "sent", evidence: [] } });
+  assert.match(noEmail.body, /\n⚠️ \*The candidate's confirmation email was not sent:\* send it by hand from the schedule in Ashby\.\n\*Sent from Anna Jones's account\*/);
+  assert.doesNotMatch(noEmail.body, /accepted the candidate's confirmation email/);
   assert.doesNotMatch(ok.body, /went out/, "the confirmation email is never claimed delivered");
   const pending = await text({ state: "booked_invites_pending", sentBy: "robot", attemptedAt: at, differences: [], invites: { state: "pending", evidence: ["Pending invites"] } });
   assert.match(pending.body, /⚠️ \*Booked, but the invitations were not sent\.\* .* with its invites \*pending\*\. Send them by hand from the schedule's page in Ashby \("Send to Candidate" and "Send to Interviewers"\)/);
@@ -357,4 +361,17 @@ test("once approved, the posting note no longer says nothing was booked; the sta
   const status = calls.at(-1).blocks.at(-1).text.text;
   assert.match(status, /Ashby shows TEST's First Round Interview Schedule as Scheduled, matching this approval, with its invites \*pending\*/);
   assert.doesNotMatch(status, /in Ashby Scheduled/);
+});
+
+test("the confirmation email is reported from Ashby's answer to its own request: accepted, not sent, or off", async () => {
+  for (const [ce, confirmationEmail, want, said] of [
+    [{ expected: true, reply: { status: 200, accepted: true }, blockedByGuard: false }, "on", "sent", /Ashby accepted the candidate's confirmation email\.$/],
+    [{ expected: true, reply: null, blockedByGuard: true }, "on", "not_sent", /confirmation email was NOT sent: send it by hand/],
+    [{ expected: true, reply: { status: 200, accepted: false, errors: ["x"] }, blockedByGuard: false }, "on", "not_sent", /NOT sent/],
+    [{ expected: false, reply: null, blockedByGuard: false }, "off", "off", /off for this schedule\.$/]]) {
+    const s = setup({ rows: [sendingRow()], compose: { ...sent, confirmationEmail, send: { ...sent.send, confirmationEmail: ce } }, booked: bookedAsApproved });
+    await s.check.start((await s.store.list())[0]);await s.check.idle();
+    assert.equal(s.store.data.d1.ashbyCheck.confirmationEmailSent, want);
+    assert.match(s.replies.at(-1), said);
+  }
 });

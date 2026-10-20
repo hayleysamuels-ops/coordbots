@@ -228,6 +228,11 @@ test('invite status comes from what Ashby shows: pending on its pending signs, s
   assert.equal(classifyInviteStatus({lines:['Invites sent']}).state,'sent');
   assert.equal(classifyInviteStatus({lines:['Invites sent','Pending invite']}).state,'pending','any pending sign wins');
   assert.equal(classifyInviteStatus({headings:['Schedule TEST TEST First Round Scheduled'],lines:['SEND CALENDAR INVITES']}).state,'unknown','no sign either way is unknown, never sent');
+  // TEST's First Round once its invites went out (October 20).
+  const rsvp=classifyInviteStatus({headings:['Schedule TEST TEST First Round Scheduled Waiting on RSVPs Waiting on RSVP','ACTIONS'],lines:[],buttons:['Manual Reschedule','Cancel Interview','Email Candidate','Email Panel']});
+  assert.equal(rsvp.state,'sent');assert.match(rsvp.evidence[0],/Waiting on RSVPs/);
+  assert.equal(classifyInviteStatus({headings:['Scheduled Waiting on RSVP'],buttons:['Send to Candidate']}).state,'pending','a Send to button wins over Waiting on RSVP');
+  assert.equal(classifyInviteStatus({headings:['Scheduled Waiting on RSVPs Pending invite']}).state,'pending','a pending sign wins too');
   assert.equal(classifyInviteStatus({}).state,'unknown');
 });
 
@@ -238,7 +243,12 @@ test('the publish permit is one, armed with Send, and only for a request that na
   assert.match(composer,/if\(send&&keepOnSuccess\)await installPermit\(context,\{op:OP\.publish,max:1,/);
   assert.match(composer,/if\(!publishing\.armed\)return false;[\s\S]{0,200}return t\.includes\(plan\.interviewScheduleId\)\|\|\(!!state\.draftId&&t\.includes\(state\.draftId\)\);/);
   assert.equal((composer.match(/publishing\.armed=true/g)||[]).length,1,'armed in one place');
-  assert.match(composer,/sending\.armed=true;publishing\.armed=true;\s*try\{\s*try\{await schedule\.click\(\);/,'armed with Send, right before the one click');
+  assert.match(composer,/sending\.armed=true;publishing\.armed=true;emailing\.armed=true;\s*try\{\s*try\{await schedule\.click\(\);/,'armed with Send, right before the one click');
+  // The confirmation email's permit, the same way.
+  assert.equal((composer.match(/op:OP\.confirmationEmail\b/g)||[]).length,1,'one confirmation email permit');
+  assert.match(composer,/if\(send&&keepOnSuccess\)await installPermit\(context,\{op:OP\.confirmationEmail,max:1,/);
+  assert.match(composer,/if\(!emailing\.armed\)return false;[\s\S]{0,200}return t\.includes\(plan\.interviewScheduleId\)\|\|\(!!state\.draftId&&t\.includes\(state\.draftId\)\);/);
+  assert.equal((composer.match(/emailing\.armed=true/g)||[]).length,1);
   const {composeOutcome}=require('../worker/booking-compose');
   assert.match(composeOutcome({status:'sent',draftId:DRAFT,send:{attempted:true,reply:{status:200,accepted:true},publish:{reply:null,blockedByGuard:true,variables:'input'}},invites:{state:'pending'},cleanup:{kept:true}}),
     /invites: publish BLOCKED by the guard \(variables: input\); Ashby shows the invites PENDING$/);

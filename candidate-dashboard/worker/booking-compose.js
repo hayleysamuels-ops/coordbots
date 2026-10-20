@@ -71,7 +71,9 @@ function composeOutcome(r){
     :r.status==='skipped'?`skipped: ${clause(r.reason)}`:`${r.status}${r.step?` at "${short(r.step)}"`:''}: ${clause(r.reason)}`;
   const publish=r.send?.publish?`; invites: ${r.send.publish.reply?`publish answered HTTP ${r.send.publish.reply.status}${r.send.publish.reply.accepted?', accepted':', not accepted'}`:r.send.publish.blockedByGuard?`publish BLOCKED by the guard (variables: ${short(r.send.publish.variables||'none seen')})`:'no publish seen'}`:'';
   const invites=r.invites?`; Ashby shows the invites ${r.invites.state.toUpperCase()}`:'';
-  return `${head}; ${made}${kept?`, ${kept}`:''}${replaced}${zone}${writes}${publish}${invites}`;
+  const ce=r.send?.confirmationEmail;
+  const email=!ce?'':!ce.expected?'; confirmation email off':`; confirmation email ${ce.reply?.accepted?'SENT (Ashby accepted it)':ce.blockedByGuard?`NOT sent, blocked by the guard (variables: ${short(ce.variables||'none seen')})`:ce.reply?`NOT sent (Ashby answered HTTP ${ce.reply.status})`:'NOT seen being sent'}`;
+  return `${head}; ${made}${kept?`, ${kept}`:''}${replaced}${zone}${writes}${publish}${invites}${email}`;
 }
 
 // A composer event as a log line, for the ones worth reading afterwards:
