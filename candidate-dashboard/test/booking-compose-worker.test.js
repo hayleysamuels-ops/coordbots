@@ -234,3 +234,11 @@ test('a check doesn\'t start while the Ashby sign-in window is open',async t=>{
   const r=await s.call('compose',{plan});
   assert.equal(r.status,409);assert.match(r.body.error,/sign-in window is open/);
 });
+
+test('the worker\'s startup line says whether the Ashby check and Send are on, each only when exactly "on"',()=>{
+  const {switchesLine}=require('../worker/server');
+  assert.equal(switchesLine({BOOKING_COMPOSE:'on'}),'Ashby check on (allowlisted applications only); Send off (BOOKING_SEND isn\'t "on"): nothing is sent');
+  assert.equal(switchesLine({BOOKING_COMPOSE:'on',BOOKING_SEND:'on'}),'Ashby check on (allowlisted applications only); Send ON: an approved post that announced Send is sent once, to the send allowlist only');
+  assert.match(switchesLine({BOOKING_COMPOSE:'on',BOOKING_SEND:'true'}),/Send off/);
+  assert.equal(switchesLine({BOOKING_SEND:'on'}),'Ashby check off; Send on, but inert while the Ashby check is off');
+});

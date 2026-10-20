@@ -31,6 +31,15 @@ function createWorkerApp({connection,secret,clientId,expectedIdentity,draftReade
   app.use("/booking",require("./booking-routes").bookingRoutes({secret,clientId,expectedIdentity,draftReader,ashby}));
   return app;
 }
+// The worker's booking switches, as its startup log states them: the Ashby
+// check (BOOKING_COMPOSE) and the robot's Send (BOOKING_SEND), each on only
+// when exactly "on". Read from the env here; the robot itself is never loaded.
+function switchesLine(env){
+  const compose=env.BOOKING_COMPOSE==="on",send=env.BOOKING_SEND==="on";
+  return "Ashby check "+(compose?"on (allowlisted applications only)":"off")+"; Send "+(send
+    ?(compose?"ON: an approved post that announced Send is sent once, to the send allowlist only":"on, but inert while the Ashby check is off")
+    :"off (BOOKING_SEND isn't \"on\"): nothing is sent");
+}
 async function start(){
   const clientId=process.env.SCHEDULING_CLIENT_ID;
   if(!process.env.ASHBY_SESSION_FILE)throw new Error("Persistent session volume required");
@@ -40,7 +49,7 @@ async function start(){
   // The dashboard cannot choose or change browser isolation.
   const chromium=require("playwright").chromium;
   await require("./runtime-check").checkRuntime(chromium,isolation==="sandbox");
-  console.log("[connection] browser launch verified; isolation="+isolation+"; Ashby check "+(process.env.BOOKING_COMPOSE==="on"?"on (allowlisted applications only; never sends)":"off"));
+  console.log("[connection] browser launch verified; isolation="+isolation+"; "+switchesLine(process.env));
   const vault=createVault(process.env.ASHBY_SESSION_FILE,process.env.ASHBY_SESSION_KEY);
   const connection=createConnection({clientId,expectedIdentity:process.env.ASHBY_EXPECTED_IDENTITY,
     chromium,chromiumSandbox:isolation==="sandbox",
@@ -53,4 +62,4 @@ async function start(){
   const server=app.listen(process.env.PORT||3001,"::");
   process.on("SIGTERM",()=>{server.close();connection.close().finally(()=>process.exit(0));});
 }
-module.exports={createWorkerApp,start};
+module.exports={createWorkerApp,start,switchesLine};
