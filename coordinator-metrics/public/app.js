@@ -585,23 +585,12 @@ function renderClient(fullPayload) {
 
   frag.appendChild(
     el("div", { class: "stat-grid" }, [
-      stat(num(payload.totals.events), "Interviews held, 12 months", {
-        // The composition, named on the page rather than left to whoever
-        // reads the source. Meals are counted as interviews — they are
-        // coordinated candidate time — but someone asked how a total is
-        // reached should be able to see what is inside it.
-        sub:
-          `includes ${num(payload.totals.debriefs)} debriefs and ` +
-          `${num(payload.totals.meals)} candidate meals`,
-      }),
-      stat(num(payload.totals.hours) + "h", "Interview hours, 12 months"),
       stat(num(payload.totals.bookedAhead), "Booked ahead", {
         sub: `${num(payload.totals.bookedAheadHours)}h already on the calendar for future dates`,
       }),
       stat(num(payload.totals.interviewerSlots), "Interviewer seats filled", {
         sub: `${payload.totals.averagePanelSize} interviewers per interview on average`,
       }),
-      stat(num(payload.totals.candidates), "Candidates, 12 months"),
     ])
   );
 
@@ -621,23 +610,13 @@ function renderClient(fullPayload) {
       stat(num(payload.totals.dropOffs), "Archived after interviewing", {
         sub: "counts applications, not people",
       }),
-      stat(num(payload.totals.shortNotice), "Short-notice bookings", {
-        sub: `booked under ${state.config.shortNoticeHours}h before the interview`,
-      }),
       stat(num(payload.totals.outOfHours), "Out-of-hours interviews", {
         sub: `starting before ${state.config.businessHours.start}:00 or after ${state.config.businessHours.end}:00 local`,
       }),
-      stat(
-        payload.timeToSchedule.medianHours == null ? "—" : payload.timeToSchedule.medianHours + "h",
-        "Median booking turnaround",
-        {
-          sub:
-            payload.timeToSchedule.p90Hours == null
-              ? "no schedules waited to be booked"
-              : `90th percentile ${payload.timeToSchedule.p90Hours}h · ${num(payload.timeToSchedule.sample)} schedules waited; ` +
-                `${num(payload.timeToSchedule.directBookings)} booked outright`,
-        }
-      ),
+      // The clock-hours turnaround tile is gone. It measured schedule
+      // creation to event creation, which is the same instant for a
+      // direct booking, and the Results group now carries the real
+      // measure in business hours from the round becoming schedulable.
     ])
   );
 

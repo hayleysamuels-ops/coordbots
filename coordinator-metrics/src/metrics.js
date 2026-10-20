@@ -1266,6 +1266,26 @@ function computeClient(client) {
       coordinated: computeScope(client, (name) => rosterSet.has(config.normalizeName(name))),
     },
 
+    /**
+     * Level of support: how much of this client's hiring we carried.
+     *
+     * The interviews share leads, with candidates and roles shown
+     * alongside rather than blended into it. A single composite hides
+     * exactly the case worth seeing — at Forus we scheduled 2% of
+     * interviews but appear on 17% of reqs, so a simple mean reads 7%
+     * and overstates the work by more than three times.
+     */
+    support: (() => {
+      const all = computeScope(client, () => true).totals;
+      const ours = computeScope(client, (name) => rosterSet.has(config.normalizeName(name))).totals;
+      const share = (a, b) => (b ? Math.round((a / b) * 1000) / 10 : null);
+      return {
+        interviews: { ours: ours.events, all: all.events, share: share(ours.events, all.events) },
+        candidates: { ours: ours.candidates, all: all.candidates, share: share(ours.candidates, all.candidates) },
+        roles: { ours: ours.roles, all: all.roles, share: share(ours.roles, all.roles) },
+      };
+    })(),
+
     roster: buildRosterReport(client),
 
     dataQuality: {
