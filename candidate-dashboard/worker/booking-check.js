@@ -231,6 +231,19 @@ function agendaWhy(items,plan){
   return {why,firstOffset};
 }
 
+// An agenda item as the log shows it when the agenda can't be read (Hayley,
+// 2026-10-20): its first 20 characters, the leading times kept and every
+// letter after them masked as "x", so no name is ever logged. Unusual spaces
+// are named ([nbsp], [nnbsp], [thin]) and line breaks shown as "⏎", since
+// either would stop the reader recognising "9:00 AM - 9:30 AM (PDT)".
+const LEADING_TIMES=/^\s*(?:\d{1,2}:\d\d[\s   ]*[AaPp][Mm](?:\s*[-–]\s*)?){1,2}/;
+function maskAgendaItem(text){
+  const head=[...String(text||'')].slice(0,20).join('');
+  const kept=(LEADING_TIMES.exec(head)||[''])[0];
+  const masked=kept+head.slice(kept.length).replace(/\p{L}/gu,'x');
+  return masked.replace(/ /g,'[nbsp]').replace(/ /g,'[nnbsp]').replace(/ /g,'[thin]').replace(/\n/g,'⏎');
+}
+
 // The candidate's calendar invite preview: the date (in the agenda's own
 // zone), the agenda (one item per session, as above) and exactly the
 // candidate as recipient.
@@ -380,4 +393,4 @@ function classifyDialog(text){
   return {action:'stop',reason:`Ashby showed a dialog the booking doesn't recognise: "${t.slice(0,160)}". Nothing was confirmed.`};
 }
 
-module.exports={emailAgendaItems,zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};
+module.exports={maskAgendaItem,emailAgendaItems,zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};

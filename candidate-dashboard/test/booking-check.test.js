@@ -221,6 +221,16 @@ test('the confirmation email is read like the invite: each agenda line\'s zone, 
   c.checkConfirmationEmail({...email,body:mountain},oct20);
 });
 
+test('an unreadable agenda item is logged masked: times kept, every letter after them masked, unusual spaces named, never a name',()=>{
+  assert.equal(c.maskAgendaItem('9:00 AM - 9:30 AM (PDT) - Onsite - Hayley Samuels'),'9:00 AM - 9:30 AM (x');
+  assert.equal(c.maskAgendaItem('9:00 AM - 9:30 AM (PDT) - Onsite'),'9:00[nnbsp]AM - 9:30[nnbsp]AM (x');
+  assert.equal(c.maskAgendaItem('9:00 AM – 9:30 AM PDT Onsite'),'9:00[nbsp]AM – 9:30[nbsp]AM xx');
+  // No time first: every letter is masked, so a name never shows.
+  assert.equal(c.maskAgendaItem('Hayley Samuels\n9:00 AM'),'xxxxxx xxxxxxx⏎9:00 ');
+  assert.equal(c.maskAgendaItem('Thursday, October 22'),'xxxxxxxx, xxxxxxx 22');
+  assert.doesNotMatch(c.maskAgendaItem('10:00 AM - 10:30 AM Hayley'),/Hayley|Hay|H/);
+});
+
 test('the old substring check passed by coincidence; reading zones and instants doesn\'t',()=>{
   // October 19: the old check looked for Mountain start times as substrings,
   // and "2:00 PM" and "2:30 PM" matched inside the Pacific "12:00 PM" and

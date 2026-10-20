@@ -19,7 +19,7 @@
 const {guardWrites}=require('./template-guard');
 const {sendRecipientsOutside}=require('./booking-locks');
 const {installBookingPermits,installPermit,ORIGIN,OP}=require('./booking-permit');
-const {checkFinal,formats,composerZone,checkInviteDropdowns,partitionPreviews,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog}=require('./booking-check');
+const {maskAgendaItem,checkFinal,formats,composerZone,checkInviteDropdowns,partitionPreviews,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog}=require('./booking-check');
 
 class Refusal extends Error{constructor(step,message){super(message);this.step=step;this.status=409;}}
 const esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
@@ -401,10 +401,11 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     // Ashby draws the previews after the screen opens: read until their
     // content is present (bounded by T.wait), then check that read. If it
     // never fills in, the checks below refuse, naming what was missing.
+    let candidate=null;
     const readPreviews=async()=>{
       const sections=await readPreviewSections(page,previews);
       let parts;try{parts=partitionPreviews(sections,plan.sessions.length);}catch(e){return {layout:e.message};}
-      const candidate=previews.nth(parts.candidate);
+      candidate=previews.nth(parts.candidate);
       // The agenda's top-level items, each as text (a name may sit in a nested list).
       const agendaItems=await candidate.evaluate(panel=>{
         const list=[...panel.querySelectorAll('ul,ol')].find(l=>[...l.children].length&&[...l.children].every(li=>/^\s*\d{1,2}:\d\d [AP]M - /.test(li.innerText)));
@@ -415,9 +416,19 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
       return {agendaItems,candidateText,interviewerTexts};
     };
     const present=r=>!r.layout&&r.agendaItems.length===plan.sessions.length&&r.candidateText.trim()&&r.interviewerTexts.every(t=>t.trim());
-    let read;const readBy=Date.now()+T.wait;
+    // Twice the usual wait: on October 20 the previews drew only after 15s.
+    let read;const readBy=Date.now()+2*T.wait;
     while(!present(read=await readPreviews())&&Date.now()<readBy)await sleep(250);
     if(read.layout)refuse(read.layout);
+    // An agenda that still can't be read: log its shape for the fix, never
+    // its names (maskAgendaItem). Only on this failure.
+    if(read.agendaItems.length!==plan.sessions.length&&candidate){
+      const shape=await candidate.evaluate(panel=>({
+        lists:[...panel.querySelectorAll('ul,ol')].slice(0,6).map(l=>({items:l.children.length,first:[...l.children].slice(0,8).map(li=>li.innerText.trim())})),
+        lines:(panel.innerText||'').split('\n').filter(l=>/\d{1,2}:\d\d/.test(l)).length})).catch(e=>({error:e.message}));
+      for(const l of shape.lists||[])l.first=l.first.map(maskAgendaItem);
+      note({type:'agenda-shape',...shape});
+    }
     // Content checks fail as refusals, naming what differs.
     try{checkInvitePreview(read.candidateText,shown,read.agendaItems);}catch(e){refuse(e.message);}
     pass('candidate invite preview shows the approved date, agenda and only the candidate');

@@ -133,6 +133,12 @@ test('a robot Send may reach only the allowlisted recipients; until Send exists 
   assert.equal(detailLine({type:'screen',at:'schedule-menu',note:'"Schedule" is a plain button here'}),'screen (schedule-menu): "Schedule" is a plain button here');
 });
 
+test('an unreadable candidate agenda is logged by its shape only',()=>{
+  const {detailLine}=require('../worker/booking-compose');
+  assert.equal(detailLine({type:'agenda-shape',lists:[{items:6,first:['9:00[nnbsp]AM - 9:30']}],lines:6}),
+    'candidate invite agenda unreadable, its shape (letters masked): {"lists":[{"items":6,"first":["9:00[nnbsp]AM - 9:30"]}],"lines":6}');
+});
+
 // The routes, over HTTP, with a stand-in draft reader and check.
 async function serve({inspect,chromium=null,writeWaitMs=400,signIn=false}){
   const secret='s'.repeat(40);

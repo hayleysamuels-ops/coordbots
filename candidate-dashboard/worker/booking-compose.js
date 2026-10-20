@@ -82,6 +82,7 @@ function detailLine(e){
     case 'save-result':return `save ${e.seq} ${e.accepted?'accepted by Ashby':`NOT accepted by Ashby (HTTP ${e.status}${e.errors?.length?`: ${e.errors.join('; ')}`:''})`}`;
     case 'screen':{const {type,at,...rest}=e;return rest.note?`screen (${at}): ${rest.note}`:`screen (${at}): ${JSON.stringify(rest)}`;}
     case 'dialog':return `dialog: ${short(e.text)}`;
+    case 'agenda-shape':{const {type,...rest}=e;return `candidate invite agenda unreadable, its shape (letters masked): ${JSON.stringify(rest)}`;}
     case 'send-recipients':return e.allowed?'send recipients: all on the send allowlist':`send recipients: outside the send allowlist: ${e.outside.join(', ')} (reported only; nothing is sent)`;
     default:return null;
   }

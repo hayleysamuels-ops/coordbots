@@ -811,7 +811,17 @@ file permits it or the composer clicks Schedule.
      write or a navigation refuses (and deletes the draft); a menu is closed
      with Escape.
   - The confirmation email check passed on a real run (October 20), clearing
-    the gate for Send. On the six-session
+    the gate for Send.
+  - The first Schedule-click run (October 20) didn't get that far: it refused
+    at the candidate invite preview, "its agenda has 0 items". The previews
+    hadn't drawn when the check arrived, and had when it refused 20 seconds
+    later, so either they were slower than the 15-second wait or the agenda's
+    format differed (this was the first morning start). The preview read now
+    waits 30 seconds, and if the agenda still can't be read the check logs its
+    shape only (Hayley approved): how many lists and items, and each item's
+    first 20 characters with every letter after the time masked as "x" and
+    unusual spaces named ([nbsp], [nnbsp]); never a name, and only on that
+    failure (`maskAgendaItem`). On the six-session
      layout "Schedule" is a dropdown. The check opens it once, logs everything
      it offers (`screen (schedule-menu)`), and closes it with Escape. Nothing in
      it is clicked, and the write guard still blocks any write the click might
