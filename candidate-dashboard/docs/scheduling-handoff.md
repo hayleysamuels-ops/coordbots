@@ -958,6 +958,21 @@ file permits it or the composer clicks Schedule.
     colleagues (Joe, Mary, Anna) as interviewers, so "TEST-only" alone wouldn't
     keep real invites off their calendars. Until Send exists, each check logs
     whether its recipients would pass (`send recipients: …`).
+- **No screen is read before it has settled** (rule since October 20, after
+  the fourth false conclusion from an early read). The composer's shared
+  helpers settle after every in-app navigation and every action: nothing in
+  flight and a second of quiet, within 15 seconds, or the check refuses
+  ("Ashby didn't finish loading …"). Every refusal now logs the screen it
+  stopped on, structure only.
+- **"Configure Communications" is gone from the composer** (October 20, TEST's
+  First Round `8dc8e6b6`, a fully loaded screen). In its place: a `Next`
+  button and a `Communications` link to `/schedules/drafts/<draft>/communication`.
+  The check refused at it ("Couldn't find 'Configure Communications'");
+  nothing was booked. Since then (Hayley's decision) the check clicks the
+  `Communications` link to this draft, only when the old button is absent and
+  exactly one such link is present; the old button only if it's the one way
+  shown; anything else refuses. `Next` is never clicked. Either way the
+  Calendar Invites screen must follow.
 - **The worker logs each check** (`[booking]` lines): when it starts
   (application, schedule, sessions, plan zone, any draft it replaces), then its
   outcome: composed, refused or uncertain at which step and why, each draft

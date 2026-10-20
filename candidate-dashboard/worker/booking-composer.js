@@ -41,7 +41,9 @@ function networkWatch(page,{sleep,wait}){
   const gql=r=>r.url().startsWith(ORIGIN+'/api/graphql');
   page.on('request',r=>{if(gql(r)){inflight++;lastChange=Date.now();}});
   for(const ev of ['requestfinished','requestfailed'])page.on(ev,r=>{if(gql(r)){inflight=Math.max(0,inflight-1);finished++;lastChange=Date.now();}});
-  return {inflight:()=>inflight,mark(){since=finished;},async settled(){const d=Date.now()+wait;while(Date.now()<d){if(finished>since&&inflight===0&&Date.now()-lastChange>=1000)return true;await sleep(200);}return false;}};
+  return {inflight:()=>inflight,mark(){since=finished;},async settled(){const d=Date.now()+wait;while(Date.now()<d){if(finished>since&&inflight===0&&Date.now()-lastChange>=1000)return true;await sleep(200);}return false;},
+    // Nothing in flight and a second of quiet, whether or not anything new loaded.
+    async quiet(){const d=Date.now()+wait;while(Date.now()<d){if(inflight===0&&Date.now()-lastChange>=1000)return true;await sleep(200);}return false;}};
 }
 const NETWORK_ERROR=/problem with the network connection/;
 // Open the candidate's application panel. Read-only: it navigates and reads,
@@ -178,16 +180,27 @@ async function inviteStatusOnPage(page,plan,{go,net,sleep}){
 }
 
 // Waiting and finding, shared by the run and by deleting a draft on its own.
+// The rule (Hayley, 2026-10-20, after the fourth false conclusion from an early
+// read): no screen is read before Ashby has finished loading it. `ready()`
+// waits until nothing is in flight and it has been quiet for a second, within
+// the usual wait, or refuses. Every in-app navigation (`go`) ends with it, and
+// so does every action (the run's `after`), so whatever is read next is read
+// from a settled screen.
 function helpers(page,T,refuse){
   const sleep=ms=>page.waitForTimeout(ms);
+  const net=networkWatch(page,{sleep,wait:T.wait});
+  async function ready(what){
+    await sleep(T.settle);
+    if(!await net.quiet())refuse(`Ashby didn't finish loading ${what} (${net.inflight()} request${net.inflight()===1?'':'s'} still in flight), so nothing on it was read.`);
+  }
   async function one(locator,what){
     const deadline=Date.now()+T.wait;let n=0;
     while(Date.now()<deadline){n=await locator.count();if(n===1)return locator;if(n>1)refuse(`Expected exactly one ${what}; found ${n}.`);await sleep(250);}
     refuse(`Couldn't find ${what}.`);
   }
   async function until(fn,what,ms=T.wait){const d=Date.now()+ms;while(Date.now()<d){if(await fn())return;await sleep(250);}refuse(`Timed out waiting for ${what}.`);}
-  async function go(path){await page.evaluate(u=>{history.pushState({},'',u);dispatchEvent(new PopStateEvent('popstate'));},path);await sleep(T.short);}
-  return {sleep,one,until,go};
+  async function go(path){await page.evaluate(u=>{history.pushState({},'',u);dispatchEvent(new PopStateEvent('popstate'));},path);await ready(path);}
+  return {sleep,one,until,go,net,ready};
 }
 const replied=json=>!!json&&!(json.errors&&json.errors.length);
 
@@ -265,13 +278,12 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
   });
   let step='start';
   const refuse=m=>{throw new Refusal(step,m);};
-  const {sleep,one,until,go}=helpers(page,T,refuse);
-  const net=networkWatch(page,{sleep,wait:T.wait});
+  const {sleep,one,until,go,net,ready}=helpers(page,T,refuse);
   // After every action: let Ashby react, then check dialogs, refused saves and
   // any write the guard blocked that it shouldn't have needed to.
   let seenRefusals=0,seenBlocked=0;
   async function after(action){
-    await action();await sleep(T.settle);
+    await action();await ready(`the screen after "${step}"`);
     for(const d of await page.locator('[role="dialog"],[role="alertdialog"]').all()){
       // Read without waiting (a warning may have no heading), the way the
       // browser names it: aria-label, then aria-labelledby, then a heading.
@@ -446,7 +458,20 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     // Ashby's requests are counted from just before the click, so the screen
     // can be read only once it has finished loading.
     net.mark();
-    await after(async()=>(await one(page.getByRole('button',{name:'Configure Communications',exact:true}),'"Configure Communications"')).click());
+    // The way from the composer to its communications (October 20: the
+    // "Configure Communications" button is gone; a "Communications" link to
+    // this draft's /communication is in its place, beside a generic "Next").
+    // The link is used only when the old button is absent and exactly one such
+    // link is present; the old button only when it's the one way shown.
+    // Anything else refuses. Either must then reach the Calendar Invites screen.
+    {
+      const oldButton=page.getByRole('button',{name:'Configure Communications',exact:true});
+      const link=page.getByRole('link',{name:'Communications',exact:true}).and(page.locator(`a[href="/schedules/drafts/${state.draftId}/communication"]`));
+      const [olds,links]=[await oldButton.count(),await link.count()];
+      if(olds===0&&links===1){await after(()=>link.click());pass('opened communications from the composer\'s "Communications" link');}
+      else if(olds===1&&links===0)await after(()=>oldButton.click());
+      else refuse(`Expected one way from the composer to its communications: no "Configure Communications" button and exactly one "Communications" link to this draft; found ${olds} button${olds===1?'':'s'} and ${links} link${links===1?'':'s'}.`);
+    }
     await until(async()=>new URL(page.url()).pathname===`/schedules/drafts/${state.draftId}/communication/calendar-invites`,'the Calendar Invites screen');
     // Settled before anything on it is read (October 20: the one-session
     // screen was read with 2 requests in flight and 24 spinners): at least one
@@ -566,6 +591,7 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     pass(`draft re-read from Ashby (${lastRead.operationName}) just before Schedule, and it equals the approval exactly`);
     // 6. The Schedule button. On this layout clicking it sends at once.
     step='find Schedule';
+    await ready('the screen before Schedule');
     const schedule=await one(page.getByRole('button',{name:'Schedule',exact:true}),'the Schedule button');
     if(!(await schedule.isEnabled()))refuse('The Schedule button is disabled.');
     report.wouldSend={op:OP.send,interviewScheduleId:plan.interviewScheduleId,draftInterviewScheduleId:state.draftId,from,
@@ -619,9 +645,8 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
   }catch(e){
     report.step=e.step||step;report.reason=e.message;
     if(!(e instanceof Refusal))report.status='error';
-    // Stopped on a communications screen: what it holds now, after the wait.
-    if(/\/communication\//.test(page.url())||['configure communications','candidate confirmation email'].includes(report.step))
-      note({type:'screen',at:'refused',...await screenSnapshot(page,net).catch(err=>({error:err.message}))});
+    // Wherever it stopped: what the screen holds now (structure only).
+    note({type:'screen',at:'refused',step:report.step,...await screenSnapshot(page,net).catch(err=>({error:err.message}))});
     // Where it stopped, without page contents: the path, dialog names, and
     // whether Ashby was showing one of its own error states.
     report.pageState=await page.evaluate(()=>({path:location.pathname,
@@ -687,7 +712,7 @@ async function readInviteStatus({context,page,plan,log=()=>{},timing={},expected
   const T={settle:700,short:1500,wait:15000,...timing};
   const guard=await guardWrites(context,{warn:m=>log({type:'blocked',detail:m.replace('[write-guard] ','')})});
   const refuse=m=>{throw new Refusal('read invite status',m);};
-  const h=helpers(page,T,refuse),net=networkWatch(page,{sleep:h.sleep,wait:T.wait});
+  const h=helpers(page,T,refuse),net=h.net;
   try{
     await openApplication(page,plan,{refuse,sleep:h.sleep,go:h.go,net,T,expectedIdentity});
     return await inviteStatusOnPage(page,plan,{go:h.go,net,sleep:h.sleep});
@@ -709,11 +734,11 @@ async function discardDraft({context,page,plan,draftId,log=()=>{},timing={},resp
   const refuse=m=>{throw new Refusal(step,m);};
   const h=helpers(page,T,refuse);
   try{
-    await openApplication(page,plan,{refuse,sleep:h.sleep,go:h.go,net:networkWatch(page,{sleep:h.sleep,wait:T.wait}),T,expectedIdentity});
+    await openApplication(page,plan,{refuse,sleep:h.sleep,go:h.go,net:h.net,T,expectedIdentity});
     step='delete the draft';
     return await deleteDraft(page,plan,draftId,{arm:()=>{flag.armed=true;},done:()=>flag.discarded},{...h,T,allowAbsent:true});
   }catch(e){return {deleted:false,draftId,step,reason:e.message};}
   finally{log({type:'blocked-summary',blocked:[...new Set(guard.blocked.filter(b=>b.ashby).map(b=>b.summary))]});}
 }
 
-module.exports={dryRun,discardDraft,readInviteStatus,openApplication,networkWatch,screenSnapshot,readInviteSettings,readPreviewSections,Refusal};
+module.exports={dryRun,discardDraft,readInviteStatus,helpers,openApplication,networkWatch,screenSnapshot,readInviteSettings,readPreviewSections,Refusal};

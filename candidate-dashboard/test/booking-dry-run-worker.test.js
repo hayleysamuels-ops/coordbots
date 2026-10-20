@@ -157,3 +157,21 @@ test('the Calendar Invites settings are read only once Ashby has finished loadin
   assert.ok(step>0&&step<mark&&mark<click&&click<settled&&settled<read,'mark, click, settle (or refuse), then read');
   assert.match(composer.slice(settled,read),/Ashby didn't finish loading the Calendar Invites screen/);
 });
+
+test('the rule everywhere: every navigation and every action ends with the screen settled, and every refusal logs the screen',()=>{
+  const composer=fs.readFileSync(path.join(root,'worker','booking-composer.js'),'utf8');
+  assert.match(composer,/async function go\(path\)\{await page\.evaluate\([^]*?\);await ready\(path\);\}/,'go settles');
+  assert.match(composer,/async function after\(action\)\{\s*await action\(\);await ready\(/,'every action settles before anything is read');
+  assert.match(composer,/if\(!await net\.quiet\(\)\)refuse\(`Ashby didn't finish loading/,'never settling refuses');
+  assert.equal((composer.match(/=networkWatch\(page,/g)||[]).length,1,'one network watch, in the helpers');
+  assert.match(composer,/step='find Schedule';\s*await ready\(/);
+  assert.match(composer,/\/\/ Wherever it stopped: what the screen holds now \(structure only\)\.\s*note\(\{type:'screen',at:'refused',step:report\.step,/,'every refusal logs the screen');
+});
+
+test('communications are opened by the composer\'s Communications link only when the old button is absent and the link is the only one',()=>{
+  const composer=fs.readFileSync(path.join(root,'worker','booking-composer.js'),'utf8');
+  assert.match(composer,/getByRole\('link',\{name:'Communications',exact:true\}\)\.and\(page\.locator\(`a\[href="\/schedules\/drafts\/\$\{state\.draftId\}\/communication"\]`\)\)/,'the link to this draft only, by exact name');
+  assert.match(composer,/if\(olds===0&&links===1\)\{await after\(\(\)=>link\.click\(\)\);/);
+  assert.match(composer,/else if\(olds===1&&links===0\)await after\(\(\)=>oldButton\.click\(\)\);\s*else refuse\(`Expected one way from the composer to its communications/);
+  assert.doesNotMatch(composer,/name:'Next'/,'Next is never clicked');
+});

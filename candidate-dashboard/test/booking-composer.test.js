@@ -242,3 +242,23 @@ test('previews are placed by document order around the two headings, whatever th
   await page.setContent(layout().replace('<h3>Interviewer Invites</h3>',''));
   assert.deepEqual(await readPreviewSections(page,previews),{candidateHeadings:1,interviewerHeadings:0,ordered:false,where:[]});
 });
+
+test('a screen still loading is never read: ready() refuses while a request is in flight, and passes once it is quiet',async t=>{
+  const {helpers}=require('../worker/booking-composer');
+  const browser=await launch();if(!browser){t.skip('no Chromium available');return;}
+  t.after(()=>browser.close());
+  const context=await browser.newContext();
+  let release;const held=new Promise(r=>{release=r;});
+  await context.route('https://app.ashbyhq.com/**',async route=>{const r=route.request();
+    if(r.method()==='GET')return route.fulfill({contentType:'text/html',body:'<html><body>stand-in</body></html>'});
+    await held;return route.fulfill({contentType:'application/json',body:'{"data":{}}'});});
+  const page=await context.newPage();await page.goto('https://app.ashbyhq.com/');
+  const refusals=[];const refuse=m=>{refusals.push(m);throw new Error(m);};
+  const h=helpers(page,{settle:100,short:100,wait:1500},refuse);
+  page.evaluate(()=>fetch('/api/graphql',{method:'POST',body:JSON.stringify({query:'query Slow { x }'})})).catch(()=>{});
+  await page.waitForTimeout(200);
+  await assert.rejects(h.ready('the draft composer'),/Ashby didn't finish loading the draft composer \(1 request still in flight\), so nothing on it was read\./);
+  release();await page.waitForTimeout(300);
+  await h.ready('the draft composer');
+  assert.equal(refusals.length,1);
+});
