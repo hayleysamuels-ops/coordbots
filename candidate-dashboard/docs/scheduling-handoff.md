@@ -890,7 +890,13 @@ file permits it or the composer clicks Schedule.
        happens the check now logs every request that mentioned the draft, by
        structure only (operation names, read or write, batched, query text or
        persisted, and where the draft's ID sits in the response with the field
-       names around it; never values), to fix the re-read to match.
+       names around it; never values), to fix the re-read to match. The next
+       run's log showed the read: `ApiGetDraftSchedule`, with the draft at
+       `data.draftInterviewSchedule` and again in the schedule's own list of
+       drafts (`…interviewSchedule.drafts`), which the one-copy rule had
+       rejected. The re-read now takes only that operation and that copy, and
+       every other copy must have exactly the same sessions, times,
+       interviews and interviewers, or it refuses (`draftReadCopy`).
      - **One permit, one click.** Exactly one `ApiScheduleInterviewScheduleFromDraft`
        for this schedule and this draft, usable only while armed; armed once,
        just before the one click, and disarmed after. The safety test enforces

@@ -181,6 +181,22 @@ test('the draft is found in a read response by its ID, at any depth, exactly',()
   assert.deepEqual(draftsIn(null,DRAFT),[]);
 });
 
+test('the re-read takes the draft at data.draftInterviewSchedule, and every other copy must match it exactly',()=>{
+  const {draftReadCopy,DRAFT_READ_OP}=require('../worker/booking-check');
+  assert.equal(DRAFT_READ_OP,'ApiGetDraftSchedule');
+  // As ApiGetDraftSchedule answered on October 20: the draft, and again in the schedule's own list of drafts.
+  const event=(start='2026-10-22T18:00:00.000Z',selected='u-h')=>({id:'ev-1',title:'First Round',startTimeISO:start,endTimeISO:'2026-10-22T18:30:00.000Z',interviewId:'i-1',interviewSlots:[{selected,alternates:[]}]});
+  const draft=(e=event())=>({id:DRAFT,__typename:'DraftInterviewSchedule',draftSchedule:{events:[e],externalInterviewResourceDraftScheduleAssignments:[]}});
+  const response=(main,listed=[draft()])=>({data:{draftInterviewSchedule:{...main,interviewSchedule:{drafts:listed}}}});
+  assert.deepEqual(draftReadCopy(response(draft()),DRAFT).events[0].startTimeISO,'2026-10-22T18:00:00.000Z');
+  assert.ok(draftReadCopy(response(draft(),[]),DRAFT),'with no other copy');
+  assert.throws(()=>draftReadCopy(response(draft(),[draft(event('2026-10-22T19:00:00.000Z'))]),DRAFT),/holds 1 other copy of it that differs from the one read/);
+  assert.throws(()=>draftReadCopy(response(draft(),[draft(event(undefined,'u-other'))]),DRAFT),/differs/);
+  assert.throws(()=>draftReadCopy({data:{other:draft()}},DRAFT),/doesn't hold it at data.draftInterviewSchedule/);
+  assert.throws(()=>draftReadCopy({data:{draftInterviewSchedule:{...draft(),id:OLD}}},DRAFT),/doesn't hold it at data.draftInterviewSchedule/);
+  assert.throws(()=>draftReadCopy({data:{draftInterviewSchedule:{id:DRAFT,draftSchedule:'{}'}}},DRAFT),/doesn't hold it/);
+});
+
 test('when no draft read is found, the requests that mentioned the draft are logged by structure only, never values',()=>{
   const {draftShape}=require('../worker/booking-check');
   const json={data:{draft:{id:DRAFT,title:'Secret Title',draftSchedule:{events:[{id:'e',title:'Hayley Samuels'}],timeZone:'America/Denver'}},

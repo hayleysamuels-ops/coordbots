@@ -127,6 +127,24 @@ function draftsIn(json,draftId){
   return found;
 }
 
+// Ashby's read of a draft (seen October 20): the query ApiGetDraftSchedule,
+// with the draft at data.draftInterviewSchedule. The same response also lists
+// the schedule's drafts (data.draftInterviewSchedule.interviewSchedule.drafts),
+// which include this one. The copy at data.draftInterviewSchedule is the one
+// read; every other copy must have exactly the same sessions, times,
+// interviews and interviewers, or this refuses. Returns its draftSchedule.
+const DRAFT_READ_OP='ApiGetDraftSchedule';
+function draftReadCopy(json,draftId){
+  const main=json?.data?.draftInterviewSchedule;
+  if(!main||main.id!==draftId||!Array.isArray(main.draftSchedule?.events))fail(`Ashby's read of this draft doesn't hold it at data.draftInterviewSchedule.`);
+  const view=d=>JSON.stringify(normalizeDraft(d).map(e=>({id:e.id,title:e.title,start:e.start,end:e.end,interviewId:e.interviewId,slots:e.slots.map(x=>({selected:x.selected,alternates:x.alternates}))})));
+  const mainView=view(main.draftSchedule);
+  const others=draftsIn(json,draftId).filter(o=>o!==main);
+  const differing=others.filter(o=>view(o.draftSchedule)!==mainView).length;
+  if(differing)fail(`Ashby's read of this draft holds ${differing} other cop${differing===1?'y':'ies'} of it that differ${differing===1?'s':''} from the one read.`);
+  return main.draftSchedule;
+}
+
 // Where a draft's ID appears in a GraphQL response, for the log when no
 // draft read is found (Hayley, 2026-10-20): each object whose `id` is the
 // draft's, by path, with its field names and what its `draftSchedule` and
@@ -440,4 +458,4 @@ function classifyDialog(text){
   return {action:'stop',reason:`Ashby showed a dialog the booking doesn't recognise: "${t.slice(0,160)}". Nothing was confirmed.`};
 }
 
-module.exports={draftShape,draftsIn,maskAgendaItem,emailAgendaItems,zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,ONE_SESSION_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};
+module.exports={DRAFT_READ_OP,draftReadCopy,draftShape,draftsIn,maskAgendaItem,emailAgendaItems,zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,ONE_SESSION_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};

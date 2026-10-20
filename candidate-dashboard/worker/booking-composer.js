@@ -21,7 +21,7 @@
 const {guardWrites,classify}=require('./template-guard');
 const {sendRecipientsOutside,sendBlocked}=require('./booking-locks');
 const {installBookingPermits,installPermit,ORIGIN,OP}=require('./booking-permit');
-const {draftShape,draftsIn,normalizeDraft,maskAgendaItem,checkFinal,formats,composerZone,checkInviteDropdowns,partitionPreviews,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog}=require('./booking-check');
+const {DRAFT_READ_OP,draftReadCopy,draftShape,draftsIn,normalizeDraft,maskAgendaItem,checkFinal,formats,composerZone,checkInviteDropdowns,partitionPreviews,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog}=require('./booking-check');
 
 class Refusal extends Error{constructor(step,message){super(message);this.step=step;this.status=409;}}
 const esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
@@ -209,9 +209,10 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     },
     onResponse:(json,status)=>{sending.reply={status,accepted:replied(json),errors:(json?.errors||[]).map(e=>String(e.message).slice(0,200)).slice(0,3)};}});
   // Ashby's own read of this run's draft, recorded as the composer loads it,
-  // so it can be repeated just before Schedule (step 5). A read is what the
-  // write guard counts as one (classify), one operation, whose response holds
-  // exactly one copy of this draft. Every GraphQL exchange that mentions the
+  // so it can be repeated just before Schedule (step 5): Ashby's
+  // ApiGetDraftSchedule, a read as the write guard counts one (classify), one
+  // operation, with this draft at data.draftInterviewSchedule (draftReadCopy;
+  // seen October 20). Every GraphQL exchange that mentions the
   // draft is also summarised, by structure only, for the log if no read is
   // found (`draftMentions`).
   const draftReads=[],draftMentions=[];
@@ -229,7 +230,7 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
       if(draftMentions.length<30)draftMentions.push({operations:list.map(o=>o?.operationName||'(unnamed)').slice(0,5),read,batched:Array.isArray(ops),
         queryText:list.some(o=>typeof o?.query==='string'),persisted:list.some(o=>!!o?.extensions?.persistedQuery),
         idInRequest:body.includes(state.draftId),status:res.status(),response:json?draftShape(json,state.draftId):'not JSON'});
-      if(read&&!Array.isArray(ops)&&draftsIn(json,state.draftId).length===1)draftReads.push({operationName:ops?.operationName||'(unnamed)',body,headers:req.headers()});
+      if(read&&!Array.isArray(ops)&&ops?.operationName===DRAFT_READ_OP&&json?.data?.draftInterviewSchedule?.id===state.draftId)draftReads.push({operationName:ops.operationName,body,headers:req.headers()});
     }catch(_){}
   });
   let step='start';
@@ -530,9 +531,8 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
       return {status:r.status,json:await r.json().catch(()=>null)};
     },{body:lastRead.body,headers}).catch(e=>({error:e.message}));
     if(reread.error||reread.status!==200)refuse(`Ashby didn't answer the re-read of this draft (${reread.error||`HTTP ${reread.status}`}).`);
-    const reDrafts=draftsIn(reread.json,state.draftId);
-    if(reDrafts.length!==1)refuse(`The re-read of this draft from Ashby held ${reDrafts.length} copies of it, not one.`);
-    try{checkFinal(normalizeDraft(reDrafts[0].draftSchedule),plan);}catch(e){refuse(`The draft as Ashby has it now doesn't match the approval: ${e.message}`);}
+    let rereadDraft;try{rereadDraft=draftReadCopy(reread.json,state.draftId);}catch(e){refuse(e.message);}
+    try{checkFinal(normalizeDraft(rereadDraft),plan);}catch(e){refuse(`The draft as Ashby has it now doesn't match the approval: ${e.message}`);}
     pass(`draft re-read from Ashby (${lastRead.operationName}) just before Schedule, and it equals the approval exactly`);
     // 6. The Schedule button. On this layout clicking it sends at once.
     step='find Schedule';
