@@ -149,3 +149,11 @@ test('with both locks open: the worker\'s isolation, the saved session, the expe
   assert.equal(seen.composer.expectedIdentity,'Anna Example');assert.deepEqual(seen.composer.plan,plan);
   assert.equal(seen.closed,true);
 });
+
+test('the Calendar Invites settings are read only once Ashby has finished loading the screen',()=>{
+  const composer=fs.readFileSync(path.join(root,'worker','booking-composer.js'),'utf8');
+  const step=composer.indexOf("step='configure communications';"),mark=composer.indexOf('net.mark();',step),click=composer.indexOf('"Configure Communications"',step),
+    settled=composer.indexOf('if(!await net.settled())refuse(',step),read=composer.indexOf('settings=await readInviteSettings(page)',step);
+  assert.ok(step>0&&step<mark&&mark<click&&click<settled&&settled<read,'mark, click, settle (or refuse), then read');
+  assert.match(composer.slice(settled,read),/Ashby didn't finish loading the Calendar Invites screen/);
+});

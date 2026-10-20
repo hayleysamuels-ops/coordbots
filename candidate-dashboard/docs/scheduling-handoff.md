@@ -765,6 +765,15 @@ file permits it or the composer clicks Schedule.
     must read it. The first Onsite runs refused with "Couldn't find 'Send
     Candidate Invite'" until the screen snapshot in the log showed this.
 
+  TEST's one-session First Round (October 20) also showed the dropdown layout,
+  with two "Send calendar invites" and no "Send one invite per block" (and no
+  "Manage Candidate Invites" heading), so the check refused. That screen was
+  read mid-load (2 requests in flight, 24 spinners), so no one-session rule was
+  built from it: the check now waits for the Calendar Invites screen to settle
+  (no requests in flight and a second of quiet, within 15 seconds; otherwise it
+  refuses) before reading anything on it, and the next run shows what a
+  settled one-session screen holds.
+
   The check accepts either layout, whichever appears. For the dropdowns it
   requires exactly those three, each reading exactly that, and accepts only
   "Send one invite per block"; anything else, or both layouts, or neither,

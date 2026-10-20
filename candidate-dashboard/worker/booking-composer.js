@@ -400,10 +400,17 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     pass('final draft save equals the approval exactly',{saves:state.saves});
     // 4. Communications: invites and the candidate email must say what was approved.
     step='configure communications';
+    // Ashby's requests are counted from just before the click, so the screen
+    // can be read only once it has finished loading.
+    net.mark();
     await after(async()=>(await one(page.getByRole('button',{name:'Configure Communications',exact:true}),'"Configure Communications"')).click());
     await until(async()=>new URL(page.url()).pathname===`/schedules/drafts/${state.draftId}/communication/calendar-invites`,'the Calendar Invites screen');
-    // What the screen holds on arrival, before anything is looked for on it.
-    await sleep(T.settle);
+    // Settled before anything on it is read (October 20: the one-session
+    // screen was read with 2 requests in flight and 24 spinners): at least one
+    // request finished since the click, none in flight, and a second of quiet,
+    // within the usual wait. A screen that never settles refuses.
+    if(!await net.settled())refuse(`Ashby didn't finish loading the Calendar Invites screen (${net.inflight()} request${net.inflight()===1?'':'s'} still in flight), so its settings weren't read.`);
+    // What the screen holds once settled, before anything is looked for on it.
     note({type:'screen',at:'arrived',...await screenSnapshot(page,net).catch(e=>({error:e.message}))});
     // Two layouts (October 2026): checkboxes on a one-session schedule,
     // dropdowns on TEST's six-session Onsite. Whichever appears is checked;
