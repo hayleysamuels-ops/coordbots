@@ -339,3 +339,22 @@ test("a robot send recorded as sent without invite evidence is re-read and corre
   await w.check.sweep();
   assert.equal(w.store.data.d1.ashbyCheck.state, "sent");assert.deepEqual(w.replies, []);
 });
+
+test("once approved, the posting note no longer says nothing was booked; the status line says what happened", async () => {
+  const calls = [];
+  const slack = createSlack("x", async (url, o) => { calls.push(JSON.parse(o.body)); return { ok: true, json: async () => ({ ok: true, ts: "1.2", channel: "C1" }) }; }, { displayTimeZone: "America/Los_Angeles", interactive: true, clientName: "Luminai" });
+  const notes = "Full schedule option 4 from booking review, built from candidate-submitted availability. Checked against interviewers' primary Google calendars at 1:53 PM PDT. Nothing has been booked and no invitations have been sent.";
+  const plan = { format: "calendar_checked", candidateId: "c", candidateName: "TEST", jobTitle: "TEST", timezone: "America/Los_Angeles", notes, bookingPlan: { ...bookingPlan, send: true, sendAs: "Anna Jones Luminai" },
+    sessions: [{ title: "First Round", start: "2099-10-15T19:00:00Z", end: "2099-10-15T19:30:00Z", location: "Room", people: [{ name: "Hayley Samuels" }] }] };
+  const small = () => calls.at(-1).blocks.find(b => b.type === "context").elements[0].text;
+  await slack(plan, { channelId: "C1", proposalId: "d1", approver: "a", digest: "g" });
+  assert.match(small(), /Nothing has been booked and no invitations have been sent\. Posted for discussion/, "before approval it's still true and said");
+  const at = "2099-10-14T22:00:00Z";
+  await slack.markApproved({ channel: "C1", ts: "1.2", row: { id: "d1", plan, slackApproval: { email: "h@carrara.is", name: "Hayley", at },
+    ashbyCheck: { state: "booked_invites_pending", sentBy: "robot", attemptedAt: at, differences: [], invites: { state: "pending", evidence: [] } } } });
+  assert.doesNotMatch(small(), /Nothing has been booked/);
+  assert.match(small(), /at 1:53 PM PDT\. Posted for discussion by a coordinator\. Draft reference: d1$/);
+  const status = calls.at(-1).blocks.at(-1).text.text;
+  assert.match(status, /Ashby shows TEST's First Round Interview Schedule as Scheduled, matching this approval, with its invites \*pending\*/);
+  assert.doesNotMatch(status, /in Ashby Scheduled/);
+});

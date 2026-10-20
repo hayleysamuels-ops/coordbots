@@ -127,7 +127,8 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
   const when = at => new Intl.DateTimeFormat("en-US", { timeZone: displayTimeZone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(at));
   // Where a left draft is, and how to delete one by hand: never "Delete
   // Activity", which cancels the whole scheduling activity.
-  const scheduleIn = plan => `${escape(plan.candidateName)}'s ${escape(plan.bookingPlan?.activityTitle || "interview schedule")} in Ashby`;
+  const scheduleName = plan => `${escape(plan.candidateName)}'s ${escape(plan.bookingPlan?.activityTitle || "interview schedule")}`;
+  const scheduleIn = plan => `${scheduleName(plan)} in Ashby`;
   const deleteByHand = plan => `Delete it from the Drafts tab of ${scheduleIn(plan)}, with the button beside the draft (never "Delete Activity").`;
   // The Ashby check's state, under the approval (ashby-check.js). Every line
   // says plainly whether anything is booked or sent.
@@ -161,8 +162,8 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       case "superseded": return `*Superseded* at ${escape(when(check.supersededAt))} by a later approval for this schedule${check.draftDeleted ? "; its draft was deleted" : ""}. Nothing from this message was sent.`;
       case "refused": return `*The Ashby check stopped*${check.step ? ` at "${escape(check.step)}"` : ""}: ${escape(check.reason || "no reason was given")}\nNothing was sent. ${!check.draftId ? "No draft was made." : check.cleanup?.deleted ? "The draft it made was deleted." : `The draft it made may still be in Ashby. ${deleteByHand(plan)}`} ${byHand}`;
       case "not_started": return `*The Ashby check didn't start:* ${escape(check.reason)} Nothing was sent and no draft was made. ${byHand}`;
-      case "booked_invites_pending": return `⚠️ *Booked, but the invitations were not sent.* Schedule was clicked once${check.attemptedAt ? ` at ${escape(when(check.attemptedAt))}` : ""} and Ashby shows ${scheduleIn(plan)} Scheduled${check.differences?.length ? ` (differing from this approval: ${escape(check.differences.join("; "))})` : ", matching this approval"}, with its invites *pending*. Send them by hand from the schedule's page in Ashby ("Send to Candidate" and "Send to Interviewers"); nothing will be retried.`;
-      case "booked_invites_unknown": return `⚠️ *Booked; whether the invitations went out is unknown.* Ashby shows ${scheduleIn(plan)} Scheduled${check.differences?.length ? ` (differing from this approval: ${escape(check.differences.join("; "))})` : ", matching this approval"}, but its page didn't show the invites as sent. Check it in Ashby, and send them by hand if they're pending; nothing will be retried.`;
+      case "booked_invites_pending": return `⚠️ *Booked, but the invitations were not sent.* Schedule was clicked once${check.attemptedAt ? ` at ${escape(when(check.attemptedAt))}` : ""} and Ashby shows ${scheduleName(plan)} as Scheduled${check.differences?.length ? ` (differing from this approval: ${escape(check.differences.join("; "))})` : ", matching this approval"}, with its invites *pending*. Send them by hand from the schedule's page in Ashby ("Send to Candidate" and "Send to Interviewers"); nothing will be retried.`;
+      case "booked_invites_unknown": return `⚠️ *Booked; whether the invitations went out is unknown.* Ashby shows ${scheduleName(plan)} as Scheduled${check.differences?.length ? ` (differing from this approval: ${escape(check.differences.join("; "))})` : ", matching this approval"}, but its page didn't show the invites as sent. Check it in Ashby, and send them by hand if they're pending; nothing will be retried.`;
       case "send_uncertain": return `⚠️ *The send may have gone:* Schedule was clicked once${check.attemptedAt ? ` at ${escape(when(check.attemptedAt))}` : ""} (${escape(check.reason || "Ashby's answer wasn't a clear acceptance")}), and Ashby doesn't show the schedule as Scheduled yet. Check ${scheduleIn(plan)}: if it isn't Scheduled, book it by hand. Nothing will be retried.`;
       case "uncertain": return `*The Ashby check didn't finish* (${escape(check.reason)}). Nothing was sent, but a draft may be left in Ashby. ${deleteByHand(plan)} ${byHand}`;
       case "too_close": return "*Not booked:* too close to the first interview — book this in Ashby by hand. Nothing has been scheduled in Ashby, and no invitations or candidate email have been sent.";
@@ -219,7 +220,9 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       // The SOP's checklist. Nothing here is known to the dashboard, so each is
       // left for the coordinator to complete rather than claimed.
       { type: "section", text: mrkdwn("*Interview Plan:* to add\n*Shared Prompt:* to add\n*Shared Interview Prep:* to add\n*NDA Sent:* to confirm") },
-      { type: "context", elements: [mrkdwn(`${escape(plan.notes)} Posted for discussion by ${escape(approver)}. Draft reference: ${escape(proposalId)}`)] },
+      // The posting note says nothing was booked; once approved, the status
+      // line below says what happened instead, so that sentence is dropped.
+      { type: "context", elements: [mrkdwn(`${escape(approval ? String(plan.notes || "").replace(/\s*Nothing has been booked and no invitations have been sent\.\s*/, " ").trim() : plan.notes)} Posted for discussion by ${escape(approver)}. Draft reference: ${escape(proposalId)}`)] },
     ];
     if (approval) blocks.push({ type: "section", text: mrkdwn(`*Approved* by ${escape(approval.name || approval.email)} (${escape(approval.email)}) at ${escape(new Intl.DateTimeFormat("en-US", { timeZone: displayTimeZone, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(approval.at)))}.\n${checkText(plan, check)}`) });
     else if (interactive && draftDigest) blocks.push(scheduleButton(proposalId, draftDigest, plan));
