@@ -884,7 +884,13 @@ file permits it or the composer clicks Schedule.
        just before Schedule, and compares the draft Ashby returns with the
        approval by exact time, interview and interviewer. No recorded read, not
        exactly one copy of the draft, or any difference refuses (draft deleted,
-       nothing clicked).
+       nothing clicked). A read is what the write guard counts as one (its
+       `classify`, which also accepts GraphQL's `{ … }` shorthand). The first
+       real re-read (October 20) refused: no read was recorded. When that
+       happens the check now logs every request that mentioned the draft, by
+       structure only (operation names, read or write, batched, query text or
+       persisted, and where the draft's ID sits in the response with the field
+       names around it; never values), to fix the re-read to match.
      - **One permit, one click.** Exactly one `ApiScheduleInterviewScheduleFromDraft`
        for this schedule and this draft, usable only while armed; armed once,
        just before the one click, and disarmed after. The safety test enforces

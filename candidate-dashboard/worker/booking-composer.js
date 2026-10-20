@@ -18,10 +18,10 @@
 // that email the candidate ("Send Direct Booking Link", "Request Candidate
 // Availability"). Exact-name matching here and the write guard are both
 // load-bearing; neither may be relaxed.
-const {guardWrites}=require('./template-guard');
+const {guardWrites,classify}=require('./template-guard');
 const {sendRecipientsOutside,sendBlocked}=require('./booking-locks');
 const {installBookingPermits,installPermit,ORIGIN,OP}=require('./booking-permit');
-const {draftsIn,normalizeDraft,maskAgendaItem,checkFinal,formats,composerZone,checkInviteDropdowns,partitionPreviews,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog}=require('./booking-check');
+const {draftShape,draftsIn,normalizeDraft,maskAgendaItem,checkFinal,formats,composerZone,checkInviteDropdowns,partitionPreviews,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog}=require('./booking-check');
 
 class Refusal extends Error{constructor(step,message){super(message);this.step=step;this.status=409;}}
 const esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
@@ -209,15 +209,27 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     },
     onResponse:(json,status)=>{sending.reply={status,accepted:replied(json),errors:(json?.errors||[]).map(e=>String(e.message).slice(0,200)).slice(0,3)};}});
   // Ashby's own read of this run's draft, recorded as the composer loads it,
-  // so it can be repeated just before Schedule (step 5).
-  const draftReads=[];
+  // so it can be repeated just before Schedule (step 5). A read is what the
+  // write guard counts as one (classify), one operation, whose response holds
+  // exactly one copy of this draft. Every GraphQL exchange that mentions the
+  // draft is also summarised, by structure only, for the log if no read is
+  // found (`draftMentions`).
+  const draftReads=[],draftMentions=[];
   page.on('response',async res=>{
     try{
       const req=res.request();
       if(!state.draftId||req.method()!=='POST'||!req.url().startsWith(ORIGIN+'/api/graphql'))return;
-      const body=req.postData()||'';if(!body.includes(state.draftId))return;
-      const op=JSON.parse(body);if(Array.isArray(op)||!/^\s*query\b/.test(op?.query||''))return;
-      if(draftsIn(await res.json(),state.draftId).length===1)draftReads.push({operationName:op.operationName||'(unnamed)',body,headers:req.headers()});
+      const body=req.postData()||'';
+      const text=await res.text().catch(()=>'');
+      if(!body.includes(state.draftId)&&!text.includes(state.draftId))return;
+      let ops=null;try{ops=JSON.parse(body);}catch(_){}
+      const list=Array.isArray(ops)?ops:ops?[ops]:[];
+      let json=null;try{json=JSON.parse(text);}catch(_){}
+      const read=classify({method:'POST',url:req.url(),postData:body}).allow===true;
+      if(draftMentions.length<30)draftMentions.push({operations:list.map(o=>o?.operationName||'(unnamed)').slice(0,5),read,batched:Array.isArray(ops),
+        queryText:list.some(o=>typeof o?.query==='string'),persisted:list.some(o=>!!o?.extensions?.persistedQuery),
+        idInRequest:body.includes(state.draftId),status:res.status(),response:json?draftShape(json,state.draftId):'not JSON'});
+      if(read&&!Array.isArray(ops)&&draftsIn(json,state.draftId).length===1)draftReads.push({operationName:ops?.operationName||'(unnamed)',body,headers:req.headers()});
     }catch(_){}
   });
   let step='start';
@@ -506,7 +518,11 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     // check, sending or not; anything unfamiliar refuses.
     step='re-read the draft';
     const lastRead=draftReads.at(-1);
-    if(!lastRead)refuse('Couldn\'t find Ashby\'s own read of this draft to repeat, so it can\'t be checked again before Schedule.');
+    if(!lastRead){
+      // Which exchanges mentioned the draft, and in what shape (no values).
+      note({type:'draft-mentions',count:draftMentions.length,mentions:draftMentions});
+      refuse('Couldn\'t find Ashby\'s own read of this draft to repeat, so it can\'t be checked again before Schedule.');
+    }
     // The browser sets these itself; the rest are Ashby's own request headers.
     const headers=Object.fromEntries(Object.entries(lastRead.headers).filter(([k])=>!/^(?::|host$|cookie$|content-length$|origin$|referer$|user-agent$|accept-encoding$|connection$|sec-)/i.test(k)));
     const reread=await page.evaluate(async({body,headers})=>{

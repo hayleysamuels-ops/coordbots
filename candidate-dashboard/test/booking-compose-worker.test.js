@@ -181,6 +181,25 @@ test('the draft is found in a read response by its ID, at any depth, exactly',()
   assert.deepEqual(draftsIn(null,DRAFT),[]);
 });
 
+test('when no draft read is found, the requests that mentioned the draft are logged by structure only, never values',()=>{
+  const {draftShape}=require('../worker/booking-check');
+  const json={data:{draft:{id:DRAFT,title:'Secret Title',draftSchedule:{events:[{id:'e',title:'Hayley Samuels'}],timeZone:'America/Denver'}},
+    other:{draftInterviewScheduleId:DRAFT,name:'TEST candidate'},asText:{id:DRAFT,draftSchedule:'{"events":[]}'}}};
+  const shape=draftShape(json,DRAFT);
+  assert.deepEqual(shape.objects,[
+    {path:'data.draft',keys:['draftSchedule','id','title'],draftSchedule:'object',draftScheduleKeys:['events','timeZone'],events:'list(1)'},
+    {path:'data.asText',keys:['draftSchedule','id'],draftSchedule:'string'}]);
+  assert.deepEqual(shape.references,['data.other.draftInterviewScheduleId']);
+  assert.doesNotMatch(JSON.stringify(shape),/Secret Title|Hayley Samuels|TEST candidate|America\/Denver/);
+  assert.deepEqual(draftShape({data:{x:1}},DRAFT),{objects:[],references:[]});
+  // Capped, however large the response.
+  const many={data:Array.from({length:50},()=>({id:DRAFT}))};
+  assert.ok(draftShape(many,DRAFT).objects.length<=20);
+  const {detailLine}=require('../worker/booking-compose');
+  assert.equal(detailLine({type:'draft-mentions',count:1,mentions:[{operations:['ApiGetDraft'],read:true}]}),
+    'no draft read found; the requests that mentioned the draft (structure only): {"count":1,"mentions":[{"operations":["ApiGetDraft"],"read":true}]}');
+});
+
 test('the log says plainly whether the check sent',()=>{
   const {composeOutcome}=require('../worker/booking-compose');
   assert.match(composeOutcome({status:'sent',draftId:DRAFT,send:{attempted:true,reply:{status:200,accepted:true}},cleanup:{kept:true}}),/^SENT by clicking Schedule once \(Ashby answered HTTP 200, accepted\); draft .* created, kept \(a send was attempted\)/);

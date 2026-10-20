@@ -86,6 +86,7 @@ function detailLine(e){
     case 'screen':{const {type,at,...rest}=e;return rest.note?`screen (${at}): ${rest.note}`:`screen (${at}): ${JSON.stringify(rest)}`;}
     case 'dialog':return `dialog: ${short(e.text)}`;
     case 'send-skipped':return `not sending: ${short(e.reason)}`;
+    case 'draft-mentions':{const {type,...rest}=e;return `no draft read found; the requests that mentioned the draft (structure only): ${JSON.stringify(rest)}`;}
     case 'send':{const {type,...rest}=e;return `send: ${JSON.stringify(rest)}`;}
     case 'agenda-shape':{const {type,...rest}=e;return `candidate invite agenda unreadable, its shape (letters masked): ${JSON.stringify(rest)}`;}
     case 'send-recipients':return e.allowed?'send recipients: all on the send allowlist':`send recipients: outside the send allowlist: ${e.outside.join(', ')} (reported only; nothing is sent)`;

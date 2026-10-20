@@ -127,6 +127,30 @@ function draftsIn(json,draftId){
   return found;
 }
 
+// Where a draft's ID appears in a GraphQL response, for the log when no
+// draft read is found (Hayley, 2026-10-20): each object whose `id` is the
+// draft's, by path, with its field names and what its `draftSchedule` and
+// events are (object, text, list); and each other field whose value is the
+// draft's ID. Field names and types only, never values. Capped.
+function draftShape(json,draftId){
+  const objects=[],references=[],seen=new Set();
+  const kind=v=>v===null?'null':Array.isArray(v)?`list(${v.length})`:typeof v==='object'?'object':typeof v;
+  (function walk(v,path){
+    if(!v||typeof v!=='object'||seen.has(v)||objects.length+references.length>=20)return;seen.add(v);
+    if(v.id===draftId){
+      const d=v.draftSchedule;
+      objects.push({path:path||'(root)',keys:Object.keys(v).sort().slice(0,40),draftSchedule:kind(d),
+        ...(d&&typeof d==='object'&&!Array.isArray(d)?{draftScheduleKeys:Object.keys(d).sort().slice(0,40),events:kind(d.events)}:{})});
+    }
+    for(const [k,x] of Object.entries(v)){
+      const at=path?`${path}.${k}`:k;
+      if(x===draftId&&k!=='id')references.push(at);
+      else walk(x,at);
+    }
+  })(json,'');
+  return {objects,references};
+}
+
 // The final save must equal the approval exactly.
 function checkFinal(state,plan){
   const why=[];
@@ -416,4 +440,4 @@ function classifyDialog(text){
   return {action:'stop',reason:`Ashby showed a dialog the booking doesn't recognise: "${t.slice(0,160)}". Nothing was confirmed.`};
 }
 
-module.exports={draftsIn,maskAgendaItem,emailAgendaItems,zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,ONE_SESSION_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};
+module.exports={draftShape,draftsIn,maskAgendaItem,emailAgendaItems,zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,ONE_SESSION_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};
