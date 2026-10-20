@@ -114,6 +114,19 @@ function checkSave(prev,next,plan,{compareRest=true,timeZone=null}={}){
   if(why.length)fail(`A draft save was refused: ${why.join('; ')}.`,why);
 }
 
+// The draft objects in a GraphQL response: anything with this draft's `id`
+// and a `draftSchedule` holding events, at any depth. The re-read before Send
+// needs exactly one (booking-composer.js).
+function draftsIn(json,draftId){
+  const found=[],seen=new Set();
+  (function walk(v){
+    if(!v||typeof v!=='object'||seen.has(v))return;seen.add(v);
+    if(v.id===draftId&&Array.isArray(v.draftSchedule?.events))found.push(v);
+    for(const k of Object.keys(v))walk(v[k]);
+  })(json);
+  return found;
+}
+
 // The final save must equal the approval exactly.
 function checkFinal(state,plan){
   const why=[];
@@ -393,4 +406,4 @@ function classifyDialog(text){
   return {action:'stop',reason:`Ashby showed a dialog the booking doesn't recognise: "${t.slice(0,160)}". Nothing was confirmed.`};
 }
 
-module.exports={maskAgendaItem,emailAgendaItems,zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};
+module.exports={draftsIn,maskAgendaItem,emailAgendaItems,zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};

@@ -11,7 +11,9 @@
 //   too_close (approved less than two hours before the first interview: not
 //     composed, since the sweep would delete it at once)
 //   queued → running → composed | skipped | refused | not_started | uncertain
+//     | sent | send_uncertain (only where the post announced Send, plan.send)
 //   composed → sent | deleted | gone | delete_failed | superseded
+//   send_uncertain → sent (the sweep reads Ashby; nothing is ever retried)
 // Checks run one at a time, in approval order. Nothing is retried: a check
 // that may have left a draft says so and stops.
 //
@@ -41,7 +43,7 @@ function compareBooked(plan, booked) {
   return diffs;
 }
 
-function createAshbyCheck({ store, worker, facts, slackApi, clientId, now = () => Date.now(), log = console, sweepMs = 300000 }) {
+function createAshbyCheck({ store, worker, facts, slackApi, clientId, now = () => Date.now(), log = console, sweepMs = 300000, pause = ms => new Promise(r => setTimeout(r, ms)) }) {
   let chain = Promise.resolve();
   const serially = task => (chain = chain.then(task, task));
   const iso = () => new Date(now()).toISOString();
@@ -72,6 +74,20 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, now = () =
 
   const tooClose = plan => now() >= Date.parse(plan.sessions[0].start) - UNSENT_BEFORE_FIRST_MS;
 
+  // After the robot's one Send click: what Ashby's API shows. Read up to three
+  // times, ten seconds apart (Ashby can take a moment); `sent` with what
+  // differs from the approval, or null when it doesn't show as sent yet.
+  async function readBackSent(plan) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt) await pause(10000);
+      try {
+        const booked = await facts.scheduleState(plan.applicationId, plan.interviewScheduleId);
+        if (booked && SENT_STATUSES.has(booked.status)) return { differences: compareBooked(plan, booked) };
+      } catch (e) { log.warn(`[ashby-check] Couldn't read the schedule after sending: ${e.message}`); }
+    }
+    return null;
+  }
+
   async function run(id) {
     // Checked again at its turn: waiting in the queue can bring it inside.
     const waiting = await store.get(id);
@@ -91,16 +107,26 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, now = () =
       result = await worker.call("compose", { plan, supersedeDraftId: earlier[0]?.ashbyCheck.draftId || null, proposalId: id });
     } catch (e) {
       // A 4xx means the worker refused before starting: no draft was made.
+      // Otherwise, where this post could send, it may have: never "nothing
+      // was sent".
       check = e.status >= 400 && e.status < 500
         ? { state: "not_started", reason: e.message }
-        : { state: "uncertain", reason: e.message || "The scheduling worker didn't answer." };
+        : plan.send === true
+          ? { state: "send_uncertain", sentBy: "robot", reason: `the scheduling worker didn't give a result (${e.message || "no answer"})` }
+          : { state: "uncertain", reason: e.message || "The scheduling worker didn't answer." };
     }
     if (!check) {
       if (result?.status === "skipped") check = { state: "skipped", reason: result.reason };
       else if (result?.status === "composed" && result.cleanup?.kept && result.draftId) {
         const composedAt = iso();
         check = { state: "composed", draftId: result.draftId, composedAt, deleteBy: deleteByFor(plan, composedAt), from: result.wouldSend?.from || null,
-          confirmationEmail: result.confirmationEmail === "off" ? "off" : "on", checks: (result.checks || []).map(c => c.name) };
+          confirmationEmail: result.confirmationEmail === "off" ? "off" : "on", checks: (result.checks || []).map(c => c.name), ...(result.sendSkipped ? { sendSkipped: result.sendSkipped } : {}) };
+      } else if (result?.status === "sent" || result?.status === "send_uncertain") {
+        // The robot clicked Schedule once. Whatever its own reading, Ashby's API decides.
+        const reply = result.send?.reply, readBack = await readBackSent(plan);
+        const said = reply ? `Ashby answered HTTP ${reply.status}${reply.accepted ? ", accepted" : `, not accepted${reply.errors?.length ? `: ${reply.errors.join("; ")}` : ""}`}` : result.send?.blockedByGuard ? "the write guard blocked it" : "no answer from Ashby";
+        check = { sentBy: "robot", draftId: result.draftId || null, attemptedAt: result.send?.at || iso(), confirmationEmail: result.confirmationEmail === "off" ? "off" : "on", from: result.wouldSend?.from || null,
+          ...(readBack ? { state: "sent", sentSeenAt: iso(), differences: readBack.differences } : { state: "send_uncertain", reason: said }) };
       } else if (result?.status === "refused" || result?.status === "error") check = { state: "refused", step: result.step, reason: result.reason, draftId: result.draftId || null, cleanup: result.cleanup || null };
       else check = { state: "uncertain", reason: result?.reason || "The Ashby check gave no clear result.", draftId: result?.draftId || null };
     }
@@ -108,6 +134,8 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, now = () =
     if (!row) return;
     await show(row);
     if (check.state === "composed") await reply(row, `Ashby check passed: ${check.checks.join("; ")}.`);
+    if (check.state === "sent" && check.sentBy === "robot") await reply(row, `Sent by clicking Schedule once, from the connected Ashby account. Ashby shows it Scheduled${check.differences.length ? `, but it differs from this approval: ${check.differences.join("; ")}` : ", matching this approval"}.`);
+    if (check.state === "send_uncertain") await reply(row, `The send may have gone (${check.reason}). Check the schedule in Ashby; nothing will be retried.`);
     if (result?.superseded?.draftId) {
       for (const old of earlier.filter(r => r.ashbyCheck.draftId === result.superseded.draftId)) {
         const done = await setCheck(old.id, stateIs("composed"), { ...old.ashbyCheck, state: "superseded", supersededAt: iso(), by: id, draftDeleted: result.superseded.deleted === true });
@@ -127,6 +155,17 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, now = () =
     return queued;
   }
 
+  // A send that wasn't confirmed: recorded as sent once Ashby shows it, and
+  // otherwise left alone. Its draft is never deleted and nothing is retried.
+  async function sweepUncertainSend(row) {
+    const plan = row.plan.bookingPlan;
+    let booked;
+    try { booked = await facts.scheduleState(plan.applicationId, plan.interviewScheduleId); }
+    catch (e) { log.warn(`[ashby-check] Couldn't read ${row.id}'s schedule: ${e.message}`); return; }
+    if (!booked || !SENT_STATUSES.has(booked.status)) return;
+    const done = await setCheck(row.id, stateIs("send_uncertain"), { ...row.ashbyCheck, state: "sent", sentSeenAt: iso(), differences: compareBooked(plan, booked) });
+    if (done) await show(done);
+  }
   // One composed draft: sent, or due for deleting, or left alone.
   async function sweepOne(row) {
     const plan = row.plan.bookingPlan, check = row.ashbyCheck;
@@ -150,8 +189,8 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, now = () =
     if (done) await show(done);
   }
   async function sweep() {
-    const rows = (await store.list()).filter(r => r.clientId === clientId && r.ashbyCheck?.state === "composed");
-    for (const row of rows) await serially(() => sweepOne(row).catch(e => log.warn(`[ashby-check] Sweep failed for ${row.id}: ${e.message}`)));
+    const rows = (await store.list()).filter(r => r.clientId === clientId && ["composed", "send_uncertain"].includes(r.ashbyCheck?.state));
+    for (const row of rows) await serially(() => (row.ashbyCheck.state === "send_uncertain" ? sweepUncertainSend(row) : sweepOne(row)).catch(e => log.warn(`[ashby-check] Sweep failed for ${row.id}: ${e.message}`)));
   }
 
   // At start-up: a check recorded as queued or running was cut off by a

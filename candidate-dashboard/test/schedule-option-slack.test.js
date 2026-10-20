@@ -428,3 +428,42 @@ test("the store's own check under its lock follows the same rule", async t => {
   assert.equal(await store.insert(row("2", { state: "shared" })), true, "a refused, draftless check doesn't block");
   assert.equal(await store.insert(row("3", { state: "shared" })), false, "a post awaiting approval does");
 });
+
+// ---- Send announced at posting ----------------------------------------------
+
+test("a post is marked to send only when the worker says every Send lock is open; any doubt leaves it unmarked", async t => {
+  const U = n => `0000000${n}-0000-4000-8000-000000000000`;
+  const sessions = [{ sessionId: "s", interviewId: U(5), title: "First Round", durationMinutes: 30 }];
+  const plan = { applicationId: U(1), candidateId: U(2), jobId: U(3), scheduleId: U(4), stageId: "stage", templateRevision: "v1", candidateName: "TEST", candidateEmail: "t@example.com",
+    jobTitle: "TEST", stageTitle: "First Round", activities: [{ title: "First Round Interview Schedule", sessions }] };
+  const fixture = async sendStatus => {
+    const posted = [], asked = [];
+    const app = express(); app.use(express.json());
+    app.use((req, res, next) => { req.schedulingUser = user; next(); });
+    app.use("/booking", bookingRoutes({
+      facts: { application: async () => plan },
+      sendStatus: async payload => { asked.push(payload); return sendStatus(payload); },
+      availability: { requests: async () => ({ stageId: "stage", requests: [{ scheduleId: U(4), updatedAt: "version" }] }),
+        load: async () => ({ stageId: "stage", timezone: "America/Denver", localWindows: [{ start: "2099-01-01T10:00", end: "2099-01-01T11:00" }] }) },
+      inspectPlan: async input => ({ ...input, sessions: sessions.map(s => ({ ...s, assignmentVerified: true, requiredCount: 1, eligibleInterviewers: [{ name: "Hayley Samuels", userId: U(6), email: "hayley@example.com" }] })) }),
+      discussion: { postScheduleOption: async input => { posted.push(input); return { state: "shared", channelName: "c" }; } },
+      rules: { get: () => ({ rulesRevision: 2, hasAttendanceOverrides: false, attendanceFor: () => "in_person", placementFor: () => [] }) },
+    }));
+    const server = await new Promise(resolve => { const s = app.listen(0, "127.0.0.1", () => resolve(s)); });
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    const base = `http://127.0.0.1:${server.address().port}/booking`;
+    const body = { applicationId: U(1), scheduleId: U(4), availabilitySource: "ashby" };
+    const suggested = await (await fetch(base + "/suggest-full-schedule", { method: "POST", headers, body: JSON.stringify(body) })).json();
+    const r = await fetch(base + "/post-full-schedule-option", { method: "POST", headers, body: JSON.stringify({ ...body, optionIndex: 0, optionDigest: suggested.proposals[0].optionDigest }) });
+    assert.equal(r.status, 200, await r.text());
+    return { bookingPlan: posted[0].bookingPlan, asked };
+  };
+  const on = await fixture(async () => ({ sendOn: true, as: "Anna Jones Luminai" }));
+  assert.equal(on.asked.length, 1);assert.equal(on.asked[0].plan.interviewScheduleId, U(4));
+  assert.equal(on.bookingPlan.send, true);assert.equal(on.bookingPlan.sendAs, "Anna Jones Luminai");
+  for (const answer of [async () => ({ sendOn: false, reason: "off" }), async () => { throw new Error("worker down"); }, async () => ({ sendOn: true }), async () => ({ sendOn: "yes", as: "x" })]) {
+    const off = await fixture(answer);
+    assert.ok(off.bookingPlan, "still checked in Ashby");
+    assert.equal(off.bookingPlan.send, undefined);assert.equal(off.bookingPlan.sendAs, undefined);
+  }
+});

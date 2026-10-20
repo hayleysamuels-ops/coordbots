@@ -845,11 +845,56 @@ file permits it or the composer clicks Schedule.
      refuses. It's now on in Luminai's Onsite template, and its date and times are
      still compared as text in the composer's zone; enabling Send while that's
      unproven would dispatch an email nothing has verified.
-  3. **Then Send**: a re-read of the draft compared with the approval right
-     before the click, one permit for this draft only, verification from
-     Ashby's API afterwards, never a retry, Slack wording that says approving
-     sends, and its own `BOOKING_SEND` switch and application allowlist on top
-     of the compose check's locks.
+  3. **Send, built October 20; `BOOKING_SEND` is off until Hayley turns it
+     on to watch the first one.** What the Schedule click does was seen first
+     (October 20, write guard on): on this layout clicking Schedule *is* the
+     send. It fired `ApiScheduleInterviewScheduleFromDraft` at once, with no
+     dialog or menu (the guard blocked it; Ashby then showed an error panel).
+     Whoever clicks it sends, which is why a person clicking breaks the SOP.
+     - **Announced at posting, or it doesn't send.** When a calendar-checked
+       option is posted, the dashboard asks the worker (`send-status`,
+       read-only) whether approving it would send. Only a clear yes marks the
+       stored plan `send: true` with `sendAs` (the approval's digest covers
+       both), and words that post's Schedule confirmation: "Approving sends this
+       schedule now: Ashby's invitations to the candidate and interviewers, and
+       the candidate's confirmation email if it's on, all from Anna Jones's
+       account. Nothing is retried." A post without the mark never sends, even
+       if `BOOKING_SEND` is turned on before it's approved.
+     - **Locks, all checked again at approval:** the plan's `send: true`;
+       `BOOKING_SEND` exactly `on` (separate from `BOOKING_COMPOSE`); the
+       application and activity on `SEND_ALLOWED` (TEST's First Round
+       `bbf93574`, Hayley the only interviewer); every recipient on
+       `SEND_RECIPIENTS`; Anna's session. The composer checks them once more
+       before arming.
+     - **Fresh re-read before the click** (every check, sending or not): the
+       composer records Ashby's own read of the draft as it loads, repeats it
+       just before Schedule, and compares the draft Ashby returns with the
+       approval by exact time, interview and interviewer. No recorded read, not
+       exactly one copy of the draft, or any difference refuses (draft deleted,
+       nothing clicked).
+     - **One permit, one click.** Exactly one `ApiScheduleInterviewScheduleFromDraft`
+       for this schedule and this draft, usable only while armed; armed once,
+       just before the one click, and disarmed after. The safety test enforces
+       one permit, armed after the re-read, one click.
+     - **After the click nothing is retried or refused**: the send may have
+       happened. Ashby's answer, any navigation, dialogs (read, never answered)
+       and the screen are logged; the draft is always kept. The dashboard then
+       reads Ashby's API (three times, ten seconds apart): `Scheduled` with
+       events matching the approval is `sent` (or `sent` with what differs);
+       otherwise `send_uncertain`, which the sweep follows until Ashby shows it
+       sent and never deletes. A worker failure on a sending post is also
+       `send_uncertain`, never "nothing was sent".
+     - **Slack where Send is on:** the post says "press Schedule, which sends it
+       from Anna Jones's account"; the approved message says "Checking and
+       sending in Ashby", then "Sent from Anna Jones's account at … Ashby shows
+       it Scheduled, matching this approval", or "⚠️ The send may have gone …
+       nothing will be retried". An announced post that didn't send says why
+       ("Not sent automatically: …").
+     - **To watch the first send:** set `BOOKING_SEND=on` on the scheduling
+       worker (and `railway redeploy` if a variable change doesn't redeploy),
+       then post a fresh TEST First Round option (only a post made with Send on
+       is marked) and approve it. Turning it off: delete the variable and
+       redeploy; posts already marked then compose only and say so.
   - **Recipient allowlist** (`SEND_RECIPIENTS` in `worker/booking-locks.js`):
     a robot Send may reach only hayleysamuels511@gmail.com and
     hayley@luminai.com, as candidate and every interviewer. TEST's Onsite has

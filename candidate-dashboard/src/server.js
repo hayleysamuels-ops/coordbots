@@ -101,6 +101,7 @@ function createServer() {
       inspectPlan: payload => bookingWorker.call("inspect-plan",payload),
       inspectCalendar: payload => bookingWorker.call("inspect-calendar",payload),
       inspectDraft: payload => bookingWorker.call("inspect-draft",payload),
+      sendStatus: payload => bookingWorker.call("send-status",payload),
       facts: bookingFacts,
       capabilities: async () => { const worker = await bookingWorker.capabilities(); return {available: false, reason: worker.available ? "The booking executor is being connected to this dashboard. Sending remains disabled." : worker.reason}; },
     }));

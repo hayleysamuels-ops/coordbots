@@ -43,6 +43,10 @@ function bookingRoutes({secret,clientId,expectedIdentity,adapter=null,draftReade
         try{result=await draftReader.inspect(data.payload,data.action==='inspect-full-calendar'?'full-calendar':data.action==='inspect-plan'?'plan':data.action==='inspect-availability'?'availability':data.action==='inspect-calendar'?'calendar':'communications');}
         finally{inspections--;}
       }
+      else if(data.action==='send-status'){
+        if(!ashby)return res.status(503).json({error:'The Ashby check is not connected.'});
+        result=require('./booking-compose').sendStatus({env:ashby.env,payload:data.payload,expectedIdentity});
+      }
       else if(data.action==='compose'||data.action==='discard-draft'){
         if(!ashby)return res.status(503).json({error:'The Ashby check is not connected.'});
         const run=require('./booking-compose')[data.action==='compose'?'compose':'discard'];

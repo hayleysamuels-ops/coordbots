@@ -7,26 +7,44 @@ const NOTICE_MINUTES=15;
 
 // The TEST candidate on the TEST job: its Initial Screen, First Round and
 // Onsite Interview scheduling activities (Onsite added October 14, 2026, for
-// the first Slack-approved check).
+// the first Slack-approved check), and the First Round started October 20,
+// with Hayley as its only interviewer, for the first robot Send.
 const ALLOWED_APPLICATIONS={
   '8dfd8f14-83c4-41f8-aaf1-416b75cb0892':{
     jobId:'837cc1e9-15ed-4f07-8755-51ee29f4ea39',
     candidateId:'fc88f24e-d59b-4e58-aa51-f0e94b1a32da',
     candidateEmail:'hayleysamuels511@gmail.com',
-    interviewScheduleIds:['69ffae5a-240c-4d06-8b45-f9826dbf5623','18599066-1d55-493a-8c2f-1e970b04f86c','d98941b3-5900-4ecc-a5cb-c57ed6729702'],
+    interviewScheduleIds:['69ffae5a-240c-4d06-8b45-f9826dbf5623','18599066-1d55-493a-8c2f-1e970b04f86c','d98941b3-5900-4ecc-a5cb-c57ed6729702','bbf93574-2e4c-4c61-8cd9-4e6f69d7d661'],
   },
 };
 
+// Where a robot Send may happen (Hayley, 2026-10-20): these applications'
+// listed scheduling activities only, separately from what may be composed.
+const SEND_ALLOWED={
+  '8dfd8f14-83c4-41f8-aaf1-416b75cb0892':['bbf93574-2e4c-4c61-8cd9-4e6f69d7d661'],// TEST, First Round (Hayley only)
+};
 // Who a robot Send may reach (Hayley, 2026-10-19): the candidate and every
-// interviewer must be on this list. Send isn't built yet; until it is, the
-// check only reports whether a composed schedule would pass. TEST's Onsite
-// interviewers include colleagues (Joe, Mary, Anna), so a TEST-only Send
-// still needs this to keep real invites off their calendars.
+// interviewer must be on this list. TEST's Onsite interviewers include
+// colleagues (Joe, Mary, Anna), so TEST-only alone wouldn't keep real invites
+// off their calendars.
 const SEND_RECIPIENTS=new Set(['hayleysamuels511@gmail.com','hayley@luminai.com']);
 // The plan's recipients outside SEND_RECIPIENTS, [] when all are on it.
 function sendRecipientsOutside(plan){
   const all=[plan?.candidate?.email,...(plan?.sessions||[]).flatMap(s=>(s.interviewers||[]).map(x=>x.email))].map(e=>String(e||'').toLowerCase());
   return [...new Set(all)].filter(e=>!SEND_RECIPIENTS.has(e)).sort();
+}
+
+// Why a robot Send may not happen for this plan and environment, or null when
+// every lock is open: BOOKING_SEND exactly "on" (separate from
+// BOOKING_COMPOSE), the plan's application and activity on SEND_ALLOWED, and
+// every recipient on SEND_RECIPIENTS. The plan's own `send: true` (announced
+// at posting) is checked by the caller.
+function sendBlocked(plan,env){
+  if(env?.BOOKING_SEND!=='on')return 'Send is switched off on the scheduling worker (BOOKING_SEND).';
+  if(!(SEND_ALLOWED[plan?.applicationId]||[]).includes(plan?.interviewScheduleId))return 'This application and scheduling activity aren\'t on the send allowlist.';
+  const outside=sendRecipientsOutside(plan);
+  if(outside.length)return `Recipients outside the send allowlist: ${outside.join(', ')}.`;
+  return null;
 }
 
 class Stop extends Error{constructor(message,code=2){super(message);this.code=code;}}
@@ -60,4 +78,4 @@ function checkPlan(plan,{now=Date.now()}={}){
   return plan;
 }
 
-module.exports={ALLOWED_APPLICATIONS,SEND_RECIPIENTS,sendRecipientsOutside,checkPlan,Stop,stop,NOTICE_MINUTES};
+module.exports={ALLOWED_APPLICATIONS,SEND_ALLOWED,SEND_RECIPIENTS,sendRecipientsOutside,sendBlocked,checkPlan,Stop,stop,NOTICE_MINUTES};

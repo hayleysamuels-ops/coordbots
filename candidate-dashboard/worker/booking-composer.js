@@ -1,11 +1,13 @@
 'use strict';
-// Booking through Ashby's scheduling UI, up to Send, which is never made. The
-// dry run (booking-dry-run.js) then deletes the draft; the Slack-approved
-// check (booking-compose.js) leaves it for a person to send, and deletes it on
-// any refusal. Nothing is sent: Send isn't a permitted write
-// (booking-permit.js). "Schedule" itself is clicked once, with the write
-// guard on, to log what it does (the observation before a robot Send,
-// 2026-10-19); nothing that follows is confirmed or clicked.
+// Booking through Ashby's scheduling UI. The dry run (booking-dry-run.js)
+// composes up to Schedule, never clicks it, and deletes the draft. The
+// Slack-approved check (booking-compose.js) leaves the composed draft for a
+// person to send and deletes it on any refusal; or, only where every Send lock
+// is open and the post announced it (`send`), it clicks Schedule once itself.
+// On this layout that click is the send (seen October 20: it fires
+// ApiScheduleInterviewScheduleFromDraft with no dialog or menu), so Send is a
+// single permit, armed just before that click, after a fresh re-read of the
+// draft equals the approval. After the click nothing is retried or refused.
 //
 // Fail closed: every control is found by exact role and name and must appear
 // exactly once, or the run refuses. Every draft save is checked on content
@@ -17,9 +19,9 @@
 // Availability"). Exact-name matching here and the write guard are both
 // load-bearing; neither may be relaxed.
 const {guardWrites}=require('./template-guard');
-const {sendRecipientsOutside}=require('./booking-locks');
+const {sendRecipientsOutside,sendBlocked}=require('./booking-locks');
 const {installBookingPermits,installPermit,ORIGIN,OP}=require('./booking-permit');
-const {maskAgendaItem,checkFinal,formats,composerZone,checkInviteDropdowns,partitionPreviews,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog}=require('./booking-check');
+const {draftsIn,normalizeDraft,maskAgendaItem,checkFinal,formats,composerZone,checkInviteDropdowns,partitionPreviews,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog}=require('./booking-check');
 
 class Refusal extends Error{constructor(step,message){super(message);this.step=step;this.status=409;}}
 const esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
@@ -182,7 +184,9 @@ const replied=json=>!!json&&!(json.errors&&json.errors.length);
 //     draft for this schedule), which is deleted first;
 //   `keepOnSuccess` leaves the composed draft in Ashby for a person to send.
 //     Any refusal still deletes it.
-async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,expectedIdentity,checkExistingDrafts=false,supersedeDraftId=null,keepOnSuccess=false}){
+//   `send` (booking-compose.js sets it only when every lock is open and the
+//     approved plan says `send: true`): click Schedule once, with one permit.
+async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,expectedIdentity,checkExistingDrafts=false,supersedeDraftId=null,keepOnSuccess=false,send=false}){
   const T={settle:700,short:1500,wait:15000,...timing};
   const events=[];const note=e=>{events.push(e);log(e);};
   const guard=await guardWrites(context,{warn:m=>note({type:'blocked',detail:m.replace('[write-guard] ','')})});
@@ -192,6 +196,30 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
   const superseding={armed:false,discarded:undefined};
   if(supersedeDraftId)await installPermit(context,{op:OP.discard,max:1,log:note,...(respond?{respond}:{}),
     bound:v=>superseding.armed&&v.draftInterviewScheduleId===supersedeDraftId,onResponse:json=>{superseding.discarded=replied(json);}});
+  // Send: one ApiScheduleInterviewScheduleFromDraft, for this schedule and this
+  // run's draft only, and only while armed, which is just before the one click
+  // (step 6). Installed only when `send` is set; otherwise Send stays blocked
+  // by the write guard like any other write.
+  const sending={armed:false,reply:undefined,mismatch:null};
+  if(send&&keepOnSuccess)await installPermit(context,{op:OP.send,max:1,log:note,...(respond?{respond}:{}),
+    bound:v=>{
+      if(!sending.armed)return false;
+      if(v.interviewScheduleId===plan.interviewScheduleId&&v.draftInterviewScheduleId===state.draftId)return true;
+      sending.mismatch=Object.keys(v||{}).sort().join(', ')||'(no variables)';return false;
+    },
+    onResponse:(json,status)=>{sending.reply={status,accepted:replied(json),errors:(json?.errors||[]).map(e=>String(e.message).slice(0,200)).slice(0,3)};}});
+  // Ashby's own read of this run's draft, recorded as the composer loads it,
+  // so it can be repeated just before Schedule (step 5).
+  const draftReads=[];
+  page.on('response',async res=>{
+    try{
+      const req=res.request();
+      if(!state.draftId||req.method()!=='POST'||!req.url().startsWith(ORIGIN+'/api/graphql'))return;
+      const body=req.postData()||'';if(!body.includes(state.draftId))return;
+      const op=JSON.parse(body);if(Array.isArray(op)||!/^\s*query\b/.test(op?.query||''))return;
+      if(draftsIn(await res.json(),state.draftId).length===1)draftReads.push({operationName:op.operationName||'(unnamed)',body,headers:req.headers()});
+    }catch(_){}
+  });
   let step='start';
   const refuse=m=>{throw new Refusal(step,m);};
   const {sleep,one,until,go}=helpers(page,T,refuse);
@@ -464,46 +492,70 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
       if(!from||!/<[^>]+@[^>]+>/.test(from))refuse('Couldn\'t read who the confirmation email is from.');
       pass('candidate confirmation email is fresh and shows the approved date and times',{from});
     }
-    // 5. The Schedule button: found, and never clicked in a dry run.
+    // 5. A fresh read of the draft from Ashby, compared with the approval by
+    // exact time, interview and interviewer, immediately before Schedule. It
+    // repeats Ashby's own read of this draft (recorded as the composer loaded
+    // it; a read, so the write guard lets it through). It runs on every
+    // check, sending or not; anything unfamiliar refuses.
+    step='re-read the draft';
+    const lastRead=draftReads.at(-1);
+    if(!lastRead)refuse('Couldn\'t find Ashby\'s own read of this draft to repeat, so it can\'t be checked again before Schedule.');
+    // The browser sets these itself; the rest are Ashby's own request headers.
+    const headers=Object.fromEntries(Object.entries(lastRead.headers).filter(([k])=>!/^(?::|host$|cookie$|content-length$|origin$|referer$|user-agent$|accept-encoding$|connection$|sec-)/i.test(k)));
+    const reread=await page.evaluate(async({body,headers})=>{
+      const r=await fetch('/api/graphql',{method:'POST',headers,body,credentials:'include'});
+      return {status:r.status,json:await r.json().catch(()=>null)};
+    },{body:lastRead.body,headers}).catch(e=>({error:e.message}));
+    if(reread.error||reread.status!==200)refuse(`Ashby didn't answer the re-read of this draft (${reread.error||`HTTP ${reread.status}`}).`);
+    const reDrafts=draftsIn(reread.json,state.draftId);
+    if(reDrafts.length!==1)refuse(`The re-read of this draft from Ashby held ${reDrafts.length} copies of it, not one.`);
+    try{checkFinal(normalizeDraft(reDrafts[0].draftSchedule),plan);}catch(e){refuse(`The draft as Ashby has it now doesn't match the approval: ${e.message}`);}
+    pass(`draft re-read from Ashby (${lastRead.operationName}) just before Schedule, and it equals the approval exactly`);
+    // 6. The Schedule button. On this layout clicking it sends at once.
     step='find Schedule';
     const schedule=await one(page.getByRole('button',{name:'Schedule',exact:true}),'the Schedule button');
     if(!(await schedule.isEnabled()))refuse('The Schedule button is disabled.');
     report.wouldSend={op:OP.send,interviewScheduleId:plan.interviewScheduleId,draftInterviewScheduleId:state.draftId,from,
       sessions:state.last.map((e,i)=>({title:e.title,start:new Date(e.start).toISOString(),end:new Date(e.end).toISOString(),interviewers:plan.sessions[i].interviewers.map(x=>x.email)}))};
-    // Whether a robot Send could reach these recipients (booking-locks.js).
-    // Reported only: nothing here sends.
     const outside=sendRecipientsOutside(plan);
     report.sendRecipients=outside.length?{allowed:false,outside}:{allowed:true};
     note({type:'send-recipients',...report.sendRecipients});
-    // The observation before a robot Send (Hayley, 2026-10-19): click Schedule,
-    // plain button or dropdown, with the write guard on and no permit for Send,
-    // and log what follows: the path before and after, every write Ashby
-    // attempted (all blocked: Send can't leave the browser), any dialog, any
-    // menu, and the screen. Nothing is confirmed and nothing else is clicked. A
-    // dialog or a blocked write refuses (after(), once the log is written); so
-    // does a navigation, so no person inherits a draft in an unknown state. A
-    // menu is closed with Escape.
-    step='observe Schedule';
-    {
-      const pathBefore=new URL(page.url()).pathname,blockedBefore=guard.blocked.length,dropdown=(await schedule.getAttribute('aria-expanded'))!==null;
-      let stopped=null;
-      try{await after(()=>schedule.click());}catch(e){stopped=e;}
-      if(!stopped)await sleep(T.short);
-      const pathAfter=new URL(page.url()).pathname,expanded=await schedule.getAttribute('aria-expanded').catch(()=>null);
-      note({type:'screen',at:'schedule-clicked',dropdown,expanded,pathBefore,pathAfter,
-        attemptedWrites:guard.blocked.slice(blockedBefore).filter(x=>x.ashby).map(x=>x.summary),
-        stoppedBy:stopped?String(stopped.message).slice(0,300):null,
-        ...await screenSnapshot(page,net).catch(e=>({error:e.message}))});
-      if(stopped)throw stopped;
-      if(pathAfter!==pathBefore)refuse(`Clicking Schedule went to ${pathAfter}. Nothing was confirmed; the draft is deleted so no one inherits it mid-flow.`);
-      if(expanded==='true'){
-        await page.keyboard.press('Escape');await sleep(T.settle);
-        if((await schedule.getAttribute('aria-expanded'))==='true')refuse('The Schedule menu didn\'t close after Escape.');
-      }
-      pass(`Schedule clicked and logged (${expanded==='true'?'a menu opened and was closed':'nothing opened'}); nothing was confirmed`);
+    // Every lock again, here: the announced plan, the allowlists and the
+    // recipients (the switch itself was checked by booking-compose.js).
+    const notSending=!(send&&keepOnSuccess)?null:plan.send!==true?'The approved post didn\'t say it would send.':sendBlocked(plan,{BOOKING_SEND:'on'});
+    if(!(send&&keepOnSuccess)||notSending){
+      if(notSending){report.sendSkipped=notSending;note({type:'send-skipped',reason:notSending});}
+      pass(`Schedule button found and enabled (not clicked: ${keepOnSuccess?'left for a person to send':'dry run'})`);
+      report.status=keepOnSuccess?'composed':'dry_run_complete';
+    }else{
+      // The one click. From here nothing is retried and nothing is refused:
+      // the send may have happened, so whatever follows is reported.
+      step='send';
+      report.send={attempted:true,at:new Date().toISOString(),pathBefore:new URL(page.url()).pathname};
+      const blockedBefore=guard.blocked.length;
+      sending.armed=true;
+      try{
+        try{await schedule.click();}catch(e){report.send.clickError=String(e.message).slice(0,200);}
+        const sendBlockedByGuard=()=>guard.blocked.slice(blockedBefore).some(x=>x.summary.endsWith(' '+OP.send));
+        const until30=Date.now()+30000;
+        while(Date.now()<until30&&sending.reply===undefined&&!sendBlockedByGuard())await sleep(250);
+        sending.armed=false;
+        await sleep(T.short);
+        report.send.reply=sending.reply||null;
+        report.send.blockedByGuard=sendBlockedByGuard();
+        if(sending.mismatch)report.send.unmatchedVariables=sending.mismatch;
+        report.send.attemptedWrites=guard.blocked.slice(blockedBefore).filter(x=>x.ashby).map(x=>x.summary);
+        report.send.pathAfter=new URL(page.url()).pathname;
+        // Dialogs are read, never answered.
+        report.send.dialogs=(await page.locator('[role="dialog"],[role="alertdialog"]').allInnerTexts().catch(()=>[]))
+          .map(t=>t.replace(/\s+/g,' ').trim().slice(0,300)).filter(t=>t&&!structuralDialogs(plan).has(t));
+        note({type:'send',...report.send});
+        note({type:'screen',at:'after-send',...await screenSnapshot(page,net).catch(e=>({error:e.message}))});
+      }catch(e){report.send.reportError=String(e.message).slice(0,200);}
+      finally{sending.armed=false;}
+      report.status=report.send.reply?.accepted?'sent':'send_uncertain';
+      pass(report.status==='sent'?'Schedule clicked once and Ashby accepted the send':'Schedule clicked once; Ashby\'s answer to the send wasn\'t a clear acceptance (reported, not retried)');
     }
-    pass(`Schedule button found and enabled (not clicked: ${keepOnSuccess?'left for a person to send':'dry run'})`);
-    report.status=keepOnSuccess?'composed':'dry_run_complete';
   }catch(e){
     report.step=e.step||step;report.reason=e.message;
     if(!(e instanceof Refusal))report.status='error';
@@ -520,7 +572,11 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     if(onRefusal)await onRefusal(page).catch(()=>{});
   }finally{
     report.draftId=state.draftId||report.draftId;
+    // After a send attempt the draft is never deleted, and a run that ended in
+    // an unexpected error after the click is still a possible send.
+    if(report.send?.attempted&&!['sent','send_uncertain'].includes(report.status))report.status='send_uncertain';
     report.cleanup=!state.draftId?{deleted:false,reason:'no draft was created'}
+      :report.send?.attempted?{deleted:false,kept:true,draftId:state.draftId,reason:'a send was attempted'}
       :keepOnSuccess&&report.status==='composed'?{deleted:false,kept:true,draftId:state.draftId}
       :await discard(page,plan,state,{one,go,sleep,T}).catch(e=>({deleted:false,reason:e.message}));
     report.writes={saves:state.saves,refusedSaves:state.refusals?.length||0};

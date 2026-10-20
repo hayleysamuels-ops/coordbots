@@ -139,6 +139,55 @@ test('an unreadable candidate agenda is logged by its shape only',()=>{
     'candidate invite agenda unreadable, its shape (letters masked): {"lists":[{"items":6,"first":["9:00[nnbsp]AM - 9:30"]}],"lines":6}');
 });
 
+// ---- the robot's Send: every lock ------------------------------------------
+
+const FIRST_ROUND='bbf93574-2e4c-4c61-8cd9-4e6f69d7d661';
+const sendPlan={...plan,interviewScheduleId:FIRST_ROUND,send:true,sendAs:'Anna Jones Example'};
+test('Send needs every lock: the announced plan, BOOKING_SEND exactly "on", the send allowlist, and only allowlisted recipients',async()=>{
+  const {sendBlocked}=require('../worker/booking-locks');
+  const sendEnv={...env,BOOKING_SEND:'on'};
+  assert.equal(sendBlocked(sendPlan,sendEnv),null);
+  assert.match(sendBlocked(sendPlan,env),/switched off .*BOOKING_SEND/);
+  assert.match(sendBlocked(sendPlan,{...env,BOOKING_SEND:'true'}),/switched off/);
+  assert.match(sendBlocked({...sendPlan,interviewScheduleId:plan.interviewScheduleId},sendEnv),/aren't on the send allowlist/,'compose-allowed but not send-allowed');
+  const joe={...sendPlan,sessions:[{...sendPlan.sessions[0],interviewers:[{...sendPlan.sessions[0].interviewers[0],email:'joe@luminai.com'}]}]};
+  assert.match(sendBlocked(joe,sendEnv),/outside the send allowlist: joe@luminai.com/);
+  // compose() passes `send` to the composer only when the plan announced it and every lock is open.
+  const decided=async(p,e)=>{const lines=[],{seen,deps}=fakes();await compose({env:e,payload:{plan:p},...deps,say:l=>lines.push(l)});return {send:seen.dryRun.send,lines};};
+  const on=await decided(sendPlan,sendEnv);
+  assert.equal(on.send,true);assert.match(on.lines[1],/send: every lock is open; Schedule will be clicked once/);
+  assert.equal((await decided({...sendPlan,send:undefined},sendEnv)).send,false,'not announced at posting: never sends');
+  const off=await decided(sendPlan,env);
+  assert.equal(off.send,false);assert.match(off.lines[1],/send announced but not happening: Send is switched off/);
+  assert.equal((await decided(joe,sendEnv)).send,false);
+});
+
+test('send-status, at posting, is read-only and says whether approving would send',()=>{
+  const {sendStatus}=require('../worker/booking-compose');
+  const sendEnv={...env,BOOKING_SEND:'on'};
+  assert.deepEqual(sendStatus({env:sendEnv,payload:{plan:sendPlan},expectedIdentity:'Anna Jones Example'}),{sendOn:true,as:'Anna Jones Example'});
+  assert.equal(sendStatus({env,payload:{plan:sendPlan}}).sendOn,false);
+  assert.match(sendStatus({env:{...sendEnv,BOOKING_COMPOSE:undefined},payload:{plan:sendPlan}}).reason,/BOOKING_COMPOSE/);
+  assert.match(sendStatus({env:sendEnv,payload:{plan:{...sendPlan,applicationId:'00000000-0000-4000-8000-000000000000'}}}).reason,/isn't one the booking robot may use/);
+});
+
+test('the draft is found in a read response by its ID, at any depth, exactly',()=>{
+  const {draftsIn}=require('../worker/booking-check');
+  const d={id:DRAFT,draftSchedule:{events:[{id:'e'}]}};
+  assert.deepEqual(draftsIn({data:{viewer:{draft:d}}},DRAFT),[d]);
+  assert.equal(draftsIn({data:{a:d,b:{...d}}},DRAFT).length,2,'two copies are counted, and the re-read refuses');
+  assert.deepEqual(draftsIn({data:{draft:{id:OLD,draftSchedule:{events:[]}}}},DRAFT),[]);
+  assert.deepEqual(draftsIn({data:{draft:{id:DRAFT,draftSchedule:{}}}},DRAFT),[],'no events: not a draft read');
+  assert.deepEqual(draftsIn(null,DRAFT),[]);
+});
+
+test('the log says plainly whether the check sent',()=>{
+  const {composeOutcome}=require('../worker/booking-compose');
+  assert.match(composeOutcome({status:'sent',draftId:DRAFT,send:{attempted:true,reply:{status:200,accepted:true}},cleanup:{kept:true}}),/^SENT by clicking Schedule once \(Ashby answered HTTP 200, accepted\); draft .* created, kept \(a send was attempted\)/);
+  assert.match(composeOutcome({status:'send_uncertain',draftId:DRAFT,send:{attempted:true,reply:null,blockedByGuard:true},cleanup:{kept:true}}),/^SEND UNCERTAIN after clicking Schedule once \(the write guard blocked it, so it never reached Ashby\); not retried/);
+  assert.match(composeOutcome({status:'composed',draftId:DRAFT,sendSkipped:'Send is switched off.',cleanup:{kept:true}}),/^composed \(not sent: Send is switched off\)/);
+});
+
 // The routes, over HTTP, with a stand-in draft reader and check.
 async function serve({inspect,chromium=null,writeWaitMs=400,signIn=false}){
   const secret='s'.repeat(40);

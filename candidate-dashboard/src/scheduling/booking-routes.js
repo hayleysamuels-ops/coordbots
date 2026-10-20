@@ -1,6 +1,6 @@
 "use strict";
 const express = require("express");
-function bookingRoutes({ engine, store, clientId, discussion = null, rules = null, facts, inspectDraft, inspectCalendar, inspectPlan, inspectFullCalendar, availability, googleCalendar, googleFreeBusy, capabilities = async () => ({ available: false, reason: "Ashby calendar and booking automation are not connected yet." }) }) {
+function bookingRoutes({ engine, store, clientId, discussion = null, rules = null, facts, sendStatus = null, inspectDraft, inspectCalendar, inspectPlan, inspectFullCalendar, availability, googleCalendar, googleFreeBusy, capabilities = async () => ({ available: false, reason: "Ashby calendar and booking automation are not connected yet." }) }) {
   const router = express.Router();
   router.use((req, res, next) => {
     res.set("Cache-Control", "no-store");
@@ -148,6 +148,14 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     // What the Ashby check will compose if this option is approved in Slack.
     const composed=require('./booking-plan').bookingPlanForPost({fullPlan:plan,option:chosen,timezone:result.timezone});
     if(!composed.plan)console.log(`[ashby-check] No plan for this post, so approving it won't check it in Ashby: ${composed.reason}`);
+    // Whether approving it would send (the worker's locks, read-only). Only a
+    // post marked here, inside the plan the approval's digest covers, can be
+    // sent; it's worded so in Slack. Any doubt leaves it unmarked.
+    if(composed.plan&&sendStatus){
+      const st=await sendStatus({plan:composed.plan}).catch(e=>({sendOn:false,reason:e.message}));
+      if(st?.sendOn===true&&typeof st.as==='string'&&st.as)composed.plan={...composed.plan,send:true,sendAs:st.as};
+      else console.log(`[ashby-check] Approving this post won't send: ${st?.reason||'the worker didn\'t say'}`);
+    }
     return discussion.postScheduleOption({bookingPlan:composed.plan,applicationId:plan.applicationId,candidateId:plan.candidateId,timezone:result.timezone,option:chosen,optionNumber:index+1,linkedinUrl,
       sourceRef:`full-schedule:${plan.scheduleId}:${ref}`,availabilitySource:req.body.availabilitySource,attendance,rulesRevision:clientRules.rulesRevision,
       calendarCheck:['calendar_checked','needs_attention'].includes(result.status)?{checkedAt:result.calendarCheckedAt,meetingHoursAssumed:result.meetingHoursAssumed===true,flags:chosen.events.map(e=>e.flags||[])}:null},req.schedulingUser);
