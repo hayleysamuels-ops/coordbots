@@ -141,7 +141,7 @@ test('an unreadable candidate agenda is logged by its shape only',()=>{
 
 // ---- the robot's Send: every lock ------------------------------------------
 
-const FIRST_ROUND='bbf93574-2e4c-4c61-8cd9-4e6f69d7d661';
+const FIRST_ROUND='8dc8e6b6-1aa2-4470-8b00-e932459fc499';
 const sendPlan={...plan,interviewScheduleId:FIRST_ROUND,send:true,sendAs:'Anna Jones Example'};
 test('Send needs every lock: the announced plan, BOOKING_SEND exactly "on", the send allowlist, and only allowlisted recipients',async()=>{
   const {sendBlocked}=require('../worker/booking-locks');
@@ -304,4 +304,11 @@ test('the worker\'s startup line says whether the Ashby check and Send are on, e
   assert.equal(switchesLine({BOOKING_COMPOSE:'on',BOOKING_SEND:'on'}),'Ashby check on (allowlisted applications only); Send ON: an approved post that announced Send is sent once, to the send allowlist only');
   assert.match(switchesLine({BOOKING_COMPOSE:'on',BOOKING_SEND:'true'}),/Send off/);
   assert.equal(switchesLine({BOOKING_SEND:'on'}),'Ashby check off; Send on, but inert while the Ashby check is off');
+});
+
+test('the cancelled First Round is on neither list; the new one is on both',()=>{
+  const {ALLOWED_APPLICATIONS,SEND_ALLOWED}=require('../worker/booking-locks');
+  const test=ALLOWED_APPLICATIONS['8dfd8f14-83c4-41f8-aaf1-416b75cb0892'];
+  assert.ok(test.interviewScheduleIds.includes('8dc8e6b6-1aa2-4470-8b00-e932459fc499'));assert.ok(!test.interviewScheduleIds.includes('bbf93574-2e4c-4c61-8cd9-4e6f69d7d661'));
+  assert.deepEqual(SEND_ALLOWED['8dfd8f14-83c4-41f8-aaf1-416b75cb0892'],['8dc8e6b6-1aa2-4470-8b00-e932459fc499']);
 });

@@ -876,7 +876,8 @@ file permits it or the composer clicks Schedule.
      - **Locks, all checked again at approval:** the plan's `send: true`;
        `BOOKING_SEND` exactly `on` (separate from `BOOKING_COMPOSE`); the
        application and activity on `SEND_ALLOWED` (TEST's First Round
-       `bbf93574`, Hayley the only interviewer); every recipient on
+       `8dc8e6b6` since October 20, 21:57Z, when the earlier `bbf93574` was
+       cancelled; Hayley the only interviewer); every recipient on
        `SEND_RECIPIENTS`; Anna's session. The composer checks them once more
        before arming.
      - **Fresh re-read before the click** (every check, sending or not): the
