@@ -54,6 +54,17 @@ test('date and time are separate edits: the approved date at the old time is a s
   assert.throws(()=>c.checkSave(base,N(draft({selected:'u-hayley',start:'2026-10-20T21:00:00.000Z',end:'2026-10-20T21:30:00.000Z'})),plan),/the start time moved/);
 });
 
+test('a multi-word city is read with its underscore, and must be a real IANA zone',()=>{
+  // As TEST's First Round composer showed it on October 20.
+  assert.equal(c.composerZone(['America/Los Angeles','PDT'],'2026-10-26T16:00:00.000Z'),'America/Los_Angeles');
+  assert.equal(c.composerZone(['America/New York','EDT'],'2026-10-26T16:00:00.000Z'),'America/New_York');
+  assert.equal(c.composerZone(['America/Los_Angeles','America/Los Angeles','PDT'],'2026-10-26T16:00:00.000Z'),'America/Los_Angeles','the same zone written both ways');
+  assert.equal(c.composerZone(['America/Argentina/Buenos Aires'],'2026-10-26T16:00:00.000Z'),'America/Argentina/Buenos_Aires');
+  assert.throws(()=>c.composerZone(['America/Not A City','PDT'],'2026-10-26T16:00:00.000Z'),/"America\/Not A City", "PDT"; exactly one IANA time zone name/);
+  assert.throws(()=>c.composerZone(['america/los angeles','PDT'],'2026-10-26T16:00:00.000Z'),/exactly one IANA/,'case must match');
+  assert.throws(()=>c.composerZone(['America/Los Angeles','MDT'],'2026-10-26T16:00:00.000Z'),/"MDT" isn't America\/Los_Angeles \(PDT\)/);
+});
+
 test('partial saves are read in the zone the composer edits in, not the plan\'s',()=>{
   // Approved Tue Oct 20 11:30pm PDT, which is Wed Oct 21 00:30 MDT. Typed in a
   // Pacific composer, the time goes in first: Oct 12 at 11:30pm PDT. In

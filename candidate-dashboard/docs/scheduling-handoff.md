@@ -965,6 +965,11 @@ file permits it or the composer clicks Schedule.
        from Ashby's answer to it ("not sent: send it by hand" otherwise). That
        booking's message got a thread note: invitations sent, confirmation
        email not sent.
+     - **Multi-word zones** (October 20): the composer showed "America/Los
+       Angeles" with a space (and "PDT"); every earlier draft had shown
+       America/Denver, which has none, so it only surfaced now. A zone-shaped
+       button's spaces become underscores and the result must be a real IANA
+       zone, or the check refuses; abbreviations are untouched.
      - **A re-used activity composes as "Rescheduling".** After its interview
        was cancelled, `8dc8e6b6` came back to NeedsScheduling in the API (the
        page still said "Provided availability", so Ready to schedule showed 0

@@ -224,13 +224,25 @@ function formats(iso,timeZone){
 // instants are then typed and checked in this zone. A misread zone still
 // can't book the wrong time: every save is checked against the approved
 // instants (checkSave, checkFinal).
+// Ashby writes multi-word cities with a space ("America/Los Angeles", seen
+// October 20); the IANA name has an underscore. A zone-shaped button has its
+// spaces turned into underscores, and the result must be a real IANA zone:
+// written as IANA writes it (each part capitalised, so "america/los_angeles"
+// isn't one), and accepted by the runtime's time zone data, aliases included
+// (America/Argentina/Buenos_Aires is listed here as America/Buenos_Aires).
+const ZONE_SHAPE=/^[A-Za-z]+(?:\/[A-Za-z0-9][A-Za-z0-9 _+'-]*)+$/;
+const asZoneName=t=>ZONE_SHAPE.test(t)?t.replace(/ +/g,'_'):t;
+function isIanaZone(t){
+  if(!/^[A-Z][A-Za-z_]*(?:\/[A-Z0-9][A-Za-z0-9_+-]*)+$/.test(t))return false;
+  try{new Intl.DateTimeFormat('en-US',{timeZone:t});return true;}catch(_){return false;}
+}
 function composerZone(shown,atIso){
   const texts=[...new Set(shown.map(t=>String(t).replace(/\s+/g,' ').trim()).filter(Boolean))];
   const said=texts.length?texts.slice(0,4).map(t=>`"${t.slice(0,40)}"`).join(', '):'no time zone (there\'s no "Select a timezone" button)';
-  const isZone=t=>{if(!/^[A-Za-z_]+(?:\/[A-Za-z0-9_+-]+)+$/.test(t))return false;try{new Intl.DateTimeFormat('en-US',{timeZone:t});return true;}catch(_){return false;}};
-  const zones=texts.filter(isZone);
+  const names=texts.map(asZoneName);
+  const zones=[...new Set(names.filter(isIanaZone))];
   if(zones.length!==1)fail(`The composer shows times in ${said}; exactly one IANA time zone name is needed to read it by.`);
-  const zone=zones[0],abbr=formats(atIso,zone).zone,other=texts.filter(t=>t!==zone&&t!==abbr);
+  const zone=zones[0],abbr=formats(atIso,zone).zone,other=texts.filter((t,i)=>names[i]!==zone&&t!==abbr);
   if(other.length)fail(`The composer shows times in ${said}; ${other.map(t=>`"${t.slice(0,40)}"`).join(', ')} isn't ${zone} (${abbr}).`);
   return zone;
 }
