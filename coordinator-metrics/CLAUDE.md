@@ -350,11 +350,32 @@ is the short list of things that look wrong and are not.
   `COMPARE_MIN_SAMPLE` a row prints "too few to compare" with the
   count, and no row gets a better/worse verdict it cannot carry.
 
-  Expect it to cut against us sometimes, and do not "fix" that. At
-  Luminai the client's own team books faster (5bh against 11bh) and
-  reschedules less — on a tenth of the volume and a different slice of
-  roles. The panel is a place to look, not a scoreboard, and the note
-  under it says so.
+- **The Carrara-vs-client panel marks NEITHER side better, and must
+  not start.** The first version coloured the winner of each row. Run
+  against live data it said the client's own team books faster at four
+  of five clients and reschedules less at all five — a result that is
+  an artefact of what each side is doing, measured and confirmed:
+
+  | | direct bookings, ours | theirs |
+  |---|---|---|
+  | January | 2.5% | 18.0% |
+  | Forus | 9.0% | 36.1% |
+  | Luminai | 3.0% | 33.6% |
+  | Poetic | 0.7% | 12.7% |
+  | Runlayer | 7.4% | 40.7% |
+
+  A direct booking is the schedule and its first event created in the
+  same instant — someone advancing a candidate and booking them in one
+  sitting. That records almost no turnaround and leaves little to
+  reschedule. A coordinator takes a request and works it, and gets the
+  panels, the onsites and the rounds that already went wrong; a round
+  picked up BECAUSE it was rescheduled counts that reschedule against
+  whoever picked it up. The two columns are not measuring the same
+  activity, so colour — the strongest signal on the page — would be
+  asserting a conclusion the data cannot support. This is the same
+  mistake as ranking clients on Results, in a new place. The numbers
+  stay, the verdict does not, and the note on the page names the
+  mechanism with that client's own two percentages.
 
 - **The roster panel is a MATCH CHECK, collapsed and alphabetical.** It
   confirms each rostered name resolves to real scheduled work — that is

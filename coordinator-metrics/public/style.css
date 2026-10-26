@@ -1175,9 +1175,6 @@ details.data-quality .notice { margin-top: 12px; border-left-color: var(--border
   min-width: 86px;
 }
 
-/* Marks the better of the two, on rows where better means anything. */
-.vs-better { color: var(--good); font-weight: 600; }
-
 .weekbar {
   display: flex;
   align-items: baseline;

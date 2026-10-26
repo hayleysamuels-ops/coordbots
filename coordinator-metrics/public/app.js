@@ -703,6 +703,16 @@ function versusPanel(fullPayload, label) {
   const a = oursResults.current;
   const b = theirsResults.current;
 
+  // The direct-booking share is the evidence for the caveat below, so
+  // it is computed from the payload rather than asserted in prose.
+  const directShare = (scope) => {
+    const t = scope.timeToSchedule;
+    const total = t.sample + t.directBookings;
+    return total ? Math.round((t.directBookings / total) * 1000) / 10 : 0;
+  };
+  const directOurs = directShare(ours);
+  const directTheirs = directShare(theirs);
+
   // Lower is better on every row here, as it is throughout Results.
   //
   // Each row is gated on ITS OWN sample, not on the panel's event
@@ -740,13 +750,11 @@ function versusPanel(fullPayload, label) {
         const thin =
           !row.neutral &&
           (row.oursSample < COMPARE_MIN_SAMPLE || row.theirsSample < COMPARE_MIN_SAMPLE);
-        const both = row.ours != null && row.theirs != null;
-        // Only a rate gets a verdict, and only on a sample that can
-        // carry one. "We ran more interviews" is not better or worse,
-        // it is just more.
-        const better = both && !thin && !row.neutral && row.ours !== row.theirs ? row.ours < row.theirs : null;
-        const cell = (side, value, sample, isBetter) =>
-          el("span", { class: `vs-${side}${isBetter ? " vs-better" : ""}${thin ? " vs-thin" : ""}` },
+        // NO better/worse verdict here, deliberately — see the note
+        // below the table. Colour is the strongest signal on the page
+        // and this comparison cannot carry one.
+        const cell = (side, value, sample) =>
+          el("span", { class: `vs-${side}${thin ? " vs-thin" : ""}` },
             thin
               ? [el("span", { class: "vs-thin-mark", title: `only ${num(sample)} in this period`, text: "—" })]
               : [value == null ? "—" : `${num(value)}${row.unit}`]);
@@ -755,17 +763,32 @@ function versusPanel(fullPayload, label) {
             row.label,
             thin ? el("span", { class: "vs-row-note", text: `too few to compare (${num(Math.min(row.oursSample, row.theirsSample))})` }) : null,
           ]),
-          cell("ours", row.ours, row.oursSample, better === true),
-          cell("theirs", row.theirs, row.theirsSample, better === false),
+          cell("ours", row.ours, row.oursSample),
+          cell("theirs", row.theirs, row.theirsSample),
         ]);
       }),
     ]),
     el("div", { class: "scope-note" }, [
       el("p", {
         text:
-          "Both columns are this client, over the same period. The two sides usually cover different roles, " +
-          "and the harder reqs are not evenly split between them — read a gap as somewhere to look, not as a " +
-          "result.",
+          "Neither column is marked better. The two sides are not doing the same job, and on two of these " +
+          "measures the difference between them is known to run one way for reasons that have nothing to do " +
+          "with how well the work was done.",
+      }),
+      el("p", {
+        text:
+          `${directOurs}% of what Carrara booked here was booked outright — the schedule and the interview ` +
+          `created in one action — against ${directTheirs}% of the client's own. Someone advancing a candidate ` +
+          "and booking them in the same sitting records almost no turnaround and has little left to " +
+          "reschedule. A coordinator takes a request and works it. Turnaround and reschedule rate will " +
+          "therefore tend to look worse on the Carrara side at every client, and do.",
+      }),
+      el("p", {
+        text:
+          "The rounds are not alike either: a coordinator gets the panels, the onsites and the ones that " +
+          "already went wrong, and a round picked up BECAUSE it was rescheduled counts its reschedule " +
+          "against whoever picked it up. Read a gap here as somewhere to look, never as a verdict, and do " +
+          "not put it in front of a client as one.",
       }),
       el("p", {
         text:
