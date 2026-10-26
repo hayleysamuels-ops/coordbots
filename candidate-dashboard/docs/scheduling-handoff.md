@@ -1041,7 +1041,19 @@ file permits it or the composer clicks Schedule.
   isn't composed (the sweep would delete it at once). The message says "too close
   to the first interview — book this in Ashby by hand". It's checked again when a
   queued check's turn comes.
-- **States, each shown on the approved Slack message:** too close, queued, running, composed
+- **The candidate's availability, checked again before anything is made**
+  (since October 26, `src/scheduling/availability-gate.js`). A post built from
+  the candidate's submission keeps that submission in its plan (schedule ID, time
+  zone, windows as instants), under the approval's digest. When the check's turn
+  comes, it reads the submission again through Anna's session and compares: same
+  zone and same windows, leaving out windows that have already started on both
+  sides. Any difference is "availability changed": nothing is composed or sent,
+  the message says how many windows are no longer offered or new (never the
+  times), and the post stops blocking a fresh one. A read that fails, a post made
+  before posts recorded the submission, or a submission for a different activity
+  doesn't start. Times a coordinator typed in have nothing to compare and compose
+  as before. It adds one availability read (tens of seconds) to every check.
+- **States, each shown on the approved Slack message:** too close, availability changed, queued, running, composed
   ("Composed and waiting in Ashby … open it and click Send", with the sender and the
   delete deadline), skipped, refused (the step and reason; the draft deleted, or
   where to delete it by hand), not started (the worker refused before starting),

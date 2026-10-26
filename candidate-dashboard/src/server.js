@@ -61,11 +61,14 @@ function createServer() {
     const schedulingRules = require("./scheduling/rules").loadRules({ clientId: connectionConfig.schedulingClientId });
     const bookingFacts = require("./scheduling/booking-facts").createBookingFacts({key: connectionConfig.ashbyApiKey, clientId: connectionConfig.schedulingClientId, identityFor: name => schedulingRules.get().identityFor(name)});
     const slackConfig = require("./config");
+    // Read by booking review, and by the Ashby check to confirm an approved
+    // option's availability is unchanged (availability-gate.js).
+    const availabilitySource = require("./scheduling/availability-source").createAvailabilitySource({key:connectionConfig.ashbyApiKey,clientId:connectionConfig.schedulingClientId,inspect:payload=>bookingWorker.call("inspect-availability",payload)});
     if (scheduling.slackApi && require("./scheduling/setup").slackInteractive(slackConfig)) {
       // After a Slack approval: compose it in Ashby and leave it unsent
       // (ashby-check.js; the worker decides whether the check is on).
       const ashbyCheck = require("./scheduling/ashby-check").createAshbyCheck({ store: scheduling.store, worker: bookingWorker, facts: bookingFacts,
-        slackApi: scheduling.slackApi, clientId: connectionConfig.schedulingClientId });
+        slackApi: scheduling.slackApi, clientId: connectionConfig.schedulingClientId, availability: availabilitySource });
       ashbyCheck.recover().catch(e => console.warn(`[ashby-check] Recovery failed: ${e.message}`));
       ashbyCheck.startSweeping();
       slackInteractions = require("./scheduling/slack-interactions").createSlackInteractions({
@@ -96,7 +99,7 @@ function createServer() {
       engine: bookingEngine, store: bookingStore, clientId: connectionConfig.schedulingClientId, googleCalendar, googleFreeBusy,
       discussion: scheduling,
       rules: schedulingRules,
-      availability: require("./scheduling/availability-source").createAvailabilitySource({key:connectionConfig.ashbyApiKey,clientId:connectionConfig.schedulingClientId,inspect:payload=>bookingWorker.call("inspect-availability",payload)}),
+      availability: availabilitySource,
       inspectFullCalendar: payload => bookingWorker.call("inspect-full-calendar",payload),
       inspectPlan: payload => bookingWorker.call("inspect-plan",payload),
       inspectCalendar: payload => bookingWorker.call("inspect-calendar",payload),

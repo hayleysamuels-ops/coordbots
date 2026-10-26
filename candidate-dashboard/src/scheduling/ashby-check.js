@@ -10,6 +10,8 @@
 // every change is revision-checked:
 //   too_close (approved less than two hours before the first interview: not
 //     composed, since the sweep would delete it at once)
+//   availability_changed (the candidate's submitted availability isn't what
+//     the option was built from: nothing is made in Ashby; availability-gate.js)
 //   queued → running → composed | skipped | refused | not_started | uncertain
 //     | sent | booked_invites_pending | booked_invites_unknown | send_uncertain
 //     (the last four only where the post announced Send, plan.send)
@@ -48,7 +50,9 @@ function compareBooked(plan, booked) {
   return diffs;
 }
 
-function createAshbyCheck({ store, worker, facts, slackApi, clientId, now = () => Date.now(), log = console, sweepMs = 300000, pause = ms => new Promise(r => setTimeout(r, ms)) }) {
+const { availabilityChange } = require("./availability-gate");
+
+function createAshbyCheck({ store, worker, facts, slackApi, clientId, availability = null, now = () => Date.now(), log = console, sweepMs = 300000, pause = ms => new Promise(r => setTimeout(r, ms)) }) {
   let chain = Promise.resolve();
   const serially = task => (chain = chain.then(task, task));
   const iso = () => new Date(now()).toISOString();
@@ -111,6 +115,24 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, now = () =
     return null;
   }
 
+  // Before anything is made in Ashby: the candidate's submitted availability
+  // must still be what the option was built from (availability-gate.js).
+  // null when it is, or when there's nothing to compare (times a coordinator
+  // entered); otherwise the check's end state. Any doubt starts nothing.
+  async function checkAvailability(row) {
+    const plan = row.plan, posted = plan.submittedAvailability;
+    if (plan.timezoneSource !== "candidate_submitted") return null;
+    if (!posted) return { state: "not_started", reason: "This option was posted before posts recorded the candidate's availability, so it can't be confirmed unchanged. Post a fresh option." };
+    if (posted.scheduleId !== plan.bookingPlan.interviewScheduleId) return { state: "not_started", reason: "The availability this option was built from belongs to a different scheduling activity." };
+    if (!availability) return { state: "not_started", reason: "The candidate's availability can't be read here, so it couldn't be confirmed unchanged." };
+    let current;
+    try { current = await availability.load({ applicationId: plan.bookingPlan.applicationId, scheduleId: posted.scheduleId }); }
+    catch (e) { return { state: "not_started", reason: `The candidate's availability couldn't be read to confirm it's unchanged: ${String(e.message || "no reason given").replace(/\.?$/, ".")}` }; }
+    const change = availabilityChange(posted, current, now());
+    if (change) log.warn(`[ashby-check] ${row.id}: not composed, ${change}.`);
+    return change ? { state: "availability_changed", reason: change } : null;
+  }
+
   async function run(id) {
     // Checked again at its turn: waiting in the queue can bring it inside.
     const waiting = await store.get(id);
@@ -122,6 +144,12 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, now = () =
     let row = await setCheck(id, stateIs("queued"), { state: "running", startedAt: iso() });
     if (!row) return;
     await show(row);
+    const changed = await checkAvailability(row);
+    if (changed) {
+      row = await setCheck(id, stateIs("running"), changed);
+      if (row) await show(row);
+      return;
+    }
     const plan = row.plan.bookingPlan;
     // At most one composed draft per schedule: an earlier one is deleted first.
     const earlier = (await store.list()).filter(r => r.id !== id && r.clientId === clientId && r.ashbyCheck?.state === "composed" && r.plan.bookingPlan?.interviewScheduleId === plan.interviewScheduleId);

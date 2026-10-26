@@ -106,7 +106,7 @@ async function routeFixture(t) {
   app.use("/booking", bookingRoutes({
     facts: { application: async () => plan },
     availability: { requests: async () => ({ stageId: "stage", requests: [{ scheduleId: "request", updatedAt: "version" }] }),
-      load: async () => ({ stageId: "stage", timezone: "UTC", localWindows: [{ start: "2099-01-01T10:00", end: "2099-01-01T11:00" }] }) },
+      load: async () => ({ scheduleId: "request", stageId: "stage", timezone: "UTC", requestUpdatedAt: "version", windows: [{ start: "2099-01-01T10:00:00.000Z", end: "2099-01-01T11:00:00.000Z" }], localWindows: [{ start: "2099-01-01T10:00", end: "2099-01-01T11:00" }] }) },
     inspectPlan: async input => ({ ...input, sessions: sessions.map(s => ({ ...s, assignmentVerified: true, requiredCount: 1, eligibleInterviewers: [{ name: "Plan Interviewer" }] })) }),
     discussion: { postScheduleOption: async (input, u) => { posted.push({ input, u }); return { state: "shared", channelName: "luminai-scheduling" }; },
       reconcileSlack: async (id, body, u) => { posted.push({ reconcile: { id, outcome: body.outcome, revision: body.revision }, u }); return { state: "rejected" }; } },
@@ -133,6 +133,8 @@ test("posting rebuilds the option server-side and ignores a browser-supplied cha
   assert.equal(input.sourceRef, "full-schedule:request:" + digest);
   assert.equal(input.option.events[0].interviewer.name, "Plan Interviewer");
   assert.equal(input.option.optionDigest, undefined);
+  // The submission the option was built from goes with it, for the check at approval.
+  assert.deepEqual(input.submittedAvailability, { scheduleId: "request", timezone: "UTC", requestUpdatedAt: "version", windows: [{ start: "2099-01-01T10:00:00.000Z", end: "2099-01-01T11:00:00.000Z" }] });
   assert.ok(!JSON.stringify(input).includes("C0ATTACKER"));
 });
 
@@ -444,7 +446,7 @@ test("a post is marked to send only when the worker says every Send lock is open
       facts: { application: async () => plan },
       sendStatus: async payload => { asked.push(payload); return sendStatus(payload); },
       availability: { requests: async () => ({ stageId: "stage", requests: [{ scheduleId: U(4), updatedAt: "version" }] }),
-        load: async () => ({ stageId: "stage", timezone: "America/Denver", localWindows: [{ start: "2099-01-01T10:00", end: "2099-01-01T11:00" }] }) },
+        load: async ({ scheduleId }) => ({ scheduleId, stageId: "stage", timezone: "America/Denver", windows: [{ start: "2099-01-01T17:00:00.000Z", end: "2099-01-01T18:00:00.000Z" }], localWindows: [{ start: "2099-01-01T10:00", end: "2099-01-01T11:00" }] }) },
       inspectPlan: async input => ({ ...input, sessions: sessions.map(s => ({ ...s, assignmentVerified: true, requiredCount: 1, eligibleInterviewers: [{ name: "Hayley Samuels", userId: U(6), email: "hayley@example.com" }] })) }),
       discussion: { postScheduleOption: async input => { posted.push(input); return { state: "shared", channelName: "c" }; } },
       rules: { get: () => ({ rulesRevision: 2, hasAttendanceOverrides: false, attendanceFor: () => "in_person", placementFor: () => [] }) },
@@ -466,4 +468,15 @@ test("a post is marked to send only when the worker says every Send lock is open
     assert.ok(off.bookingPlan, "still checked in Ashby");
     assert.equal(off.bookingPlan.send, undefined);assert.equal(off.bookingPlan.sendAs, undefined);
   }
+});
+
+test("a post built from the candidate's submission keeps it in the plan, under the digest; typed-in times don't", async t => {
+  const { service, store } = setup(t);
+  const submittedAvailability = { scheduleId: "request", timezone: "UTC", windows: [{ start: "2099-01-01T09:00:00Z", end: "2099-01-01T12:00:00Z" }] };
+  const result = await service.postScheduleOption(post({ submittedAvailability }), user);
+  const row = await store.get(result.id);
+  assert.deepEqual(row.plan.submittedAvailability, { scheduleId: "request", timezone: "UTC", windows: [{ start: "2099-01-01T09:00:00.000Z", end: "2099-01-01T12:00:00.000Z" }] });
+  assert.equal(row.digest, require("../src/scheduling/service").digest(row.plan));
+  const typed = await service.postScheduleOption(post({ submittedAvailability, availabilitySource: "manual", sourceRef: "full-schedule:request:typed" }), user);
+  assert.equal((await store.get(typed.id)).plan.submittedAvailability, undefined);
 });

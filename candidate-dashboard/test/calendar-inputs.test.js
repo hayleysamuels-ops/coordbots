@@ -130,7 +130,7 @@ async function route(t, { busy, sessions, debriefIds } = {}) {
   const app = express(); app.use(express.json()); app.use((req, res, next) => { req.schedulingUser = { id: "coordinator", canApprove: true }; next(); });
   app.use("/b", bookingRoutes({
     facts, googleFreeBusy: freeBusy, googleCalendar: { status: () => ({ connected: true }) }, rules: { get: () => rulesDoc() },
-    availability: { requests: async () => ({ stageId: "stage", requests: [{ scheduleId: "req", updatedAt: "v" }] }), load: async () => ({ stageId: "stage", timezone, localWindows: windows }) },
+    availability: { requests: async () => ({ stageId: "stage", requests: [{ scheduleId: "req", updatedAt: "v" }] }), load: async ({ scheduleId }) => ({ scheduleId, stageId: "stage", timezone, windows: [], localWindows: windows }) },
     inspectPlan: async input => ({ ...input, sessions: planSessions.map(s => ({ ...s })) }),
     discussion: { postScheduleOption: async input => { posted.push(input); return { state: "shared", channelName: "#test" }; } },
   }));

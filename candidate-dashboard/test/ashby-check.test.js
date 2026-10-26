@@ -22,7 +22,7 @@ function memoryStore(rows) {
   return { data, list: async () => Object.values(data).map(r => structuredClone(r)), get: async id => structuredClone(data[id] || null),
     replace: async (id, revision, next) => { if (data[id]?.revision !== revision) return false; data[id] = structuredClone(next); return true; } };
 }
-function setup({ rows = [row("d1")], compose, discard, inviteStatus = null, booked = null, at = Date.parse("2099-10-14T12:00:00Z") } = {}) {
+function setup({ rows = [row("d1")], compose, discard, inviteStatus = null, booked = null, at = Date.parse("2099-10-14T12:00:00Z"), availability = null } = {}) {
   const store = memoryStore(rows), calls = [], shown = [], replies = [];
   let clock = at;
   const worker = { call: async (action, payload) => { calls.push({ action, payload });
@@ -32,7 +32,7 @@ function setup({ rows = [row("d1")], compose, discard, inviteStatus = null, book
   const facts = { scheduleState: async () => (typeof booked === "function" ? booked() : booked) };
   const slackApi = { markApproved: async ({ row }) => { shown.push(row.ashbyCheck?.state); }, threadReply: async ({ text }) => { replies.push(text); } };
   const pauses = [];
-  const check = createAshbyCheck({ store, worker, facts, slackApi, clientId: "luminai", now: () => clock, log: { warn() {} }, pause: async ms => { pauses.push(ms); } });
+  const check = createAshbyCheck({ store, worker, facts, slackApi, clientId: "luminai", availability, now: () => clock, log: { warn() {} }, pause: async ms => { pauses.push(ms); } });
   return { store, calls, shown, replies, pauses, check, tick: ms => { clock += ms; } };
 }
 const composed = { status: "composed", draftId: "dr-1", cleanup: { deleted: false, kept: true, draftId: "dr-1" }, wouldSend: { from: "Anna Jones <anna@luminai.com>" }, checks: [{ name: "a" }, { name: "b" }] };
@@ -374,4 +374,72 @@ test("the confirmation email is reported from Ashby's answer to its own request:
     assert.equal(s.store.data.d1.ashbyCheck.confirmationEmailSent, want);
     assert.match(s.replies.at(-1), said);
   }
+});
+
+// ---- the candidate's availability, confirmed unchanged before composing ----
+
+const { postedAvailability, availabilityChange } = require("../src/scheduling/availability-gate");
+const W = (start, end) => ({ start, end });
+const postedWindows = [W("2099-10-14T11:00:00.000Z", "2099-10-14T15:00:00.000Z"), W("2099-10-15T17:00:00.000Z", "2099-10-16T00:00:00.000Z")];
+const submitted = (extra = {}) => ({ scheduleId: SCHED, timezone: "America/Los_Angeles", windows: postedWindows, requestUpdatedAt: "2099-10-13T00:00:00.000Z", ...extra });
+const fromSubmission = (id, posted = postedAvailability(submitted())) => row(id, { plan: { ...row(id).plan, timezoneSource: "candidate_submitted", submittedAvailability: posted } });
+const reader = (current, seen = []) => ({ load: async args => { seen.push(args); if (current instanceof Error) throw current; return current; } });
+
+test("availability: the same windows are unchanged, and windows that have started are left out on both sides", () => {
+  const posted = postedAvailability(submitted());
+  const now = Date.parse("2099-10-14T12:00:00Z");
+  // The reader drops the first window once it has started; that isn't a change.
+  assert.equal(availabilityChange(posted, { timezone: "America/Los_Angeles", windows: [postedWindows[1]] }, now), null);
+  assert.equal(availabilityChange(posted, { timezone: "America/Los_Angeles", windows: postedWindows.map(w => ({ start: w.start.replace(".000Z", "Z"), end: w.end })) }, now), null);
+  assert.equal(availabilityChange(posted, { timezone: "America/New_York", windows: postedWindows }, now), "the candidate's time zone changed (America/Los_Angeles when posted, America/New_York now)");
+  assert.equal(availabilityChange(posted, { timezone: "America/Los_Angeles", windows: [W("2099-10-15T18:00:00.000Z", "2099-10-16T00:00:00.000Z")] }, now),
+    "the candidate's submitted availability changed after this was posted (1 window no longer offered, 1 window new)");
+  assert.equal(availabilityChange(posted, { timezone: "America/Los_Angeles", windows: [] }, Date.parse("2099-10-13T00:00:00Z")),
+    "the candidate's submitted availability changed after this was posted (2 windows no longer offered)");
+  assert.throws(() => postedAvailability({ ...submitted(), windows: [{ start: "tomorrow", end: "later" }] }));
+});
+
+test("availability: unchanged, the check reads it once and composes", async () => {
+  const seen = [];
+  const s = setup({ rows: [fromSubmission("d1")], compose: composed, availability: reader({ timezone: "America/Los_Angeles", windows: postedWindows }, seen) });
+  await s.check.start((await s.store.list())[0]);await s.check.idle();
+  assert.equal(s.store.data.d1.ashbyCheck.state, "composed");
+  assert.deepEqual(seen, [{ applicationId: "app-1", scheduleId: SCHED }]);
+});
+
+test("availability: changed since posting, nothing is composed and the post can be replaced", async () => {
+  const s = setup({ rows: [fromSubmission("d1")], compose: composed, availability: reader({ timezone: "America/Los_Angeles", windows: [postedWindows[1], W("2099-10-17T17:00:00.000Z", "2099-10-17T20:00:00.000Z")] }) });
+  await s.check.start((await s.store.list())[0]);await s.check.idle();
+  const c = s.store.data.d1.ashbyCheck;
+  assert.equal(c.state, "availability_changed");assert.match(c.reason, /changed after this was posted \(1 window new\)/);
+  assert.equal(s.calls.length, 0, "the worker is never asked to compose");
+  assert.deepEqual(s.shown, ["running", "availability_changed"]);
+  const { blocksRepost } = require("../src/scheduling/store");
+  assert.equal(blocksRepost(s.store.data.d1), false);
+});
+
+test("availability: any doubt starts nothing", async () => {
+  const run = async (r, availability) => { const s = setup({ rows: [r], compose: composed, availability }); await s.check.start((await s.store.list())[0]); await s.check.idle(); return { c: s.store.data[r.id].ashbyCheck, calls: s.calls }; };
+  let out = await run(fromSubmission("d1"), reader(Object.assign(new Error("That availability request is no longer pending in the candidate's current stage."), { status: 409 })));
+  assert.equal(out.c.state, "not_started");assert.match(out.c.reason, /couldn't be read to confirm it's unchanged: That availability request is no longer pending/);assert.equal(out.calls.length, 0);
+  // Posted from the candidate's submission before posts recorded it.
+  out = await run(row("d2", { plan: { ...row("d2").plan, timezoneSource: "candidate_submitted" } }), reader({ timezone: "America/Los_Angeles", windows: postedWindows }));
+  assert.equal(out.c.state, "not_started");assert.match(out.c.reason, /posted before posts recorded/);assert.equal(out.calls.length, 0);
+  out = await run(fromSubmission("d3", postedAvailability(submitted({ scheduleId: "another" }))), reader({ timezone: "America/Los_Angeles", windows: postedWindows }));
+  assert.equal(out.c.state, "not_started");assert.match(out.c.reason, /different scheduling activity/);
+  out = await run(fromSubmission("d4"), null);
+  assert.equal(out.c.state, "not_started");assert.equal(out.calls.length, 0);
+  // Times a coordinator typed in have no submission to compare: composed as before.
+  out = await run(row("d5", { plan: { ...row("d5").plan, timezoneSource: "coordinator_entered" } }), null);
+  assert.equal(out.c.state, "composed");
+});
+
+test("availability: the Slack message says nothing was made and to post again", async () => {
+  const calls = [];
+  const slack = createSlack("x", async (url, o) => { calls.push(JSON.parse(o.body)); return { ok: true, json: async () => ({ ok: true }) }; }, { displayTimeZone: "America/Los_Angeles", interactive: true });
+  await slack.markApproved({ channel: "C1", ts: "1.2", row: { id: "d1", plan: { candidateName: "TEST", jobTitle: "TEST", bookingPlan, sessions: [], notes: "" }, slackApproval: { email: "anna@carrara.is", name: "Anna Jones", at: "2099-10-14T22:00:00Z" },
+    ashbyCheck: { state: "availability_changed", reason: "the candidate's submitted availability changed after this was posted (1 window new)" } } });
+  const text = calls[0].blocks.map(b => b.text?.text || "").join("\n");
+  assert.match(text, /\*Not checked or booked in Ashby:\* the candidate's submitted availability changed after this was posted \(1 window new\)\. Nothing was made in Ashby and nothing was sent\. Post a fresh option/);
+  assert.match(calls[0].text, /not booked: the candidate's availability changed after this was posted\.$/);
 });

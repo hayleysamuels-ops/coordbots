@@ -10,6 +10,8 @@ const path = require("path");
 // approved and its Ashby check ended with nothing booked and no draft left:
 //   refused, with no draft made or its delete confirmed;
 //   not_started (no draft was made);
+//   availability_changed (the candidate's availability changed before the
+//     check; nothing was made in Ashby);
 //   deleted (the sweep deleted the unsent draft) or gone (the draft left Ashby
 //     unsent).
 // Everything else blocks, including an approval with no check, or one skipped
@@ -22,7 +24,7 @@ function blocksRepost(row) {
   if (row.state !== "discussion_approved" || !row.ashbyCheck) return true;
   const check = row.ashbyCheck;
   if (check.state === "refused") return !(!check.draftId || check.cleanup?.deleted === true);
-  return !["not_started", "deleted", "gone"].includes(check.state);
+  return !["not_started", "availability_changed", "deleted", "gone"].includes(check.state);
 }
 
 function createStore(dir) {
