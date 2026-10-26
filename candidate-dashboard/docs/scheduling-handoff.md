@@ -702,6 +702,44 @@ even if clicked.
     it when nobody is. (The Slack-approved check below takes turns with the
     dashboard's inspections; the SSH command doesn't.)
 
+## Auto-post (October 26, 2026; TEST only, off by default)
+
+`src/scheduling/auto-post.js`. On only where `SCHEDULING_AUTO_POST` is exactly
+`on` on the web service, and only for `AUTO_POST_APPLICATIONS` (TEST's
+application `8dfd8f14…`). Startup logs `[auto-post] on for 1 application(s)`
+or `off`.
+
+- **Every five minutes** (first round a minute after startup): the allowed
+  applications' pending submissions in their current stage, from Ashby's API.
+  A schedule whose `updatedAt` hasn't moved since it was handled is skipped.
+  Otherwise the submission is read through the worker and compared with the
+  last one handled (`availabilityChange`), so our own drafts (which also move
+  `updatedAt`) and time passing don't count as a resubmission.
+- **A new submission:**
+  - an approved post for the schedule still in play, built from other
+    availability: nothing posted; its thread is told once that the candidate
+    changed their availability after approval and a person must decide.
+  - an open post already built from this submission (say, posted by hand):
+    nothing to do.
+  - otherwise the option is rebuilt as booking review's Post does
+    (`suggestAgain`, unsteered) and the first option with **no calendar
+    flags** is posted as "Scheduling auto-post", its notes starting "Posted
+    automatically when the candidate submitted availability." Open posts for
+    the schedule built from other availability are withdrawn ("Replaced: the
+    candidate submitted new availability…"), whether or not a new option was
+    found, since approval would refuse them anyway.
+  - no clean option: one plain notice in the channel saying why (no agenda
+    fits, or every option has clashes).
+- **Failures** (worker busy, Google disconnected, Anna's session expired) are
+  retried on later rounds; after three failed rounds for the same `updatedAt`
+  one notice says so and it isn't tried again until the schedule changes.
+- **State:** `<DATA_DIR>/auto-post.json`, per schedule: the last `updatedAt`,
+  the submission handled, the outcome, and failed rounds. Deleting an entry
+  makes the next round handle that schedule again (an open post made from the
+  same submission still stops a second post).
+- **Approving an auto-post** is the same as any post, including Send where it's
+  on; the availability check runs again at the check's turn.
+
 ## Suggest another time / Suggest different interviewer (October 26, 2026)
 
 Beside Schedule, a calendar-checked post built from the candidate's submitted

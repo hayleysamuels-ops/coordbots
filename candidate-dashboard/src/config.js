@@ -118,6 +118,10 @@ const config = {
   schedulingSlackTeamId: process.env.SCHEDULING_SLACK_TEAM_ID || "",
   schedulingSlackAppId: process.env.SCHEDULING_SLACK_APP_ID || "",
   schedulingSlackApprovers: slackApprovers,
+  // Auto-post (scheduling/auto-post.js): exactly "on" to post the best
+  // calendar-checked option when a candidate submits availability; only for
+  // the applications listed in auto-post.js (TEST so far).
+  schedulingAutoPost: process.env.SCHEDULING_AUTO_POST === "on",
   googleCalendarClientId: process.env.GOOGLE_CALENDAR_CLIENT_ID || "",
   googleCalendarClientSecret: process.env.GOOGLE_CALENDAR_CLIENT_SECRET || "",
   googleCalendarRedirectUri: process.env.GOOGLE_CALENDAR_REDIRECT_URI || "",

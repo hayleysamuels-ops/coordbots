@@ -112,6 +112,10 @@ function createServer() {
     });
     suggestAgain = bookingRouter.suggestAgain;
     app.use("/api/scheduling-booking", bookingRouter);
+    // Auto-post (auto-post.js): off unless SCHEDULING_AUTO_POST is exactly "on".
+    if (scheduling.slackApi && slackConfig.schedulingChannelId) require("./scheduling/auto-post").createAutoPost({ on: slackConfig.schedulingAutoPost,
+      dataDir: connectionConfig.dataDir, clientId: connectionConfig.schedulingClientId, channelId: slackConfig.schedulingChannelId,
+      availability: availabilitySource, suggester: bookingRouter.suggestAgain, service: scheduling, store: scheduling.store, slackApi: scheduling.slackApi }).start();
   }
 
   // Feature-gated markup and assets. Without the scheduling pilot, its pages

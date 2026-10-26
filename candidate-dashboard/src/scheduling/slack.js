@@ -251,7 +251,9 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       // line below says what happened instead, so that sentence is dropped.
       { type: "context", elements: [mrkdwn(`${escape(approval ? String(plan.notes || "").replace(/\s*Nothing has been booked and no invitations have been sent\.\s*/, " ").trim() : plan.notes)} Posted for discussion by ${escape(approver)}. Draft reference: ${escape(proposalId)}`)] },
     ];
-    if (replaced) blocks.push({ type: "section", text: mrkdwn(`*Replaced* at ${escape(when(replaced.at))}: ${escape(replaced.by)} asked for ${replaced.kind === "time" ? "another time" : `a different interviewer for session ${replaced.session + 1}`}, and a new option was posted below. Nothing from this message was booked or sent.`) });
+    if (replaced) blocks.push({ type: "section", text: mrkdwn(replaced.kind === "resubmitted"
+      ? `*Replaced* at ${escape(when(replaced.at))}: the candidate submitted new availability, so this option no longer applies${replaced.withDraft ? ", and a new option was posted below" : "; no new option was posted automatically"}. Nothing from this message was booked or sent.`
+      : `*Replaced* at ${escape(when(replaced.at))}: ${escape(replaced.by)} asked for ${replaced.kind === "time" ? "another time" : `a different interviewer for session ${replaced.session + 1}`}, and a new option was posted below. Nothing from this message was booked or sent.`) });
     else if (approval) blocks.push({ type: "section", text: mrkdwn(`*Approved* by ${escape(approval.name || approval.email)} (${escape(approval.email)}) at ${escape(new Intl.DateTimeFormat("en-US", { timeZone: displayTimeZone, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(approval.at)))}.\n${checkText(plan, check)}`) });
     else if (interactive && draftDigest) blocks.push(scheduleButton(proposalId, draftDigest, plan));
     // The fallback shows in notifications and has no names or links.
@@ -278,6 +280,9 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     const { ok, body } = await api("chat.update", { channel, ts, blocks, text });
     if (!ok || body.ok !== true) throw new Error(`The Slack message couldn't be updated${body.error ? ` (${body.error})` : ""}`);
   };
+  // A plain message to the channel (auto-post's notices): no names beyond
+  // the candidate's, no buttons.
+  send.notice = async ({ channel, text }) => post(channel, { text: String(text).slice(0, 3000), mrkdwn: false, parse: "none" });
   // A post withdrawn for a Slack suggestion (row.replaced): shown as replaced,
   // with its buttons gone. The new option is a separate post.
   send.markReplaced = async ({ channel, ts, row }) => {

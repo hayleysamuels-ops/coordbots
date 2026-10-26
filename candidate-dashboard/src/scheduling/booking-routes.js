@@ -146,7 +146,7 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
   // Posts option `index` of a rebuilt result (suggestFull), as `user`. Shared
   // by the dashboard's Post button and Slack's suggestion buttons.
   // `suggestion` (Slack only) records what the post replaced and why.
-  async function postOption({plan,result,submission,index,availabilitySource,user,suggestion=null}){
+  async function postOption({plan,result,submission,index,availabilitySource,user,suggestion=null,origin=null}){
     if(!discussion)throw Object.assign(Error('Slack discussion posting is not connected.'),{status:503});
     const option=result.proposals[index];
     if(!option)throw Object.assign(Error('There is no such schedule option.'),{status:409});
@@ -169,7 +169,7 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     }
     return discussion.postScheduleOption({bookingPlan:composed.plan,applicationId:plan.applicationId,candidateId:plan.candidateId,timezone:result.timezone,option:chosen,optionNumber:index+1,linkedinUrl,
       sourceRef:`full-schedule:${plan.scheduleId}:${ref}`,availabilitySource,attendance,
-      ...(suggestion?{suggestion}:{}),
+      ...(suggestion?{suggestion}:{}),...(origin?{origin}:{}),
       // The candidate's submission this option was built from, kept in the
       // plan (so the approval's digest covers it) for the check at approval.
       submittedAvailability:submission?require('./availability-gate').postedAvailability(submission):null,rulesRevision:clientRules.rulesRevision,
@@ -180,11 +180,12 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
   // candidate's submitted availability and calendar-checked, steered away from
   // what was already proposed. find() reads Ashby and the calendars and posts
   // nothing; the option it picks is the first with no calendar flags (index
-  // -1 when there's none), and post() posts exactly that one.
+  // -1 when there's none), and post() posts exactly that one. Auto-post
+  // (auto-post.js) uses it unsteered, with origin "auto".
   router.suggestAgain=async({applicationId,scheduleId,steer})=>{
     const found=await suggestFull({body:{applicationId,scheduleId,availabilitySource:'ashby',calendarCheck:true}},steer);
     const index=found.result.proposals.findIndex(p=>!(p.flagCount>0));
-    return {...found,index,post:(user,suggestion)=>postOption({...found,index,availabilitySource:'ashby',user,suggestion})};
+    return {...found,index,post:(user,suggestion,origin=null)=>postOption({...found,index,availabilitySource:'ashby',user,suggestion,origin})};
   };
   // "Check Slack" on the booking page: settle a post Slack didn't confirm
   // (service.reconcileSlack). Here because the booking page signs coordinators
