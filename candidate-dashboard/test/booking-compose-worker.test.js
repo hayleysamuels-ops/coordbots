@@ -121,11 +121,13 @@ test('typed times, each save and the communications screen are logged as the che
 
 test('a robot Send may reach only the allowlisted recipients; until Send exists that is only reported',()=>{
   const {SEND_RECIPIENTS,sendRecipientsOutside}=require('../worker/booking-locks');
-  assert.deepEqual([...SEND_RECIPIENTS].sort(),['hayley@luminai.com','hayleysamuels511@gmail.com']);
+  assert.deepEqual([...SEND_RECIPIENTS].sort(),['anna@luminai.com','hayley@luminai.com','hayleysamuels511@gmail.com','joe@luminai.com','mary@luminai.com']);
   assert.deepEqual(sendRecipientsOutside(plan),[]);
-  // TEST's Onsite, as approved on October 19: colleagues on four sessions.
+  // TEST's Onsite: colleagues on three sessions, all on the list since October 26.
   const onsite={...plan,sessions:['hayley@luminai.com','joe@luminai.com','Mary@Luminai.com','anna@luminai.com','hayley@luminai.com'].map(email=>({...plan.sessions[0],interviewers:[{...plan.sessions[0].interviewers[0],email}]}))};
-  assert.deepEqual(sendRecipientsOutside(onsite),['anna@luminai.com','joe@luminai.com','mary@luminai.com']);
+  assert.deepEqual(sendRecipientsOutside(onsite),[]);
+  const other={...onsite,sessions:[...onsite.sessions,{...plan.sessions[0],interviewers:[{...plan.sessions[0].interviewers[0],email:'tom@luminai.com'}]}]};
+  assert.deepEqual(sendRecipientsOutside(other),['tom@luminai.com']);
   assert.deepEqual(sendRecipientsOutside({...plan,candidate:{...plan.candidate,email:'someone@example.com'}}),['someone@example.com']);
   const {detailLine}=require('../worker/booking-compose');
   assert.equal(detailLine({type:'send-recipients',allowed:true}),'send recipients: all on the send allowlist');
@@ -150,8 +152,8 @@ test('Send needs every lock: the announced plan, BOOKING_SEND exactly "on", the 
   assert.match(sendBlocked(sendPlan,env),/switched off .*BOOKING_SEND/);
   assert.match(sendBlocked(sendPlan,{...env,BOOKING_SEND:'true'}),/switched off/);
   assert.match(sendBlocked({...sendPlan,interviewScheduleId:plan.interviewScheduleId},sendEnv),/aren't on the send allowlist/,'compose-allowed but not send-allowed');
-  const joe={...sendPlan,sessions:[{...sendPlan.sessions[0],interviewers:[{...sendPlan.sessions[0].interviewers[0],email:'joe@luminai.com'}]}]};
-  assert.match(sendBlocked(joe,sendEnv),/outside the send allowlist: joe@luminai.com/);
+  const tom={...sendPlan,sessions:[{...sendPlan.sessions[0],interviewers:[{...sendPlan.sessions[0].interviewers[0],email:'tom@luminai.com'}]}]};
+  assert.match(sendBlocked(tom,sendEnv),/outside the send allowlist: tom@luminai.com/);
   // compose() passes `send` to the composer only when the plan announced it and every lock is open.
   const decided=async(p,e)=>{const lines=[],{seen,deps}=fakes();await compose({env:e,payload:{plan:p},...deps,say:l=>lines.push(l)});return {send:seen.dryRun.send,lines};};
   const on=await decided(sendPlan,sendEnv);
@@ -159,7 +161,7 @@ test('Send needs every lock: the announced plan, BOOKING_SEND exactly "on", the 
   assert.equal((await decided({...sendPlan,send:undefined},sendEnv)).send,false,'not announced at posting: never sends');
   const off=await decided(sendPlan,env);
   assert.equal(off.send,false);assert.match(off.lines[1],/send announced but not happening: Send is switched off/);
-  assert.equal((await decided(joe,sendEnv)).send,false);
+  assert.equal((await decided(tom,sendEnv)).send,false);
 });
 
 test('send-status, at posting, is read-only and says whether approving would send',()=>{
@@ -321,5 +323,12 @@ test('the cancelled First Round is on neither list; the new one is on both',()=>
   const test=ALLOWED_APPLICATIONS['8dfd8f14-83c4-41f8-aaf1-416b75cb0892'];
   assert.ok(test.interviewScheduleIds.includes('199e1b3d-3f4f-4629-98a5-3ec323fd1206'));for(const old of ['bbf93574-2e4c-4c61-8cd9-4e6f69d7d661','8dc8e6b6-1aa2-4470-8b00-e932459fc499'])assert.ok(!test.interviewScheduleIds.includes(old),old);
   assert.ok(!Object.values(SEND_ALLOWED).flat().includes('8dc8e6b6-1aa2-4470-8b00-e932459fc499'));
-  assert.deepEqual(SEND_ALLOWED['8dfd8f14-83c4-41f8-aaf1-416b75cb0892'],['199e1b3d-3f4f-4629-98a5-3ec323fd1206']);
+  assert.deepEqual(SEND_ALLOWED['8dfd8f14-83c4-41f8-aaf1-416b75cb0892'],['199e1b3d-3f4f-4629-98a5-3ec323fd1206','c95bfecf-9e5c-4d61-8f32-2586d26fa96f']);
+});
+test('the six-session TEST Onsite c95bfecf may be composed and sent; the old Onsite only composed',()=>{
+  const {ALLOWED_APPLICATIONS,SEND_ALLOWED}=require('../worker/booking-locks');
+  const app='8dfd8f14-83c4-41f8-aaf1-416b75cb0892';
+  assert.ok(ALLOWED_APPLICATIONS[app].interviewScheduleIds.includes('c95bfecf-9e5c-4d61-8f32-2586d26fa96f'));
+  assert.ok(SEND_ALLOWED[app].includes('c95bfecf-9e5c-4d61-8f32-2586d26fa96f'));
+  assert.ok(!SEND_ALLOWED[app].includes('d98941b3-5900-4ecc-a5cb-c57ed6729702'));
 });

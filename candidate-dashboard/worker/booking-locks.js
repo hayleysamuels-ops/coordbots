@@ -11,25 +11,33 @@ const NOTICE_MINUTES=15;
 // with Hayley as its only interviewer: since October 20, 23:39Z, 199e1b3d, a
 // never-booked activity (the earlier First Rounds, bbf93574 and 8dc8e6b6, are
 // cancelled and on neither list; a re-used activity composes as "Rescheduling").
+// 199e1b3d was sent by the robot on October 26 and cancelled at 19:44Z. Since
+// October 26, 19:44Z: c95bfecf, a never-booked six-session Onsite for the
+// first multi-session robot Send.
 const ALLOWED_APPLICATIONS={
   '8dfd8f14-83c4-41f8-aaf1-416b75cb0892':{
     jobId:'837cc1e9-15ed-4f07-8755-51ee29f4ea39',
     candidateId:'fc88f24e-d59b-4e58-aa51-f0e94b1a32da',
     candidateEmail:'hayleysamuels511@gmail.com',
-    interviewScheduleIds:['69ffae5a-240c-4d06-8b45-f9826dbf5623','18599066-1d55-493a-8c2f-1e970b04f86c','d98941b3-5900-4ecc-a5cb-c57ed6729702','199e1b3d-3f4f-4629-98a5-3ec323fd1206'],
+    interviewScheduleIds:['69ffae5a-240c-4d06-8b45-f9826dbf5623','18599066-1d55-493a-8c2f-1e970b04f86c','d98941b3-5900-4ecc-a5cb-c57ed6729702','199e1b3d-3f4f-4629-98a5-3ec323fd1206','c95bfecf-9e5c-4d61-8f32-2586d26fa96f'],
   },
 };
 
 // Where a robot Send may happen (Hayley, 2026-10-20): these applications'
 // listed scheduling activities only, separately from what may be composed.
 const SEND_ALLOWED={
-  '8dfd8f14-83c4-41f8-aaf1-416b75cb0892':['199e1b3d-3f4f-4629-98a5-3ec323fd1206'],// TEST, First Round (Hayley only)
+  '8dfd8f14-83c4-41f8-aaf1-416b75cb0892':[
+    '199e1b3d-3f4f-4629-98a5-3ec323fd1206',// TEST, First Round (Hayley only; sent October 26, now cancelled)
+    'c95bfecf-9e5c-4d61-8f32-2586d26fa96f',// TEST, Onsite Interview, six sessions
+  ],
 };
 // Who a robot Send may reach (Hayley, 2026-10-19): the candidate and every
 // interviewer must be on this list. TEST's Onsite interviewers include
 // colleagues (Joe, Mary, Anna), so TEST-only alone wouldn't keep real invites
-// off their calendars.
-const SEND_RECIPIENTS=new Set(['hayleysamuels511@gmail.com','hayley@luminai.com']);
+// off their calendars. Joe, Mary and Anna added October 26 (Hayley): they're
+// internal, know the six-session Onsite test is coming, and stay the Onsite's
+// eligible interviewers, so its invites will reach their calendars.
+const SEND_RECIPIENTS=new Set(['hayleysamuels511@gmail.com','hayley@luminai.com','joe@luminai.com','mary@luminai.com','anna@luminai.com']);
 // The plan's recipients outside SEND_RECIPIENTS, [] when all are on it.
 function sendRecipientsOutside(plan){
   const all=[plan?.candidate?.email,...(plan?.sessions||[]).flatMap(s=>(s.interviewers||[]).map(x=>x.email))].map(e=>String(e||'').toLowerCase());

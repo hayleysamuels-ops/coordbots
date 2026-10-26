@@ -878,7 +878,10 @@ file permits it or the composer clicks Schedule.
        application and activity on `SEND_ALLOWED` (TEST's First Round
        `199e1b3d` since October 20, 23:39Z, a never-booked activity; the earlier
        `bbf93574` and `8dc8e6b6` are cancelled and on neither list; Hayley the
-       only interviewer); every recipient on
+       only interviewer; sent by the robot October 26, then cancelled), and
+       TEST's six-session Onsite `c95bfecf` since October 26, 19:44Z, a
+       never-booked activity for the first multi-session send (the old Onsite
+       `d98941b3` stays compose-only); every recipient on
        `SEND_RECIPIENTS`; Anna's session. The composer checks them once more
        before arming.
      - **Fresh re-read before the click** (every check, sending or not): the
@@ -987,7 +990,10 @@ file permits it or the composer clicks Schedule.
     a robot Send may reach only hayleysamuels511@gmail.com and
     hayley@luminai.com, as candidate and every interviewer. TEST's Onsite has
     colleagues (Joe, Mary, Anna) as interviewers, so "TEST-only" alone wouldn't
-    keep real invites off their calendars. Until Send exists, each check logs
+    keep real invites off their calendars. Since October 26 joe@, mary@ and
+    anna@luminai.com are on the list too (Hayley): they're internal, know the
+    six-session Onsite test (`c95bfecf`) is coming, and stay its eligible
+    interviewers, so its invites reach their calendars. Until Send exists, each check logs
     whether its recipients would pass (`send recipients: …`).
 - **No screen is read before it has settled** (rule since October 20, after
   the fourth false conclusion from an early read). The composer's shared
