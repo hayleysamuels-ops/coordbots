@@ -37,11 +37,17 @@ is the short list of things that look wrong and are not.
   the overview's `totals` and `periods.full` legitimately differ once an
   ended client exists, unlike a client payload where they must be equal.
 
-- **The ended-engagement machinery is live but currently unused.**
-  Profound was removed from `CLIENTS` on 26 October 2026; no configured
-  client is `ended` today. The code and its tests stay — the next
-  finished engagement needs them, and the rules below are why they work
-  the way they do.
+- **Profound is configured and `ended`, and that is deliberate.** It
+  was removed on 26 October 2026 and put back the same day: the year of
+  volume belongs in the totals. Its engagement really has finished, so
+  it keeps `status=ended` and everything below about ended engagements
+  applies to it — fixed window, one backfill, out of every
+  current-period figure and the weekly trend.
+
+  **Exclude Profound from pre/post-Carrara when that is built.** There
+  is no meaningful "before": we built their Ashby, so the instance has
+  no pre-Carrara history to compare against. A pre/post view would show
+  an empty or near-empty baseline and read as a transformation.
 
 - **An ended engagement reads its own fixed date range, not the rolling
   12 months.** A rolling window would silently erase finished work as it
