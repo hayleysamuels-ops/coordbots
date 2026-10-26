@@ -1,6 +1,6 @@
 'use strict';
 const {windowsToInstants}=require('./booking-planner');
-const {distinctFrom}=require('./option-variety');
+const {distinctFrom,awayFromStarts}=require('./option-variety');
 const fail=message=>{throw Object.assign(Error(message),{status:422});};
 const MAX_AGE=60000,STEP=5*60000,SEARCH_LIMIT=100000,RELAX_LIMIT=20000;
 function intervals(rows){
@@ -44,8 +44,12 @@ function dateIn(ms,timezone){
 // Wednesdays). A session's preferredUserIds (sessions.preferredInterviewers)
 // are offered it first, in order: in advisory mode while they're free at its
 // time, falling back to the others only when none of them is.
-function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.now(),limit=5,minBreakMinutes=0,maxGapMinutes=0,maxGapCount=0,variety=true,advisory=false,excludedWeekdays=null}){
+// avoidStarts (ISO instants, from Slack's "Suggest another time"): no option
+// starts on the same candidate-local day within an hour of any of them. The
+// search goes on past them, so the limit still counts only options it keeps.
+function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.now(),limit=5,minBreakMinutes=0,maxGapMinutes=0,maxGapCount=0,variety=true,advisory=false,excludedWeekdays=null,avoidStarts=[]}){
   if(!Array.isArray(sessions)||!sessions.length||sessions.length>30)fail('Load a complete interview plan first.');
+  if(!Array.isArray(avoidStarts)||avoidStarts.length>50||avoidStarts.some(a=>typeof a!=='string'||!Number.isFinite(Date.parse(a))))fail('Invalid times to avoid.');
   if(!Number.isInteger(limit)||limit<1||limit>5)fail('Invalid proposal limit.');
   if(![minBreakMinutes,maxGapMinutes].every(m=>Number.isInteger(m)&&m>=0&&m%5===0)||maxGapMinutes<minBreakMinutes||maxGapMinutes>480)fail('Breaks must be whole 5-minute steps, with the maximum gap at least the minimum break.');
   if(!Number.isInteger(maxGapCount)||maxGapCount<0||maxGapCount>29||(maxGapCount>0&&maxGapMinutes<5))fail('The break count must be 0 to 29, and breaks need a maximum of at least 5 minutes.');
@@ -188,6 +192,7 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
         const events=assign(0,start,[],window,dateIn(start,timezone));if(!events)continue;
         const option={start:events[0].start,end:events.at(-1).end,events};
         if(variety&&!distinctFrom([...accepted,...proposals],option,timezone))continue;
+        if(avoidStarts.length&&!awayFromStarts(option.start,avoidStarts,timezone))continue;
         proposals.push(option);
         if(proposals.length>=max)break;
       }

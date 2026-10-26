@@ -32,7 +32,7 @@ function createServer() {
   // must instead carry a valid Slack signature over its raw body (checked in
   // slack-interactions.js before anything is parsed). It exists only with the
   // scheduling pilot on and interactivity configured; otherwise it's a 404.
-  let slackInteractions = null;
+  let slackInteractions = null, suggestAgain = null;
   app.post("/api/slack/interactions", express.raw({ type: "application/x-www-form-urlencoded", limit: "64kb" }),
     (req, res) => slackInteractions ? slackInteractions(req, res) : res.status(404).end());
 
@@ -74,7 +74,9 @@ function createServer() {
       slackInteractions = require("./scheduling/slack-interactions").createSlackInteractions({
         service: scheduling, slackApi: scheduling.slackApi, signingSecret: slackConfig.schedulingSlackSigningSecret,
         teamId: slackConfig.schedulingSlackTeamId, appId: slackConfig.schedulingSlackAppId,
-        channelId: slackConfig.schedulingChannelId, approvers: slackConfig.schedulingSlackApprovers, ashbyCheck });
+        channelId: slackConfig.schedulingChannelId, approvers: slackConfig.schedulingSlackApprovers, ashbyCheck,
+        // Booking review's rebuild, mounted below; resolved when a button is pressed.
+        suggester: input => { if (!suggestAgain) throw new Error("Booking review isn't mounted."); return suggestAgain(input); } });
       console.log("[slack] Schedule button enabled: interactivity endpoint /api/slack/interactions is live.");
     }
     app.use("/api/ashby-connection", require("./scheduling/connection-routes").connectionRoutes({
@@ -95,7 +97,7 @@ function createServer() {
       source: null, executor: null,
       userById: async id => connectionConfig.schedulingApprovers.some(a => a.username === id) ? { id, canApprove: true } : null,
     });
-    app.use("/api/scheduling-booking", require("./scheduling/booking-routes").bookingRoutes({
+    const bookingRouter = require("./scheduling/booking-routes").bookingRoutes({
       engine: bookingEngine, store: bookingStore, clientId: connectionConfig.schedulingClientId, googleCalendar, googleFreeBusy,
       discussion: scheduling,
       rules: schedulingRules,
@@ -107,7 +109,9 @@ function createServer() {
       sendStatus: payload => bookingWorker.call("send-status",payload),
       facts: bookingFacts,
       capabilities: async () => { const worker = await bookingWorker.capabilities(); return {available: false, reason: worker.available ? "The booking executor is being connected to this dashboard. Sending remains disabled." : worker.reason}; },
-    }));
+    });
+    suggestAgain = bookingRouter.suggestAgain;
+    app.use("/api/scheduling-booking", bookingRouter);
   }
 
   // Feature-gated markup and assets. Without the scheduling pilot, its pages

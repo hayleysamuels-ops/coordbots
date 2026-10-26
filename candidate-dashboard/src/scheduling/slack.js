@@ -42,6 +42,14 @@ function blockProblems({ text, blocks = [] }) {
     } else if (b.type === "actions") {
       if (!b.elements?.length || b.elements.length > 25) problems.push(`${where} has ${b.elements?.length || 0} elements (Slack allows 1 to 25)`);
       (b.elements || []).forEach((e, j) => {
+        if (e.type === "static_select") {
+          const at = `${where}, menu ${j + 1}`;
+          over(`${at}'s placeholder`, e.placeholder?.text, 150);
+          over(`${at}'s action_id`, e.action_id, 255);
+          if (!e.options?.length || e.options.length > 100) problems.push(`${at} has ${e.options?.length || 0} options (Slack allows 1 to 100)`);
+          (e.options || []).forEach((o, k) => { over(`${at}, option ${k + 1}'s text`, o.text?.text, 75); over(`${at}, option ${k + 1}'s value`, o.value, 150); });
+          return;
+        }
         const at = `${where}, button ${j + 1}`;
         over(`${at}'s label`, e.text?.text, 75);
         over(`${at}'s action_id`, e.action_id, 255);
@@ -116,13 +124,25 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
   // Where the post announced Send (plan.bookingPlan.send, set at posting only
   // when every lock was open): approving sends, and the dialog says so.
   const sendText = plan => `Approving *sends this schedule now*: Ashby's invitations to the candidate and interviewers, and the candidate's confirmation email if it's on, all from ${sendsAs(plan)}'s account. Nothing is retried.\n\nOnly approve a schedule you mean to book.`;
+  // Slack's suggestion controls (slack-interactions.js), beside Schedule, only
+  // on a post a rebuild can start from: the candidate's submitted
+  // availability and an Ashby plan. The menu lists each session with its
+  // interviewer; choosing one asks for a different interviewer for it.
+  const suggestable = plan => !!(plan.bookingPlan?.interviewScheduleId && plan.submittedAvailability && plan.timezoneSource === "candidate_submitted");
+  const suggestControls = (proposalId, draftDigest, plan) => [
+    { type: "button", action_id: "suggest_time", text: { type: "plain_text", text: "Suggest another time" }, value: JSON.stringify({ d: proposalId, g: draftDigest }) },
+    { type: "static_select", action_id: "suggest_interviewer", placeholder: { type: "plain_text", text: "Suggest different interviewer" },
+      options: plan.sessions.slice(0, 100).map((s, i) => ({
+        text: { type: "plain_text", text: `${i + 1}. ${clock(displayTimeZone, s)} ${s.title} – ${(s.people || []).map(p => p.name).join(", ") || "interviewer"}`.slice(0, 75) },
+        value: JSON.stringify({ d: proposalId, g: draftDigest, i }) })) },
+  ];
   const scheduleButton = (proposalId, draftDigest, plan) => ({ type: "actions", block_id: "schedule", elements: [{
     type: "button", action_id: "schedule_option", style: "primary", text: { type: "plain_text", text: "Schedule" },
     value: JSON.stringify({ d: proposalId, g: draftDigest }),
     confirm: { title: { type: "plain_text", text: "Approve this schedule?" },
       // Slack caps this text at 300 characters (blockProblems checks it).
       text: { type: "mrkdwn", text: sends(plan) ? sendText(plan) : "With the Ashby check on, this schedule is then composed in Ashby, stopping before Send; otherwise, book it by hand. *Nothing is sent automatically:* no invitations or candidate email go out until someone clicks Send in Ashby.\n\nOnly approve a schedule you mean to book." },
-      confirm: { type: "plain_text", text: "Approve" }, deny: { type: "plain_text", text: "Cancel" } } }] });
+      confirm: { type: "plain_text", text: "Approve" }, deny: { type: "plain_text", text: "Cancel" } } }, ...(suggestable(plan) ? suggestControls(proposalId, draftDigest, plan) : [])] });
 
   const when = at => new Intl.DateTimeFormat("en-US", { timeZone: displayTimeZone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(at));
   // Where a left draft is, and how to delete one by hand: never "Delete
@@ -179,7 +199,7 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     }
   }
 
-  async function calendarChecked(plan, { proposalId, approver, digest: draftDigest }, approval = null, check = null) {
+  async function calendarChecked(plan, { proposalId, approver, digest: draftDigest }, approval = null, check = null, replaced = null) {
     // Interviewer names are plain text on purpose. Interviewers belong to the
     // client's Slack workspace and this bot to Carrara's, where the channel is,
     // so profile links and mentions aren't available regardless of scopes:
@@ -212,7 +232,7 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     // What to do first, then who it's for: the two things a coordinator needs
     // before reading any time. "Schedule" is only mentioned when the button is
     // on the post, and "flags" only when there are any.
-    const forClient = clientName ? ` for ${escape(clientName)}` : "", button = interactive && draftDigest && !approval;
+    const forClient = clientName ? ` for ${escape(clientName)}` : "", button = interactive && draftDigest && !approval && !replaced;
     const instruction = `This is the proposed interview schedule${forClient}. Please review ${clashes ? "all flags" : "it"}, then post to the client channel for discussion${button ? (sends(plan) ? ` or press Schedule, which *sends it from ${sendsAs(plan)}'s account*` : " or press Schedule") : ""}.`;
     const blocks = [
       { type: "section", text: mrkdwn(instruction) },
@@ -231,7 +251,8 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       // line below says what happened instead, so that sentence is dropped.
       { type: "context", elements: [mrkdwn(`${escape(approval ? String(plan.notes || "").replace(/\s*Nothing has been booked and no invitations have been sent\.\s*/, " ").trim() : plan.notes)} Posted for discussion by ${escape(approver)}. Draft reference: ${escape(proposalId)}`)] },
     ];
-    if (approval) blocks.push({ type: "section", text: mrkdwn(`*Approved* by ${escape(approval.name || approval.email)} (${escape(approval.email)}) at ${escape(new Intl.DateTimeFormat("en-US", { timeZone: displayTimeZone, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(approval.at)))}.\n${checkText(plan, check)}`) });
+    if (replaced) blocks.push({ type: "section", text: mrkdwn(`*Replaced* at ${escape(when(replaced.at))}: ${escape(replaced.by)} asked for ${replaced.kind === "time" ? "another time" : `a different interviewer for session ${replaced.session + 1}`}, and a new option was posted below. Nothing from this message was booked or sent.`) });
+    else if (approval) blocks.push({ type: "section", text: mrkdwn(`*Approved* by ${escape(approval.name || approval.email)} (${escape(approval.email)}) at ${escape(new Intl.DateTimeFormat("en-US", { timeZone: displayTimeZone, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(approval.at)))}.\n${checkText(plan, check)}`) });
     else if (interactive && draftDigest) blocks.push(scheduleButton(proposalId, draftDigest, plan));
     // The fallback shows in notifications and has no names or links.
     const text = `Interview schedule draft for ${plan.candidateName} · ${plan.jobTitle}: ${clashes ? `needs attention (${clashes} calendar clash${clashes === 1 ? "" : "es"}), ` : ""}for discussion, nothing booked.`;
@@ -252,6 +273,16 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     // The notification text: no names beyond the approver's, and the state.
     const status = { queued: "waiting to be checked in Ashby; not booked", running: "being checked in Ashby; not booked", composed: `composed in Ashby, not sent yet${row.ashbyCheck?.confirmationEmail === "off" ? "; no candidate confirmation email will be sent" : ""}`, sent: "sent in Ashby", availability_changed: "not booked: the candidate's availability changed after this was posted", booked_invites_pending: "booked, but invitations NOT sent; send them by hand", booked_invites_unknown: "booked; invitations unknown, check Ashby", send_uncertain: "the send may have gone; check Ashby" }[row.ashbyCheck?.state] || "not booked";
     const text = `Interview schedule for ${row.plan.candidateName} · ${row.plan.jobTitle}: approved by ${row.slackApproval.name || row.slackApproval.email}; ${status}.`;
+    const problems = blockProblems({ text, blocks });
+    if (problems.length) throw invalid(problems);
+    const { ok, body } = await api("chat.update", { channel, ts, blocks, text });
+    if (!ok || body.ok !== true) throw new Error(`The Slack message couldn't be updated${body.error ? ` (${body.error})` : ""}`);
+  };
+  // A post withdrawn for a Slack suggestion (row.replaced): shown as replaced,
+  // with its buttons gone. The new option is a separate post.
+  send.markReplaced = async ({ channel, ts, row }) => {
+    const { blocks } = await calendarChecked(row.plan, { proposalId: row.id, approver: row.discussionApproval?.by || "a coordinator" }, null, null, row.replaced);
+    const text = `Interview schedule for ${row.plan.candidateName} · ${row.plan.jobTitle}: replaced by a newer option; nothing booked.`;
     const problems = blockProblems({ text, blocks });
     if (problems.length) throw invalid(problems);
     const { ok, body } = await api("chat.update", { channel, ts, blocks, text });

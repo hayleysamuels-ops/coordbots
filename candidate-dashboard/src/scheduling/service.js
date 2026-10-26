@@ -33,6 +33,21 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
     if (!await store.replace(row.id, row.revision, next)) fail(409, "Draft changed. Refresh before approving.");
     return next;
   }
+  // A calendar-checked post, as Slack shows it: still shared, unchanged since
+  // posting, and the very message it was posted as in this client's channel.
+  // Every binding is checked against the stored draft, not the payload.
+  async function postedRow({ draftId, digest: posted, channelId: clickedChannel, messageTs, already, what }) {
+    const row = typeof draftId === "string" ? await store.get(draftId) : null;
+    if (!row || row.clientId !== clientId) fail(404, "This schedule's draft wasn't found.");
+    if (row.state === "discussion_approved") already(row);
+    if (row.state === "rejected" && row.replaced) fail(409, `This option was replaced by another suggestion (asked by ${row.replaced.by}). Use the newer post.`);
+    if (row.state !== "shared" || row.plan.format !== "calendar_checked") fail(409, `This draft can't be ${what} from Slack.`);
+    if (row.digest !== posted || digest(row.plan) !== row.digest) fail(409, "The draft changed after it was posted.");
+    const { channelId } = destination(row.plan.candidateId);
+    if (!channelId || clickedChannel !== channelId || row.slack?.channel !== channelId || row.slack?.ts !== messageTs) fail(409, "This isn't the message the draft was posted as.");
+    if (!(Date.parse(row.plan.sessions[0].start) > Date.now())) fail(409, "This schedule's start time has already passed.");
+    return row;
+  }
   async function current(id, input) {
     const row = await store.get(id);
     if (!row || row.clientId !== clientId) fail(404, "Draft not found");
@@ -93,7 +108,9 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
         ...(meta.bookingPlan && typeof meta.bookingPlan === "object" ? { bookingPlan: meta.bookingPlan } : {}),
         // The candidate's submitted availability the option was built from
         // (availability-gate.js), checked again before the Ashby check composes.
-        ...(meta.submittedAvailability ? { submittedAvailability: require("./availability-gate").postedAvailability(meta.submittedAvailability) } : {}) };
+        ...(meta.submittedAvailability ? { submittedAvailability: require("./availability-gate").postedAvailability(meta.submittedAvailability) } : {}),
+        // What a Slack suggestion replaced, and every steer so far (suggestion.js).
+        ...(meta.suggestion ? { suggestion: require("./suggestion").checkSuggestion(meta.suggestion) } : {}) };
       const row = { id: crypto.randomUUID(), clientId, revision: 1, state: "draft", plan, digest: digest(plan), bookingApproval: null,
         audit: [{ action: "drafted", by: user.id, at: new Date().toISOString() }] };
       if (!await store.insert(row)) fail(409, meta.sourceRef ? "This option was already posted to Slack, or another discussion draft for this candidate is still open. Check the channel and the Scheduling tab." : "An active discussion draft already exists. Review or reject it first."); return row;
@@ -109,7 +126,7 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
     // `calendarCheck` is set only for options the server built against Google
     // free/busy (booking-routes calendarChecked); it changes the wording, not
     // the posting path.
-    async postScheduleOption({ applicationId, candidateId, timezone, option, optionNumber, sourceRef, availabilitySource, attendance, rulesRevision, calendarCheck = null, linkedinUrl = null, bookingPlan = null, submittedAvailability = null }, user) {
+    async postScheduleOption({ applicationId, candidateId, timezone, option, optionNumber, sourceRef, availabilitySource, attendance, rulesRevision, calendarCheck = null, linkedinUrl = null, bookingPlan = null, submittedAvailability = null, suggestion = null }, user) {
       actor(user);
       const c = await candidate(applicationId);
       if (c.candidateId !== candidateId) fail(409, "Candidate changed in Ashby. Suggest the full schedule again.");
@@ -126,7 +143,7 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
       const checked = calendarCheck ? `Checked against interviewers' primary Google calendars at ${new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(calendarCheck.checkedAt))}.${calendarCheck.meetingHoursAssumed ? " Meeting hours are assumed from client rules, not verified." : ""} Other calendars and non-zero interview limits were not checked.` : "Not calendar-checked: suggested interviewers are eligible choices, not confirmed available.";
       const flags = calendarCheck?.flags || option.events.map(() => []), flagged = flags.reduce((n, f) => n + f.length, 0);
       const row = await this.draft({ applicationId, timezone,
-        notes: `Full schedule option ${optionNumber} from booking review, built from ${source}. ${checked} Nothing has been booked and no invitations have been sent.`,
+        notes: `${suggestion ? `${require("./suggestion").suggestionNote(suggestion)} ` : ""}Full schedule option ${optionNumber} from booking review, built from ${source}. ${checked} Nothing has been booked and no invitations have been sent.`,
         sessions: option.events.map((e, i) => ({ title: e.title, start: e.start, end: e.end,
           interviewers: `${e.interviewer.name} (${!calendarCheck ? "suggested, not calendar-checked" : flags[i].length ? "calendar clash flagged" : "free on primary calendar"})`.slice(0, 500),
           location: attendance[i] === "video" ? "Video link required" : "Room / location to confirm" })) },
@@ -135,7 +152,8 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
           // the solver's assigned interviewer per session, by name (see
           // slack.js for why plain). Never the eligible alternatives.
           ...(calendarCheck ? { format: "calendar_checked", people: option.events.map(e => [{ name: e.interviewer.name }]), ...(flagged ? { flags } : {}), ...(linkedinUrl ? { linkedinUrl } : {}), ...(bookingPlan ? { bookingPlan } : {}) } : {}),
-          ...(availabilitySource === "ashby" && submittedAvailability ? { submittedAvailability } : {}) });
+          ...(availabilitySource === "ashby" && submittedAvailability ? { submittedAvailability } : {}),
+          ...(suggestion ? { suggestion } : {}) });
       try {
         const shared = await this.share(row.id, { revision: row.revision, digest: row.digest, channelId }, user);
         return { id: shared.id, state: shared.state, issue: shared.issue || null, channelName: name, revision: shared.revision, digest: shared.digest };
@@ -215,14 +233,7 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
     async approveInSlack({ draftId, digest: posted, channelId: clickedChannel, messageTs, approver }) {
       if (!approver?.email || !approver.slackUserId) fail(403, "Only a listed approver can approve from Slack.");
       const already = r => fail(409, `Already approved by ${r.slackApproval.name || r.slackApproval.email} at ${new Date(r.slackApproval.at).toISOString().replace("T", " ").slice(0, 16)} UTC.`);
-      let row = typeof draftId === "string" ? await store.get(draftId) : null;
-      if (!row || row.clientId !== clientId) fail(404, "This schedule's draft wasn't found.");
-      if (row.state === "discussion_approved") already(row);
-      if (row.state !== "shared" || row.plan.format !== "calendar_checked") fail(409, "This draft can't be approved from Slack.");
-      if (row.digest !== posted || digest(row.plan) !== row.digest) fail(409, "The draft changed after it was posted.");
-      const { channelId } = destination(row.plan.candidateId);
-      if (!channelId || clickedChannel !== channelId || row.slack?.channel !== channelId || row.slack?.ts !== messageTs) fail(409, "This isn't the message the draft was posted as.");
-      if (!(Date.parse(row.plan.sessions[0].start) > Date.now())) fail(409, "This schedule's start time has already passed.");
+      let row = await postedRow({ draftId, digest: posted, channelId: clickedChannel, messageTs, already, what: "approved" });
       await candidate(row.plan.applicationId);
       const at = new Date().toISOString();
       try {
@@ -234,6 +245,37 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
         if (latest?.state === "discussion_approved") already(latest);
         throw e;
       }
+    },
+    // The post a Slack suggestion button was pressed on: the same bindings
+    // as approving (postedRow), and it must carry what a rebuild needs.
+    async suggestionSource({ draftId, digest: posted, channelId: clickedChannel, messageTs }) {
+      const row = await postedRow({ draftId, digest: posted, channelId: clickedChannel, messageTs, what: "replaced",
+        already: r => fail(409, `This schedule was already approved by ${r.slackApproval.name || r.slackApproval.email}, so it can't be replaced.`) });
+      if (!row.plan.bookingPlan?.interviewScheduleId || !row.plan.submittedAvailability || row.plan.timezoneSource !== "candidate_submitted")
+        fail(409, "This post wasn't built from the candidate's submitted availability with an Ashby plan, so another option can't be suggested from Slack. Use booking review on the dashboard.");
+      return row;
+    },
+    // Withdraws a post once its replacement has been found, before that is
+    // posted: revision-checked, so a post approved meanwhile is never
+    // withdrawn (and its replacement is never posted). It becomes rejected,
+    // with `replaced`, so its buttons are refused and it never blocks a repost.
+    async withdrawForSuggestion(row, { by, kind, session = null }) {
+      const at = new Date().toISOString();
+      try {
+        return await transition(row, "rejected", { replaced: { by, kind, ...(session !== null ? { session } : {}), at },
+          audit: [...row.audit, { action: "replaced_in_slack", by, kind, at }] });
+      } catch (e) {
+        const latest = await store.get(row.id);
+        if (latest?.state === "discussion_approved") fail(409, `It was approved by ${latest.slackApproval.name || latest.slackApproval.email} while another option was being found, so it wasn't replaced.`);
+        if (latest?.replaced) fail(409, `It was already replaced (asked by ${latest.replaced.by}).`);
+        throw e;
+      }
+    },
+    // The replacement's draft ID, on the withdrawn post, once it's posted.
+    async recordReplacement(oldId, newId) {
+      const row = await store.get(oldId);
+      if (!row?.replaced) return null;
+      return transition(row, "rejected", { replaced: { ...row.replaced, withDraft: newId } }).catch(() => null);
     },
     async reject(id, input, user) {
       actor(user); const row = await current(id, input);

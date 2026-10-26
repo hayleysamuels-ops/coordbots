@@ -702,6 +702,52 @@ even if clicked.
     it when nobody is. (The Slack-approved check below takes turns with the
     dashboard's inspections; the SSH command doesn't.)
 
+## Suggest another time / Suggest different interviewer (October 26, 2026)
+
+Beside Schedule, a calendar-checked post built from the candidate's submitted
+availability (with an Ashby plan) has a **Suggest another time** button and a
+**Suggest different interviewer** menu listing each session with its
+interviewer. Same endpoint, same signature, workspace, app and channel checks,
+same approver list (`SCHEDULING_SLACK_APPROVERS`) as Schedule.
+
+- **What a press does** (`slack-interactions.js`):
+  1. The post must still be open, unchanged, and the very message it was
+     posted as (`service.postedRow`, shared with approval). A thread reply says
+     who asked and that the post stays open meanwhile.
+  2. The option is rebuilt exactly as booking review's Post does
+     (`booking-routes.js`, `router.suggestAgain` and `postOption`): the current
+     Ashby plan, the candidate's current submission, Google free/busy, the
+     client rules, steered away from what was proposed. Only an option with
+     **no calendar flags** is taken.
+  3. Only once one is found is the old post withdrawn
+     (`service.withdrawForSuggestion`): revision-checked, so a post approved
+     while the search ran is left alone and the replacement is never posted.
+     It becomes `rejected` with `replaced` (who, what, when, and the new draft),
+     its message shows "*Replaced* … Nothing from this message was booked or
+     sent" with no buttons, and its Schedule button is refused ("replaced by
+     another suggestion … use the newer post").
+  4. The new option is posted to the channel like any post (and marked to
+     send if every Send lock is open), its notes saying who suggested what.
+- **No clean option:** nothing changes and the thread says why: no one else
+  eligible for that session (said before any calendar is read), no agenda
+  fits, or every other option has calendar clashes (those can still be posted
+  by hand from booking review).
+- **The steer** (`suggestion.js`, kept in the new post's plan under the digest):
+  every start turned down (`avoidStarts`) and every person left out of a
+  session (`excludeInterviewers`, by session place and Ashby user ID). Each
+  request adds to the ones before, so asking again never brings back an option
+  already turned down. It resets when the candidate has resubmitted since.
+  - "Another time" means not the same candidate-local day within an hour of a
+    start turned down (`option-variety.js awayFromStarts`); unlike the
+    options' own variety rule, a different panel at the same time doesn't
+    count. The solver keeps searching past turned-down starts
+    (`full-calendar-schedule.js avoidStarts`).
+  - "Different interviewer" leaves that person out of that session only
+    (`calendar-inputs.js excludeInterviewers`); they stay eligible elsewhere.
+- **Not shown** on posts from typed-in times or without an Ashby plan: there's
+  nothing to rebuild from. A second press on the same post while a search
+  runs is ignored.
+
 ## The Ashby check after a Slack approval (October 14, 2026)
 
 Approving a calendar-checked post with Slack's Schedule button now has the worker

@@ -15,6 +15,14 @@ function different(a, b, timezone) {
 // True when `option` differs from every option already accepted.
 const distinctFrom = (accepted, option, timezone) => accepted.every(a => different(a, option, timezone));
 
+// "Suggest another time" (Slack): true when `start` is on a different
+// candidate-local day from each avoided start, or an hour or more from it.
+// Unlike distinctFrom, a different panel at the same time doesn't count.
+const awayFromStarts = (start, avoided, timezone) => avoided.every(a => {
+  const sa = Date.parse(a), sb = Date.parse(start);
+  return dayIn(sa, timezone) !== dayIn(sb, timezone) || Math.abs(sa - sb) >= HOUR;
+});
+
 // Start windows (scheduling-rules sessions.placementWindows): true when the
 // session may start at `start`. Shared by both previews.
 function withinStartWindows(session, start) {
@@ -25,4 +33,4 @@ function withinStartWindows(session, start) {
   });
 }
 
-module.exports = { distinctFrom, withinStartWindows };
+module.exports = { distinctFrom, awayFromStarts, withinStartWindows };

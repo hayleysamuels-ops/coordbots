@@ -215,3 +215,14 @@ test("a debrief in the plan is never proposed with the onsite agenda; it's liste
   assert.ok(result.proposals.length > 0);
   assert.ok(result.proposals.every(p => p.events.every(e => e.title !== "Debrief")));
 });
+
+test("Slack's different interviewer: left out of that session only; a session with no one else says so before reading calendars", async () => {
+  const { facts, freeBusy, calls } = sources();
+  const inputs = await buildCalendarInputs({ plan, windows, timezone, rules: rulesDoc(), facts, freeBusy, excludeInterviewers: [{ session: 0, userId: TOM.userId, name: "Tom Reyes" }] });
+  assert.deepEqual(inputs.sessions.map(s => s.eligibleInterviewers.map(p => p.name)), [["Ana Silva"], ["Tom Reyes"]]);
+  calls.freeBusy.length = 0;
+  const none = await buildCalendarInputs({ plan, windows, timezone, rules: rulesDoc(), facts, freeBusy, excludeInterviewers: [{ session: 1, userId: TOM.userId, name: "Tom Reyes" }] });
+  assert.equal(none.noOtherInterviewer, true);
+  assert.equal(none.blocked, 'No one other than Tom Reyes is eligible for session 2 ("Fixed").');
+  assert.equal(calls.freeBusy.length, 0);
+});

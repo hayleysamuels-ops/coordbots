@@ -86,7 +86,9 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
   // A deferred debrief is never proposed with the onsite agenda: it's left out
   // here and listed with the result, to be scheduled once the onsite is confirmed.
   const agendaSessions=plan=>({plan:{...plan,sessions:plan.sessions.filter(s=>!s.isDebrief)},deferred:plan.sessions.filter(s=>s.isDebrief).map(s=>s.title)});
-  async function suggestFull(req){
+  // `steer` (Slack's suggestion buttons only): avoidStarts and
+  // excludeInterviewers for the calendar-checked solver.
+  async function suggestFull(req,steer={}){
     const loaded=await fullPlan(req),{plan,deferred}=agendaSessions(loaded);
     if(!plan.sessions.length)throw Object.assign(Error('Every session in this plan is a debrief, which is scheduled only once the onsite is confirmed.'),{status:409});
     let windows=req.body.windows,timezone=req.body.timezone,unreadWeeks=[],submission=null;
@@ -95,7 +97,7 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
       if(submission.stageId!==plan.stageId)throw Object.assign(Error('The candidate stage changed. Reload the plan.'),{status:409});
       windows=submission.localWindows;timezone=submission.timezone;unreadWeeks=submission.unreadWeeks||[];
     }else if(req.body.availabilitySource!=='manual')throw Object.assign(Error('Choose an availability source.'),{status:422});
-    const result=req.body.calendarCheck===true?await calendarChecked(plan,windows,timezone):unchecked(plan,windows,timezone);
+    const result=req.body.calendarCheck===true?await calendarChecked(plan,windows,timezone,steer):unchecked(plan,windows,timezone);
     return {plan,submission,result:{...result,proposals:result.proposals.map(p=>({...p,optionDigest:optionDigest(p)})),candidateName:plan.candidateName,checkedAt:plan.checkedAt,unreadWeeks,debriefsDeferred:deferred}};
   }
   // Without calendar checks: back-to-back agendas with this client's start
@@ -110,20 +112,20 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
   // Calendar-constrained options: interviewers' primary Google calendars as a
   // hard constraint, meeting hours assumed from client rules, zero limits
   // excluded (calendar-inputs.js). Anyone excluded is listed with the result.
-  async function calendarChecked(plan,windows,timezone){
+  async function calendarChecked(plan,windows,timezone,{avoidStarts=[],excludeInterviewers=[]}={}){
     if(!googleCalendar?.status().connected||!googleFreeBusy)throw Object.assign(Error('Connect read-only Google Calendar availability first.'),{status:409});
     if(!rules)throw Object.assign(Error('Scheduling rules are not loaded.'),{status:503});
-    const inputs=await require('./calendar-inputs').buildCalendarInputs({plan,windows,timezone,rules:rules.get(),facts,freeBusy:googleFreeBusy});
+    const inputs=await require('./calendar-inputs').buildCalendarInputs({plan,windows,timezone,rules:rules.get(),facts,freeBusy:googleFreeBusy,excludeInterviewers});
     const startWindowsApplied=(inputs.sessions||[]).flatMap(s=>(s.placementWindows||[]).map(w=>({title:s.title,earliestStart:w.earliestStart,latestStart:w.latestStart,timezone:w.timezone})));
     const context={calendarCheck:{excluded:inputs.excluded,meetingHours:inputs.meetingHours,limitsPolicy:inputs.limitsPolicy,busySource:inputs.busySource,rulesRevision:inputs.rulesRevision,startWindowsApplied}};
-    if(inputs.blocked){const totalMinutes=plan.sessions.reduce((n,s)=>n+s.durationMinutes,0);return {status:'no_calendar_fit',bookingEnabled:false,availabilityVerified:false,meetingHoursAssumed:true,totalMinutes,timezone,proposals:[],reason:inputs.blocked,...context};}
+    if(inputs.blocked){const totalMinutes=plan.sessions.reduce((n,s)=>n+s.durationMinutes,0);return {status:inputs.noOtherInterviewer?'no_other_interviewer':'no_calendar_fit',bookingEnabled:false,availabilityVerified:false,meetingHoursAssumed:true,totalMinutes,timezone,proposals:[],reason:inputs.blocked,...context};}
     // Hard rule: Welcome opens the day. Sessions are never reordered, so a
     // template with Welcome elsewhere is refused rather than rearranged.
     const welcome=plan.sessions.findIndex(s=>/^welcome\b/i.test(String(s.title||'').trim()));
     if(welcome>0)throw Object.assign(Error(`The template has "${plan.sessions[welcome].title}" as session ${welcome+1}, but Welcome must come first. Move it to the start of the template in Ashby, then load the plan again.`),{status:409});
     // Advisory: busy time and meeting hours are flagged, not enforced; the
     // candidate's availability, start windows and breaks stay hard.
-    const result=require('./full-calendar-schedule').proposeCalendarSchedule({sessions:inputs.sessions,windows,timezone,calendars:inputs.calendars,...inputs.agenda,advisory:true});
+    const result=require('./full-calendar-schedule').proposeCalendarSchedule({sessions:inputs.sessions,windows,timezone,calendars:inputs.calendars,...inputs.agenda,advisory:true,avoidStarts});
     // One line per no-fit, reason counts only (no names): the running evidence
     // for how often busy time, rather than hours or limits, is what binds.
     if(result.diagnosis){const d=result.diagnosis,c=d.conflicts;console.log(`[calendar-check] no fit: placed ${d.furthest.placed}/${d.furthest.of}; unblock=${d.unblock.map(u=>u.kind==='combination'?u.changes.map(x=>x.kind).join('+'):u.kind==='hours'?`hours-${u.changes[0].hoursSource}`:u.kind==='placement'?`placement-breaks${u.changes[0].currentBreaks.count}x${u.changes[0].currentBreaks.maxMinutes}-fits${u.changes[0].fitsWithBreaks?`${u.changes[0].fitsWithBreaks.count}x${u.changes[0].fitsWithBreaks.maxMinutes}`:'none'}`:u.kind).join(',')||'none'}; rejected busy=${c.busy} hours-default=${c.hours.default} hours-override=${c.hours.override} hours-verified=${c.hours.verified} limits=${c.limits} placement=${c.placement}`);}
@@ -137,8 +139,17 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     if(!discussion)throw Object.assign(Error('Slack discussion posting is not connected.'),{status:503});
     const index=req.body.optionIndex;
     if(!Number.isInteger(index)||index<0||typeof req.body.optionDigest!=='string')throw Object.assign(Error('Choose a schedule option.'),{status:422});
-    const {plan,result,submission}=await suggestFull(req),option=result.proposals[index];
+    const found=await suggestFull(req),option=found.result.proposals[index];
     if(!option||option.optionDigest!==req.body.optionDigest)throw Object.assign(Error('The schedule options changed. Suggest the full schedule again.'),{status:409});
+    return postOption({...found,index,availabilitySource:req.body.availabilitySource,user:req.schedulingUser});
+  }));
+  // Posts option `index` of a rebuilt result (suggestFull), as `user`. Shared
+  // by the dashboard's Post button and Slack's suggestion buttons.
+  // `suggestion` (Slack only) records what the post replaced and why.
+  async function postOption({plan,result,submission,index,availabilitySource,user,suggestion=null}){
+    if(!discussion)throw Object.assign(Error('Slack discussion posting is not connected.'),{status:503});
+    const option=result.proposals[index];
+    if(!option)throw Object.assign(Error('There is no such schedule option.'),{status:409});
     const {optionDigest:ref,...chosen}=option;
     // Attendance comes from this client's rules; names are resolved to Ashby
     // emails only when the rules list overrides (rules.js).
@@ -157,12 +168,24 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
       else console.log(`[ashby-check] Approving this post won't send: ${st?.reason||'the worker didn\'t say'}`);
     }
     return discussion.postScheduleOption({bookingPlan:composed.plan,applicationId:plan.applicationId,candidateId:plan.candidateId,timezone:result.timezone,option:chosen,optionNumber:index+1,linkedinUrl,
-      sourceRef:`full-schedule:${plan.scheduleId}:${ref}`,availabilitySource:req.body.availabilitySource,attendance,
+      sourceRef:`full-schedule:${plan.scheduleId}:${ref}`,availabilitySource,attendance,
+      ...(suggestion?{suggestion}:{}),
       // The candidate's submission this option was built from, kept in the
       // plan (so the approval's digest covers it) for the check at approval.
       submittedAvailability:submission?require('./availability-gate').postedAvailability(submission):null,rulesRevision:clientRules.rulesRevision,
-      calendarCheck:['calendar_checked','needs_attention'].includes(result.status)?{checkedAt:result.calendarCheckedAt,meetingHoursAssumed:result.meetingHoursAssumed===true,flags:chosen.events.map(e=>e.flags||[])}:null},req.schedulingUser);
-  }));
+      calendarCheck:['calendar_checked','needs_attention'].includes(result.status)?{checkedAt:result.calendarCheckedAt,meetingHoursAssumed:result.meetingHoursAssumed===true,flags:chosen.events.map(e=>e.flags||[])}:null},user);
+  }
+  // Slack's "Suggest another time" / "Suggest different interviewer"
+  // (slack-interactions.js): the same server-side rebuild as posting, from the
+  // candidate's submitted availability and calendar-checked, steered away from
+  // what was already proposed. find() reads Ashby and the calendars and posts
+  // nothing; the option it picks is the first with no calendar flags (index
+  // -1 when there's none), and post() posts exactly that one.
+  router.suggestAgain=async({applicationId,scheduleId,steer})=>{
+    const found=await suggestFull({body:{applicationId,scheduleId,availabilitySource:'ashby',calendarCheck:true}},steer);
+    const index=found.result.proposals.findIndex(p=>!(p.flagCount>0));
+    return {...found,index,post:(user,suggestion)=>postOption({...found,index,availabilitySource:'ashby',user,suggestion})};
+  };
   // "Check Slack" on the booking page: settle a post Slack didn't confirm
   // (service.reconcileSlack). Here because the booking page signs coordinators
   // in for these routes; the Scheduling tab calls the same service directly.

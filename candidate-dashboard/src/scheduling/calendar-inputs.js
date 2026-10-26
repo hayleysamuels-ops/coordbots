@@ -14,7 +14,11 @@ const { unreadableError } = require("./google-freebusy");
 
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 
-async function buildCalendarInputs({ plan, windows, timezone, rules, facts, freeBusy, now = Date.now() }) {
+// excludeInterviewers ([{ session, userId, name }], from Slack's "Suggest
+// different interviewer"): that person is left out of that session only
+// (session is its 0-based place in the plan). A session left with no one says
+// so by name, before any calendar is read.
+async function buildCalendarInputs({ plan, windows, timezone, rules, facts, freeBusy, now = Date.now(), excludeInterviewers = [] }) {
   if (rules.busy.source !== "google_freebusy" || rules.busy.calendars.length !== 1 || rules.busy.calendars[0] !== "primary") fail(503, "Calendar checks need busy.source google_freebusy with the primary calendar only.");
   if (rules.limitsPolicy === "enforce") fail(503, "Enforced interview limits need interview counts, which aren't built. Use zero_only.");
   if (!facts?.resolveInterviewers || !freeBusy) fail(503, "Calendar checks aren't connected.");
@@ -34,9 +38,17 @@ async function buildCalendarInputs({ plan, windows, timezone, rules, facts, free
     usable.set(person.userId, { person, hours, source, intervals: hoursIntervals(hours, rangeStart, rangeEnd) });
     hoursUsed.push({ name: person.name, email: person.email, source, timezone: hours.timezone, days: hours.days, start: hours.start, end: hours.end });
   }
-  const sessions = resolved.sessions.map(s => {
+  const steered = (i, userId) => excludeInterviewers.some(x => x.session === i && x.userId === userId);
+  const noOneElse = resolved.sessions.map((s, i) => ({ s, i, left: s.eligibleInterviewers.filter(p => usable.has(p.userId)) }))
+    .find(({ i, left }) => left.length && left.every(p => steered(i, p.userId)));
+  if (noOneElse) {
+    const names = excludeInterviewers.filter(x => x.session === noOneElse.i).map(x => x.name || "the interviewer asked about").join(" or ");
+    return { excluded, meetingHours: hoursUsed, limitsPolicy: rules.limitsPolicy, rulesRevision: rules.rulesRevision, busySource: "Google free/busy, primary calendars",
+      blocked: `No one other than ${names} is eligible for session ${noOneElse.i + 1} ("${noOneElse.s.title}").`, noOtherInterviewer: true };
+  }
+  const sessions = resolved.sessions.map((s, i) => {
     const placementWindows = rules.placementFor(s.title);
-    const eligibleInterviewers = s.eligibleInterviewers.filter(p => usable.has(p.userId));
+    const eligibleInterviewers = s.eligibleInterviewers.filter(p => usable.has(p.userId) && !steered(i, p.userId));
     // Preferred hosts by email, in order, kept only if eligible and usable.
     const preferredUserIds = (rules.preferredFor ? rules.preferredFor(s.title) : []).map(email => eligibleInterviewers.find(p => p.email === email)?.userId).filter(Boolean);
     return { ...s, eligibleInterviewers, ...(placementWindows.length ? { placementWindows } : {}), ...(preferredUserIds.length ? { preferredUserIds } : {}) };
