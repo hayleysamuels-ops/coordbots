@@ -265,9 +265,12 @@ colour. Railway variables are not parsed by dotenv, so no quotes there.
    `EXCLUDED_TITLE_KEYWORDS_<ID>`.
 3. Redeploy, then `POST /api/sync?kind=full` to backfill the new tab.
 
-Configured today: January, Forus, Luminai, Poetic, Runlayer and Profound
-(ended). Polymarket, OpenAI Foundation, Source Foundry and Modal have no
-key provisioned yet.
+Configured today: January, Forus, Luminai, Poetic and Runlayer.
+Profound was removed on 26 October 2026 — its engagement had ended. Its
+Ashby key and per-client settings are still in Railway and its rows are
+still on the volume, so re-adding it means putting `profound` back in
+`CLIENTS`; nothing else was deleted. Polymarket, OpenAI Foundation,
+Source Foundry and Modal have no key provisioned yet.
 
 **When one of those four is onboarded, add Sadiqeh Agah back to the
 roster.** She was removed because she matched no scheduled work at any

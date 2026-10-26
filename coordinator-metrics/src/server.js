@@ -46,11 +46,10 @@ function createServer() {
       // drift out of sync with it.
       periods: metrics.PERIODS.map((p) => ({ key: p.key, label: p.label, description: p.description })),
       defaultPeriod: metrics.DEFAULT_PERIOD,
-      scopes: [
-        { key: "coordinated", label: "Carrara-coordinated" },
-        { key: "all", label: "All activity" },
-      ],
-      defaultScope: "coordinated",
+      // Same single source as the periods above: public/app.js builds
+      // its scope control from this rather than a hardcoded copy.
+      scopes: metrics.SCOPES.map((s) => ({ key: s.key, label: s.label, description: s.description })),
+      defaultScope: metrics.DEFAULT_SCOPE,
       shortNoticeHours: config.shortNoticeHours,
       businessHours: { start: config.businessHourStart, end: config.businessHourEnd },
       clients: config.clients.map((c) => ({

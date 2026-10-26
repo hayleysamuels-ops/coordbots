@@ -143,7 +143,7 @@ function weekDelta(current, previous) {
  * green/amber decision is made from `direction` rather than from the
  * sign of the change.
  */
-function resultTile(label, { value, unit = "", prior, direction = "lower", suppressed, note, sub, baseline, hero }) {
+function resultTile(label, { value, unit = "", prior, direction = "lower", suppressed, note, sub, baseline, hero, count }) {
   const shown = value == null ? "—" : `${num(value)}${unit}`;
 
   let delta = null;
@@ -162,7 +162,15 @@ function resultTile(label, { value, unit = "", prior, direction = "lower", suppr
   }
 
   return el("div", { class: `stat${hero ? " hero" : ""}` }, [
-    el("div", { class: "stat-number" }, [shown, delta]),
+    el("div", { class: "stat-number" }, [
+      shown,
+      // The whole number beside the percentage, not buried in the grey
+      // line under it. Two short-notice bookings out of 40 and fifteen
+      // out of 900 are different problems, and the percentage alone
+      // makes the small client look like the worse one.
+      count != null ? el("span", { class: "stat-count", text: num(count) }) : null,
+      delta,
+    ]),
     el("div", { class: "stat-label", text: label }),
     sub ? el("div", { class: "stat-sub", text: sub }) : null,
     baseline ? el("div", { class: "stat-sub", text: "12-month baseline — no target set" }) : null,
@@ -524,6 +532,7 @@ function resultsGroup(payload, label) {
         hero: true,
         value: c.shortNotice.share,
         unit: "%",
+        count: c.shortNotice.count,
         prior: d("shortNotice", "share"),
         suppressed, baseline,
         sub: `${num(c.shortNotice.count)} of ${num(c.shortNotice.sample)} confirmed under ${state.config.shortNoticeHours}h before start`,
@@ -532,6 +541,7 @@ function resultsGroup(payload, label) {
       resultTile("Cancelled, never rebooked", {
         value: c.cancellationWithoutRebook.share,
         unit: "%",
+        count: c.cancellationWithoutRebook.count,
         prior: d("cancellationWithoutRebook", "share"),
         suppressed, baseline,
         sub: `${num(c.cancellationWithoutRebook.count)} of ${num(c.cancellationWithoutRebook.sample)} settled cancellations`,
@@ -540,6 +550,7 @@ function resultsGroup(payload, label) {
       resultTile("Reschedule rate", {
         value: c.rescheduleRate.share,
         unit: "%",
+        count: c.rescheduleRate.count,
         prior: d("rescheduleRate", "share"),
         suppressed, baseline,
         sub: `${num(c.rescheduleRate.count)} of ${num(c.rescheduleRate.sample)} rounds moved at least once`,
@@ -646,6 +657,125 @@ function trackRail(root) {
   sections.forEach((s) => observer.observe(s));
 }
 
+/**
+ * Our work beside the client's own, at the same client.
+ *
+ * Asked for so a difference in how the two run is visible rather than
+ * inferred from a share. It compares only WITHIN one client, so the
+ * objection that sank cross-client Results comparisons — different
+ * interview mix, different stage design — does not apply in the same
+ * way. It is still not a controlled comparison, and the panel says so:
+ * the roles each side covers are usually different, and the side with
+ * the harder reqs is not the side with the worse process.
+ *
+ * Rendered only when BOTH sides clear a floor. Below it, one late
+ * booking moves a rate by tens of points and the panel invents a
+ * finding out of a rounding artefact.
+ */
+const COMPARE_MIN_SAMPLE = 25;
+
+function versusPanel(fullPayload, label) {
+  const ours = fullPayload.scopes.coordinated;
+  const theirs = fullPayload.scopes.notCoordinated;
+  if (!ours || !theirs) return null;
+
+  const oursResults = ours.results[state.period];
+  const theirsResults = theirs.results[state.period];
+  if (!oursResults || !theirsResults) return null;
+
+  // The panel as a whole still needs something on both sides; the rows
+  // then gate themselves individually.
+  // Period-scoped, like every row below. Reading totals here left the
+  // volume row frozen at the 12-month figure while the rates beneath it
+  // moved with the toggle — two different periods in one panel.
+  const oursEvents = ours.periods[state.period].current.events;
+  const theirsEvents = theirs.periods[state.period].current.events;
+
+  if (oursEvents < COMPARE_MIN_SAMPLE || theirsEvents < COMPARE_MIN_SAMPLE) {
+    return el("div", { class: "empty" }, [
+      `Not enough on both sides to compare over the ${label}: ` +
+        `${num(oursEvents)} interviews coordinated by Carrara, ` +
+        `${num(theirsEvents)} booked by the client's own team. ` +
+        `A comparison needs at least ${COMPARE_MIN_SAMPLE} each.`,
+    ]);
+  }
+
+  const a = oursResults.current;
+  const b = theirsResults.current;
+
+  // Lower is better on every row here, as it is throughout Results.
+  //
+  // Each row is gated on ITS OWN sample, not on the panel's event
+  // count. The two are very different numbers — Luminai's client-side
+  // reschedule rate rests on 105 rounds against 128 interviews, and on
+  // a 7-day period both collapse to single figures while the event
+  // count still clears the panel's floor. One late booking out of four
+  // is a 25-point swing, which is a rounding artefact wearing the
+  // clothes of a finding.
+  const rate = (label, metric, field, unit) => ({
+    label,
+    unit,
+    ours: a[metric][field],
+    theirs: b[metric][field],
+    oursSample: a[metric].sample,
+    theirsSample: b[metric].sample,
+  });
+
+  const rows = [
+    { label: "Interviews", ours: oursEvents, theirs: theirsEvents, unit: "", neutral: true },
+    rate("Booking turnaround (median)", "bookingTurnaround", "medianHours", "bh"),
+    rate("Short-notice bookings", "shortNotice", "share", "%"),
+    rate("Reschedule rate", "rescheduleRate", "share", "%"),
+    rate("Cancelled, never rebooked", "cancellationWithoutRebook", "share", "%"),
+  ];
+
+  return el("div", {}, [
+    el("div", { class: "vs-grid" }, [
+      el("div", { class: "vs-head" }, [
+        el("span", { class: "vs-row-label" }),
+        el("span", { class: "vs-ours", text: "Carrara" }),
+        el("span", { class: "vs-theirs", text: "Client's own" }),
+      ]),
+      ...rows.map((row) => {
+        const thin =
+          !row.neutral &&
+          (row.oursSample < COMPARE_MIN_SAMPLE || row.theirsSample < COMPARE_MIN_SAMPLE);
+        const both = row.ours != null && row.theirs != null;
+        // Only a rate gets a verdict, and only on a sample that can
+        // carry one. "We ran more interviews" is not better or worse,
+        // it is just more.
+        const better = both && !thin && !row.neutral && row.ours !== row.theirs ? row.ours < row.theirs : null;
+        const cell = (side, value, sample, isBetter) =>
+          el("span", { class: `vs-${side}${isBetter ? " vs-better" : ""}${thin ? " vs-thin" : ""}` },
+            thin
+              ? [el("span", { class: "vs-thin-mark", title: `only ${num(sample)} in this period`, text: "—" })]
+              : [value == null ? "—" : `${num(value)}${row.unit}`]);
+        return el("div", { class: "vs-row" }, [
+          el("span", { class: "vs-row-label" }, [
+            row.label,
+            thin ? el("span", { class: "vs-row-note", text: `too few to compare (${num(Math.min(row.oursSample, row.theirsSample))})` }) : null,
+          ]),
+          cell("ours", row.ours, row.oursSample, better === true),
+          cell("theirs", row.theirs, row.theirsSample, better === false),
+        ]);
+      }),
+    ]),
+    el("div", { class: "scope-note" }, [
+      el("p", {
+        text:
+          "Both columns are this client, over the same period. The two sides usually cover different roles, " +
+          "and the harder reqs are not evenly split between them — read a gap as somewhere to look, not as a " +
+          "result.",
+      }),
+      el("p", {
+        text:
+          "Interviews booked with no scheduler recorded in Ashby are in neither column. The data quality " +
+          "section below says how many that is.",
+      }),
+    ]),
+  ]);
+}
+
 function renderClient(fullPayload) {
   const payload = fullPayload.scopes[state.scope];
   const period = payload.periods[state.period];
@@ -667,9 +797,19 @@ function renderClient(fullPayload) {
         el("p", {
           class: "client-context",
           text:
-            `${state.scope === "coordinated" ? "Carrara-coordinated" : "All activity"} · ${label} · ` +
-            `${fullPayload.timeZone}`,
+            `${(state.config.scopes.find((sc) => sc.key === state.scope) || {}).label || state.scope} · ` +
+            `${label} · ${fullPayload.timeZone}`,
         }),
+        // Who is assigned here, stated plainly. Asked for so the tab
+        // says whose client this is without anyone opening Notion.
+        // Names only, never counts: ordered or numbered it becomes the
+        // leaderboard the roster panel is deliberately not.
+        fullPayload.roster && fullPayload.roster.configured.length
+          ? el("p", { class: "client-roster" }, [
+              el("span", { class: "client-roster-label", text: "Coordinators" }),
+              [...fullPayload.roster.configured].sort((a, b) => a.localeCompare(b)).join(" · "),
+            ])
+          : null,
       ]),
       el("div", { class: "client-controls" }, [
         scopeControl(() => render()),
@@ -717,9 +857,34 @@ function renderClient(fullPayload) {
     `Measured against ${fullPayload.clientName}'s own previous period. Colour shows better or worse, not up or down.`,
     resultsGroup(payload, label));
 
+  {
+    const vs = versusPanel(fullPayload, label);
+    if (vs) {
+      const theirs = fullPayload.scopes.notCoordinated;
+      add("versus", "Carrara vs the client's own team",
+        theirs ? num(theirs.periods[state.period].current.events) : "—",
+        `The same measures, split by who booked the interview. Both columns are ${fullPayload.clientName}.`,
+        vs,
+        "Within this client only");
+    }
+  }
+
   add("volume", "Volume", num(t.events),
     "Counts for the selected period. Meals are counted; holds are not.",
     el("div", {}, [
+      // This week against last, before the period totals. Asked for:
+      // the week-on-week move is what says whether someone is actually
+      // underwater right now, and it was previously only on the
+      // overview table. Absolute, not a percentage — on a base of two
+      // interviews a percentage swings wildly and describes nothing.
+      fullPayload.status === "ended"
+        ? null
+        : el("div", { class: "weekbar" }, [
+            el("span", { class: "weekbar-label", text: "This week" }),
+            el("span", { class: "weekbar-value", text: num(payload.periods.week.current.events) }),
+            weekDelta(payload.periods.week.current.events, payload.periods.week.previous.events),
+            el("span", { class: "weekbar-sub", text: `${num(payload.periods.week.previous.events)} last week` }),
+          ]),
       el("p", { class: "band-label", text: "Work delivered" }),
       el("div", { class: "stat-grid tight" }, [
         stat(num(period.current.events), "Interviews", { sub: `incl. ${num(t.meals)} meals` }),
@@ -1010,8 +1175,28 @@ function renderRoster(fullPayload) {
 
 function renderDataQuality(fullPayload, payload) {
   const dq = fullPayload.dataQuality;
+  const un = dq.unattributed;
+  // What the coordinated / client's-own split cannot place. Stated
+  // rather than left to a subtraction: the events figure is tiny and
+  // the schedules one is not, and a cancellation rate is drawn from
+  // schedules.
+  const unattributedNote =
+    un && un.schedulesSample
+      ? el("p", {
+          style: "margin-top:8px",
+          text:
+            `Ashby records no scheduler on ${num(un.schedules)} of this client's ${num(un.schedulesSample)} ` +
+            `schedules (${((un.schedules / un.schedulesSample) * 100).toFixed(1)}%) and ` +
+            `${num(un.events)} of ${num(un.eventsSample)} interviews ` +
+            `(${((un.events / Math.max(1, un.eventsSample)) * 100).toFixed(1)}%). Those are in neither the ` +
+            "Carrara column nor the client's own — counting them on either side would invent a finding. " +
+            "Volume is barely affected; cancellation and reschedule rates, which are drawn from schedules, " +
+            "are the figures to discount.",
+        })
+      : null;
   return el("div", { class: "notice" }, [
     el("h3", { text: "How these numbers are built" }),
+    unattributedNote,
     el("p", {
       text:
         "Ashby stores no reschedule history and no cancellation reason. Reschedules over the full 12 months are " +

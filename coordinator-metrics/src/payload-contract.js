@@ -22,6 +22,10 @@
  * `*` matches any single key, for maps keyed by period or scope.
  */
 
+// Read from metrics so a new scope is covered by the contract the
+// moment it exists, rather than when someone remembers to add it here.
+const { SCOPE_KEYS } = require("./scopes");
+
 const SCOPE_PATHS = [
   "totals.events",
   "totals.hours",
@@ -121,7 +125,7 @@ const CLIENT_PATHS = [
   "roster.reportUnmatched",
   "dataQuality.excludedTitleKeywords",
   "dataQuality.excludedJobTitles",
-  ...["all", "coordinated"].flatMap((scope) => SCOPE_PATHS.map((p) => `scopes.${scope}.${p}`)),
+  ...SCOPE_KEYS.flatMap((scope) => SCOPE_PATHS.map((p) => `scopes.${scope}.${p}`)),
 ];
 
 const OVERVIEW_SCOPE_PATHS = [
@@ -148,7 +152,7 @@ const OVERVIEW_PATHS = [
   "today",
   "currentWeek",
   "rosterUnmatchedEverywhere",
-  ...["all", "coordinated"].flatMap((scope) => OVERVIEW_SCOPE_PATHS.map((p) => `scopes.${scope}.${p}`)),
+  ...SCOPE_KEYS.flatMap((scope) => OVERVIEW_SCOPE_PATHS.map((p) => `scopes.${scope}.${p}`)),
 ];
 
 // Rows the by-client table renders; a missing key here is an empty column

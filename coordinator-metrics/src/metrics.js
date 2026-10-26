@@ -101,6 +101,8 @@ function periodDays(period) {
 const PERIOD_KEYS = PERIODS.map((p) => p.key);
 const DEFAULT_PERIOD = "full";
 
+const { SCOPES, SCOPE_KEYS, DEFAULT_SCOPE } = require("./scopes");
+
 /**
  * The window a client's figures are drawn from.
  *
@@ -256,6 +258,31 @@ function isMealTitle(title) {
 }
 
 // --- Queries ---------------------------------------------------------------
+
+/**
+ * How much scheduled work carries no scheduler at all.
+ *
+ * This is the remainder that the coordinated / client's-own split
+ * cannot place on either side, so the page states it rather than
+ * letting a subtraction quietly assign it. Events are near-perfectly
+ * attributed; schedules are not, which is why the two are counted
+ * separately — a cancellation figure is drawn from schedules and is
+ * the one a reader should discount.
+ */
+const selectUnattributed = db.prepare(`
+  SELECT
+    (SELECT COUNT(*) FROM schedules WHERE client_id = ? AND created_at >= ?) AS schedules,
+    (SELECT COUNT(*) FROM schedules
+       WHERE client_id = ? AND created_at >= ?
+         AND (scheduled_by_name IS NULL OR TRIM(scheduled_by_name) = '')) AS schedulesUnattributed,
+    (SELECT COUNT(*) FROM events e JOIN schedules s
+       ON s.client_id = e.client_id AND s.id = e.schedule_id
+       WHERE e.client_id = ? AND e.start_time >= ?) AS events,
+    (SELECT COUNT(*) FROM events e JOIN schedules s
+       ON s.client_id = e.client_id AND s.id = e.schedule_id
+       WHERE e.client_id = ? AND e.start_time >= ?
+         AND (s.scheduled_by_name IS NULL OR TRIM(s.scheduled_by_name) = '')) AS eventsUnattributed
+`);
 
 const selectEvents = db.prepare(`
   SELECT e.id, e.start_time, e.end_time, e.created_at AS event_created_at,
@@ -1291,6 +1318,11 @@ function computeClient(client) {
     scopes: {
       all: computeScope(client, () => true),
       coordinated: computeScope(client, (name) => rosterSet.has(config.normalizeName(name))),
+      // A named non-roster scheduler, never a blank one — see SCOPES.
+      notCoordinated: computeScope(client, (name) => {
+        const n = config.normalizeName(name);
+        return n !== "" && !rosterSet.has(n);
+      }),
     },
 
     /**
@@ -1316,6 +1348,16 @@ function computeClient(client) {
     roster: buildRosterReport(client),
 
     dataQuality: {
+      unattributed: (() => {
+        const since = clientWindow(client).from;
+        const r = selectUnattributed.get(client.id, since, client.id, since, client.id, since, client.id, since);
+        return {
+          events: Number(r.eventsUnattributed),
+          eventsSample: Number(r.events),
+          schedules: Number(r.schedulesUnattributed),
+          schedulesSample: Number(r.schedules),
+        };
+      })(),
       rescheduleTrackingSince: store.rescheduleTrackingSince(client.id),
       excludedTitleKeywords: client.excludedTitleKeywords,
       excludedJobTitles: client.excludedJobTitles,
@@ -1556,10 +1598,7 @@ function rebuild() {
     timeZone: config.overviewTimeZone,
     today: localBuckets(now, config.overviewTimeZone).day,
     currentWeek: localBuckets(now, config.overviewTimeZone).week,
-    scopes: {
-      all: computeOverview(payloads, "all"),
-      coordinated: computeOverview(payloads, "coordinated"),
-    },
+    scopes: Object.fromEntries(SCOPE_KEYS.map((key) => [key, computeOverview(payloads, key)])),
     // Rostered names that matched nothing at any client they are
     // rostered FOR.
     //
@@ -1600,4 +1639,7 @@ module.exports = {
   PERIODS,
   PERIOD_KEYS,
   DEFAULT_PERIOD,
+  SCOPES,
+  SCOPE_KEYS,
+  DEFAULT_SCOPE,
 };

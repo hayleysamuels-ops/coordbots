@@ -37,6 +37,12 @@ is the short list of things that look wrong and are not.
   the overview's `totals` and `periods.full` legitimately differ once an
   ended client exists, unlike a client payload where they must be equal.
 
+- **The ended-engagement machinery is live but currently unused.**
+  Profound was removed from `CLIENTS` on 26 October 2026; no configured
+  client is `ended` today. The code and its tests stay — the next
+  finished engagement needs them, and the rules below are why they work
+  the way they do.
+
 - **An ended engagement reads its own fixed date range, not the rolling
   12 months.** A rolling window would silently erase finished work as it
   aged out — Profound's ends August 2026, so by September 2027 none of it
@@ -45,13 +51,30 @@ is the short list of things that look wrong and are not.
   event there was months ago, while Profound's own team still runs ~1,300
   interviews a month that must never leak into the all-activity figures.
 
-- **The payload is split into `scopes.all` and `scopes.coordinated`**,
-  with client-level fields (name, timezone, today, roster, dataQuality)
-  hoisted above them. Coordinated counts only schedules created by a
-  rostered Carrara coordinator. It is a TOGGLE, not a replacement: "we
-  coordinated 10,689 of the 31,989 interviews that ran" is a stronger
-  claim than 10,689 alone, and a roster gap is then visible rather than
-  looking like low output.
+- **There are THREE scopes, defined once in `src/scopes.js`:
+  `coordinated`, `notCoordinated` and `all`.** Client-level fields
+  (name, timezone, today, roster, dataQuality) are hoisted above them.
+  Coordinated counts schedules created by a rostered Carrara
+  coordinator. It is a TOGGLE, not a replacement: "we coordinated
+  10,689 of the 31,989 interviews that ran" is a stronger claim than
+  10,689 alone, and a roster gap is then visible rather than looking
+  like low output.
+
+  `notCoordinated` is **not** `all` minus `coordinated`. It counts work
+  booked by a NAMED person who is not on the roster. Schedules with no
+  scheduler at all are in neither side — 3.7% of January's, 33% of
+  Luminai's — because putting them on the client's side invents a
+  finding and putting them on ours flatters one. Events are different:
+  99.9%+ carry a scheduler, so the volume comparison is effectively
+  complete while the cancellation one is not. The remainder is printed
+  in the data-quality section, not left to a subtraction.
+
+  The list lives in its own tiny file rather than in `metrics.js`
+  because `payload-contract.js` reads it, and the contract is loaded by
+  `scripts/smoke.js`, which runs in CI against a URL and must not open
+  the database. It used to be a literal `["all", "coordinated"]` in
+  five places; adding a third to some and not the others is exactly the
+  drift that took the dashboard down over the period list.
 
 - **The roster matches on NAME, exactly, and never on substring.**
   `user.list` is incomplete so ids can't be the key, but the name is on
@@ -317,6 +340,21 @@ is the short list of things that look wrong and are not.
   rest of the page covers is stated once, in the head. If the toggle
   should ever drive the tiles, `computeOverview` has to produce
   candidates/roles/interviewerSlots per period first.
+
+- **The Carrara-vs-client panel gates every row on ITS OWN sample, not
+  on the panel's event count.** The two are very different numbers:
+  Luminai's client-side reschedule rate rests on 105 rounds against 128
+  interviews, and over 7 days both collapse to single figures while the
+  event count still clears the panel floor. One late booking out of
+  four is a 25-point swing wearing the clothes of a finding. Below
+  `COMPARE_MIN_SAMPLE` a row prints "too few to compare" with the
+  count, and no row gets a better/worse verdict it cannot carry.
+
+  Expect it to cut against us sometimes, and do not "fix" that. At
+  Luminai the client's own team books faster (5bh against 11bh) and
+  reschedules less — on a tenth of the volume and a different slice of
+  roles. The panel is a place to look, not a scoreboard, and the note
+  under it says so.
 
 - **The roster panel is a MATCH CHECK, collapsed and alphabetical.** It
   confirms each rostered name resolves to real scheduled work — that is

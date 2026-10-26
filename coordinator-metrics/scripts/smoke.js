@@ -30,6 +30,7 @@ const {
   missingPaths,
   resolve,
 } = require("../src/payload-contract");
+const { SCOPE_KEYS } = require("../src/scopes");
 
 const BASE = ((process.env.SMOKE_URL || "").trim() || "https://coordinator-metrics-production.up.railway.app").replace(/\/+$/, "");
 const USER = process.env.SMOKE_USER || process.env.DASHBOARD_USER || "";
@@ -200,11 +201,21 @@ function braceDepth(css) {
       "payload.periods[state.period] is undefined on first paint"
     );
 
-    for (const scope of ["all", "coordinated"]) {
+    for (const scope of SCOPE_KEYS) {
       const events = resolve(overview, `scopes.${scope}.totals.events`);
       const hours = resolve(overview, `scopes.${scope}.totals.hours`);
-      check(`overview ${scope}: headline interviews is a non-zero number (${events})`, Number.isFinite(events) && events > 0);
-      check(`overview ${scope}: headline hours is a non-zero number (${hours})`, Number.isFinite(hours) && hours > 0);
+      // Every scope must RESOLVE; only the two that cannot legitimately
+      // be empty must be non-zero. A client we schedule end to end has
+      // no "client's own" work, and a smoke test that fails on that
+      // would be crying wolf within a week.
+      check(`overview ${scope}: headline interviews resolves (${events})`, Number.isFinite(events));
+      check(`overview ${scope}: headline hours resolves (${hours})`, Number.isFinite(hours));
+      if (scope !== "notCoordinated") {
+        check(`overview ${scope}: headline interviews is non-zero (${events})`, events > 0);
+        check(`overview ${scope}: headline hours is non-zero (${hours})`, hours > 0);
+      } else if (!(events > 0)) {
+        notes.push("overview notCoordinated is 0 — every configured client is scheduled entirely by Carrara");
+      }
       const byClient = resolve(overview, `scopes.${scope}.byClient`) || [];
       check(`overview ${scope}: by-client table has a row per client`, byClient.length === clients.length);
       const badRow = byClient.find((row) => BY_CLIENT_ROW_KEYS.some((k) => row[k] === undefined));

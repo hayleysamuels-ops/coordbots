@@ -1099,3 +1099,118 @@ details.data-quality .notice { margin-top: 12px; border-left-color: var(--border
   .rail { position: static; border-right: 0; border-bottom: 1px solid var(--gridline); padding: 0 0 12px; }
   .heat-wrap { grid-template-columns: 1fr; }
 }
+
+/* --- Assigned coordinators, the versus panel, the week bar --- */
+
+.client-roster {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 6px 0 0;
+}
+
+.client-roster-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-right: 8px;
+}
+
+/* The whole number beside the percentage, not under it. */
+.stat-count {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-left: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-count::before { content: "· "; color: var(--text-muted); }
+
+/* Capped rather than full-width: stretched across the page the two
+   value columns ended up 840px from the label they belong to, which is
+   the one thing a side-by-side is supposed to avoid. */
+.vs-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 320px) 110px 110px;
+  gap: 0 24px;
+  align-items: center;
+  max-width: 620px;
+}
+
+.vs-head {
+  display: contents;
+}
+
+.vs-head span {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+}
+
+.vs-head .vs-row-label { text-align: left; }
+
+.vs-row { display: contents; }
+
+.vs-row > span {
+  padding: 11px 0;
+  border-bottom: 1px solid var(--gridline);
+}
+
+.vs-row-label { font-size: 13px; color: var(--text-secondary); }
+
+.vs-ours,
+.vs-theirs {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  min-width: 86px;
+}
+
+/* Marks the better of the two, on rows where better means anything. */
+.vs-better { color: var(--good); font-weight: 600; }
+
+.weekbar {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.weekbar-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.weekbar-value {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.weekbar-sub { font-size: 12px; color: var(--text-muted); margin-left: auto; }
+
+.vs-thin { color: var(--text-muted); }
+
+.vs-row-note {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}

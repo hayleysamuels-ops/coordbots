@@ -569,6 +569,69 @@ test("the coordinated scope counts only rostered schedulers, and matching is exa
   );
 });
 
+test("the client's-own scope counts named non-roster schedulers, and never the unattributed", () => {
+  const R = {
+    ...CLIENT,
+    id: "vs",
+    excludedTitleKeywords: [],
+    excludedJobTitles: [],
+    coordinators: ["Anna Jones"],
+  };
+
+  store.writeReference(R.id, {
+    interviews: [{ id: "i1", title: "Interview", isDebrief: false }],
+    jobs: [{ id: "j1", title: "Engineer", status: "Open" }],
+    departments: [],
+    stages: [],
+  });
+  store.writeApplicationPage(R.id, [
+    { id: "a1", candidate: { id: "c1", name: "X" }, job: { id: "j1" }, status: "Active",
+      createdAt: iso(-60), updatedAt: iso(-1), hiringTeam: [] },
+  ]);
+
+  // `scheduledBy: null` is the case that matters. Ashby leaves the
+  // scheduler off a real share of schedules, and whichever side of the
+  // comparison absorbs those is the side that gets a finding invented
+  // for it.
+  const mk = (id, who) => ({
+    id: `s-${id}`, status: "Complete", applicationId: "a1", interviewStageId: "st",
+    createdAt: iso(-4), updatedAt: iso(-3),
+    scheduledBy: who
+      ? { id: `u-${id}`, firstName: who.split(" ")[0], lastName: who.split(" ")[1], email: `${id}@x.com` }
+      : null,
+    interviewEvents: [{
+      id, interviewId: "i1", interviewScheduleId: `s-${id}`, interviewerUserIds: ["u1"],
+      createdAt: iso(-4), updatedAt: iso(-3), startTime: iso(-3, 15), endTime: iso(-3, 16),
+      hasSubmittedFeedback: true,
+    }],
+  });
+
+  store.writeSchedulePage(R.id, [
+    mk("ev-ours", "Anna Jones"),
+    mk("ev-theirs-1", "Client Person"),
+    mk("ev-theirs-2", "Another Client Person"),
+    mk("ev-nobody", null),
+  ], new Date().toISOString());
+
+  const payload = computeFull(R);
+  assert.strictEqual(payload.scopes.all.totals.events, 4, "all activity sees everything");
+  assert.strictEqual(payload.scopes.coordinated.totals.events, 1);
+  assert.strictEqual(
+    payload.scopes.notCoordinated.totals.events,
+    2,
+    "two named non-roster schedulers — the unattributed one belongs to neither side"
+  );
+  assert.strictEqual(
+    payload.scopes.coordinated.totals.events + payload.scopes.notCoordinated.totals.events,
+    payload.scopes.all.totals.events - 1,
+    "the two sides deliberately do NOT sum to the total; the remainder is the unattributed work"
+  );
+
+  // And the remainder is reported rather than left to a subtraction.
+  assert.strictEqual(payload.dataQuality.unattributed.events, 1);
+  assert.strictEqual(payload.dataQuality.unattributed.eventsSample, 4);
+});
+
 test("a rostered name matching nothing is reported, never silently zero", () => {
   const payload = computeFull({
     ...CLIENT, id: "roster", excludedTitleKeywords: [], excludedJobTitles: [],
