@@ -84,8 +84,9 @@ function detailLine(e){
   const field=f=>f?`${f.value}${f.typed?'':' (already set)'}`:'?';
   switch(e.type){
     case 'typed':return `session ${e.session} ("${short(e.title)}") entered: ${field(e.date)}, ${field(e.start)} – ${field(e.end)} ${e.zone}; approved ${e.approved}`;
-    case 'save-checked':return `save ${e.seq} passed the content check: ${e.events.join('; ')}`;
-    case 'refused-save':return `save ${e.seq} REFUSED by the content check: ${short(e.reason)}`;
+    case 'save-checked':return `save ${e.seq} passed the content check: ${e.events.join('; ')}${e.slots?`; slots before: ${e.slots.before}; after: ${e.slots.after}`:''}`;
+    case 'refused-save':return `save ${e.seq} REFUSED by the content check: ${short(e.reason)}${e.slots?`; slots before: ${e.slots.before}; after: ${e.slots.after??'(unreadable)'}`:''}`;
+    case 'draft-slots':return `draft slots (${e.at}): ${e.slots}`;
     case 'save-result':return `save ${e.seq} ${e.accepted?'accepted by Ashby':`NOT accepted by Ashby (HTTP ${e.status}${e.errors?.length?`: ${e.errors.join('; ')}`:''})`}`;
     case 'screen':{const {type,at,...rest}=e;return rest.note?`screen (${at}): ${rest.note}`:`screen (${at}): ${JSON.stringify(rest)}`;}
     case 'dialog':return `dialog: ${short(e.text)}`;

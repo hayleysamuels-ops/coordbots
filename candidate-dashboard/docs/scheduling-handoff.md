@@ -1128,6 +1128,13 @@ file permits it or the composer clicks Schedule.
   isn't composed (the sweep would delete it at once). The message says "too close
   to the first interview — book this in Ashby by hand". It's checked again when a
   queued check's turn comes.
+- **Slot logging (diagnostic, October 27):** each check logs the draft's slots
+  as Ashby created them (`draft slots (created)`), and every refused save, or
+  save that changes a slot, logs the slots before and after: selected
+  interviewer and alternates, as Ashby user IDs with names beside approved
+  ones. Added after the first run where Mary was chosen: Ashby's save left
+  alternates [Hayley], which the alternates rule refused. The rule is
+  unchanged until this data shows what alternates mean.
 - **The candidate's availability, checked again before anything is made**
   (since October 26, `src/scheduling/availability-gate.js`). A post built from
   the candidate's submission keeps that submission in its plan (schedule ID, time

@@ -346,3 +346,17 @@ test('the October 27 TEST Initial Screen faecb1da may be composed and sent',()=>
   assert.ok(ALLOWED_APPLICATIONS[app].interviewScheduleIds.includes('faecb1da-ea68-410e-b57d-b95c13ab2eef'));
   assert.ok(SEND_ALLOWED[app].includes('faecb1da-ea68-410e-b57d-b95c13ab2eef'));
 });
+
+test('slot states are logged at creation and around a refused or slot-changing save, by ID with approved names (diagnostic only)',()=>{
+  const {slotSummary}=require('../worker/booking-permit');
+  const {detailLine}=require('../worker/booking-compose');
+  const names=new Map([['u-mary','Mary Petrino']]);
+  const ev=(selected,alternates)=>[{slots:[{selected,alternates}]}];
+  assert.equal(slotSummary(ev('u-hayley',['u-mary','u-hayley']),names),'event 1 slot 1: selected u-hayley; alternates [u-mary (Mary Petrino), u-hayley]');
+  assert.equal(slotSummary(ev(null,null),names),'event 1 slot 1: selected -; alternates (none sent)');
+  assert.equal(detailLine({type:'draft-slots',at:'created',slots:'event 1 slot 1: selected u-hayley; alternates [u-hayley]'}),'draft slots (created): event 1 slot 1: selected u-hayley; alternates [u-hayley]');
+  assert.equal(detailLine({type:'refused-save',seq:1,reason:'A draft save was refused: x.',slots:{before:'B',after:'A'}}),'save 1 REFUSED by the content check: A draft save was refused: x.; slots before: B; after: A');
+  assert.equal(detailLine({type:'refused-save',seq:1,reason:'r',slots:{before:'B',after:null}}),'save 1 REFUSED by the content check: r; slots before: B; after: (unreadable)');
+  assert.equal(detailLine({type:'save-checked',seq:2,events:['e'],slots:{before:'B',after:'A'}}),'save 2 passed the content check: e; slots before: B; after: A');
+  assert.equal(detailLine({type:'save-checked',seq:2,events:['e']}),'save 2 passed the content check: e');
+});

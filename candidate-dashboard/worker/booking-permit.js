@@ -62,6 +62,13 @@ async function installPermit(context,{origin=ORIGIN,op,max=1,bound,respond=async
 // A save as the log shows it: each event's times and selected interviewers.
 const hm=ms=>Number.isFinite(ms)?new Date(ms).toISOString().slice(0,16)+'Z':'?';
 const saveSummary=events=>events.map((e,i)=>`${i+1} ${hm(e.start)}–${hm(e.end).slice(11)} ${e.slots.map(s=>s.selected||'-').join('+')}`);
+// Each slot's selected interviewer and alternates, for the log: Ashby user
+// IDs, with the name beside any the approval names (`names`, ID → name).
+// Diagnostic only (October 27: choosing Mary left alternates [Hayley], and
+// what the slot held before that save wasn't logged). Never page text.
+const who=(id,names)=>id==null?'-':names.has(id)?`${id} (${names.get(id)})`:id;
+const slotSummary=(events,names)=>events.map((e,i)=>e.slots.map((s,j)=>`event ${i+1} slot ${j+1}: selected ${who(s.selected,names)}; alternates ${s.alternates===null?'(none sent)':`[${s.alternates.map(a=>who(a,names)).join(', ')}]`}`).join('; ')).join('; ');
+const planNames=plan=>new Map((plan.sessions||[]).flatMap(s=>(s.interviewers||[]).map(x=>[x.userId,x.name||x.email||x.userId])));
 
 // The booking's permits, sharing one `state`:
 //   draftId     set from the create response; until then, nothing draft-bound passes
@@ -71,6 +78,7 @@ const saveSummary=events=>events.map((e,i)=>`${i+1} ${hm(e.start)}–${hm(e.end)
 async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxSaves=25,maxRefreshes=10}){
   Object.assign(state,{draftId:null,last:null,saves:0,lastSaveAt:0,lastRefreshAt:0,refusals:[],baselineError:null,cleanup:false,sent:0,lastSeq:0,zone:null,attempts:0});
   const forDraft=v=>!!state.draftId&&v.draftInterviewScheduleId===state.draftId;
+  const names=planNames(plan);
   const ok=json=>json&&!(json.errors&&json.errors.length);
   const permits={};
   permits.create=await installPermit(context,{op:OP.create,max:1,respond,log,
@@ -79,7 +87,7 @@ async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxS
       const d=json?.data?.draftInterviewSchedule;
       if(!ok(json)||typeof d?.id!=='string'){state.baselineError=Error('Ashby didn\'t return the new draft.');return;}
       state.draftId=d.id;// set first, so cleanup can delete it even if the check below fails
-      try{const events=normalizeDraft(d.draftSchedule);checkBaseline(events,plan);state.last=events;}
+      try{const events=normalizeDraft(d.draftSchedule);log({type:'draft-slots',at:'created',slots:slotSummary(events,names)});checkBaseline(events,plan);state.last=events;}
       catch(e){state.baselineError=e;}
     }});
   // A save is permitted only if its content moves toward the approval. Its
@@ -90,9 +98,12 @@ async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxS
       // Every save attempt is numbered once, passed or refused, for the log;
       // `seq` orders the replies.
       const attempt=++state.attempts;
-      try{const next=normalizeDraft(v.draftSchedule);checkSave(state.last,next,plan,{compareRest:state.saves>0,timeZone:state.zone});
-        const seq=++state.sent;log({type:'save-checked',seq:attempt,ok:true,events:saveSummary(next)});return {next,seq,attempt};}
-      catch(e){state.refusals.push(e.message);log({type:'refused-save',seq:attempt,reason:e.message});return false;}
+      let next=null;
+      // Slots before and after, logged whenever a save changes them or is refused.
+      const slots=()=>{const before=slotSummary(state.last,names),after=next?slotSummary(next,names):null;return {before,after};};
+      try{next=normalizeDraft(v.draftSchedule);checkSave(state.last,next,plan,{compareRest:state.saves>0,timeZone:state.zone});
+        const s=slots(),seq=++state.sent;log({type:'save-checked',seq:attempt,ok:true,events:saveSummary(next),...(s.before!==s.after?{slots:s}:{})});return {next,seq,attempt};}
+      catch(e){state.refusals.push(e.message);log({type:'refused-save',seq:attempt,reason:e.message,slots:slots()});return false;}
     },
     // Replies can arrive out of order; only the most recently sent accepted
     // save becomes the draft's current contents.
@@ -106,4 +117,4 @@ async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxS
   return permits;
 }
 
-module.exports={installPermit,installBookingPermits,parsedOps,isMutation,OP,ORIGIN};
+module.exports={installPermit,installBookingPermits,parsedOps,isMutation,OP,ORIGIN,slotSummary};
