@@ -72,11 +72,12 @@ const planNames=plan=>new Map((plan.sessions||[]).flatMap(s=>(s.interviewers||[]
 
 // The booking's permits, sharing one `state`:
 //   draftId     set from the create response; until then, nothing draft-bound passes
+//   created     the draft as Ashby created it (each slot's eligible list)
 //   last        the last accepted draft contents
 //   refusals    every save refused on content, with the reason
 //   cleanup     true only while the draft is being deleted
 async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxSaves=25,maxRefreshes=10,observeAlternates=false}){
-  Object.assign(state,{draftId:null,last:null,saves:0,lastSaveAt:0,lastRefreshAt:0,refusals:[],baselineError:null,cleanup:false,sent:0,lastSeq:0,zone:null,attempts:0});
+  Object.assign(state,{draftId:null,created:null,last:null,saves:0,lastSaveAt:0,lastRefreshAt:0,refusals:[],baselineError:null,cleanup:false,sent:0,lastSeq:0,zone:null,attempts:0});
   const forDraft=v=>!!state.draftId&&v.draftInterviewScheduleId===state.draftId;
   const names=planNames(plan);
   const ok=json=>json&&!(json.errors&&json.errors.length);
@@ -87,7 +88,7 @@ async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxS
       const d=json?.data?.draftInterviewSchedule;
       if(!ok(json)||typeof d?.id!=='string'){state.baselineError=Error('Ashby didn\'t return the new draft.');return;}
       state.draftId=d.id;// set first, so cleanup can delete it even if the check below fails
-      try{const events=normalizeDraft(d.draftSchedule);log({type:'draft-slots',at:'created',slots:slotSummary(events,names)});checkBaseline(events,plan);state.last=events;}
+      try{const events=normalizeDraft(d.draftSchedule);log({type:'draft-slots',at:'created',slots:slotSummary(events,names)});checkBaseline(events,plan);state.created=events;state.last=events;}
       catch(e){state.baselineError=e;}
     }});
   // A save is permitted only if its content moves toward the approval. Its

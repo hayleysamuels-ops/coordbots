@@ -33,8 +33,12 @@ function normalizeDraft(draftSchedule){
       const id=selectedId(s?.selected);
       if(id===undefined)fail(`Event ${i+1}, slot ${j+1}: the selected interviewer is in a shape this check doesn't recognise (fields: ${keys(s.selected).join(', ')||typeof s.selected}).`);
       const {selected,alternates,...rest}=s||{};
-      // Alternates: the people the slot could use. Picking someone narrows it
-      // to them (seen October 13: [Mary, Hayley] → [Hayley]). IDs only.
+      // Alternates: the slot's eligible people other than the one chosen. A new
+      // draft has nobody selected and every eligible person as an alternate;
+      // choosing one moves them out (seen October 27, both ways: [Mary,
+      // Hayley] → Mary chosen, [Hayley]; Hayley chosen, [Mary]). Alternates
+      // aren't invited: the interviewer invite went to the chosen person
+      // only. IDs only.
       let alts=null;
       if(alternates!==undefined&&alternates!==null){
         if(!Array.isArray(alternates))fail(`Event ${i+1}, slot ${j+1}: alternates are in a shape this check doesn't recognise.`);
@@ -103,9 +107,12 @@ function checkSave(prev,next,plan,{compareRest=true,timeZone=null,observeAlterna
     const approvedIds=s.interviewers.map(x=>x.userId);
     e.slots.forEach((slot,j)=>{
       if(slot.selected!==p.slots[j]?.selected&&slot.selected!==null&&!approvedIds.includes(slot.selected))why.push(`${label}, slot ${j+1}: an interviewer who wasn't approved was selected`);
-      // Alternates may only stay as they were or become exactly the approved interviewers.
-      const narrowed=observeAlternates&&Array.isArray(slot.alternates)&&Array.isArray(p.slots[j]?.alternates)&&slot.alternates.every(a=>p.slots[j].alternates.includes(a));
-      if(!narrowed&&!same(slot.alternates,p.slots[j]?.alternates)&&!same(slot.alternates,[...approvedIds].sort()))why.push(`${label}, slot ${j+1}: alternates changed to ${JSON.stringify(slot.alternates)}, which is neither the previous list nor exactly the approved interviewers`);
+      // Alternates may only stay as they were, or lose exactly the person this
+      // save chooses (and nobody else). Nobody is ever added.
+      const was=p.slots[j]?.alternates,chose=slot.selected!==p.slots[j]?.selected?slot.selected:null;
+      const minusChosen=Array.isArray(slot.alternates)&&Array.isArray(was)&&chose!==null&&was.includes(chose)&&same(slot.alternates,was.filter(a=>a!==chose));
+      const narrowed=observeAlternates&&Array.isArray(slot.alternates)&&Array.isArray(was)&&slot.alternates.every(a=>was.includes(a));
+      if(!minusChosen&&!narrowed&&!same(slot.alternates,was))why.push(`${label}, slot ${j+1}: alternates changed to ${JSON.stringify(slot.alternates)}, which is neither the previous list nor the previous list without the interviewer this save chose`);
       if(compareRest&&!same(slot.rest,p.slots[j]?.rest)){
         // Name what changed, with before and after (IDs and settings, never page text).
         const changed=keys(slot.rest).filter(k=>!same(slot.rest[k],p.slots[j]?.rest?.[k]));
@@ -194,10 +201,14 @@ function draftShape(json,draftId){
   return {objects,references};
 }
 
-// The final save must equal the approval exactly. With `observeAlternates`
-// (dry run only), unapproved alternates are returned for the log instead of
-// refused; everything else is checked as always.
-function checkFinal(state,plan,{observeAlternates=false}={}){
+// The final save must equal the approval exactly. Alternates may only be
+// people the slot listed when Ashby created the draft (`created`: its
+// eligible list, from the create response); an approved interviewer listed
+// as an alternate is harmless. Without `created`, any unapproved alternate is
+// refused, as before. With `observeAlternates` (dry run only), unapproved
+// alternates are returned for the log instead; everything else is checked as
+// always.
+function checkFinal(state,plan,{observeAlternates=false,created=null}={}){
   const strayAlternates=[];
   const why=[];
   state.forEach((e,i)=>{
@@ -206,9 +217,10 @@ function checkFinal(state,plan,{observeAlternates=false}={}){
     if(e.interviewId!==s.interviewId)why.push(`${label} isn't the approved interview`);
     const chosen=e.slots.map(x=>x.selected).sort(),approved=s.interviewers.map(x=>x.userId).sort();
     if(!same(chosen,approved))why.push(`${label} doesn't have exactly the approved interviewers`);
-    const stray=[...new Set(e.slots.flatMap(x=>x.alternates||[]))].filter(a=>!approved.includes(a));
+    const eligible=j=>created?.[i]?.slots?.[j]?.alternates;
+    const stray=[...new Set(e.slots.flatMap((x,j)=>(x.alternates||[]).filter(a=>!approved.includes(a)&&!(Array.isArray(eligible(j))&&eligible(j).includes(a)))))];
     if(stray.length&&observeAlternates)strayAlternates.push({session:i+1,alternates:stray});
-    else if(stray.length)why.push(`${label} still lists ${stray.length} unapproved alternate${stray.length===1?'':'s'} (${stray.join(', ')})`);
+    else if(stray.length)why.push(`${label} lists ${stray.length} alternate${stray.length===1?'':'s'} who ${stray.length===1?'was':'were'}n't eligible when the draft was created (${stray.join(', ')})`);
   });
   if(why.length)fail(`The composed draft doesn't match the approval: ${why.join('; ')}.`,why);
   return {strayAlternates};

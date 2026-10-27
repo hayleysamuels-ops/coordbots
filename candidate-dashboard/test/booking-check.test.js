@@ -97,17 +97,33 @@ test('a save that changes any other field is refused, except against the create 
   c.checkSave(first,changed,plan,{compareRest:false});
 });
 
-test('alternates may only narrow to exactly the approved interviewers',()=>{
-  // Seen live: picking Hayley narrowed alternates from [Mary, Hayley] to [Hayley].
-  const base=N(draft({alternates:['u-mary','u-hayley']}));
-  c.checkSave(base,N(draft({selected:'u-hayley',alternates:['u-hayley']})),plan);
-  assert.throws(()=>c.checkSave(base,N(draft({selected:'u-hayley',alternates:['u-mary']})),plan),/alternates changed to \["u-mary"\], which is neither the previous list nor exactly the approved interviewers/);
-  assert.throws(()=>c.checkSave(base,N(draft({alternates:['u-hayley','u-stranger']})),plan),/alternates changed/);
+test('alternates may stay, or lose exactly the person a save chooses; nobody is added',()=>{
+  // Seen October 27, both ways: a new draft has nobody selected and alternates
+  // [Mary, Hayley]; choosing one moves them out of the alternates.
+  const base=N(draft({selected:null,alternates:['u-mary','u-hayley']}));
+  c.checkSave(base,N(draft({selected:'u-hayley',alternates:['u-mary']})),plan);
+  c.checkSave(base,N(draft({selected:null,alternates:['u-mary','u-hayley']})),plan);
+  // The October 13 shape (narrowed to the chosen person) is no longer accepted.
+  assert.throws(()=>c.checkSave(base,N(draft({selected:'u-hayley',alternates:['u-hayley']})),plan),/alternates changed to \["u-hayley"\], which is neither the previous list nor the previous list without the interviewer this save chose/);
+  // Losing someone other than the chosen person, losing someone with no new choice, or gaining anyone: refused.
+  assert.throws(()=>c.checkSave(base,N(draft({selected:'u-hayley',alternates:[]})),plan),/alternates changed/);
+  assert.throws(()=>c.checkSave(base,N(draft({selected:null,alternates:['u-mary']})),plan),/alternates changed/);
+  assert.throws(()=>c.checkSave(base,N(draft({selected:'u-hayley',alternates:['u-mary','u-stranger']})),plan),/alternates changed/);
+  // The only eligible person, chosen: their alternates may go to [] or stay.
+  const one=N(draft({selected:null,alternates:['u-hayley']}));
+  c.checkSave(one,N(draft({selected:'u-hayley',alternates:[]})),plan);
+  c.checkSave(one,N(draft({selected:'u-hayley',alternates:['u-hayley']})),plan);
   assert.throws(()=>N(draft({alternates:[{weird:1}]})),/an alternate is in a shape this check doesn't recognise/);
-  // The final draft may not keep an unapproved alternate.
+});
+
+test('the final draft: alternates only from the slot\'s eligible list when Ashby created it; without that list, none unapproved',()=>{
   const at={start:plan.sessions[0].start,end:plan.sessions[0].end};
-  c.checkFinal(N(draft({selected:'u-hayley',alternates:['u-hayley'],...at})),plan);
-  assert.throws(()=>c.checkFinal(N(draft({selected:'u-hayley',alternates:['u-mary','u-hayley'],...at})),plan),/still lists 1 unapproved alternate \(u-mary\)/);
+  const created=N(draft({selected:null,alternates:['u-mary','u-hayley']}));
+  c.checkFinal(N(draft({selected:'u-hayley',alternates:['u-mary'],...at})),plan,{created});
+  c.checkFinal(N(draft({selected:'u-hayley',alternates:['u-hayley'],...at})),plan,{created});
+  assert.throws(()=>c.checkFinal(N(draft({selected:'u-hayley',alternates:['u-mary','u-stranger'],...at})),plan,{created}),/lists 1 alternate who wasn't eligible when the draft was created \(u-stranger\)/);
+  assert.throws(()=>c.checkFinal(N(draft({selected:'u-hayley',alternates:['u-mary'],...at})),plan),/lists 1 alternate who wasn't eligible/);
+  assert.throws(()=>c.checkFinal(N(draft({selected:'u-mary',alternates:['u-hayley'],...at})),plan,{created}),/doesn't have exactly the approved interviewers/,'the chosen person is still checked');
 });
 
 test('an unrecognised selected-interviewer shape refuses rather than being guessed',()=>{
@@ -306,12 +322,16 @@ test('observing: a slot\'s alternates may narrow but never gain anyone; strays a
   const plan={timeZone:'America/Los_Angeles',sessions:[{title:'Initial',interviewId:'int-1',start:'2099-10-29T18:30:00.000Z',end:'2099-10-29T19:00:00.000Z',interviewers:[{userId:'u-mary',email:'mary@luminai.com'}]}]};
   const N=(selected,alternates)=>c.normalizeDraft({events:[{id:'ev-1',title:'Initial',interviewId:'int-1',...at,interviewSlots:[{selected,alternates}]}]});
   const created=N(null,['u-mary','u-hayley']),chosen=N('u-mary',['u-hayley']);
-  // October 27, as Ashby sent it: refused by default, allowed while observing.
-  assert.throws(()=>c.checkSave(created,chosen,plan,{compareRest:false}),/alternates changed to \["u-hayley"\]/);
+  // October 27, as Ashby sent it: accepted now, observing or not.
+  c.checkSave(created,chosen,plan,{compareRest:false});
   c.checkSave(created,chosen,plan,{compareRest:false,observeAlternates:true});
+  // Observing also lets alternates narrow further than the rule does.
+  assert.throws(()=>c.checkSave(created,N('u-mary',[]),plan,{compareRest:false}),/alternates changed/);
+  c.checkSave(created,N('u-mary',[]),plan,{compareRest:false,observeAlternates:true});
   assert.throws(()=>c.checkSave(created,N('u-mary',['u-hayley','u-stranger']),plan,{compareRest:false,observeAlternates:true}),/alternates changed/);
   assert.throws(()=>c.checkSave(chosen,N('u-mary',['u-mary','u-hayley']),plan,{compareRest:false,observeAlternates:true}),/alternates changed/,'never gains anyone');
-  assert.throws(()=>c.checkFinal(chosen,plan),/still lists 1 unapproved alternate \(u-hayley\)/);
+  assert.throws(()=>c.checkFinal(chosen,plan),/lists 1 alternate who wasn't eligible when the draft was created \(u-hayley\)/);
+  c.checkFinal(chosen,plan,{created});
   assert.deepEqual(c.checkFinal(chosen,plan,{observeAlternates:true}),{strayAlternates:[{session:1,alternates:['u-hayley']}]});
   assert.throws(()=>c.checkFinal(N('u-hayley',['u-hayley']),plan,{observeAlternates:true}),/doesn't have exactly the approved interviewers/,'everything else is still checked');
 });

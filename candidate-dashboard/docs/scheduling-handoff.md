@@ -1138,6 +1138,20 @@ file permits it or the composer clicks Schedule.
   The second run (October 27, Mary chosen) showed Ashby creates the slot with
   nobody selected and alternates [Mary, Hayley], and its save for choosing Mary
   sets selected Mary, alternates [Hayley].
+- **The alternates rule (since October 27, from two observation passes):** a
+  slot's alternates are its eligible people other than the one chosen. Ashby
+  creates a draft's slot with nobody selected and every eligible person as an
+  alternate, and choosing one moves them out ([Mary, Hayley]: Mary chosen →
+  [Hayley]; Hayley chosen → [Mary]). The interviewer invite went to the
+  chosen person only both times, so alternates aren't invited. A save may
+  leave a slot's alternates as they were, or remove exactly the person it
+  chooses; nobody is ever added. The final check and the re-read before Send
+  allow only alternates the slot listed when Ashby created the draft (an
+  approved interviewer listed as one is harmless). The interviewer-invite
+  preview check stays strict, so a change in Ashby that invited alternates
+  would refuse. The October 13 observation (choosing Hayley left [Hayley])
+  came from a run that ended on Ashby's network-error page and no longer
+  passes.
 - **Observing alternates** (`booking-dry-run.js --observe-alternates`, dry run
   only, behind `BOOKING_DRY_RUN=on`): a slot's alternates may narrow to any
   subset of what they were (never gain anyone), unapproved alternates left at

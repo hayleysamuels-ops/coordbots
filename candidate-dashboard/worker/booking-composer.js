@@ -479,7 +479,7 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     }
     step='check the composed draft';
     await sleep(T.short);
-    {const {strayAlternates}=checkFinal(state.last,plan,{observeAlternates});
+    {const {strayAlternates}=checkFinal(state.last,plan,{observeAlternates,created:state.created});
       if(strayAlternates.length)note({type:'observe',what:'unapproved alternates left in the composed draft (allowed only while observing)',strayAlternates});}
     pass('final draft save equals the approval exactly',{saves:state.saves});
     // 4. Communications: invites and the candidate email must say what was approved.
@@ -617,7 +617,7 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     },{body:lastRead.body,headers}).catch(e=>({error:e.message}));
     if(reread.error||reread.status!==200)refuse(`Ashby didn't answer the re-read of this draft (${reread.error||`HTTP ${reread.status}`}).`);
     let rereadDraft;try{rereadDraft=draftReadCopy(reread.json,state.draftId);}catch(e){refuse(e.message);}
-    try{checkFinal(normalizeDraft(rereadDraft),plan,{observeAlternates});}catch(e){refuse(`The draft as Ashby has it now doesn't match the approval: ${e.message}`);}
+    try{checkFinal(normalizeDraft(rereadDraft),plan,{observeAlternates,created:state.created});}catch(e){refuse(`The draft as Ashby has it now doesn't match the approval: ${e.message}`);}
     pass(`draft re-read from Ashby (${lastRead.operationName}) just before Schedule, and it equals the approval exactly`);
     // 6. The Schedule button. On this layout clicking it sends at once.
     step='find Schedule';
