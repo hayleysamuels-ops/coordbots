@@ -356,32 +356,41 @@ is the short list of things that look wrong and are not.
   `COMPARE_MIN_SAMPLE` a row prints "too few to compare" with the
   count, and no row gets a better/worse verdict it cannot carry.
 
-- **The Carrara-vs-client panel marks NEITHER side better, and must
-  not start.** The first version coloured the winner of each row. Run
-  against live data it said the client's own team books faster at four
-  of five clients and reschedules less at all five — a result that is
-  an artefact of what each side is doing, measured and confirmed:
+- **The Carrara-vs-client panel holds THREE rows — interviews, short
+  notice, cancelled-never-rebooked — and marks neither side better.**
+  Booking turnaround and reschedule rate were removed on 27 October
+  2026 and must not come back. Two separate findings put them out:
 
-  | | direct bookings, ours | theirs |
-  |---|---|---|
-  | January | 2.5% | 18.0% |
-  | Forus | 9.0% | 36.1% |
-  | Luminai | 3.0% | 33.6% |
-  | Poetic | 0.7% | 12.7% |
-  | Runlayer | 7.4% | 40.7% |
+  *Colour first.* The original panel coloured the winner of each row.
+  Live, it said the client's own team books faster at four of five
+  clients and reschedules less at all five — a verdict the data cannot
+  support, and the same mistake as ranking clients on Results.
 
-  A direct booking is the schedule and its first event created in the
-  same instant — someone advancing a candidate and booking them in one
-  sitting. That records almost no turnaround and leaves little to
-  reschedule. A coordinator takes a request and works it, and gets the
-  panels, the onsites and the rounds that already went wrong; a round
-  picked up BECAUSE it was rescheduled counts that reschedule against
-  whoever picked it up. The two columns are not measuring the same
-  activity, so colour — the strongest signal on the page — would be
-  asserting a conclusion the data cannot support. This is the same
-  mistake as ranking clients on Results, in a new place. The numbers
-  stay, the verdict does not, and the note on the page names the
-  mechanism with that client's own two percentages.
+  *Then the rows themselves.* The direct-booking hypothesis was tested
+  properly: schedule and first event created in the same instant,
+  excluded from BOTH sides, recomputed per client. The exclusion cut
+  13–41% of the client-side turnaround sample against under 9% of
+  ours — and the gaps held. Turnaround moved by at most an hour in
+  either direction; Runlayer's reschedule gap WIDENED by 6.5 points.
+  So the gap is not booking style, it is selection: a coordinator gets
+  the panels, the onsites and the rounds that already went wrong, and a
+  round picked up BECAUSE it was rescheduled counts that reschedule
+  against whoever picked it up. No exclusion fixes a different
+  population of work.
+
+  Forus is the clearest case and the reason the numbers are kept:
+  Carrara touched 371 of its ~17,000 interviews and moved 35.8% of
+  those rounds against the client's own 8.4%. As a comparison it says
+  we are worse. As escalation load it says Forus sends us its hardest
+  rounds, which is true and useful.
+
+- **Those two live in "Escalation load", beside areas-to-work-on, with
+  a sample gate.** Both sides shown, neither marked, sample printed
+  next to every figure, and anything under `ESCALATION_MIN_SAMPLE`
+  greyed and labelled. Luminai's client side is 73 turnaround
+  observations against our 959; a median on 73 must not sit at full
+  weight beside one on 959. Don't move these back into the comparison
+  panel and don't drop the sample labels.
 
 - **The roster panel is a MATCH CHECK, collapsed and alphabetical.** It
   confirms each rostered name resolves to real scheduled work — that is
@@ -398,6 +407,32 @@ is the short list of things that look wrong and are not.
   decision is unchanged, but the on-page "Carrara leadership only"
   marking was removed on request — don't add it back. Not for clients
   or coordinators.
+
+- **The SQLite file is backed up nightly, and `VACUUM INTO` is the only
+  correct way to do it.** The database is WAL-mode and written to
+  continuously; `cp metrics.sqlite` under load yields a file that may
+  open cleanly and be missing committed rows, and you find out when you
+  restore. `src/backup.js` takes a read-locked consistent snapshot,
+  opens it, runs `PRAGMA integrity_check`, refuses any snapshot with
+  zero events or schedules (a wiped volume must not roll a good backup
+  out of retention), gzips it, and chains off the nightly full sync so
+  it always captures a completed sync. Retention is 30 dailies plus the
+  first snapshot of each of 12 months — monthlies matter because the
+  failure is often "a table was corrupted three weeks ago", which 30
+  dailies do not cover.
+
+  **Without `BACKUP_S3_*` set, the snapshot sits on the SAME volume as
+  the database and a volume incident loses both.** That is logged as a
+  warning every run and reported as `offsite: false` in
+  `/api/config`.`backup`. The dumps contain `candidate_name` and
+  `scheduled_by_email` for every client, so the destination must be
+  private — and note it is a wider audience than the dashboard
+  password, whose holder list is deliberately short.
+
+  SigV4 is hand-rolled in `src/backup-sinks.js` rather than pulling in
+  the AWS SDK for one PUT. `test/sigv4`-style coverage in
+  `test/backup.test.js` pins it to the worked example published in the
+  AWS documentation, so it is tested rather than trusted.
 
 ## Conventions
 

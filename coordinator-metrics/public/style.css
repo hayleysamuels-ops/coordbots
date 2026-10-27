@@ -1211,3 +1211,58 @@ details.data-quality .notice { margin-top: 12px; border-left-color: var(--border
   color: var(--text-muted);
   margin-top: 2px;
 }
+
+/* --- Escalation load --- */
+
+.esc-grid {
+  display: grid;
+  grid-template-columns: minmax(170px, 260px) 1fr 1fr;
+  gap: 0 24px;
+  align-items: center;
+  max-width: 620px;
+}
+
+.esc-head { display: contents; }
+
+.esc-head span {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.esc-row { display: contents; }
+
+.esc-row > * {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--gridline);
+}
+
+.esc-label { font-size: 13px; color: var(--text-secondary); }
+
+.esc-figure { display: flex; flex-direction: column; gap: 2px; }
+
+.esc-value {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.esc-sample {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* A figure below the sample floor is greyed and says so, rather than
+   sitting at full weight beside one built on ten times the data. */
+.esc-thin .esc-value { color: var(--text-muted); font-weight: 400; }
+.esc-thin .esc-sample { color: var(--warning); }
+
+/* Both columns clear the floor but one rests on a fraction of the
+   other's data — marked, not greyed, since the figure is usable with
+   the caveat attached. */
+.esc-lopsided .esc-sample { color: var(--warning); }

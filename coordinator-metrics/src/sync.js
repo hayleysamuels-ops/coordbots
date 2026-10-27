@@ -395,7 +395,16 @@ function startScheduler() {
     const today = now.toDateString();
     if (now.getHours() === config.fullSyncHour && lastFullSyncDay !== today) {
       lastFullSyncDay = today;
-      syncAll("full").catch((err) => console.error("[sync] full sync threw:", err.message));
+      // Backup AFTER the full sync, chained rather than scheduled
+      // separately: a snapshot taken while the sync is rewriting tables
+      // is still consistent (VACUUM INTO takes a read lock) but it is a
+      // snapshot of a half-updated day. This way the daily backup is
+      // always of a completed sync.
+      //
+      // The backup never fails the sync — it reports and returns.
+      syncAll("full")
+        .then(() => (config.backupEnabled ? require("./backup").run({ reason: "nightly" }) : null))
+        .catch((err) => console.error("[sync] full sync threw:", err.message));
     }
   }, everyMinute);
 

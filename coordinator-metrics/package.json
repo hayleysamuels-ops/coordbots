@@ -10,7 +10,8 @@
     "test": "node --test test/*.test.js",
     "sync": "node scripts/sync-once.js",
     "check-client": "node scripts/check-client.js",
-    "smoke": "node scripts/smoke.js"
+    "smoke": "node scripts/smoke.js",
+    "backup": "node scripts/backup-once.js"
   },
   "engines": {
     "node": ">=22.5"

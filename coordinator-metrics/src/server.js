@@ -50,6 +50,11 @@ function createServer() {
       // its scope control from this rather than a hardcoded copy.
       scopes: metrics.SCOPES.map((s) => ({ key: s.key, label: s.label, description: s.description })),
       defaultScope: metrics.DEFAULT_SCOPE,
+      // Surfaced so a backup that has silently stopped is visible
+      // rather than merely believed in. `offsite: false` means the
+      // snapshot is on the same volume as the database and a volume
+      // incident loses both.
+      backup: require("./backup").status(),
       shortNoticeHours: config.shortNoticeHours,
       businessHours: { start: config.businessHourStart, end: config.businessHourEnd },
       clients: config.clients.map((c) => ({

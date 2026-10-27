@@ -148,6 +148,29 @@ function braceDepth(css) {
   check(`config default scope "${defaultScope}" is one of the options`, scopeKeys.includes(defaultScope));
   check("at least one client is configured", clients.length > 0);
 
+  // Reported, not failed: the backup is a real gap until a bucket is
+  // configured, but failing CI on it would block deploys over a
+  // decision that belongs to a human.
+  try {
+    const bk = JSON.parse(configRes.text).backup;
+    if (!bk) {
+      notes.push("deployment reports no backup status — it predates the backup support");
+    } else if (!bk.configured) {
+      notes.push("BACKUP: no off-site destination set — snapshots sit on the same volume as the database");
+    } else if (!bk.last) {
+      notes.push("BACKUP: configured, but no run recorded yet on this instance");
+    } else if (!bk.last.ok) {
+      check(`backup last run succeeded (${bk.last.error})`, false, bk.last.error);
+    } else {
+      notes.push(
+        `BACKUP: last ${bk.last.reason} run ok — ${(bk.last.bytes / 1048576).toFixed(1)}MB to ${bk.last.destination}, ` +
+          `${bk.last.checks.reschedules} observed reschedules`
+      );
+    }
+  } catch (_) {
+    /* config parse already reported above */
+  }
+
   // Refuse to certify a build that is not the one under test. Without
   // this, a dropped deploy webhook means CI smoke-tests the PREVIOUS
   // build and passes — which has already happened once.

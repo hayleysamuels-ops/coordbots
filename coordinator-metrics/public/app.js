@@ -731,11 +731,12 @@ function versusPanel(fullPayload, label) {
     theirsSample: b[metric].sample,
   });
 
+  // Booking turnaround and reschedule rate are NOT here, and must not
+  // come back. See the note below and CLAUDE.md: the two sides are a
+  // different population of work, not the same work done differently.
   const rows = [
     { label: "Interviews", ours: oursEvents, theirs: theirsEvents, unit: "", neutral: true },
-    rate("Booking turnaround (median)", "bookingTurnaround", "medianHours", "bh"),
     rate("Short-notice bookings", "shortNotice", "share", "%"),
-    rate("Reschedule rate", "rescheduleRate", "share", "%"),
     rate("Cancelled, never rebooked", "cancellationWithoutRebook", "share", "%"),
   ];
 
@@ -777,18 +778,18 @@ function versusPanel(fullPayload, label) {
       }),
       el("p", {
         text:
-          `${directOurs}% of what Carrara booked here was booked outright — the schedule and the interview ` +
-          `created in one action — against ${directTheirs}% of the client's own. Someone advancing a candidate ` +
-          "and booking them in the same sitting records almost no turnaround and has little left to " +
-          "reschedule. A coordinator takes a request and works it. Turnaround and reschedule rate will " +
-          "therefore tend to look worse on the Carrara side at every client, and do.",
+          "Booking turnaround and reschedule rate are deliberately absent. The work that reaches a " +
+          "coordinator is a different population: the panels, the onsites, and the rounds that already " +
+          "went wrong. A round picked up BECAUSE it was rescheduled counts that reschedule against " +
+          "whoever picked it up. No exclusion fixes that, so those two cannot carry a comparison and are " +
+          "reported on their own, under Escalation load.",
       }),
       el("p", {
         text:
-          "The rounds are not alike either: a coordinator gets the panels, the onsites and the ones that " +
-          "already went wrong, and a round picked up BECAUSE it was rescheduled counts its reschedule " +
-          "against whoever picked it up. Read a gap here as somewhere to look, never as a verdict, and do " +
-          "not put it in front of a client as one.",
+          `For scale: ${directOurs}% of what Carrara booked here was booked outright — schedule and ` +
+          `interview created in one action — against ${directTheirs}% of the client's own. Excluding those ` +
+          "from both sides was tested and did not close the turnaround or reschedule gaps, which is how " +
+          "the selection effect was separated from the booking-style one.",
       }),
       el("p", {
         text:
@@ -967,6 +968,22 @@ function renderClient(fullPayload) {
     "Roles and stages where cancelled interviews were most often never rebooked.",
     areasToWorkOn(payload, fullPayload.clientName));
 
+  // Next to areas-to-work-on rather than in the comparison panel: these
+  // describe which rounds reach a coordinator, which is the same kind
+  // of question as "where is this going wrong", and emphatically not
+  // "who is better".
+  {
+    const esc = escalationLoad(fullPayload, label);
+    if (esc) {
+      const r = payload.results[state.period].current.rescheduleRate;
+      add("escalation", "Escalation load",
+        r.share == null ? "—" : r.share + "%",
+        "Turnaround and reschedule rate, each side on its own. Not a comparison.",
+        esc,
+        "Which rounds reach a coordinator");
+    }
+  }
+
   frag.appendChild(
     el("div", { class: "rail-layout" }, [sectionRail(railItems), el("div", { class: "rail-main" }, sections)])
   );
@@ -1038,6 +1055,105 @@ function stageBars(rows) {
       ])
     ));
   return el("div", { class: "stage-cols" }, [column(shown.slice(0, half)), column(shown.slice(half))]);
+}
+
+/**
+ * Escalation load: the two measures that cannot carry a comparison,
+ * reported on their own.
+ *
+ * Booking turnaround and reschedule rate were removed from the
+ * Carrara-vs-client panel because the two sides are a different
+ * population of work — a coordinator gets the panels, the onsites and
+ * the rounds that already went wrong, and a round picked up BECAUSE it
+ * was rescheduled counts that reschedule against whoever picked it up.
+ * Excluding direct bookings from both sides was tested against live
+ * data and did not close the gaps, so it is selection, not booking
+ * style.
+ *
+ * They are still worth seeing. Forus is the case that makes the point:
+ * Carrara touched 371 of its ~17,000 interviews and reschedules 35.8%
+ * of those rounds against the client's own 8.4%. Read as a comparison
+ * that says we are worse. Read as what it is — the shape of the work
+ * that gets escalated to us — it says Forus sends us its hardest
+ * rounds, which is a real and useful signal about that engagement.
+ *
+ * Both sides are shown, unmarked, with the sample beside each figure
+ * and a gate below MIN_SAMPLE: a median on 73 observations must not sit
+ * next to one on 959 as though they carry the same weight.
+ */
+const ESCALATION_MIN_SAMPLE = 100;
+// One side having this many times the other's sample is marked even
+// when both clear the floor — see the comment on `figure`.
+const ESCALATION_MAX_RATIO = 5;
+
+function escalationLoad(fullPayload, label) {
+  const ours = fullPayload.scopes.coordinated;
+  const theirs = fullPayload.scopes.notCoordinated;
+  if (!ours || !theirs) return null;
+  const a = ours.results[state.period];
+  const b = theirs.results[state.period];
+  if (!a || !b) return null;
+
+  const metrics = [
+    { key: "bookingTurnaround", field: "medianHours", label: "Booking turnaround (median)", unit: "bh" },
+    { key: "rescheduleRate", field: "share", label: "Reschedule rate", unit: "%" },
+  ];
+
+  // Two gates, because an absolute floor is not enough on its own.
+  // Luminai's client side carries 108 turnaround observations against
+  // our 945: it clears any sane floor and is still a ninth of the
+  // sample sitting next to it at the same visual weight. The ratio is
+  // the thing a reader cannot see and would not think to ask about.
+  const figure = (block, other, m) => {
+    const node = block[m.key];
+    const otherSample = other[m.key].sample;
+    const thin = node.sample < ESCALATION_MIN_SAMPLE;
+    const ratio = node.sample > 0 && otherSample > 0 ? otherSample / node.sample : 0;
+    const lopsided = !thin && ratio >= ESCALATION_MAX_RATIO;
+
+    let note;
+    if (thin) note = `${num(node.sample)} — too few to rely on`;
+    else if (lopsided) note = `n = ${num(node.sample)} — a ${Math.round(ratio)}th of the other column`;
+    else note = `n = ${num(node.sample)}`;
+
+    return el("div", { class: `esc-figure${thin ? " esc-thin" : ""}${lopsided ? " esc-lopsided" : ""}` }, [
+      el("span", { class: "esc-value", text: node[m.field] == null ? "—" : `${num(node[m.field])}${m.unit}` }),
+      el("span", { class: "esc-sample", text: note }),
+    ]);
+  };
+
+  return el("div", {}, [
+    el("div", { class: "esc-grid" }, [
+      el("div", { class: "esc-head" }, [
+        el("span", {}),
+        el("span", { text: "Carrara" }),
+        el("span", { text: "Client's own" }),
+      ]),
+      ...metrics.map((m) =>
+        el("div", { class: "esc-row" }, [
+          el("span", { class: "esc-label", text: m.label }),
+          figure(a.current, b.current, m),
+          figure(b.current, a.current, m),
+        ])
+      ),
+    ]),
+    el("div", { class: "scope-note" }, [
+      el("p", {
+        text:
+          "These two are NOT a comparison and neither column is better. They are here because the gap " +
+          "between them describes which rounds get escalated to a coordinator, not how well either side " +
+          "works. A wide gap means the harder rounds are reaching us, which is worth knowing and is not a " +
+          "result.",
+      }),
+      el("p", {
+        text:
+          `Over the ${label}. A figure resting on fewer than ${ESCALATION_MIN_SAMPLE} observations is greyed, ` +
+          `and one built on less than a ${ESCALATION_MAX_RATIO}th of the other column's sample says so beside ` +
+          "the number. A median on a hundred rounds moves several points on one late booking; printed at the " +
+          "same weight as one built on a thousand, it invites a reading neither can support.",
+      }),
+    ]),
+  ]);
 }
 
 function areasToWorkOn(payload, clientName) {

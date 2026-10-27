@@ -266,6 +266,13 @@ const config = {
   // Cron-ish scheduling, in local server time. The full sync is heavy
   // (roughly 30 minutes across five clients) so it runs overnight.
   fullSyncHour: number("FULL_SYNC_HOUR", 3),
+  // Backups run after the nightly full sync rather than on their own
+  // clock, so a snapshot is always of a freshly-completed sync rather
+  // than of a database halfway through being rewritten.
+  backupEnabled: process.env.BACKUP_ENABLED !== "false",
+  backupDir: process.env.BACKUP_DIR || null,
+  backupKeepDaily: number("BACKUP_KEEP_DAILY", 30),
+  backupKeepMonthly: number("BACKUP_KEEP_MONTHLY", 12),
   incrementalMinutes: number("INCREMENTAL_MINUTES", 60),
 
   // Run a sync as soon as the process starts. On by default so a fresh
