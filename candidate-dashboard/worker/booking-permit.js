@@ -75,7 +75,7 @@ const planNames=plan=>new Map((plan.sessions||[]).flatMap(s=>(s.interviewers||[]
 //   last        the last accepted draft contents
 //   refusals    every save refused on content, with the reason
 //   cleanup     true only while the draft is being deleted
-async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxSaves=25,maxRefreshes=10}){
+async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxSaves=25,maxRefreshes=10,observeAlternates=false}){
   Object.assign(state,{draftId:null,last:null,saves:0,lastSaveAt:0,lastRefreshAt:0,refusals:[],baselineError:null,cleanup:false,sent:0,lastSeq:0,zone:null,attempts:0});
   const forDraft=v=>!!state.draftId&&v.draftInterviewScheduleId===state.draftId;
   const names=planNames(plan);
@@ -101,7 +101,7 @@ async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxS
       let next=null;
       // Slots before and after, logged whenever a save changes them or is refused.
       const slots=()=>{const before=slotSummary(state.last,names),after=next?slotSummary(next,names):null;return {before,after};};
-      try{next=normalizeDraft(v.draftSchedule);checkSave(state.last,next,plan,{compareRest:state.saves>0,timeZone:state.zone});
+      try{next=normalizeDraft(v.draftSchedule);checkSave(state.last,next,plan,{compareRest:state.saves>0,timeZone:state.zone,observeAlternates});
         const s=slots(),seq=++state.sent;log({type:'save-checked',seq:attempt,ok:true,events:saveSummary(next),...(s.before!==s.after?{slots:s}:{})});return {next,seq,attempt};}
       catch(e){state.refusals.push(e.message);log({type:'refused-save',seq:attempt,reason:e.message,slots:slots()});return false;}
     },

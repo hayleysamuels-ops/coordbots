@@ -297,3 +297,21 @@ test('dialogs: the past-time and no-location warnings are never confirmed, and a
   assert.deepEqual(c.CONFIRMABLE,[]);
   assert.equal(c.NEVER_CONFIRM.length,2);
 });
+
+// ---- observing alternates (dry run --observe-alternates only) ----------------
+
+test('observing: a slot\'s alternates may narrow but never gain anyone; strays are returned, not refused; off by default',()=>{
+  const c=require('../worker/booking-check');
+  const at={startTimeISO:'2099-10-29T18:30:00.000Z',endTimeISO:'2099-10-29T19:00:00.000Z'};
+  const plan={timeZone:'America/Los_Angeles',sessions:[{title:'Initial',interviewId:'int-1',start:'2099-10-29T18:30:00.000Z',end:'2099-10-29T19:00:00.000Z',interviewers:[{userId:'u-mary',email:'mary@luminai.com'}]}]};
+  const N=(selected,alternates)=>c.normalizeDraft({events:[{id:'ev-1',title:'Initial',interviewId:'int-1',...at,interviewSlots:[{selected,alternates}]}]});
+  const created=N(null,['u-mary','u-hayley']),chosen=N('u-mary',['u-hayley']);
+  // October 27, as Ashby sent it: refused by default, allowed while observing.
+  assert.throws(()=>c.checkSave(created,chosen,plan,{compareRest:false}),/alternates changed to \["u-hayley"\]/);
+  c.checkSave(created,chosen,plan,{compareRest:false,observeAlternates:true});
+  assert.throws(()=>c.checkSave(created,N('u-mary',['u-hayley','u-stranger']),plan,{compareRest:false,observeAlternates:true}),/alternates changed/);
+  assert.throws(()=>c.checkSave(chosen,N('u-mary',['u-mary','u-hayley']),plan,{compareRest:false,observeAlternates:true}),/alternates changed/,'never gains anyone');
+  assert.throws(()=>c.checkFinal(chosen,plan),/still lists 1 unapproved alternate \(u-hayley\)/);
+  assert.deepEqual(c.checkFinal(chosen,plan,{observeAlternates:true}),{strayAlternates:[{session:1,alternates:['u-hayley']}]});
+  assert.throws(()=>c.checkFinal(N('u-hayley',['u-hayley']),plan,{observeAlternates:true}),/doesn't have exactly the approved interviewers/,'everything else is still checked');
+});

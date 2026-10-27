@@ -9,7 +9,7 @@
 // dashboard nor Slack can reach it. It runs only from a shell in the worker
 // container:
 //
-//   railway ssh -s scheduling-worker -- node worker/booking-dry-run.js --plan-base64 <plan>
+//   railway ssh -s scheduling-worker -- node worker/booking-dry-run.js --plan-base64 <plan> [--observe-alternates]
 //
 // <plan> is the approved agenda as base64 JSON (worker/booking-check.js has
 // its shape; src/scheduling/booking-plan.js builds it from a preview option).
@@ -39,6 +39,10 @@ function readPlanArg(argv){
   catch(_){stop('The plan isn\'t base64-encoded JSON.');}
 }
 
+// --observe-alternates: let a slot's alternates narrow, and log what Ashby does
+// with them (booking-composer.js). Dry run only; the draft is still deleted.
+const observeAlternatesArg=argv=>argv.includes('--observe-alternates');
+
 // Everything the run depends on is passed in, so the locks can be tested
 // without a session or a browser. Returns the composer's report.
 async function run({env,argv,chromium,loadSession,now=Date.now,log=()=>{},composer=require('./booking-composer')}){
@@ -65,7 +69,7 @@ async function run({env,argv,chromium,loadSession,now=Date.now,log=()=>{},compos
       return route.continue();
     });
     const page=await context.newPage();
-    return await composer.dryRun({context,page,plan,log,expectedIdentity});
+    return await composer.dryRun({context,page,plan,log,expectedIdentity,observeAlternates:observeAlternatesArg(argv)});
   }finally{await browser.close().catch(()=>{});}
 }
 
@@ -79,7 +83,7 @@ if(require.main===module){
   // bootstrap.js does, before reading the session or starting Chrome.
   if(process.getuid&&process.getuid()===0){process.setgroups([]);process.setgid(1000);process.setuid(1000);}
   // Progress without page contents: step outcomes, permitted writes, checks.
-  const log=e=>{if(e.draftId)draftId=e.draftId;if(['permitted','response','refused-save','uncertain','check','dialog'].includes(e.type))console.error('[booking-dry-run]',JSON.stringify(e));};
+  const log=e=>{if(e.draftId)draftId=e.draftId;if(['permitted','response','refused-save','save-checked','draft-slots','observe','uncertain','check','dialog'].includes(e.type))console.error('[booking-dry-run]',JSON.stringify(e));};
   (async()=>{
     // Loaded only here, so the locks above are checked without them in tests.
     const {chromium}=require('playwright');
@@ -92,4 +96,4 @@ if(require.main===module){
   })().catch(e=>{console.error('[booking-dry-run]',e instanceof Stop?e.message:'failed: '+e.message);process.exit(e instanceof Stop?e.code:1);});
 }
 
-module.exports={run,checkFlag,checkPlan,readPlanArg,ALLOWED_APPLICATIONS,Stop};
+module.exports={run,checkFlag,checkPlan,readPlanArg,observeAlternatesArg,ALLOWED_APPLICATIONS,Stop};

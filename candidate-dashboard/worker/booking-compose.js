@@ -87,6 +87,7 @@ function detailLine(e){
     case 'save-checked':return `save ${e.seq} passed the content check: ${e.events.join('; ')}${e.slots?`; slots before: ${e.slots.before}; after: ${e.slots.after}`:''}`;
     case 'refused-save':return `save ${e.seq} REFUSED by the content check: ${short(e.reason)}${e.slots?`; slots before: ${e.slots.before}; after: ${e.slots.after??'(unreadable)'}`:''}`;
     case 'draft-slots':return `draft slots (${e.at}): ${e.slots}`;
+    case 'observe':{const {type,what,...rest}=e;return `observe (${what}): ${JSON.stringify(rest)}`;}
     case 'save-result':return `save ${e.seq} ${e.accepted?'accepted by Ashby':`NOT accepted by Ashby (HTTP ${e.status}${e.errors?.length?`: ${e.errors.join('; ')}`:''})`}`;
     case 'screen':{const {type,at,...rest}=e;return rest.note?`screen (${at}): ${rest.note}`:`screen (${at}): ${JSON.stringify(rest)}`;}
     case 'dialog':return `dialog: ${short(e.text)}`;

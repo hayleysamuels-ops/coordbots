@@ -21,7 +21,7 @@
 const {guardWrites,classify}=require('./template-guard');
 const {sendRecipientsOutside,sendBlocked}=require('./booking-locks');
 const {installBookingPermits,installPermit,ORIGIN,OP}=require('./booking-permit');
-const {classifyInviteStatus,DRAFT_READ_OP,draftReadCopy,draftShape,draftsIn,normalizeDraft,maskAgendaItem,checkFinal,formats,composerZone,checkInviteDropdowns,partitionPreviews,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog}=require('./booking-check');
+const {classifyInviteStatus,DRAFT_READ_OP,draftReadCopy,draftShape,draftsIn,normalizeDraft,maskAgendaItem,checkFinal,formats,composerZone,checkInviteDropdowns,partitionPreviews,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,emailsIn}=require('./booking-check');
 
 class Refusal extends Error{constructor(step,message){super(message);this.step=step;this.status=409;}}
 const esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
@@ -215,12 +215,18 @@ const replied=json=>!!json&&!(json.errors&&json.errors.length);
 //     Any refusal still deletes it.
 //   `send` (booking-compose.js sets it only when every lock is open and the
 //     approved plan says `send: true`): click Schedule once, with one permit.
-async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,expectedIdentity,checkExistingDrafts=false,supersedeDraftId=null,keepOnSuccess=false,send=false}){
+// `observeAlternates` (booking-dry-run.js --observe-alternates only): lets a
+// slot's alternates narrow (checkSave), logs unapproved alternates left at the
+// end instead of refusing (checkFinal), and logs each eligible interviewer's
+// row on Ashby's interviewer page and every invite preview's recipients
+// (`observe` events). Never with a kept draft or Send.
+async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,expectedIdentity,checkExistingDrafts=false,supersedeDraftId=null,keepOnSuccess=false,send=false,observeAlternates=false}){
+  if(observeAlternates&&(keepOnSuccess||send))throw new Error('Observing alternates is for the dry run only: never with a kept draft or Send.');
   const T={settle:700,short:1500,wait:15000,...timing};
   const events=[];const note=e=>{events.push(e);log(e);};
   const guard=await guardWrites(context,{warn:m=>note({type:'blocked',detail:m.replace('[write-guard] ','')})});
   const state={};
-  await installBookingPermits(context,{plan,state,log:note,...(respond?{respond}:{})});
+  await installBookingPermits(context,{plan,state,log:note,observeAlternates,...(respond?{respond}:{})});
   // The earlier draft's delete: that draft only, once, and only while armed.
   const superseding={armed:false,discarded:undefined};
   if(supersedeDraftId)await installPermit(context,{op:OP.discard,max:1,log:note,...(respond?{respond}:{}),
@@ -455,6 +461,14 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
           const text=(row?.innerText||'').replace(/\s+/g,' ');
           return text.includes(name)&&text.includes(email);
         }),{name:p.name,email:p.email});
+        // Observing: every eligible row as Ashby shows it (name, email,
+        // conflicts), found as the pick finds them, before the pick.
+        if(observeAlternates)note({type:'observe',what:`interviewer page, slot ${j+1} of "${s.title}", before choosing ${p.name}`,
+          rows:await buttons.evaluateAll(els=>els.map(b=>{
+            let row=b.parentElement;
+            while(row&&row.querySelectorAll('button').length&&[...row.querySelectorAll('button')].filter(x=>x.innerText.trim()==='Select Interviewer').length===1&&row.parentElement&&[...row.parentElement.querySelectorAll('button')].filter(x=>x.innerText.trim()==='Select Interviewer').length===1)row=row.parentElement;
+            return (row?.innerText||'').replace(/\s+/g,' ').trim().slice(0,200);})),
+          page:(await page.locator('body').innerText().catch(()=>'')).split('\n').map(l=>l.trim()).filter(l=>/current interviewer|conflict|busy|consider alternate/i.test(l)).slice(0,12)});
         const matches=rows.map((m,k)=>m?k:-1).filter(k=>k>=0);
         if(matches.length!==1)refuse(matches.length?`${p.name} (${p.email}) appears ${matches.length} times in the eligible list for "${s.title}".`:`${p.name} (${p.email}) isn't an eligible interviewer for "${s.title}" in Ashby. Only people the interview's template allows can be booked.`);
         await after(()=>buttons.nth(matches[0]).click());
@@ -465,7 +479,8 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     }
     step='check the composed draft';
     await sleep(T.short);
-    checkFinal(state.last,plan);
+    {const {strayAlternates}=checkFinal(state.last,plan,{observeAlternates});
+      if(strayAlternates.length)note({type:'observe',what:'unapproved alternates left in the composed draft (allowed only while observing)',strayAlternates});}
     pass('final draft save equals the approval exactly',{saves:state.saves});
     // 4. Communications: invites and the candidate email must say what was approved.
     step='configure communications';
@@ -547,6 +562,7 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
       note({type:'agenda-shape',...shape});
     }
     // Content checks fail as refusals, naming what differs.
+    if(observeAlternates)note({type:'observe',what:'invite preview recipients',candidate:emailsIn(read.candidateText||''),interviewers:read.interviewerTexts.map(t=>emailsIn(t))});
     try{checkInvitePreview(read.candidateText,shown,read.agendaItems);}catch(e){refuse(e.message);}
     pass('candidate invite preview shows the approved date, agenda and only the candidate');
     try{checkInterviewerInvitePreviews(read.interviewerTexts,shown);}catch(e){refuse(e.message);}
@@ -601,7 +617,7 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     },{body:lastRead.body,headers}).catch(e=>({error:e.message}));
     if(reread.error||reread.status!==200)refuse(`Ashby didn't answer the re-read of this draft (${reread.error||`HTTP ${reread.status}`}).`);
     let rereadDraft;try{rereadDraft=draftReadCopy(reread.json,state.draftId);}catch(e){refuse(e.message);}
-    try{checkFinal(normalizeDraft(rereadDraft),plan);}catch(e){refuse(`The draft as Ashby has it now doesn't match the approval: ${e.message}`);}
+    try{checkFinal(normalizeDraft(rereadDraft),plan,{observeAlternates});}catch(e){refuse(`The draft as Ashby has it now doesn't match the approval: ${e.message}`);}
     pass(`draft re-read from Ashby (${lastRead.operationName}) just before Schedule, and it equals the approval exactly`);
     // 6. The Schedule button. On this layout clicking it sends at once.
     step='find Schedule';

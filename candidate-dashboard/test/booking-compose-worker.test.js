@@ -360,3 +360,16 @@ test('slot states are logged at creation and around a refused or slot-changing s
   assert.equal(detailLine({type:'save-checked',seq:2,events:['e'],slots:{before:'B',after:'A'}}),'save 2 passed the content check: e; slots before: B; after: A');
   assert.equal(detailLine({type:'save-checked',seq:2,events:['e']}),'save 2 passed the content check: e');
 });
+
+test('observing alternates is reachable only from the dry run, never with a kept draft or Send',async()=>{
+  const {observeAlternatesArg}=require('../worker/booking-dry-run');
+  assert.equal(observeAlternatesArg(['node','x','--plan-base64','e30=']),false);
+  assert.equal(observeAlternatesArg(['node','x','--plan-base64','e30=','--observe-alternates']),true);
+  const {dryRun}=require('../worker/booking-composer');
+  await assert.rejects(dryRun({observeAlternates:true,keepOnSuccess:true}),/dry run only/);
+  await assert.rejects(dryRun({observeAlternates:true,send:true}),/dry run only/);
+  const src=require('fs').readFileSync(require('path').join(__dirname,'../worker/booking-compose.js'),'utf8');
+  assert.doesNotMatch(src,/observeAlternates/,'the Slack-approved check never observes');
+  const {detailLine}=require('../worker/booking-compose');
+  assert.equal(detailLine({type:'observe',what:'invite preview recipients',candidate:['a@b.c'],interviewers:[['m@l.c']]}),'observe (invite preview recipients): {"candidate":["a@b.c"],"interviewers":[["m@l.c"]]}');
+});

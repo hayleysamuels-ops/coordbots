@@ -80,7 +80,10 @@ function parts(ms,timeZone){
 // whose previous state came from Ashby's create response (a different shape).
 // `timeZone` is the zone the composer edits in (composerZone below); the plan's
 // own zone until it has been read.
-function checkSave(prev,next,plan,{compareRest=true,timeZone=null}={}){
+// `observeAlternates` (the dry run's --observe-alternates only, never a real
+// check): a slot's alternates may also narrow to any subset of what it held
+// before, never gain anyone. It exists to watch what Ashby does with them.
+function checkSave(prev,next,plan,{compareRest=true,timeZone=null,observeAlternates=false}={}){
   const why=[];
   if(next.length!==prev.length)fail(`This save has ${next.length} events; the draft had ${prev.length}.`);
   next.forEach((e,i)=>{
@@ -101,7 +104,8 @@ function checkSave(prev,next,plan,{compareRest=true,timeZone=null}={}){
     e.slots.forEach((slot,j)=>{
       if(slot.selected!==p.slots[j]?.selected&&slot.selected!==null&&!approvedIds.includes(slot.selected))why.push(`${label}, slot ${j+1}: an interviewer who wasn't approved was selected`);
       // Alternates may only stay as they were or become exactly the approved interviewers.
-      if(!same(slot.alternates,p.slots[j]?.alternates)&&!same(slot.alternates,[...approvedIds].sort()))why.push(`${label}, slot ${j+1}: alternates changed to ${JSON.stringify(slot.alternates)}, which is neither the previous list nor exactly the approved interviewers`);
+      const narrowed=observeAlternates&&Array.isArray(slot.alternates)&&Array.isArray(p.slots[j]?.alternates)&&slot.alternates.every(a=>p.slots[j].alternates.includes(a));
+      if(!narrowed&&!same(slot.alternates,p.slots[j]?.alternates)&&!same(slot.alternates,[...approvedIds].sort()))why.push(`${label}, slot ${j+1}: alternates changed to ${JSON.stringify(slot.alternates)}, which is neither the previous list nor exactly the approved interviewers`);
       if(compareRest&&!same(slot.rest,p.slots[j]?.rest)){
         // Name what changed, with before and after (IDs and settings, never page text).
         const changed=keys(slot.rest).filter(k=>!same(slot.rest[k],p.slots[j]?.rest?.[k]));
@@ -190,8 +194,11 @@ function draftShape(json,draftId){
   return {objects,references};
 }
 
-// The final save must equal the approval exactly.
-function checkFinal(state,plan){
+// The final save must equal the approval exactly. With `observeAlternates`
+// (dry run only), unapproved alternates are returned for the log instead of
+// refused; everything else is checked as always.
+function checkFinal(state,plan,{observeAlternates=false}={}){
+  const strayAlternates=[];
   const why=[];
   state.forEach((e,i)=>{
     const s=plan.sessions[i],label=`"${s.title}"`;
@@ -200,9 +207,11 @@ function checkFinal(state,plan){
     const chosen=e.slots.map(x=>x.selected).sort(),approved=s.interviewers.map(x=>x.userId).sort();
     if(!same(chosen,approved))why.push(`${label} doesn't have exactly the approved interviewers`);
     const stray=[...new Set(e.slots.flatMap(x=>x.alternates||[]))].filter(a=>!approved.includes(a));
-    if(stray.length)why.push(`${label} still lists ${stray.length} unapproved alternate${stray.length===1?'':'s'} (${stray.join(', ')})`);
+    if(stray.length&&observeAlternates)strayAlternates.push({session:i+1,alternates:stray});
+    else if(stray.length)why.push(`${label} still lists ${stray.length} unapproved alternate${stray.length===1?'':'s'} (${stray.join(', ')})`);
   });
   if(why.length)fail(`The composed draft doesn't match the approval: ${why.join('; ')}.`,why);
+  return {strayAlternates};
 }
 
 // Display strings Ashby uses, in the zone it shows (composerZone).

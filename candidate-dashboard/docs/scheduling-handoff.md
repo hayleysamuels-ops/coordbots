@@ -1135,6 +1135,18 @@ file permits it or the composer clicks Schedule.
   ones. Added after the first run where Mary was chosen: Ashby's save left
   alternates [Hayley], which the alternates rule refused. The rule is
   unchanged until this data shows what alternates mean.
+  The second run (October 27, Mary chosen) showed Ashby creates the slot with
+  nobody selected and alternates [Mary, Hayley], and its save for choosing Mary
+  sets selected Mary, alternates [Hayley].
+- **Observing alternates** (`booking-dry-run.js --observe-alternates`, dry run
+  only, behind `BOOKING_DRY_RUN=on`): a slot's alternates may narrow to any
+  subset of what they were (never gain anyone), unapproved alternates left at
+  the end are logged instead of refused, and the run logs each eligible row on
+  Ashby's interviewer page (name, email, conflicts) and every invite preview's
+  recipients, as `observe` lines. Everything else is checked as always, Send
+  is never permitted, and the draft is deleted. `dryRun` throws if asked to
+  observe with a kept draft or Send, and the Slack-approved check never passes
+  it (a test enforces both).
 - **The candidate's availability, checked again before anything is made**
   (since October 26, `src/scheduling/availability-gate.js`). A post built from
   the candidate's submission keeps that submission in its plan (schedule ID, time
