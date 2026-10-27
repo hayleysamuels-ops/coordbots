@@ -155,8 +155,15 @@ function braceDepth(css) {
     const bk = JSON.parse(configRes.text).backup;
     if (!bk) {
       notes.push("deployment reports no backup status — it predates the backup support");
-    } else if (!bk.configured) {
-      notes.push("BACKUP: no off-site destination set — snapshots sit on the same volume as the database");
+    } else if (!bk.volumeLossCovered) {
+      check(
+        "losing the volume would not lose the database",
+        false,
+        "no off-site destination AND no platform snapshots declared — set BACKUP_PLATFORM_SNAPSHOTS=true " +
+          "once Railway's daily volume backups are on, or configure BACKUP_S3_*"
+      );
+    } else if (bk.platformSnapshots && !bk.configured) {
+      notes.push("BACKUP: relying on Railway's own volume backups; local snapshots are the second layer");
     } else if (!bk.last) {
       notes.push("BACKUP: configured, but no run recorded yet on this instance");
     } else if (!bk.last.ok) {

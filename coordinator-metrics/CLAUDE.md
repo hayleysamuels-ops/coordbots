@@ -408,31 +408,47 @@ is the short list of things that look wrong and are not.
   marking was removed on request — don't add it back. Not for clients
   or coordinators.
 
-- **The SQLite file is backed up nightly, and `VACUUM INTO` is the only
-  correct way to do it.** The database is WAL-mode and written to
-  continuously; `cp metrics.sqlite` under load yields a file that may
-  open cleanly and be missing committed rows, and you find out when you
-  restore. `src/backup.js` takes a read-locked consistent snapshot,
-  opens it, runs `PRAGMA integrity_check`, refuses any snapshot with
-  zero events or schedules (a wiped volume must not roll a good backup
-  out of retention), gzips it, and chains off the nightly full sync so
-  it always captures a completed sync. Retention is 30 dailies plus the
-  first snapshot of each of 12 months — monthlies matter because the
-  failure is often "a table was corrupted three weeks ago", which 30
-  dailies do not cover.
+- **Volume loss is covered by Railway's own daily volume backups, not
+  by an off-site bucket.** Switched on in the service's Backups tab
+  (there is no CLI; `railway volume update` takes only a mount path and
+  a name, and the IaC `backupSchedules` field is unusable while the
+  Config-as-Code migration is blocked). `BACKUP_PLATFORM_SNAPSHOTS=true`
+  tells this code they are on, which only silences a warning — nothing
+  here can verify the setting.
 
-  **Without `BACKUP_S3_*` set, the snapshot sits on the SAME volume as
-  the database and a volume incident loses both.** That is logged as a
-  warning every run and reported as `offsite: false` in
-  `/api/config`.`backup`. The dumps contain `candidate_name` and
-  `scheduled_by_email` for every client, so the destination must be
-  private — and note it is a wider audience than the dashboard
-  password, whose holder list is deliberately short.
+  S3 upload is implemented and deliberately unused. The dumps carry
+  `candidate_name` and `scheduled_by_email` for every client, and
+  keeping them on the platform that already holds that data is a
+  narrower exposure than a new vendor — and far narrower than GitHub
+  Actions artifacts, where repo read access is the whole eng team
+  against a dashboard password held by very few. Don't "finish" the R2
+  setup; it was considered and declined.
 
-  SigV4 is hand-rolled in `src/backup-sinks.js` rather than pulling in
-  the AWS SDK for one PUT. `test/sigv4`-style coverage in
-  `test/backup.test.js` pins it to the worked example published in the
-  AWS documentation, so it is tested rather than trusted.
+- **`src/backup.js` stays, and `VACUUM INTO` is the only correct way to
+  snapshot this file.** It is WAL-mode and written to continuously; a
+  `cp` under load yields a file that may open cleanly and be missing
+  committed rows, and you find out at restore time. Every snapshot is
+  then opened, integrity-checked and row-counted, and one with zero
+  events is refused so a wiped volume cannot roll a good backup out of
+  the retention window. It chains off the nightly full sync so it
+  always captures a completed one. Retention is 30 dailies plus the
+  first of each of 12 months — the monthlies cover "a table was
+  corrupted three weeks ago", which dailies do not.
+
+  This layer sits on the SAME volume as the database. That is the
+  point: it covers a bad migration, an accidental delete or logical
+  corruption, which a volume backup also covers but far more slowly.
+  It is not the volume-loss answer and must not be described as one.
+  `/api/config`.`backup.volumeLossCovered` is the field that answers
+  "is this recoverable if the volume goes", and the smoke test FAILS
+  when neither layer is declared.
+
+- **Pull a dump off-platform before anything that threatens the
+  volume.** Railway's backups live with the volume they protect, so a
+  migration that detaches it is precisely the case they do not cover.
+  The procedure and the verified drill status are in the README; done
+  once on 27 October 2026 before the IaC work, 507 observed
+  reschedules, byte-identical on both ends.
 
 ## Conventions
 

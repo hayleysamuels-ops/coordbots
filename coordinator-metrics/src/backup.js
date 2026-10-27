@@ -158,12 +158,15 @@ function prune(dir = backupDir(), { keepDaily = 30, keepMonthly = 12 } = {}) {
 /**
  * Take a snapshot, hand it to the configured destination, prune.
  *
- * With no destination configured this still runs and still keeps the
- * snapshot — on the same volume as the original, which protects against
- * a bad migration, an accidental delete or logical corruption, but NOT
- * against losing the volume. That is a real gap, so it is reported as a
- * warning on every run and carried in the status this exposes, rather
- * than being allowed to look like a working backup.
+ * The snapshot lands on the same volume as the original. That protects
+ * against a bad migration, an accidental delete or logical corruption,
+ * but NOT against losing the volume — Railway's own daily volume
+ * backups are what cover that, and BACKUP_PLATFORM_SNAPSHOTS says they
+ * are on.
+ *
+ * With neither set this warns on every run, because a backup that only
+ * appears to exist is worse than none: it removes the worry without
+ * removing the risk.
  */
 async function run({ reason = "manual" } = {}) {
   const startedAt = new Date().toISOString();
@@ -200,6 +203,10 @@ async function run({ reason = "manual" } = {}) {
       checks: snap.checks,
       destination,
       offsite,
+      // The volume this sits on is itself backed up by the platform, so
+      // a same-volume snapshot is a second layer rather than the only
+      // one. Self-reported: nothing here can verify Railway's setting.
+      platformSnapshots: config.backupPlatformSnapshots,
       removed: pruned.removed.length,
       error: null,
     };
@@ -210,10 +217,11 @@ async function run({ reason = "manual" } = {}) {
         `-> ${destination} in ${((Date.now() - t0) / 1000).toFixed(1)}s` +
         (pruned.removed.length ? `, pruned ${pruned.removed.length}` : "")
     );
-    if (!offsite) {
+    if (!offsite && !config.backupPlatformSnapshots) {
       console.warn(
-        "[backup] WARNING: no off-site destination configured, so this snapshot sits on the SAME volume as " +
-          "the database it backs up. A volume incident loses both. Set BACKUP_S3_* to fix."
+        "[backup] WARNING: this snapshot is on the SAME volume as the database it backs up, and nothing " +
+          "says the volume itself is protected. Turn on daily backups in the Railway service's Backups " +
+          "tab and set BACKUP_PLATFORM_SNAPSHOTS=true, or configure BACKUP_S3_*."
       );
     }
     return lastRun;
@@ -225,8 +233,13 @@ async function run({ reason = "manual" } = {}) {
 }
 
 function status() {
+  const offsite = Boolean(require("./backup-sinks").configured());
   return {
-    configured: Boolean(require("./backup-sinks").configured()),
+    configured: offsite,
+    platformSnapshots: config.backupPlatformSnapshots,
+    // The question a reader actually wants answered: is the database
+    // recoverable if this volume is lost?
+    volumeLossCovered: offsite || config.backupPlatformSnapshots,
     dir: backupDir(),
     last: lastRun,
   };
