@@ -13,13 +13,15 @@ const NOTICE_MINUTES=15;
 // cancelled and on neither list; a re-used activity composes as "Rescheduling").
 // 199e1b3d was sent by the robot on October 26 and cancelled at 19:44Z. Since
 // October 26, 19:44Z: c95bfecf, a never-booked six-session Onsite for the
-// first multi-session robot Send.
+// first multi-session robot Send (sent October 26, then cancelled). Since
+// October 27, 14:44Z: 81402bbd, a never-booked First Round, for trying the
+// Slack suggestion buttons and approvals from the new approvers.
 const ALLOWED_APPLICATIONS={
   '8dfd8f14-83c4-41f8-aaf1-416b75cb0892':{
     jobId:'837cc1e9-15ed-4f07-8755-51ee29f4ea39',
     candidateId:'fc88f24e-d59b-4e58-aa51-f0e94b1a32da',
     candidateEmail:'hayleysamuels511@gmail.com',
-    interviewScheduleIds:['69ffae5a-240c-4d06-8b45-f9826dbf5623','18599066-1d55-493a-8c2f-1e970b04f86c','d98941b3-5900-4ecc-a5cb-c57ed6729702','199e1b3d-3f4f-4629-98a5-3ec323fd1206','c95bfecf-9e5c-4d61-8f32-2586d26fa96f'],
+    interviewScheduleIds:['69ffae5a-240c-4d06-8b45-f9826dbf5623','18599066-1d55-493a-8c2f-1e970b04f86c','d98941b3-5900-4ecc-a5cb-c57ed6729702','199e1b3d-3f4f-4629-98a5-3ec323fd1206','c95bfecf-9e5c-4d61-8f32-2586d26fa96f','81402bbd-2e50-43bb-afd9-4fa53698c63f'],
   },
 };
 
@@ -28,7 +30,8 @@ const ALLOWED_APPLICATIONS={
 const SEND_ALLOWED={
   '8dfd8f14-83c4-41f8-aaf1-416b75cb0892':[
     '199e1b3d-3f4f-4629-98a5-3ec323fd1206',// TEST, First Round (Hayley only; sent October 26, now cancelled)
-    'c95bfecf-9e5c-4d61-8f32-2586d26fa96f',// TEST, Onsite Interview, six sessions
+    'c95bfecf-9e5c-4d61-8f32-2586d26fa96f',// TEST, Onsite Interview, six sessions (sent October 26, now cancelled)
+    '81402bbd-2e50-43bb-afd9-4fa53698c63f',// TEST, First Round (Hayley only), October 27
   ],
 };
 // Who a robot Send may reach (Hayley, 2026-10-19): the candidate and every

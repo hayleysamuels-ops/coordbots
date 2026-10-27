@@ -323,7 +323,7 @@ test('the cancelled First Round is on neither list; the new one is on both',()=>
   const test=ALLOWED_APPLICATIONS['8dfd8f14-83c4-41f8-aaf1-416b75cb0892'];
   assert.ok(test.interviewScheduleIds.includes('199e1b3d-3f4f-4629-98a5-3ec323fd1206'));for(const old of ['bbf93574-2e4c-4c61-8cd9-4e6f69d7d661','8dc8e6b6-1aa2-4470-8b00-e932459fc499'])assert.ok(!test.interviewScheduleIds.includes(old),old);
   assert.ok(!Object.values(SEND_ALLOWED).flat().includes('8dc8e6b6-1aa2-4470-8b00-e932459fc499'));
-  assert.deepEqual(SEND_ALLOWED['8dfd8f14-83c4-41f8-aaf1-416b75cb0892'],['199e1b3d-3f4f-4629-98a5-3ec323fd1206','c95bfecf-9e5c-4d61-8f32-2586d26fa96f']);
+  assert.deepEqual(SEND_ALLOWED['8dfd8f14-83c4-41f8-aaf1-416b75cb0892'],['199e1b3d-3f4f-4629-98a5-3ec323fd1206','c95bfecf-9e5c-4d61-8f32-2586d26fa96f','81402bbd-2e50-43bb-afd9-4fa53698c63f']);
 });
 test('the six-session TEST Onsite c95bfecf may be composed and sent; the old Onsite only composed',()=>{
   const {ALLOWED_APPLICATIONS,SEND_ALLOWED}=require('../worker/booking-locks');
@@ -331,4 +331,11 @@ test('the six-session TEST Onsite c95bfecf may be composed and sent; the old Ons
   assert.ok(ALLOWED_APPLICATIONS[app].interviewScheduleIds.includes('c95bfecf-9e5c-4d61-8f32-2586d26fa96f'));
   assert.ok(SEND_ALLOWED[app].includes('c95bfecf-9e5c-4d61-8f32-2586d26fa96f'));
   assert.ok(!SEND_ALLOWED[app].includes('d98941b3-5900-4ecc-a5cb-c57ed6729702'));
+});
+
+test('the October 27 TEST First Round 81402bbd may be composed and sent',()=>{
+  const {ALLOWED_APPLICATIONS,SEND_ALLOWED}=require('../worker/booking-locks');
+  const app='8dfd8f14-83c4-41f8-aaf1-416b75cb0892';
+  assert.ok(ALLOWED_APPLICATIONS[app].interviewScheduleIds.includes('81402bbd-2e50-43bb-afd9-4fa53698c63f'));
+  assert.ok(SEND_ALLOWED[app].includes('81402bbd-2e50-43bb-afd9-4fa53698c63f'));
 });

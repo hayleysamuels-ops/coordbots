@@ -965,7 +965,9 @@ file permits it or the composer clicks Schedule.
        only interviewer; sent by the robot October 26, then cancelled), and
        TEST's six-session Onsite `c95bfecf` since October 26, 19:44Z, a
        never-booked activity for the first multi-session send (the old Onsite
-       `d98941b3` stays compose-only); every recipient on
+       `d98941b3` stays compose-only; `c95bfecf` sent October 26, then
+       cancelled), and TEST's First Round `81402bbd` since October 27, 14:44Z,
+       never booked; every recipient on
        `SEND_RECIPIENTS`; Anna's session. The composer checks them once more
        before arming.
      - **Fresh re-read before the click** (every check, sending or not): the
