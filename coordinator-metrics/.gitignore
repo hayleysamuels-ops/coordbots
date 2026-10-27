@@ -8,8 +8,3 @@ data/
 *.sqlite-wal
 *.sqlite-shm
 designs/
-
-# Railway IaC migration, drafted but NOT in force. The generated plan
-# still wants to detach the volume, so this must not be committed or
-# cut over until Railway support answers. See .railway/SUPPORT-REQUEST.md.
-.railway/

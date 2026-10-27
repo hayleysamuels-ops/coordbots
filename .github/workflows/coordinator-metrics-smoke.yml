@@ -85,8 +85,8 @@ jobs:
           # never served and waiting for it would hang until timeout —
           # which is exactly what happened on this gate's first run.
           #
-          # These path filters mirror coordinator-metrics/railway.json's
-          # watchPatterns. Keep them in step.
+          # These path filters mirror the watchPatterns in
+          # coordinator-metrics/.railway/railway.ts. Keep them in step.
           EXPECTED_COMMIT=$(git log -1 --format=%H -- \
             'coordinator-metrics' \
             ':(exclude)coordinator-metrics/*.md' \

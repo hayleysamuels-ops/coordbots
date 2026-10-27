@@ -20,5 +20,8 @@
   "dependencies": {
     "dotenv": "^16.4.5",
     "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "railway": "^3.16.0"
   }
 }

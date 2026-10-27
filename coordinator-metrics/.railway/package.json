@@ -1,0 +1,5 @@
+{
+  "type": "module",
+  "private": true,
+  "//": "Scopes ESM to this directory. railway.ts uses ESM imports, but the service itself is CommonJS (require/module.exports throughout src/), so 'type: module' must NOT go in coordinator-metrics/package.json. Removing this file makes 'railway config plan' fail with 'Cannot use import statement outside a module'."
+}

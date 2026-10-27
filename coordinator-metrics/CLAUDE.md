@@ -256,16 +256,45 @@ is the short list of things that look wrong and are not.
   A client-facing per-client view needs real per-user auth, and keeping the
   decision in one file is what makes that a contained change.
 
-- **Watch patterns live in `railway.json`, NOT the Railway dashboard.**
-  Config-as-code overrides the dashboard for any field it sets, so editing
-  watch paths in the UI will appear to work and then be silently ignored on
-  the next deploy — change `railway.json` instead. Two things to know about
-  the patterns: they are **repo-root-relative even though the service has a
-  root directory** (hence the `/coordinator-metrics/` prefix on every one),
-  and a `!` negation only takes effect if an earlier rule included the files
-  it excludes, so the broad include has to come first. The root directory
-  itself is the one setting that cannot go in this file and still lives in
-  the dashboard.
+- **All Railway config lives in `.railway/railway.ts`. `railway.json`
+  is gone** (deleted 27 October 2026; Config as Code was deprecated
+  with a 2026-12-01 cutoff). Editing deploy settings in the dashboard
+  will appear to work and then be overwritten on the next
+  `railway config apply` — change the file.
+
+- **Regenerate that file with `railway config pull`, NEVER `railway
+  config migrate`.** This is the trap that cost a day. `migrate` only
+  translates railway.json, and the volume was never in railway.json, so
+  the file it produced omitted the volume and planned to detach it:
+
+      volumeAttachments.coordinator-metrics-volume.mountPath ("/data" -> null)
+
+  Applying that would have taken the database offline. `pull` imports
+  the live project, volume included. Five hand-written spellings of the
+  volume block were tried first and every one still planned a detach —
+  the correct form is `volumeMounts: { "<mountPath>": <volumeNode> }`,
+  keyed by mount path with the node as the value, which none of them
+  guessed and which produces no error when written wrongly.
+
+- **Always `railway config plan` before `apply`, and never pass
+  `--confirm-destructive`.** The plan prints a destructive-change count;
+  anything above zero against this service means the volume. `apply`
+  without that flag refuses rather than proceeding, which is the
+  safeguard.
+
+- **Watch patterns are repo-root-relative even though the service has a
+  root directory** (hence the `/coordinator-metrics/` prefix on each),
+  and a `!` negation only bites if an earlier rule included the files it
+  excludes, so the broad include comes first. They were in railway.json
+  but NEVER in Railway's stored config — `pull` returned only the broad
+  pattern, because Config as Code applied the negations per deploy.
+  They are in stored config now. The root directory, which could not go
+  in railway.json and lived in the dashboard, is in code too.
+
+- **`railway` is a devDependency so the config stays plannable**, and
+  `.railway/package.json` declares `type: module` because railway.ts is
+  ESM while the service is CommonJS throughout. Deleting that two-line
+  file breaks `railway config plan` with a misleading syntax error.
 
 - **Doc-only changes deliberately do not redeploy.** A redeploy restarts the
   container mid-sync, and the nightly full sync takes about 21 minutes.
