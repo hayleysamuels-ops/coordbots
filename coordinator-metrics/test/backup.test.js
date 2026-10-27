@@ -150,3 +150,57 @@ test("an empty database is refused rather than written over good backups", () =>
     Object.defineProperty(store, "FILE", { value: realFile, configurable: true });
   }
 });
+
+// --- Status ----------------------------------------------------------------
+
+test("coverage is claimed from a real upload, never from configuration", () => {
+  const backup = require("../src/backup");
+  const store = require("../src/db");
+
+  // Four environment variables present and nothing ever uploaded. This
+  // reported volumeLossCovered: true in production on exactly this
+  // state, which is the failure mode the whole status field exists to
+  // prevent.
+  process.env.BACKUP_S3_ENDPOINT = "https://example.r2.cloudflarestorage.com";
+  process.env.BACKUP_S3_BUCKET = "b";
+  process.env.BACKUP_S3_ACCESS_KEY_ID = "k";
+  process.env.BACKUP_S3_SECRET_ACCESS_KEY = "s";
+  store.setMeta("__backup__", "last_run", JSON.stringify({ ok: true, offsite: false, finishedAt: new Date().toISOString() }));
+
+  let st = backup.status();
+  assert.strictEqual(st.offsiteConfigured, true, "the credentials are present");
+  assert.strictEqual(st.volumeLossCovered, false, "but nothing has been uploaded, so nothing is covered");
+
+  // A real, recent off-site upload.
+  store.setMeta("__backup__", "last_run", JSON.stringify({ ok: true, offsite: true, finishedAt: new Date().toISOString() }));
+  st = backup.status();
+  assert.strictEqual(st.volumeLossCovered, true);
+  assert.ok(st.lastOffsiteUploadAt);
+
+  // A successful upload from three days ago is not coverage: backups
+  // run nightly, so that means two nights silently did not happen.
+  const old = new Date(Date.now() - 72 * 3600 * 1000).toISOString();
+  store.setMeta("__backup__", "last_run", JSON.stringify({ ok: true, offsite: true, finishedAt: old }));
+  assert.strictEqual(backup.status().volumeLossCovered, false, "a stale upload is not coverage");
+
+  // A failed run never counts, however recent.
+  store.setMeta("__backup__", "last_run", JSON.stringify({ ok: false, offsite: true, finishedAt: new Date().toISOString() }));
+  assert.strictEqual(backup.status().volumeLossCovered, false);
+
+  for (const k of ["BACKUP_S3_ENDPOINT", "BACKUP_S3_BUCKET", "BACKUP_S3_ACCESS_KEY_ID", "BACKUP_S3_SECRET_ACCESS_KEY"]) {
+    delete process.env[k];
+  }
+});
+
+test("the last run survives a restart, because it is persisted not held in memory", () => {
+  const store = require("../src/db");
+  const record = { ok: true, offsite: true, reason: "nightly", finishedAt: new Date().toISOString(), bytes: 123 };
+  store.setMeta("__backup__", "last_run", JSON.stringify(record));
+
+  // A manual `npm run backup` is a different process from the server;
+  // an in-memory record left /api/config reporting last: null right
+  // after a successful upload.
+  delete require.cache[require.resolve("../src/backup")];
+  const reloaded = require("../src/backup");
+  assert.strictEqual(reloaded.status().last.bytes, 123);
+});

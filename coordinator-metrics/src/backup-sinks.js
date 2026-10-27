@@ -133,6 +133,21 @@ function s3Sink(cfg) {
       return key;
     },
 
+    /**
+     * Fetch one object back.
+     *
+     * A backup store you cannot read from is not a backup store. This
+     * is the half of the contract that only gets exercised during an
+     * incident, which is the worst time to discover it was never
+     * written.
+     */
+    async get(key, localFile) {
+      const res = await request("GET", key.replace(/^\/+/, ""));
+      const buf = Buffer.from(await res.arrayBuffer());
+      fs.writeFileSync(localFile, buf);
+      return { bytes: buf.length };
+    },
+
     async list() {
       // ListObjectsV2 with the prefix. Keys are returned sorted, and the
       // filenames are timestamped, so lexical order is chronological.

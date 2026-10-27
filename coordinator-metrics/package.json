@@ -11,7 +11,8 @@
     "sync": "node scripts/sync-once.js",
     "check-client": "node scripts/check-client.js",
     "smoke": "node scripts/smoke.js",
-    "backup": "node scripts/backup-once.js"
+    "backup": "node scripts/backup-once.js",
+    "backups": "node scripts/backup-restore.js"
   },
   "engines": {
     "node": ">=22.5"

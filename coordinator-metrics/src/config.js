@@ -270,12 +270,6 @@ const config = {
   // clock, so a snapshot is always of a freshly-completed sync rather
   // than of a database halfway through being rewritten.
   backupEnabled: process.env.BACKUP_ENABLED !== "false",
-  // Set once Railway's own daily volume backups are switched on in the
-  // service's Backups tab. It changes nothing about what this code
-  // does — it only stops the nightly run warning that the snapshot is
-  // unprotected, which would otherwise cry wolf every night about a
-  // decision that has already been made.
-  backupPlatformSnapshots: process.env.BACKUP_PLATFORM_SNAPSHOTS === "true",
   backupDir: process.env.BACKUP_DIR || null,
   backupKeepDaily: number("BACKUP_KEEP_DAILY", 30),
   backupKeepMonthly: number("BACKUP_KEEP_MONTHLY", 12),

@@ -148,31 +148,29 @@ function braceDepth(css) {
   check(`config default scope "${defaultScope}" is one of the options`, scopeKeys.includes(defaultScope));
   check("at least one client is configured", clients.length > 0);
 
-  // Reported, not failed: the backup is a real gap until a bucket is
-  // configured, but failing CI on it would block deploys over a
-  // decision that belongs to a human.
+  // Failed, not noted. The question is not "is a bucket configured"
+  // but "did a byte reach it recently" — configuration was reporting
+  // everything-is-fine on the strength of four environment variables.
   try {
     const bk = JSON.parse(configRes.text).backup;
     if (!bk) {
       notes.push("deployment reports no backup status — it predates the backup support");
-    } else if (!bk.volumeLossCovered) {
-      check(
-        "losing the volume would not lose the database",
-        false,
-        "no off-site destination AND no platform snapshots declared — set BACKUP_PLATFORM_SNAPSHOTS=true " +
-          "once Railway's daily volume backups are on, or configure BACKUP_S3_*"
-      );
-    } else if (bk.platformSnapshots && !bk.configured) {
-      notes.push("BACKUP: relying on Railway's own volume backups; local snapshots are the second layer");
-    } else if (!bk.last) {
-      notes.push("BACKUP: configured, but no run recorded yet on this instance");
-    } else if (!bk.last.ok) {
-      check(`backup last run succeeded (${bk.last.error})`, false, bk.last.error);
     } else {
-      notes.push(
-        `BACKUP: last ${bk.last.reason} run ok — ${(bk.last.bytes / 1048576).toFixed(1)}MB to ${bk.last.destination}, ` +
-          `${bk.last.checks.reschedules} observed reschedules`
+      check(
+        `an off-site backup exists and is under ${bk.staleAfterHours}h old (${bk.lastOffsiteUploadAt || "never"})`,
+        bk.volumeLossCovered === true,
+        bk.offsiteConfigured
+          ? "BACKUP_S3_* is configured but no recent upload has succeeded — losing the volume would lose the database"
+          : "no off-site destination configured — losing the volume would lose the database"
       );
+      if (bk.last && !bk.last.ok) {
+        check(`last backup run succeeded`, false, bk.last.error);
+      } else if (bk.last && bk.last.ok) {
+        notes.push(
+          `BACKUP: last ${bk.last.reason} run ${(bk.last.bytes / 1048576).toFixed(1)}MB -> ${bk.last.destination}, ` +
+            `${bk.last.checks.reschedules} observed reschedules`
+        );
+      }
     }
   } catch (_) {
     /* config parse already reported above */

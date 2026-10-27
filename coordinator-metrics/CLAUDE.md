@@ -408,47 +408,56 @@ is the short list of things that look wrong and are not.
   marking was removed on request — don't add it back. Not for clients
   or coordinators.
 
-- **Volume loss is covered by Railway's own daily volume backups, not
-  by an off-site bucket.** Switched on in the service's Backups tab
-  (there is no CLI; `railway volume update` takes only a mount path and
-  a name, and the IaC `backupSchedules` field is unusable while the
-  Config-as-Code migration is blocked). `BACKUP_PLATFORM_SNAPSHOTS=true`
-  tells this code they are on, which only silences a warning — nothing
-  here can verify the setting.
+- **Volume loss is covered by an off-site copy in Cloudflare R2.
+  Railway's own volume backups were evaluated and DO NOT cover it.**
+  Two reasons, and the second is the disqualifying one: they require a
+  Pro plan, and they are **deleted along with the volume they protect**.
+  A backup that dies with the thing it is backing up is not a backup
+  for volume loss — it covers an accidental `DELETE`, not the volume
+  going away, which is the case we actually care about. Don't
+  "simplify" this back to platform snapshots.
 
-  S3 upload is implemented and deliberately unused. The dumps carry
-  `candidate_name` and `scheduled_by_email` for every client, and
-  keeping them on the platform that already holds that data is a
-  narrower exposure than a new vendor — and far narrower than GitHub
-  Actions artifacts, where repo read access is the whole eng team
-  against a dashboard password held by very few. Don't "finish" the R2
-  setup; it was considered and declined.
+  The dumps carry `candidate_name` and `scheduled_by_email` for every
+  client, so the bucket is private and whoever holds its keys can read
+  six clients' candidate data — a wider audience than the dashboard
+  password. That is a real cost of this route, accepted knowingly, and
+  it is why GitHub Actions artifacts were rejected: repo read access is
+  the whole engineering team.
+
+- **`backup.volumeLossCovered` is derived from a REAL UPLOAD, never
+  from configuration.** It once read `true` on the strength of four
+  environment variables being present while nothing had ever been
+  uploaded — the exact "it looks solved" failure the field exists to
+  prevent. It is now true only when the last run succeeded, went
+  off-site, and finished within `STALE_AFTER_MS` (48h — backups are
+  nightly, so two missed nights is a fault, not a slow day). There is
+  no hand-set flag that can silence it, deliberately; the smoke test
+  FAILS on it. `test/backup.test.js` pins all four cases.
+
+- **Last-run state is PERSISTED in `sync_meta` under the `__backup__`
+  sentinel, not held in memory.** In memory it died on every redeploy —
+  precisely when someone wants to know whether backups still work — and
+  a manual `npm run backup` runs in its own process, so the server went
+  on reporting `last: null` straight after a successful upload.
 
 - **`src/backup.js` stays, and `VACUUM INTO` is the only correct way to
   snapshot this file.** It is WAL-mode and written to continuously; a
   `cp` under load yields a file that may open cleanly and be missing
   committed rows, and you find out at restore time. Every snapshot is
-  then opened, integrity-checked and row-counted, and one with zero
-  events is refused so a wiped volume cannot roll a good backup out of
-  the retention window. It chains off the nightly full sync so it
-  always captures a completed one. Retention is 30 dailies plus the
-  first of each of 12 months — the monthlies cover "a table was
-  corrupted three weeks ago", which dailies do not.
+  opened, integrity-checked and row-counted, and one with zero events
+  is refused so a wiped volume cannot roll a good backup out of the
+  retention window. It chains off the nightly full sync so it always
+  captures a completed one. Retention is 30 dailies plus the first of
+  each of 12 months — the monthlies cover "a table was corrupted three
+  weeks ago", which dailies do not.
 
-  This layer sits on the SAME volume as the database. That is the
-  point: it covers a bad migration, an accidental delete or logical
-  corruption, which a volume backup also covers but far more slowly.
-  It is not the volume-loss answer and must not be described as one.
-  `/api/config`.`backup.volumeLossCovered` is the field that answers
-  "is this recoverable if the volume goes", and the smoke test FAILS
-  when neither layer is declared.
-
-- **Pull a dump off-platform before anything that threatens the
-  volume.** Railway's backups live with the volume they protect, so a
-  migration that detaches it is precisely the case they do not cover.
-  The procedure and the verified drill status are in the README; done
-  once on 27 October 2026 before the IaC work, 507 observed
-  reschedules, byte-identical on both ends.
+- **The sink can read as well as write, and that half matters more.**
+  `get()` and `npm run backups` exist because a store you cannot pull
+  from is not a backup store, and an incident is the worst time to find
+  out the download path was never written. The restore drill in the
+  README was run end to end from a laptop, which is the point: the
+  recovery path must not depend on the platform that just lost the
+  volume.
 
 ## Conventions
 

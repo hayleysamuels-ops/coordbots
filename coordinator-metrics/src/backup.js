@@ -39,11 +39,45 @@ const { DatabaseSync } = require("node:sqlite");
 const config = require("./config");
 const store = require("./db");
 
-// Kept in memory and surfaced through /api/config, because a backup that
-// fails silently is worse than no backup: it removes the worry without
-// removing the risk. This project has already shipped three failures
-// behind a green suite.
-let lastRun = null;
+/**
+ * Last-run state, PERSISTED rather than held in memory.
+ *
+ * Two reasons, both found the hard way. A manual `npm run backup` runs
+ * in its own process, so an in-memory record left the server reporting
+ * `last: null` immediately after a successful upload. And the record
+ * died on every redeploy, which is exactly when someone would want to
+ * know whether backups were still working.
+ *
+ * `sync_meta` is keyed by client; "__backup__" is a sentinel that
+ * belongs to no client, matching the "__overview__" convention in the
+ * metrics cache.
+ */
+const META_CLIENT = "__backup__";
+const META_KEY = "last_run";
+
+function readLastRun() {
+  const raw = store.getMeta(META_CLIENT, META_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch (_) {
+    return null;
+  }
+}
+
+function writeLastRun(record) {
+  try {
+    store.setMeta(META_CLIENT, META_KEY, JSON.stringify(record));
+  } catch (err) {
+    // Never let bookkeeping fail a backup that actually worked.
+    console.error(`[backup] could not record status: ${err.message}`);
+  }
+}
+
+// A successful upload more than this old is not coverage. Backups run
+// nightly, so two missed nights is a fault worth failing on rather
+// than a slow day.
+const STALE_AFTER_MS = 48 * 60 * 60 * 1000;
 
 function backupDir() {
   return config.backupDir || path.join(config.dataDir, "backups");
@@ -193,7 +227,7 @@ async function run({ reason = "manual" } = {}) {
       ? prune(backupDir(), { keepDaily: 3, keepMonthly: 1 })
       : prune(backupDir(), { keepDaily: config.backupKeepDaily, keepMonthly: config.backupKeepMonthly });
 
-    lastRun = {
+    const record = {
       ok: true,
       reason,
       startedAt,
@@ -203,13 +237,11 @@ async function run({ reason = "manual" } = {}) {
       checks: snap.checks,
       destination,
       offsite,
-      // The volume this sits on is itself backed up by the platform, so
-      // a same-volume snapshot is a second layer rather than the only
-      // one. Self-reported: nothing here can verify Railway's setting.
-      platformSnapshots: config.backupPlatformSnapshots,
       removed: pruned.removed.length,
       error: null,
+      finishedAt: new Date().toISOString(),
     };
+    writeLastRun(record);
 
     console.log(
       `[backup] ${reason}: ${(snap.bytes / 1048576).toFixed(1)}MB gz ` +
@@ -217,31 +249,47 @@ async function run({ reason = "manual" } = {}) {
         `-> ${destination} in ${((Date.now() - t0) / 1000).toFixed(1)}s` +
         (pruned.removed.length ? `, pruned ${pruned.removed.length}` : "")
     );
-    if (!offsite && !config.backupPlatformSnapshots) {
+    if (!offsite) {
       console.warn(
-        "[backup] WARNING: this snapshot is on the SAME volume as the database it backs up, and nothing " +
-          "says the volume itself is protected. Turn on daily backups in the Railway service's Backups " +
-          "tab and set BACKUP_PLATFORM_SNAPSHOTS=true, or configure BACKUP_S3_*."
+        "[backup] WARNING: this snapshot is on the SAME volume as the database it backs up, so a volume " +
+          "incident loses both. Configure BACKUP_S3_* for an off-site copy."
       );
     }
-    return lastRun;
+    return record;
   } catch (err) {
-    lastRun = { ok: false, reason, startedAt, ms: Date.now() - t0, error: err.message };
+    const record = { ok: false, reason, startedAt, ms: Date.now() - t0, error: err.message, finishedAt: new Date().toISOString() };
+    writeLastRun(record);
     console.error(`[backup] FAILED (${reason}): ${err.message}`);
-    return lastRun;
+    return record;
   }
 }
 
+/**
+ * Is the database actually recoverable?
+ *
+ * Deliberately NOT derived from configuration. Having BACKUP_S3_*
+ * present proves someone typed four variables, not that a byte ever
+ * reached the bucket — and it was reporting `volumeLossCovered: true`
+ * on the strength of that alone. The answer now rests on a real upload
+ * having succeeded, recently.
+ */
 function status() {
-  const offsite = Boolean(require("./backup-sinks").configured());
+  const last = readLastRun();
+  const offsiteConfigured = Boolean(require("./backup-sinks").configured());
+
+  const uploadedAt = last && last.ok && last.offsite ? Date.parse(last.finishedAt || last.startedAt) : null;
+  const ageMs = uploadedAt ? Date.now() - uploadedAt : null;
+  const stale = ageMs == null ? true : ageMs > STALE_AFTER_MS;
+
   return {
-    configured: offsite,
-    platformSnapshots: config.backupPlatformSnapshots,
-    // The question a reader actually wants answered: is the database
-    // recoverable if this volume is lost?
-    volumeLossCovered: offsite || config.backupPlatformSnapshots,
+    offsiteConfigured,
+    // The only field worth reading: an off-site copy demonstrably
+    // exists and is recent enough to be worth something.
+    volumeLossCovered: Boolean(uploadedAt) && !stale,
+    lastOffsiteUploadAt: uploadedAt ? new Date(uploadedAt).toISOString() : null,
+    staleAfterHours: STALE_AFTER_MS / 3600000,
     dir: backupDir(),
-    last: lastRun,
+    last,
   };
 }
 

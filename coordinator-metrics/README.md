@@ -312,105 +312,108 @@ the observed-reschedule history, which is not recoverable from Ashby at all.
 
 ## Backups and restore
 
-Two layers, covering different failures.
+The database is snapshotted after each nightly full sync and uploaded
+to a private Cloudflare R2 bucket. Most of the file is re-derivable
+from Ashby at the cost of a ~21-minute backfill; the `reschedules`
+table is not — it only ever accrues forward from the first sync.
 
-**Railway's own daily volume backups** cover losing the volume. Switch
-them on in the Railway service's **Backups** tab, set the schedule to
-daily, then set `BACKUP_PLATFORM_SNAPSHOTS=true` so the nightly run
-stops warning that nothing protects the volume. There is no CLI for
-this — `railway volume update` only takes a mount path and a name, and
-the IaC field (`backupSchedules`) is unusable until the Config-as-Code
-migration is unblocked. It is a dashboard click.
+### Why R2 and not Railway's own volume backups
 
-**`src/backup.js`** covers everything else: a bad migration, an
-accidental delete, logical corruption. It runs after each nightly full
-sync, so a snapshot is always of a completed sync, and keeps 30 dailies
-plus the first snapshot of each of 12 months. The monthlies are the
-ones that matter when a table was corrupted three weeks ago and nobody
-noticed.
+Railway offers scheduled volume backups, and they do not solve this.
+They require a Pro plan, and more importantly they are **deleted along
+with the volume they protect** — so they cover an accidental `DELETE`
+or a bad migration, but not the volume going away, which is the case
+worth insuring against. An off-site copy on a different provider is
+the only thing that covers it.
 
-`/api/config` reports `backup.volumeLossCovered`, and the smoke test
-FAILS if neither layer is declared. A backup that only appears to exist
-is worse than none.
+The cost of this route, accepted knowingly: the dumps contain
+`candidate_name` and `scheduled_by_email` for every client, so whoever
+holds the R2 keys can read six clients' candidate data. The bucket is
+private. GitHub Actions artifacts were rejected for the same reason —
+repo read access is the whole engineering team, against a dashboard
+password held by very few.
 
-### Why not an off-site bucket
+### Is it actually working?
 
-S3-compatible upload is implemented (`src/backup-sinks.js`, R2/B2/S3/
-MinIO) and deliberately not used. The dumps carry `candidate_name` and
-`scheduled_by_email` for every client; keeping them on the platform
-that already holds that data is the narrower exposure than standing up
-a new vendor, and much narrower than somewhere like GitHub Actions
-artifacts, where repo read access is the whole engineering team against
-a dashboard password held by very few people.
-
-### Pulling a dump to your own machine
-
-Do this before anything that could threaten the volume — the platform's
-backups live with the volume they protect, so a migration that detaches
-it is exactly the case they do not cover.
+`/api/config` reports `backup.volumeLossCovered`. It is true only when
+a real upload succeeded, off-site, within the last 48 hours — never
+from configuration being present, which reported "covered" once while
+nothing had ever been uploaded. The smoke test fails on it.
 
 ```bash
-railway ssh "cd /app && BACKUP_DIR=/data/manual npm run backup --silent"
+npm run backup      # snapshot, verify, upload now
+npm run backups     # list what is in the bucket
 ```
 
-That prints the filename. Then, substituting it:
+### Pulling a backup down
+
+Needs the four `BACKUP_S3_*` variables in the environment; works from
+any machine, which is the point — recovery must not depend on the
+platform that lost the volume.
 
 ```bash
-railway volume files --volume coordinator-metrics-volume download "/manual/<filename>" ~/coordbots-backups/<filename>
+npm run backups -- --latest --out ~/coordbots-backups
 ```
 
-Note `--volume` goes on `volume files`, not on `download`. Clean up the
-staging copy afterwards so it is not left sitting on the volume:
+Or a specific one, using a key from `npm run backups`:
 
 ```bash
-railway ssh "rm -rf /data/manual"
+npm run backups -- --get coordinator-metrics/metrics-2026-10-27T16-22-46Z.sqlite.gz --out ~/coordbots-backups
 ```
 
-### Restoring
+### Verifying one
 
-Verify any dump before trusting it:
+Never trust a dump you have not opened.
 
 ```bash
 gunzip -c ~/coordbots-backups/<filename> > /tmp/restore.sqlite
-node -e 'const {DatabaseSync}=require("node:sqlite");const db=new DatabaseSync("/tmp/restore.sqlite",{readOnly:true});console.log(db.prepare("PRAGMA integrity_check").get().integrity_check);console.log("observed reschedules:",db.prepare("SELECT COUNT(*) n FROM reschedules").get().n)'
+node -e 'const {DatabaseSync}=require("node:sqlite");const db=new DatabaseSync("/tmp/restore.sqlite",{readOnly:true});console.log("integrity:",db.prepare("PRAGMA integrity_check").get().integrity_check);console.log("observed reschedules:",db.prepare("SELECT COUNT(*) n FROM reschedules").get().n)'
 ```
 
 `reschedules` is the table to check. Everything else can be rebuilt
-from Ashby with a full sync; that one only ever accrues forward from
-the first sync and cannot be recovered.
+from Ashby with a full sync; that one cannot.
 
-To put a dump back:
+### Putting one back
 
 ```bash
-railway volume files --volume coordinator-metrics-volume upload ./restore.sqlite /metrics.sqlite.incoming
+railway volume files --volume coordinator-metrics-volume upload /tmp/restore.sqlite /metrics.sqlite.incoming
 railway ssh "cd /data && mv metrics.sqlite metrics.sqlite.displaced && mv metrics.sqlite.incoming metrics.sqlite && rm -f metrics.sqlite-wal metrics.sqlite-shm"
 ```
 
-Then restart the service. The stale `-wal` and `-shm` sidecars must go:
-left in place beside a different database file they will be replayed
-over it. Keep `metrics.sqlite.displaced` until the dashboard has been
-checked, then delete it.
+Then restart the service. The stale `-wal` and `-shm` sidecars must
+go: left beside a different database file they are replayed over it.
+Keep `metrics.sqlite.displaced` until the dashboard has been checked.
 
-**Restoring from a Railway volume backup instead** is done from the
-Backups tab, which replaces the volume contents in place. Afterwards,
-run the same verification against the live file to confirm the
-observed-reschedule history came back:
+### Taking a dump straight off the volume
+
+Independent of R2, for when you want a copy before something risky:
 
 ```bash
-railway ssh "node -e \"const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync('/data/metrics.sqlite',{readOnly:true});console.log(db.prepare('PRAGMA integrity_check').get().integrity_check);console.log('observed reschedules:',db.prepare('SELECT COUNT(*) n FROM reschedules').get().n)\""
+railway ssh "cd /app && BACKUP_DIR=/data/manual npm run backup --silent"
+railway volume files --volume coordinator-metrics-volume download "/manual/<filename>" ~/coordbots-backups/<filename>
+railway ssh "rm -rf /data/manual"
 ```
+
+`--volume` goes on `volume files`, not on `download`.
 
 ### Drill status
 
+Run end to end on 27 October 2026 against production, from a laptop:
+
 | Step | Verified |
 |---|---|
-| Snapshot on the server, integrity-checked | yes — 27 Oct 2026, 90MB → 24.3MB, 507 observed reschedules |
-| Download to a local machine | yes — byte-identical, 25,446,927 bytes both ends |
-| Restore and read the dump | yes — `integrity_check` ok, 507 reschedules spanning 15–27 Oct, all six clients |
-| **Restore from a Railway volume backup** | **not yet** — needs daily backups switched on and one taken |
+| Snapshot on the server, integrity-checked | yes — 90MB → 24.3MB |
+| Upload to R2 with live credentials | yes — `s3:coordinator-metrics-backups`, 15.0s |
+| Object present in the bucket, listed from a laptop | yes — 1 object under `coordinator-metrics/` |
+| Download from R2 to a laptop | yes — 24.3MB |
+| Restore into a scratch database | yes — `integrity_check` ok |
+| Observed-reschedule history intact | yes — 508 rows spanning 15–27 Oct, newest rows readable |
+| All six clients present | yes |
+| Overwriting the live database with a restored dump | **no** — the upload-and-swap above has not been executed against production |
 
-The last row is the one that is still a belief rather than a fact. Run
-it once a Railway backup exists.
+The last row is the one still untested. It is written from the volume
+semantics rather than from having done it, and the obvious place to
+prove it is the next time the service is rebuilt for another reason.
 
 ## Checks
 
