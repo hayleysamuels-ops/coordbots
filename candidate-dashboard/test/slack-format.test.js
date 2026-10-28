@@ -135,3 +135,47 @@ test("an invalid message is never sent: the post and the approval update both st
   await assert.rejects(send.markApproved({ channel: "C1", ts: "1.2", row }), { invalid: true });
   assert.deepEqual(api.calls, []);
 });
+
+// Once sent cleanly, the post is the SOP's confirmed format (section IV.B), and
+// everything else it said is in one thread reply: nothing is dropped.
+test("a clean send: the post is the confirmed format, and its detail is in the thread", async () => {
+  const calls = [];
+  const send = createSlack("xoxb-test", async (url, o) => { calls.push({ method: url.split("/").pop(), body: JSON.parse(o.body) }); return { ok: true, json: async () => ({ ok: true, ts: "1.3", channel: "C1" }) }; },
+    { displayTimeZone: "America/Los_Angeles", interactive: true, clientName: "Luminai" });
+  const p0 = plan({ linkedinUrl: "https://www.linkedin.com/in/example", bookingPlan: { send: true, sendAs: "Anna Jones Luminai" },
+    notes: "Full schedule option 2 from booking review, built from candidate-submitted availability. Checked against interviewers' primary Google calendars at 9:14 AM EDT. Meeting hours are assumed from client rules, not verified. Other calendars and non-zero interview limits were not checked. Nothing has been booked and no invitations have been sent." });
+  p0.sessions[1].flags = [{ kind: "busy", name: "Aggelos Arvanitakis", start: "2026-09-29T18:15:00.000Z", end: "2026-09-29T18:45:00.000Z", minutes: 30 }];
+  const row = { id: "draft-1", plan: p0, discussionApproval: { by: "Luminai Scheduler" }, slackApproval: { name: "Anna Jones", email: "anna@carrara.is", at: "2026-09-28T16:00:00Z" },
+    ashbyCheck: { state: "sent", sentBy: "robot", attemptedAt: "2026-09-28T16:05:00Z", sentSeenAt: "2026-09-28T16:05:30Z", differences: [], confirmationEmail: "on", confirmationEmailSent: "sent", invites: { state: "sent", evidence: [] } } };
+
+  await send.markApproved({ channel: "C1", ts: "1.2", row });
+  const [update] = calls, post = allText(update.body);
+  assert.equal(update.method, "chat.update");
+  assert.deepEqual(update.body.blocks.map(b => b.text.text.split("\n")[0]), [
+    "*TEST petrino* · Forward Deployed Engineer",
+    "<https://www.linkedin.com/in/example|LinkedIn> - <https://app.ashbyhq.com/candidate-searches/new/right-side/candidates/cand-1|Ashby>",
+    "*Interview Schedule*", "*Tuesday, September 29, 2026*", "*Interview Plan:* to add"]);
+  assert.match(post, /^• 11:15 AM – 12:15 PM \(PDT\) – Technical deep dive \(video link required\)  Aggelos Arvanitakis$/m);
+  assert.doesNotMatch(post, /Please review|client channel|option 2|9:14 AM|Meeting hours|Draft reference|Approved|Sent from|⚠️|needs attention/i);
+  assert.equal(update.body.text, "Interview schedule for TEST petrino · Forward Deployed Engineer: sent in Ashby.");
+
+  calls.length = 0;
+  await send.movedDetails({ channel: "C1", ts: "1.2", row });
+  const [reply] = calls, detail = allText(reply.body);
+  assert.equal(reply.method, "chat.postMessage");assert.equal(reply.body.thread_ts, "1.2");
+  assert.match(detail, /Full schedule option 2 from booking review/);
+  assert.match(detail, /primary Google calendars at 9:14 AM EDT\. Meeting hours are assumed from client rules, not verified\./);
+  assert.match(detail, /Posted for discussion by Luminai Scheduler\. Draft reference: draft-1/);
+  assert.doesNotMatch(detail, /Nothing has been booked/);
+  assert.match(detail, /\*Calendar clashes flagged when it was posted:\*\n• 11:15 AM – 12:15 PM \(PDT\) – Technical deep dive: /);
+  assert.match(detail, /\*Approved\* by Anna Jones \(anna@carrara\.is\) at Sep 28, 2026, 9:00 AM PDT\./);
+  assert.match(detail, /\*Sent from Anna Jones's account\* at Sep 28, 9:05 AM PDT: Ashby shows it Scheduled, matching this approval, and its invitations sent\. Ashby accepted the candidate's confirmation email\./);
+  assert.deepEqual(blockProblems(reply.body), []);
+
+  // keepDetail, or anything short of a clean send: the full post, unchanged.
+  for (const r of [{ ...row, ashbyCheck: { ...row.ashbyCheck, differences: ["session 2's interviewers changed"] } }, row]) {
+    calls.length = 0;
+    await send.markApproved({ channel: "C1", ts: "1.2", row: r, keepDetail: r === row });
+    assert.match(allText(calls[0].body), /Please review all flags[\s\S]*Draft reference: draft-1[\s\S]*\*Approved\* by Anna Jones/);
+  }
+});

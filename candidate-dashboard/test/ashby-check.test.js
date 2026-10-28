@@ -5,7 +5,7 @@
 // Slack message says in each state. The worker, Ashby and Slack are stand-ins.
 const { test } = require("node:test"), assert = require("node:assert/strict");
 const { createAshbyCheck, deleteByFor, compareBooked } = require("../src/scheduling/ashby-check");
-const { createSlack } = require("../src/scheduling/slack");
+const { createSlack, confirmedSend } = require("../src/scheduling/slack");
 const { bookingPlanForPost } = require("../src/scheduling/booking-plan");
 
 const SCHED = "18599066-1d55-493a-8c2f-1e970b04f86c";
@@ -22,8 +22,8 @@ function memoryStore(rows) {
   return { data, list: async () => Object.values(data).map(r => structuredClone(r)), get: async id => structuredClone(data[id] || null),
     replace: async (id, revision, next) => { if (data[id]?.revision !== revision) return false; data[id] = structuredClone(next); return true; } };
 }
-function setup({ rows = [row("d1")], compose, discard, inviteStatus = null, booked = null, at = Date.parse("2099-10-14T12:00:00Z"), availability = null } = {}) {
-  const store = memoryStore(rows), calls = [], shown = [], replies = [];
+function setup({ rows = [row("d1")], compose, discard, inviteStatus = null, booked = null, at = Date.parse("2099-10-14T12:00:00Z"), availability = null, moveFails = false } = {}) {
+  const store = memoryStore(rows), calls = [], shown = [], replies = [], marked = [], moved = [];
   let clock = at;
   const worker = { call: async (action, payload) => { calls.push({ action, payload });
     if (action === "compose") return typeof compose === "function" ? compose(payload) : compose;
@@ -31,10 +31,10 @@ function setup({ rows = [row("d1")], compose, discard, inviteStatus = null, book
     return typeof discard === "function" ? discard(payload) : discard; } };
   const facts = { scheduleState: async () => (typeof booked === "function" ? booked() : booked) };
   const notices = [];
-  const slackApi = { markApproved: async ({ row }) => { shown.push(row.ashbyCheck?.state); }, threadReply: async ({ text }) => { replies.push(text); }, notice: async n => { notices.push(n); } };
+  const slackApi = { markApproved: async ({ row, keepDetail }) => { shown.push(row.ashbyCheck?.state); marked.push({ state: row.ashbyCheck?.state, keepDetail }); }, movedDetails: async ({ row }) => { if (moveFails) throw new Error("not_in_channel"); moved.push(row.id); }, threadReply: async ({ text }) => { replies.push(text); }, notice: async n => { notices.push(n); } };
   const pauses = [];
   const check = createAshbyCheck({ store, worker, facts, slackApi, clientId: "luminai", availability, now: () => clock, log: { warn() {} }, pause: async ms => { pauses.push(ms); } });
-  return { store, calls, shown, replies, notices, pauses, check, tick: ms => { clock += ms; } };
+  return { store, calls, shown, replies, notices, pauses, marked, moved, check, tick: ms => { clock += ms; } };
 }
 const composed = { status: "composed", draftId: "dr-1", cleanup: { deleted: false, kept: true, draftId: "dr-1" }, wouldSend: { from: "Anna Jones <anna@luminai.com>" }, checks: [{ name: "a" }, { name: "b" }] };
 
@@ -181,7 +181,9 @@ test("the Slack message says what's true in every state, and never that somethin
       from: "Anna Jones <anna@luminai.com>", differences: [], step: "compose session 1", reason: state === "skipped" ? "This job isn't opted in (BOOKING_COMPOSE_JOBS)." : state === "not_started" ? "Ashby is busy." : "The composer shows times in \"MDT\", not EDT.",
       draftId: "dr-1", cleanup: { deleted: true } };
     calls.length = 0;
-    await slack.markApproved({ channel: "C1", ts: "1.2", row: { id: "d1", plan: { candidateName: "TEST", jobTitle: "TEST", bookingPlan, sessions: [], notes: "" }, slackApproval: { email: "anna@carrara.is", name: "Anna Jones", at }, ashbyCheck: check } });
+    // keepDetail: the status line as the post shows it; a clean send's post
+    // moves it to the thread instead (tested below).
+    await slack.markApproved({ channel: "C1", ts: "1.2", keepDetail: true, row: { id: "d1", plan: { candidateName: "TEST", jobTitle: "TEST", bookingPlan, sessions: [], notes: "" }, slackApproval: { email: "anna@carrara.is", name: "Anna Jones", at }, ashbyCheck: check } });
     const text = calls[0].blocks.map(b => b.text?.text || "").join("\n");
     for (const p of patterns) assert.match(text, p, state);
     if (state !== "sent") assert.doesNotMatch(text + calls[0].text, /\bSent in Ashby\b|\b(has been|was|is now) booked\b|\binvitations? (have been|were) sent\b/i, state);
@@ -239,12 +241,14 @@ test("a send is recorded as sent only when Ashby's API shows it Scheduled and it
   assert.equal(c.state, "sent");assert.equal(c.sentBy, "robot");assert.deepEqual(c.differences, []);assert.equal(c.attemptedAt, "2099-10-14T12:00:05.000Z");
   assert.deepEqual(s.shown, ["running", "sent"]);
   assert.deepEqual(c.invites, { state: "sent", evidence: ["Invites sent"] });
-  assert.match(s.replies.at(-1), /^Sent by clicking Schedule once.*Scheduled and its invitations sent, matching this approval\.$/);
+  // The result is in the thread once, with the post's other detail: no separate "Sent by clicking" reply.
+  assert.deepEqual(s.moved, ["d1"]);assert.doesNotMatch(s.replies.join(" "), /Sent by clicking/);
   assert.deepEqual(s.calls.map(c => c.action), ["compose"], "nothing deleted, nothing retried");
   // What Ashby booked, if it differs, is said.
   const d = setup({ rows: [sendingRow()], compose: sent, booked: { ...bookedAsApproved, events: bookedAsApproved.events.slice(1) } });
   await d.check.start((await d.store.list())[0]);await d.check.idle();
   assert.equal(d.store.data.d1.ashbyCheck.state, "sent");assert.match(d.store.data.d1.ashbyCheck.differences[0], /1 interview was booked, but 2 were approved/);
+  assert.match(d.replies.at(-1), /^Sent by clicking Schedule once.*but it differs from this approval: 1 interview was booked, but 2 were approved/);
 });
 
 test("a send Ashby doesn't show as Scheduled is uncertain: read three times, never retried, never deleted; the sweep records it once it shows", async () => {
@@ -263,6 +267,8 @@ test("a send Ashby doesn't show as Scheduled is uncertain: read three times, nev
   c = s.store.data.d1.ashbyCheck;
   assert.equal(c.state, "sent");assert.equal(c.sentBy, "robot");assert.deepEqual(c.differences, []);assert.equal(c.invites.state, "sent");
   assert.deepEqual(s.calls.map(c => c.action), ["compose", "invite-status"], "no delete and no second compose; the invites read from Ashby");
+  // Clean once it shows: the detail moves to the thread, and no second result reply.
+  assert.deepEqual(s.moved, ["d1"]);assert.doesNotMatch(s.replies.at(-1), /Sent by clicking|invitations sent/);
 });
 
 test("a worker failure on a post that could send is a possible send, never 'nothing was sent'", async () => {
@@ -309,7 +315,7 @@ test("Slack, where Send is on: the button says approving sends, from Anna; each 
   await slack({ ...plan, bookingPlan }, { channelId: "C1", proposalId: "d1", approver: "a", digest: "g" });
   assert.match(calls[0].blocks.at(-1).elements[0].confirm.text.text, /Nothing is sent automatically/);
   const at = "2099-10-14T22:00:00Z", approved = check => ({ id: "d1", plan, slackApproval: { email: "h@carrara.is", name: "Hayley", at }, ashbyCheck: check });
-  const text = async check => { calls.length = 0; await slack.markApproved({ channel: "C1", ts: "1.2", row: approved(check) }); return { body: calls[0].blocks.at(-1).text.text, note: calls[0].text }; };
+  const text = async check => { calls.length = 0; await slack.markApproved({ channel: "C1", ts: "1.2", row: approved(check), keepDetail: true }); return { body: calls[0].blocks.at(-1).text.text, note: calls[0].text }; };
   assert.match((await text({ state: "running", startedAt: at })).body, /Checking and sending in Ashby\* \(started .*\) from Anna Jones's account: once every check passes, Schedule is clicked once/);
   assert.match((await text({ state: "queued" })).body, /Waiting to be checked and sent in Ashby,\* .* from Anna Jones's account\. Nothing is sent yet\./);
   const ok = await text({ state: "sent", sentBy: "robot", attemptedAt: at, sentSeenAt: at, differences: [], confirmationEmail: "on", confirmationEmailSent: "sent", invites: { state: "sent", evidence: [] } });
@@ -379,14 +385,16 @@ test("once approved, the posting note no longer says nothing was booked; the sta
 
 test("the confirmation email is reported from Ashby's answer to its own request: accepted, not sent, or off", async () => {
   for (const [ce, confirmationEmail, want, said] of [
-    [{ expected: true, reply: { status: 200, accepted: true }, blockedByGuard: false }, "on", "sent", /Ashby accepted the candidate's confirmation email\.$/],
+    // Clean sends (accepted, or off): said in the moved detail, not a reply of its own.
+    [{ expected: true, reply: { status: 200, accepted: true }, blockedByGuard: false }, "on", "sent", null],
     [{ expected: true, reply: null, blockedByGuard: true }, "on", "not_sent", /confirmation email was NOT sent: send it by hand/],
     [{ expected: true, reply: { status: 200, accepted: false, errors: ["x"] }, blockedByGuard: false }, "on", "not_sent", /NOT sent/],
-    [{ expected: false, reply: null, blockedByGuard: false }, "off", "off", /off for this schedule\.$/]]) {
+    [{ expected: false, reply: null, blockedByGuard: false }, "off", "off", null]]) {
     const s = setup({ rows: [sendingRow()], compose: { ...sent, confirmationEmail, send: { ...sent.send, confirmationEmail: ce } }, booked: bookedAsApproved });
     await s.check.start((await s.store.list())[0]);await s.check.idle();
     assert.equal(s.store.data.d1.ashbyCheck.confirmationEmailSent, want);
-    assert.match(s.replies.at(-1), said);
+    if (said) { assert.match(s.replies.at(-1), said);assert.deepEqual(s.moved, []); }
+    else { assert.deepEqual(s.moved, ["d1"]);assert.doesNotMatch(s.replies.join(" "), /Sent by clicking/); }
   }
 });
 
@@ -456,4 +464,44 @@ test("availability: the Slack message says nothing was made and to post again", 
   const text = calls[0].blocks.map(b => b.text?.text || "").join("\n");
   assert.match(text, /\*Not checked or booked in Ashby:\* the candidate's submitted availability changed after this was posted \(1 window new\)\. Nothing was made in Ashby and nothing was sent\. Post a fresh option/);
   assert.match(calls[0].text, /not booked: the candidate's availability changed after this was posted\.$/);
+});
+
+// ---- the confirmed format, once sent ----------------------------------------
+
+test("a clean send moves the post's detail to its thread first, then rewrites the post; anything less leaves it as it is", async () => {
+  const s = setup({ rows: [sendingRow()], compose: sent, booked: bookedAsApproved });
+  await s.check.start((await s.store.list())[0]);await s.check.idle();
+  assert.deepEqual(s.moved, ["d1"]);
+  assert.deepEqual(s.marked.at(-1), { state: "sent", keepDetail: false });
+  // The detail can't be posted: the post keeps it.
+  const f = setup({ rows: [sendingRow()], compose: sent, booked: bookedAsApproved, moveFails: true });
+  await f.check.start((await f.store.list())[0]);await f.check.idle();
+  assert.deepEqual(f.moved, []);assert.deepEqual(f.marked.at(-1), { state: "sent", keepDetail: true });
+  // Booked differently from the approval, invites pending, or the send uncertain: nothing moves.
+  const d = setup({ rows: [sendingRow()], compose: sent, booked: { ...bookedAsApproved, events: bookedAsApproved.events.slice(1) } });
+  await d.check.start((await d.store.list())[0]);await d.check.idle();
+  assert.deepEqual(d.moved, []);
+  const p = setup({ rows: [sendingRow()], compose: { ...sent, invites: { state: "pending", evidence: [] } }, booked: bookedAsApproved });
+  await p.check.start((await p.store.list())[0]);await p.check.idle();
+  assert.deepEqual(p.moved, []);
+  const u = setup({ rows: [sendingRow()], compose: { ...sent, status: "send_uncertain" }, booked: { status: "CandidateAvailabilitySubmitted", events: [] } });
+  await u.check.start((await u.store.list())[0]);await u.check.idle();
+  assert.deepEqual(u.moved, []);
+  // A person's send from the draft, seen by the sweep, counts too.
+  const left = { state: "composed", draftId: "dr-1", composedAt: "2099-10-14T11:00:00.000Z", deleteBy: "2099-10-14T11:30:00.000Z" };
+  const h = setup({ rows: [row("d1", { ashbyCheck: left })], booked: bookedAsApproved });
+  await h.check.sweep();
+  assert.deepEqual(h.moved, ["d1"]);
+});
+
+test("which sends count as clean", () => {
+  const ok = { state: "sent", sentBy: "robot", differences: [], confirmationEmailSent: "sent", invites: { state: "sent" } };
+  assert.equal(confirmedSend(ok), true);
+  assert.equal(confirmedSend({ state: "sent", sentSeenAt: "x", differences: [] }), true, "sent by a person from the draft");
+  assert.equal(confirmedSend({ ...ok, differences: ["session 2's interviewers changed"] }), false);
+  assert.equal(confirmedSend({ ...ok, confirmationEmailSent: "not_sent" }), false);
+  assert.equal(confirmedSend({ ...ok, invites: undefined }), false, "a robot send without invite evidence");
+  for (const state of ["queued", "running", "composed", "refused", "uncertain", "send_uncertain", "booked_invites_pending", "booked_invites_unknown", "skipped"])
+    assert.equal(confirmedSend({ ...ok, state }), false, state);
+  assert.equal(confirmedSend(null), false);
 });

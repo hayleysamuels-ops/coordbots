@@ -51,6 +51,7 @@ function compareBooked(plan, booked) {
 }
 
 const { availabilityChange } = require("./availability-gate");
+const { confirmedSend } = require("./slack");
 
 function createAshbyCheck({ store, worker, facts, slackApi, clientId, availability = null, now = () => Date.now(), log = console, sweepMs = 300000, pause = ms => new Promise(r => setTimeout(r, ms)) }) {
   let chain = Promise.resolve();
@@ -71,9 +72,15 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, availabili
   }
   // The approved Slack message, showing this check's state. A failed update
   // is logged: the state is already recorded.
+  // A clean send (confirmedSend) moves the post's detail to its thread first,
+  // then rewrites the post to the SOP's confirmed format. If the detail can't
+  // be posted, the post keeps it: nothing is dropped.
   async function show(row) {
     if (!row?.slack?.channel || !row.slack.ts) return;
-    await slackApi.markApproved({ channel: row.slack.channel, ts: row.slack.ts, row }).catch(e => log.warn(`[ashby-check] Slack update failed for ${row.id}: ${e.message}`));
+    let keepDetail = false;
+    if (confirmedSend(row.ashbyCheck)) await slackApi.movedDetails({ channel: row.slack.channel, ts: row.slack.ts, row })
+      .catch(e => { keepDetail = true; log.warn(`[ashby-check] Couldn't move ${row.id}'s details to the thread, so the post keeps them: ${e.message}`); });
+    await slackApi.markApproved({ channel: row.slack.channel, ts: row.slack.ts, row, keepDetail }).catch(e => log.warn(`[ashby-check] Slack update failed for ${row.id}: ${e.message}`));
   }
   async function reply(row, text) {
     if (!row?.slack?.channel || !row.slack.ts || !text) return;
@@ -194,7 +201,9 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, availabili
     // skipped send is the first at the cap): one notice in the channel.
     if (check.state === "composed" && result?.sendCap?.firstAtCap && row.slack?.channel)
       await slackApi.notice({ channel: row.slack.channel, text: `The robot's daily send cap is reached (${result.sendCap.count} sends in the last 24 hours; the cap is ${result.sendCap.cap}). Approved schedules are composed in Ashby but not sent until ${result.sendCap.resetsAtText || result.sendCap.resetsAt}: a person needs to send each one from its draft.` }).catch(e => log.warn(`[ashby-check] Cap notice couldn't be posted: ${e.message}`));
-    if (check.sentBy === "robot" && ["sent", "booked_invites_pending", "booked_invites_unknown"].includes(check.state)) await reply(row, invitesAndEmailReply(check));
+    // A clean send's result is already in the thread, with the post's other
+    // detail (show); anything less still gets this reply, as its warning.
+    if (check.sentBy === "robot" && ["sent", "booked_invites_pending", "booked_invites_unknown"].includes(check.state) && !confirmedSend(check)) await reply(row, invitesAndEmailReply(check));
     if (check.state === "send_uncertain") await reply(row, `The send may have gone (${check.reason}). Check the schedule in Ashby; nothing will be retried.`);
     if (result?.superseded?.draftId) {
       for (const old of earlier.filter(r => r.ashbyCheck.draftId === result.superseded.draftId)) {
@@ -226,7 +235,7 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, availabili
     const invites = await readInvites(row);
     if (!invites) return;
     const done = await setCheck(row.id, stateIs("send_uncertain"), { ...row.ashbyCheck, state: bookedState(invites), sentSeenAt: iso(), differences: compareBooked(plan, booked), invites });
-    if (done) { await show(done); await reply(done, invitesReply(done.ashbyCheck)); }
+    if (done) { await show(done); if (!confirmedSend(done.ashbyCheck)) await reply(done, invitesReply(done.ashbyCheck)); }
   }
   // A robot send recorded as sent before invitations needed evidence (October
   // 20): read what Ashby shows, and correct the message if they weren't sent.

@@ -68,6 +68,14 @@ function blockProblems({ text, blocks = [] }) {
 }
 const invalid = problems => Object.assign(new Error(`The Slack message failed its check before sending, so it wasn't sent: ${problems.join("; ")}.`), { invalid: true });
 
+// A send that went through cleanly: Ashby shows it sent, matching the
+// approval, with the invitations evidenced (a robot send) and the candidate's
+// confirmation email not missed. Only then does the post take the SOP's
+// confirmed format (section IV.B), its other detail moved to a thread reply.
+// Anything less leaves the post as it is, so what needs doing stays visible.
+const confirmedSend = check => check?.state === "sent" && !check.differences?.length
+  && check.confirmationEmailSent !== "not_sent" && (check.sentBy !== "robot" || !!check.invites);
+
 // `interactive` (the signing secret, workspace, app and approvers are all
 // configured) adds the "Schedule" button to calendar-checked posts; without it
 // there's no endpoint to receive a click, so no button is shown.
@@ -199,14 +207,31 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     }
   }
 
-  async function calendarChecked(plan, { proposalId, approver, digest: draftDigest }, approval = null, check = null, replaced = null) {
+  // Section text is capped at 3000 characters; split on line boundaries.
+  const chunked = body => {
+    const sections = [];
+    let chunk = "";
+    for (const line of body.split("\n")) { if ((chunk + "\n" + line).length > 2900) { sections.push(chunk); chunk = line; } else chunk = chunk ? chunk + "\n" + line : line; }
+    if (chunk) sections.push(chunk);
+    return sections;
+  };
+  const mrkdwn = text => ({ type: "mrkdwn", text, verbatim: true });
+  const approvedLine = approval => `*Approved* by ${escape(approval.name || approval.email)} (${escape(approval.email)}) at ${escape(new Intl.DateTimeFormat("en-US", { timeZone: displayTimeZone, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(approval.at)))}.`;
+  // The posting note (option number, when calendars were checked, the
+  // meeting-hours caveat), who posted it and the draft reference. Once
+  // approved, the status line says what happened, so "nothing was booked" goes.
+  const smallPrint = (plan, { proposalId, approver }, approval) => `${escape(approval ? String(plan.notes || "").replace(/\s*Nothing has been booked and no invitations have been sent\.\s*/, " ").trim() : plan.notes)} Posted for discussion by ${escape(approver)}. Draft reference: ${escape(proposalId)}`;
+
+  // `confirmed`: the SOP's confirmed format, for a clean send (confirmedSend):
+  // candidate and role, links, the schedule and the checklist, nothing else.
+  async function calendarChecked(plan, { proposalId, approver, digest: draftDigest }, approval = null, check = null, replaced = null, { confirmed = false } = {}) {
     // Interviewer names are plain text on purpose. Interviewers belong to the
     // client's Slack workspace and this bot to Carrara's, where the channel is,
     // so profile links and mentions aren't available regardless of scopes:
     // users.lookupByEmail can never find them. That's a property of the
     // one-app-in-Carrara's-workspace design, not a missing permission.
     const name = p => escape(p.name);
-    const clashes = plan.sessions.reduce((n, s) => n + (s.flags || []).length, 0);
+    const clashes = confirmed ? 0 : plan.sessions.reduce((n, s) => n + (s.flags || []).length, 0);
     const secondLabel = plan.timezoneSource === "candidate_submitted" ? "Candidate time" : "Entered time";
     const lines = [];
     let day = null, previous = null;
@@ -220,15 +245,24 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       const video = s.location === "Video link required" ? " (video link required)" : "";
       lines.push(`• ${clock(displayTimeZone, s)} – ${escape(s.title)}${video}  ${(s.people || []).map(name).join(" ")}`);
       if (plan.timezone !== displayTimeZone) lines.push(`      ${secondLabel}: ${clock(plan.timezone, s)}`);
-      // Advisory clashes from the calendar check, under the session they affect.
-      for (const f of s.flags || []) lines.push(`      ⚠️ ${escape(describeFlag(f, displayTimeZone))}`);
+      // Advisory clashes from the calendar check, under the session they
+      // affect. A confirmed post moves them to its thread (movedDetails).
+      if (!confirmed) for (const f of s.flags || []) lines.push(`      ⚠️ ${escape(describeFlag(f, displayTimeZone))}`);
     }
-    // Section text is capped at 3000 characters; split on line boundaries.
-    const sections = [], body = lines.join("\n");
-    let chunk = "";
-    for (const line of body.split("\n")) { if ((chunk + "\n" + line).length > 2900) { sections.push(chunk); chunk = line; } else chunk = chunk ? chunk + "\n" + line : line; }
-    if (chunk) sections.push(chunk);
-    const mrkdwn = text => ({ type: "mrkdwn", text, verbatim: true });
+    const sections = chunked(lines.join("\n"));
+    const header = [
+      { type: "section", text: mrkdwn(`*${escape(plan.candidateName)}* · ${escape(plan.jobTitle)}`) },
+      // The SOP's header line. LinkedIn comes from the candidate's Ashby profile
+      // and is never guessed; without one the line says so.
+      { type: "section", text: mrkdwn(`${plan.linkedinUrl ? `<${plan.linkedinUrl}|LinkedIn>` : "LinkedIn (not in Ashby)"} - <${ASHBY_CANDIDATE}${encodeURIComponent(plan.candidateId)}|Ashby>`) },
+    ];
+    // The SOP's checklist. Nothing here is known to the dashboard, so each is
+    // left for the coordinator to complete rather than claimed.
+    const checklist = { type: "section", text: mrkdwn("*Interview Plan:* to add\n*Shared Prompt:* to add\n*Shared Interview Prep:* to add\n*NDA Sent:* to confirm") };
+    if (confirmed) return {
+      text: `Interview schedule for ${plan.candidateName} · ${plan.jobTitle}: sent in Ashby.`,
+      blocks: [...header, { type: "section", text: mrkdwn("*Interview Schedule*") }, ...sections.map(t => ({ type: "section", text: mrkdwn(t) })), checklist],
+      mrkdwn: false, parse: "none" };
     // What to do first, then who it's for: the two things a coordinator needs
     // before reading any time. "Schedule" is only mentioned when the button is
     // on the post, and "flags" only when there are any.
@@ -236,25 +270,19 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     const instruction = `This is the proposed interview schedule${forClient}. Please review ${clashes ? "all flags" : "it"}, then post to the client channel for discussion${button ? (sends(plan) ? ` or press Schedule, which *sends it from ${sendsAs(plan)}'s account*` : " or press Schedule") : ""}.`;
     const blocks = [
       { type: "section", text: mrkdwn(instruction) },
-      { type: "section", text: mrkdwn(`*${escape(plan.candidateName)}* · ${escape(plan.jobTitle)}`) },
+      header[0],
       // A flagged agenda says so before any time is read as settled.
       ...(clashes ? [{ type: "section", text: mrkdwn(`⚠️ *Needs attention: ${clashes} calendar clash${clashes === 1 ? "" : "es"}.* This schedule is not ready to send. Each flagged session needs the interviewer to move the clash, or to accept booking over it.`) }] : []),
-      // The SOP's header line. LinkedIn comes from the candidate's Ashby profile
-      // and is never guessed; without one the line says so.
-      { type: "section", text: mrkdwn(`${plan.linkedinUrl ? `<${plan.linkedinUrl}|LinkedIn>` : "LinkedIn (not in Ashby)"} - <${ASHBY_CANDIDATE}${encodeURIComponent(plan.candidateId)}|Ashby>`) },
+      header[1],
       { type: "section", text: mrkdwn(`*Interview Schedule${clashes ? " — needs attention" : ""}*`) },
       ...sections.map(t => ({ type: "section", text: mrkdwn(t) })),
-      // The SOP's checklist. Nothing here is known to the dashboard, so each is
-      // left for the coordinator to complete rather than claimed.
-      { type: "section", text: mrkdwn("*Interview Plan:* to add\n*Shared Prompt:* to add\n*Shared Interview Prep:* to add\n*NDA Sent:* to confirm") },
-      // The posting note says nothing was booked; once approved, the status
-      // line below says what happened instead, so that sentence is dropped.
-      { type: "context", elements: [mrkdwn(`${escape(approval ? String(plan.notes || "").replace(/\s*Nothing has been booked and no invitations have been sent\.\s*/, " ").trim() : plan.notes)} Posted for discussion by ${escape(approver)}. Draft reference: ${escape(proposalId)}`)] },
+      checklist,
+      { type: "context", elements: [mrkdwn(smallPrint(plan, { proposalId, approver }, approval))] },
     ];
     if (replaced) blocks.push({ type: "section", text: mrkdwn(replaced.kind === "resubmitted"
       ? `*Replaced* at ${escape(when(replaced.at))}: the candidate submitted new availability, so this option no longer applies${replaced.withDraft ? ", and a new option was posted below" : "; no new option was posted automatically"}. Nothing from this message was booked or sent.`
       : `*Replaced* at ${escape(when(replaced.at))}: ${escape(replaced.by)} asked for ${replaced.kind === "time" ? "another time" : `a different interviewer for session ${replaced.session + 1}`}, and a new option was posted below. Nothing from this message was booked or sent.`) });
-    else if (approval) blocks.push({ type: "section", text: mrkdwn(`*Approved* by ${escape(approval.name || approval.email)} (${escape(approval.email)}) at ${escape(new Intl.DateTimeFormat("en-US", { timeZone: displayTimeZone, month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(approval.at)))}.\n${checkText(plan, check)}`) });
+    else if (approval) blocks.push({ type: "section", text: mrkdwn(`${approvedLine(approval)}\n${checkText(plan, check)}`) });
     else if (interactive && draftDigest) blocks.push(scheduleButton(proposalId, draftDigest, plan));
     // The fallback shows in notifications and has no names or links.
     const text = `Interview schedule draft for ${plan.candidateName} · ${plan.jobTitle}: ${clashes ? `needs attention (${clashes} calendar clash${clashes === 1 ? "" : "es"}), ` : ""}for discussion, nothing booked.`;
@@ -269,11 +297,22 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
   // draft, so a message Slack would refuse is reported and nothing is posted.
   send.check = async (plan, meta) => blockProblems(await message(plan, meta));
 
-  // After an approval: the same message, button removed, approval shown.
-  send.markApproved = async ({ channel, ts, row }) => {
-    const { blocks } = await calendarChecked(row.plan, { proposalId: row.id, approver: row.discussionApproval?.by || "a coordinator" }, row.slackApproval, row.ashbyCheck);
+  // After an approval: the same message, button removed, approval shown. A
+  // clean send takes the SOP's confirmed format instead, unless `keepDetail`:
+  // its detail couldn't be moved to the thread, so the post keeps it.
+  send.markApproved = async ({ channel, ts, row, keepDetail = false }) => {
+    const meta = { proposalId: row.id, approver: row.discussionApproval?.by || "a coordinator" };
+    if (!keepDetail && confirmedSend(row.ashbyCheck)) {
+      const { text, blocks } = await calendarChecked(row.plan, meta, row.slackApproval, row.ashbyCheck, null, { confirmed: true });
+      const problems = blockProblems({ text, blocks });
+      if (problems.length) throw invalid(problems);
+      const { ok, body } = await api("chat.update", { channel, ts, blocks, text });
+      if (!ok || body.ok !== true) throw new Error(`The Slack message couldn't be updated${body.error ? ` (${body.error})` : ""}`);
+      return;
+    }
+    const { blocks } = await calendarChecked(row.plan, meta, row.slackApproval, row.ashbyCheck);
     // The notification text: no names beyond the approver's, and the state.
-    const status = { queued: "waiting to be checked in Ashby; not booked", running: "being checked in Ashby; not booked", composed: `composed in Ashby, not sent yet${row.ashbyCheck?.confirmationEmail === "off" ? "; no candidate confirmation email will be sent" : ""}`, sent: "sent in Ashby", availability_changed: "not booked: the candidate's availability changed after this was posted", booked_invites_pending: "booked, but invitations NOT sent; send them by hand", booked_invites_unknown: "booked; invitations unknown, check Ashby", send_uncertain: "the send may have gone; check Ashby" }[row.ashbyCheck?.state] || "not booked";
+    const status ={ queued: "waiting to be checked in Ashby; not booked", running: "being checked in Ashby; not booked", composed: `composed in Ashby, not sent yet${row.ashbyCheck?.confirmationEmail === "off" ? "; no candidate confirmation email will be sent" : ""}`, sent: "sent in Ashby", availability_changed: "not booked: the candidate's availability changed after this was posted", booked_invites_pending: "booked, but invitations NOT sent; send them by hand", booked_invites_unknown: "booked; invitations unknown, check Ashby", send_uncertain: "the send may have gone; check Ashby" }[row.ashbyCheck?.state] || "not booked";
     const text = `Interview schedule for ${row.plan.candidateName} · ${row.plan.jobTitle}: approved by ${row.slackApproval.name || row.slackApproval.email}; ${status}.`;
     const problems = blockProblems({ text, blocks });
     if (problems.length) throw invalid(problems);
@@ -307,6 +346,25 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     if (body.error === "message_not_found") return false;
     throw new Error(`Slack couldn't check that message (${body.error || `HTTP ${response.status}`}).`);
   };
+  // A clean send's detail, moved off the post into its thread before the post
+  // takes the confirmed format: the posting note (option number, calendar
+  // check time, meeting-hours caveat, draft reference), the calendar clashes
+  // it was approved over, who approved and when, and the send result.
+  send.movedDetails = async ({ channel, ts, row }) => {
+    const { plan } = row, meta = { proposalId: row.id, approver: row.discussionApproval?.by || "a coordinator" };
+    const flagged = plan.sessions.flatMap(s => (s.flags || []).map(f => `• ${clock(displayTimeZone, s)} – ${escape(s.title)}: ${escape(describeFlag(f, displayTimeZone))}`));
+    const blocks = [
+      { type: "section", text: mrkdwn("Moved here from the post when the schedule was sent:") },
+      { type: "section", text: mrkdwn(smallPrint(plan, meta, row.slackApproval)) },
+      ...(flagged.length ? chunked(`*Calendar clashes flagged when it was posted:*\n${flagged.join("\n")}`).map(t => ({ type: "section", text: mrkdwn(t) })) : []),
+      { type: "section", text: mrkdwn(`${approvedLine(row.slackApproval)}\n${checkText(plan, row.ashbyCheck)}`) },
+    ];
+    const text = `Details for ${plan.candidateName}'s interview schedule: approval, calendar check and send result.`;
+    const problems = blockProblems({ text, blocks });
+    if (problems.length) throw invalid(problems);
+    const { ok, body } = await api("chat.postMessage", { channel, thread_ts: ts, text, blocks, mrkdwn: false, parse: "none", unfurl_links: false, unfurl_media: false });
+    if (!ok || body.ok !== true) throw new Error(`The details couldn't be posted to the thread${body.error ? ` (${body.error})` : ""}`);
+  };
   // Refusals and problems are answered in the post's thread, visible to the channel.
   send.threadReply = async ({ channel, threadTs, text }) => {
     const { ok, body } = await api("chat.postMessage", { channel, thread_ts: threadTs, text, mrkdwn: false, parse: "none", unfurl_links: false });
@@ -325,4 +383,4 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
   };
   return send;
 }
-module.exports = { createSlack, blockProblems };
+module.exports = { createSlack, blockProblems, confirmedSend };

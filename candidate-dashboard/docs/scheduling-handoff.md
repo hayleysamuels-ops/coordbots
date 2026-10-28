@@ -337,6 +337,22 @@ done and verified, in this order:
     - an Interview Plan / Shared Prompt / Shared Interview Prep / NDA Sent
       block. Its four items are left "to add" or "to confirm", because the
       dashboard has no source for them.
+  - **Once sent: the SOP's confirmed format** (section IV.B; October 28, 2026).
+    On a clean send, the post is rewritten to candidate and role, LinkedIn -
+    Ashby, the schedule and the checklist block. The instruction line is
+    dropped. Everything else moves to one thread reply, posted first: the
+    posting note (option number, calendar check time, meeting-hours caveat),
+    the clashes it was approved over, the draft reference, who approved and
+    when, and the send result. If that reply can't be posted, the post keeps
+    its detail. A clean robot send no longer gets the separate "Sent by
+    clicking Schedule once…" reply: its result is in the moved detail. Every
+    other send outcome still gets that reply, as its warning.
+    - **A clean send** (`confirmedSend` in `slack.js`) means Ashby shows the
+      schedule sent and matching the approval, a robot send has invite
+      evidence, and the candidate's confirmation email wasn't missed.
+    - **Everything else keeps the full post:** unapproved, refused, uncertain,
+      booked with invites pending or unknown, sent but differing from the
+      approval, or sent with the confirmation email not sent.
   - **Event titles on busy flags (SOP item 2): blocked on Google Calendar
     scope, not on implementation.** The SOP wants each clash to show the
     clashing event's title, so a person can judge whether it's an internal
