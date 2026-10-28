@@ -361,6 +361,10 @@ done and verified, in this order:
   - **Joe Penn → joe@luminai.com.** Joe's duplicate Ashby account is
     intentional, per the Luminai Scheduling SOP: don't merge or deactivate it to
     make the name unique.
+  - **Kesava Kirupa Dinakaran → kesava@luminai.com** (October 27, rules
+    revision 8). Kesava has three Ashby accounts, two of them active; the
+    duplicates are deliberate (Hayley). Without this, the Applied AI Engineer
+    Founder Interview (Kesava's only stage) refused on the name.
   - **An override is always checked, never trusted.** Its email must match
     exactly one active account, and that account must be one of the active
     accounts with the name; otherwise it refuses and says which. This applies

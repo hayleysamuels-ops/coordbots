@@ -64,10 +64,11 @@ test('the preferred host is used, flagged, only when nobody else is free',()=>{
   assert.equal(r.proposals[0].flagCount,1);
 });
 
-test('Luminai\'s rules: WFH Wednesdays, Gabrielle for Welcome, deferred debriefs, Sanjay 07:00–17:00 Pacific, Joe Penn\'s account',()=>{
+test('Luminai\'s rules: WFH Wednesdays, Gabrielle for Welcome, deferred debriefs, Sanjay 07:00–17:00 Pacific, Joe Penn\'s and Kesava\'s accounts',()=>{
   const r=loadRules({clientId:'luminai',log:{log(){},warn(){}}}).get();
-  assert.equal(r.rulesRevision,7);
+  assert.equal(r.rulesRevision,8);
   assert.deepEqual([r.identityFor('Joe Penn'),r.identityFor(' joe  penn '),r.identityFor('Mary Petrino')],['joe@luminai.com','joe@luminai.com',null]);
+  assert.deepEqual([r.identityFor('Kesava Kirupa Dinakaran'),r.identityFor('kesava  kirupa dinakaran')],['kesava@luminai.com','kesava@luminai.com']);
   assert.deepEqual([r.agenda.excludedWeekdays.days,r.agenda.excludedWeekdays.timezone],[['wed'],'America/Los_Angeles']);
   assert.deepEqual([r.preferredFor('Welcome'),r.preferredFor('  welcome '),r.preferredFor('Welcome Lunch')],[['gabrielle@luminai.com'],['gabrielle@luminai.com'],[]]);
   assert.deepEqual(r.debriefs,{afterOnsiteConfirmed:true,meetingHoursExempt:true});

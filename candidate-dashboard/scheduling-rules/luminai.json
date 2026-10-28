@@ -3,7 +3,7 @@
   "$comment": "Reproduces candidate-dashboard on feature/client-ashby-connection as of 2026-09-22, plus revision 2's assumed 9–5 Pacific meeting hours and interviewer attendance. The dashboard reads this file at runtime.",
   "schemaVersion": 2,
   "clientId": "luminai",
-  "rulesRevision": 7,
+  "rulesRevision": 8,
 
   "trial": {
     "stageTitleContains": null,
@@ -59,9 +59,10 @@
   },
 
   "interviewerIdentities": {
-    "$comment": "Added 2026-10-14 (revision 7).",
+    "$comment": "Added 2026-10-14 (revision 7); Kesava Kirupa Dinakaran added 2026-10-27 (revision 8).",
     "overrides": {
-      "Joe Penn": { "email": "joe@luminai.com", "reason": "Joe Penn has more than one active Ashby account, intentionally (Luminai Scheduling SOP). Interviews are scheduled on joe@luminai.com." }
+      "Joe Penn": { "email": "joe@luminai.com", "reason": "Joe Penn has more than one active Ashby account, intentionally (Luminai Scheduling SOP). Interviews are scheduled on joe@luminai.com." },
+      "Kesava Kirupa Dinakaran": { "email": "kesava@luminai.com", "reason": "Kesava Kirupa Dinakaran has more than one active Ashby account, intentionally (Hayley, 2026-10-27). Interviews are scheduled on kesava@luminai.com." }
     }
   },
 
