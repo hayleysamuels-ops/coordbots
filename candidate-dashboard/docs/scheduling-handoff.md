@@ -817,6 +817,17 @@ file permits it or the composer clicks Schedule.
   that zone's own abbreviation, or the check refuses. The approved instants are
   typed in that zone. Every save is still checked against the approved
   instants, so a misread zone refuses rather than booking a different time.
+- **The composer's abbreviation is today's, not the session's** (October 27).
+  TEST's Initial Screen for Nov 2 refused with '"PDT" isn't
+  America/Los_Angeles (PST)': the abbreviation was checked at the session's
+  date. On the same screen Ashby's calendar showed the event as PST while the
+  "Select a timezone" button said PDT, and changing a draft's date from Oct 29
+  to Nov 2 left the button on PDT. The saves Ashby attempted (captured with
+  every write blocked) were `2026-11-02T09:00:00.000-08:00`: typed times are
+  read in the named zone on the session's date, so the label is cosmetic and
+  bookings across the changeover are right. `composerZone` now checks the
+  abbreviation against the zone's abbreviation today; exactly one IANA zone
+  name is still required.
 - **Where candidates see their times: their own zone, not the composer's**
   (October 19). This is different from what was assumed above. On TEST's Onsite
   the composer showed MDT (sessions typed as 11:00am MDT), but the candidate's

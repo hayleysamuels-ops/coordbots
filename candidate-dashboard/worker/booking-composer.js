@@ -391,7 +391,7 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     step='read the composer\'s time zone';
     const zoneButtons=page.getByRole('button',{name:'Select a timezone',exact:true});
     {const d=Date.now()+T.wait;while(Date.now()<d&&!(await zoneButtons.count()))await sleep(250);}
-    try{state.zone=composerZone(await zoneButtons.allInnerTexts(),plan.sessions[0].start);}catch(e){refuse(e.message);}
+    try{state.zone=composerZone(await zoneButtons.allInnerTexts());}catch(e){refuse(e.message);}
     const shown={...plan,timeZone:state.zone};
     report.displayZone=state.zone;
     pass(`composer shows times in ${state.zone}${state.zone===plan.timeZone?'':`; the approved times are entered in it (the candidate's availability is in ${plan.timeZone})`}`);
@@ -426,10 +426,10 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     for(let i=0;i<plan.sessions.length;i++){
       const s=plan.sessions[i],a=formats(s.start,shown.timeZone),b=formats(s.end,shown.timeZone),eventId=state.last[i].id,what=`session ${i+1} ("${s.title}")`;
       step=`compose ${what}`;
-      // Still the same zone, read at this session's date: across a
-      // daylight-saving change its abbreviation differs.
-      try{if(composerZone(await zoneButtons.allInnerTexts(),s.start)!==state.zone)refuse(`The composer's time zone changed from ${state.zone} while composing.`);}
-      catch(e){if(e instanceof Refusal)throw e;refuse(`${e.message} (at ${what}'s date)`);}
+      // Still the same zone. Its abbreviation is today's, whatever this
+      // session's date (composerZone).
+      try{if(composerZone(await zoneButtons.allInnerTexts())!==state.zone)refuse(`The composer's time zone changed from ${state.zone} while composing.`);}
+      catch(e){if(e instanceof Refusal)throw e;refuse(`${e.message} (at ${what})`);}
       const wantDate=a.shortDate.replace(/, \d{4}$/,'');// "Tue, Oct 20"
       // What was entered, for the log: each field's value, and whether it had
       // to be typed or already matched.

@@ -82,11 +82,26 @@ test('the composer\'s zone: one IANA name, and nothing else but its own abbrevia
   assert.equal(c.composerZone(['America/Denver','MDT'],at),'America/Denver');
   assert.equal(c.composerZone([' MDT ','America/Denver','America/Denver'],at),'America/Denver');
   assert.equal(c.composerZone(['America/Los_Angeles'],at),'America/Los_Angeles');
-  // In winter Denver is MST, so MDT then is a mismatch.
+  // In winter Denver is MST, so MDT shown then is a mismatch.
   assert.throws(()=>c.composerZone(['America/Denver','MDT'],'2026-12-22T16:00:00.000Z'),/"MDT" isn't America\/Denver \(MST\)/);
   for(const [shown,why] of [[['MDT'],/"MDT"; exactly one IANA/],[[],/no time zone/],[['America/Denver','PDT'],/"PDT" isn't America\/Denver \(MDT\)/],
     [['America/Denver','America/Chicago'],/exactly one IANA/],[['Mars/Olympus','MDT'],/exactly one IANA/],[['America/Denver','MDT','Eastern'],/"Eastern" isn't/]])
     assert.throws(()=>c.composerZone(shown,at),why);
+});
+
+test('the composer\'s abbreviation is today\'s, not the session\'s date\'s',()=>{
+  // Seen October 27: "America/Los Angeles" and "PDT" for a Nov 2 session
+  // (PST), and Ashby saved times typed there in PST. So a label that's the
+  // zone's abbreviation today passes whatever the session's date.
+  const oct27=Date.parse('2026-10-27T20:00:00.000Z'),nov3=Date.parse('2026-11-03T20:00:00.000Z');
+  assert.equal(c.composerZone(['America/Los Angeles','PDT'],oct27),'America/Los_Angeles');
+  assert.equal(c.composerZone(['America/Los Angeles','PST'],nov3),'America/Los_Angeles');
+  // Still only the zone's own abbreviation, as it is today.
+  assert.throws(()=>c.composerZone(['America/Los Angeles','PST'],oct27),/"PST" isn't America\/Los_Angeles \(PDT\)/);
+  assert.throws(()=>c.composerZone(['America/Los Angeles','PDT'],nov3),/"PDT" isn't America\/Los_Angeles \(PST\)/);
+  // Without a time given, it's now.
+  const today=new Intl.DateTimeFormat('en-US',{timeZone:'America/Los_Angeles',timeZoneName:'short'}).formatToParts(new Date()).find(p=>p.type==='timeZoneName').value;
+  assert.equal(c.composerZone(['America/Los Angeles',today]),'America/Los_Angeles');
 });
 
 test('a save that changes any other field is refused, except against the create response',()=>{

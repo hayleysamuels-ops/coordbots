@@ -241,8 +241,13 @@ function formats(iso,timeZone){
 // "Select a timezone" buttons (seen October 14 and 16: two, reading
 // "America/Denver" and "MDT").
 // Exactly one must be an IANA zone name, and anything else shown must be that
-// zone's own abbreviation at `atIso`; anything else refuses. The approved
-// instants are then typed and checked in this zone. A misread zone still
+// zone's own abbreviation now; anything else refuses. Ashby labels the
+// abbreviation by today's date, not the session's (seen October 27: "PDT"
+// beside a Nov 2 session that its calendar showed as PST, and still "PDT"
+// after a draft's date was changed from Oct 29 to Nov 2), while typed times
+// are read in the zone on the session's date (that change would have saved
+// 9:00am as 09:00-08:00, PST). So the label is checked against `now`. The
+// approved instants are then typed and checked in the named zone. A misread zone still
 // can't book the wrong time: every save is checked against the approved
 // instants (checkSave, checkFinal).
 // Ashby writes multi-word cities with a space ("America/Los Angeles", seen
@@ -257,13 +262,13 @@ function isIanaZone(t){
   if(!/^[A-Z][A-Za-z_]*(?:\/[A-Z0-9][A-Za-z0-9_+-]*)+$/.test(t))return false;
   try{new Intl.DateTimeFormat('en-US',{timeZone:t});return true;}catch(_){return false;}
 }
-function composerZone(shown,atIso){
+function composerZone(shown,now=Date.now()){
   const texts=[...new Set(shown.map(t=>String(t).replace(/\s+/g,' ').trim()).filter(Boolean))];
   const said=texts.length?texts.slice(0,4).map(t=>`"${t.slice(0,40)}"`).join(', '):'no time zone (there\'s no "Select a timezone" button)';
   const names=texts.map(asZoneName);
   const zones=[...new Set(names.filter(isIanaZone))];
   if(zones.length!==1)fail(`The composer shows times in ${said}; exactly one IANA time zone name is needed to read it by.`);
-  const zone=zones[0],abbr=formats(atIso,zone).zone,other=texts.filter((t,i)=>names[i]!==zone&&t!==abbr);
+  const zone=zones[0],abbr=formats(now,zone).zone,other=texts.filter((t,i)=>names[i]!==zone&&t!==abbr);
   if(other.length)fail(`The composer shows times in ${said}; ${other.map(t=>`"${t.slice(0,40)}"`).join(', ')} isn't ${zone} (${abbr}).`);
   return zone;
 }
