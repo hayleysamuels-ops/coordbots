@@ -223,6 +223,61 @@ test('invite previews in another zone are compared as instants: the candidate\'s
   assert.equal(c.clockMinutes('12:30 AM'),30);assert.equal(c.clockMinutes('12:30pm'),750);assert.equal(c.clockMinutes('13:00 PM'),null);
 });
 
+// TEST's six-session Onsite on October 28: Ashby put a 30-minute line in each
+// gap ("----- 30x xxxxx ----" in the masked log), and the reader found no
+// agenda at all. A line between sessions is accepted by where it sits and the
+// duration it states, whatever it says.
+const PENN={userId:'u-joe',name:'Joe Penn',email:'joe@luminai.com'},JONES={userId:'u-anna',name:'Anna Jones',email:'anna@luminai.com'};
+const at=(h,m)=>`2026-10-30T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00.000Z`;
+const six={...plan,sessions:[[16,30,'Onsite',HAYLEY],[17,0,'Onsite',PENN],[18,0,'Onsite',MARY2],[19,0,'Lunch',HAYLEY],[19,30,'Onsite',JONES],[20,0,'Onsite',HAYLEY]]
+  .map(([h,m,title,who],i)=>({title,interviewId:`i-${i+1}`,start:at(h,m),end:at(m===30?h+1:h,m===30?0:30),interviewers:[who]}))};
+const sixText='Invite for Onsite, Onsite, Onsite, Lunch, Onsite and Onsite Fri, Oct 30, 2026 9:30am - 1:30pm PDT Invitees TEST hayleysamuels511@gmail.com';
+const sixItems=['9:30 AM - 10:00 AM (PDT) - Onsite - Hayley Samuels','10:00 AM - 10:30 AM (PDT) - Onsite - Joe Penn','----- 30m break -----',
+  '11:00 AM - 11:30 AM (PDT) - Onsite - Mary Petrino','----- 30m break -----','12:00 PM - 12:30 PM (PDT) - Lunch - Hayley Samuels',
+  '12:30 PM - 1:00 PM (PDT) - Onsite - Anna Jones','1:00 PM - 1:30 PM (PDT) - Onsite - Hayley Samuels'];
+
+test('agenda lines between sessions: the TEST onsite\'s 30-minute gaps read as six sessions',()=>{
+  const agenda=c.agendaFromList(sixItems);
+  assert.equal(agenda.sessions.length,6);
+  assert.deepEqual(agenda.lines,['----- 30m break -----','----- 30m break -----']);
+  assert.deepEqual(agenda.why,[]);
+  c.checkInvitePreview(sixText,six,sixItems);
+  // Without lines between sessions, nothing changes.
+  const plain=['1:05 PM - 1:35 PM (MDT) - Initial - Hayley Samuels'];
+  assert.deepEqual(c.agendaFromList(plain),{sessions:plain,lines:[],why:[]});
+});
+
+test('agenda lines between sessions: the wording isn\'t checked, so a lunch line in a matching gap passes',()=>{
+  const items=[...sixItems];items[4]='----- 30m lunch -----';items[2]='Coffee Chat (30 min)';
+  c.checkInvitePreview(sixText,six,items);
+  assert.deepEqual(c.agendaFromList(items).lines,['Coffee Chat (30 min)','----- 30m lunch -----']);
+});
+
+test('agenda lines between sessions: anything not directly between two sessions, or not equal to its gap, refuses',()=>{
+  // At the end, with no session after it.
+  assert.throws(()=>c.checkInvitePreview(sixText,six,[...sixItems,'----- 30m break -----']),
+    /agenda line "----- 30m break -----" isn't between two sessions/);
+  // At the start.
+  assert.throws(()=>c.checkInvitePreview(sixText,six,['----- 30m break -----',...sixItems]),/isn't between two sessions/);
+  // Two in one gap.
+  const two=[...sixItems];two.splice(3,0,'----- 30m break -----');
+  assert.throws(()=>c.checkInvitePreview(sixText,six,two),/isn't between two sessions/);
+  // A duration that isn't the gap.
+  const wrong=[...sixItems];wrong[2]='----- 45m break -----';
+  assert.throws(()=>c.checkInvitePreview(sixText,six,wrong),/agenda line "----- 45m break -----" says 45 minutes, but the gap between the sessions around it is 30/);
+  // In a gap of none.
+  const none=[...sixItems];none.splice(1,0,'----- 30m break -----');
+  assert.throws(()=>c.checkInvitePreview(sixText,six,none),/says 30 minutes, but the gap between the sessions around it is 0/);
+  // No duration, or more than one.
+  const bare=[...sixItems];bare[2]='Lunch Break';
+  assert.throws(()=>c.checkInvitePreview(sixText,six,bare),/agenda line "Lunch Break" states 0 durations, not one/);
+  const both=[...sixItems];both[2]='1h 30m break';
+  assert.throws(()=>c.checkInvitePreview(sixText,six,both),/states 2 durations, not one/);
+  // Hours count as 60 minutes: an hour line in the 30-minute gap refuses.
+  const hour=[...sixItems];hour[2]='1 hour break';
+  assert.throws(()=>c.checkInvitePreview(sixText,six,hour),/says 60 minutes/);
+});
+
 test('invite previews are whose their place says: one candidate preview between the headings, one interviewer preview per session after',()=>{
   const ok={candidateHeadings:1,interviewerHeadings:1,ordered:true};
   // October 19, TEST's Onsite: one combined candidate invite, then six.

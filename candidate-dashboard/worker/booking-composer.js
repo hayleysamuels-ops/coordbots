@@ -20,7 +20,7 @@
 // load-bearing; neither may be relaxed.
 const {guardWrites,classify}=require('./template-guard');
 const {installBookingPermits,installPermit,ORIGIN,OP}=require('./booking-permit');
-const {classifyInviteStatus,DRAFT_READ_OP,draftReadCopy,draftShape,draftsIn,normalizeDraft,maskAgendaItem,checkFinal,formats,composerZone,checkInviteDropdowns,partitionPreviews,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,emailsIn}=require('./booking-check');
+const {classifyInviteStatus,DRAFT_READ_OP,draftReadCopy,draftShape,draftsIn,normalizeDraft,maskAgendaItem,agendaFromList,checkFinal,formats,composerZone,checkInviteDropdowns,partitionPreviews,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,emailsIn}=require('./booking-check');
 
 class Refusal extends Error{constructor(step,message){super(message);this.step=step;this.status=409;}}
 const esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
@@ -541,23 +541,29 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
       const sections=await readPreviewSections(page,previews);
       let parts;try{parts=partitionPreviews(sections,plan.sessions.length);}catch(e){return {layout:e.message};}
       candidate=previews.nth(parts.candidate);
-      // The agenda's top-level items, each as text (a name may sit in a nested list).
+      // The agenda's top-level items, each as text (a name may sit in a nested
+      // list): the first list that opens with a session line. Lines between
+      // sessions (a break, lunch) stay in, for agendaFromList to accept or refuse.
       const agendaItems=await candidate.evaluate(panel=>{
-        const list=[...panel.querySelectorAll('ul,ol')].find(l=>[...l.children].length&&[...l.children].every(li=>/^\s*\d{1,2}:\d\d [AP]M - /.test(li.innerText)));
+        const list=[...panel.querySelectorAll('ul,ol')].find(l=>l.children.length&&/^\s*\d{1,2}:\d\d [AP]M - /.test(l.children[0].innerText));
         return list?[...list.children].map(li=>li.innerText):[];
       });
       const candidateText=await candidate.innerText();
       const interviewerTexts=[];for(const k of parts.interviewers)interviewerTexts.push(await previews.nth(k).innerText());
       return {agendaItems,candidateText,interviewerTexts};
     };
-    const present=r=>!r.layout&&r.agendaItems.length===plan.sessions.length&&r.candidateText.trim()&&r.interviewerTexts.every(t=>t.trim());
+    const present=r=>!r.layout&&agendaFromList(r.agendaItems).sessions.length===plan.sessions.length&&r.candidateText.trim()&&r.interviewerTexts.every(t=>t.trim());
     // Twice the usual wait: on October 20 the previews drew only after 15s.
     let read;const readBy=Date.now()+2*T.wait;
     while(!present(read=await readPreviews())&&Date.now()<readBy)await sleep(250);
     if(read.layout)refuse(read.layout);
+    const agenda=agendaFromList(read.agendaItems);
+    // The lines between sessions, unmasked: break and lunch labels, logged on
+    // every run that has them so what Ashby puts in gaps is known, not guessed.
+    if(agenda.lines.length)note({type:'agenda-between',lines:agenda.lines});
     // An agenda that still can't be read: log its shape for the fix, never
     // its names (maskAgendaItem). Only on this failure.
-    if(read.agendaItems.length!==plan.sessions.length&&candidate){
+    if(agenda.sessions.length!==plan.sessions.length&&candidate){
       const shape=await candidate.evaluate(panel=>({
         lists:[...panel.querySelectorAll('ul,ol')].slice(0,6).map(l=>({items:l.children.length,first:[...l.children].slice(0,8).map(li=>li.innerText.trim())})),
         lines:(panel.innerText||'').split('\n').filter(l=>/\d{1,2}:\d\d/.test(l)).length})).catch(e=>({error:e.message}));

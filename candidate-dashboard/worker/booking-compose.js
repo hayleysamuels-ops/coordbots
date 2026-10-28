@@ -98,6 +98,7 @@ function detailLine(e){
     case 'invites':return `invites on the schedule's page: ${e.state.toUpperCase()} (${(e.evidence||[]).map(short).join(' | ')||'nothing shown'})`;
     case 'draft-mentions':{const {type,...rest}=e;return `no draft read found; the requests that mentioned the draft (structure only): ${JSON.stringify(rest)}`;}
     case 'send':{const {type,...rest}=e;return `send: ${JSON.stringify(rest)}`;}
+    case 'agenda-between':return `candidate invite agenda lines between sessions (unmasked): ${JSON.stringify(e.lines)}`;
     case 'agenda-shape':{const {type,...rest}=e;return `candidate invite agenda unreadable, its shape (letters masked): ${JSON.stringify(rest)}`;}
     default:return null;
   }

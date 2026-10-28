@@ -358,12 +358,48 @@ function maskAgendaItem(text){
   return masked.replace(/ /g,'[nbsp]').replace(/ /g,'[nnbsp]').replace(/ /g,'[thin]').replace(/\n/g,'⏎');
 }
 
+// The candidate invite's agenda list, split into its session lines (for
+// agendaWhy) and the lines between them. TEST's six-session Onsite on October
+// 28 had "----- 30m break -----" (letters masked in the log, so the word is a
+// guess) in each 30-minute gap, and Luminai's lunch windows will put lunch
+// lines there too. So a line that isn't a session is accepted by where it sits
+// and what it says about time, never by its wording: directly between two
+// sessions, stating exactly one duration, equal to the gap between them.
+// Anything else refuses. Returns {sessions, lines (the non-session lines, as
+// shown, for the log), why}.
+const SESSION_LINE=/^\s*\d{1,2}:\d\d [AP]M - /;
+const SESSION_TIMES=/^(\d{1,2}:\d\d\s*[AP]M) - (\d{1,2}:\d\d\s*[AP]M)/;
+const DURATION=/(?<![\w:])(\d+)\s*(hours?|hrs?|h|minutes?|mins?|m)(?![a-z])/gi;
+function agendaFromList(items){
+  const norm=v=>String(v||'').replace(/\s+/g,' ').trim();
+  const session=items.map(t=>SESSION_LINE.test(t));
+  const sessions=[],lines=[],why=[];
+  items.forEach((raw,k)=>{
+    if(session[k]){sessions.push(raw);return;}
+    const text=norm(raw);lines.push(text);
+    const said=`agenda line "${text.slice(0,60)}"`;
+    if(!session[k-1]||!session[k+1]){why.push(`${said} isn't between two sessions`);return;}
+    const durations=[...text.matchAll(DURATION)];
+    if(durations.length!==1){why.push(`${said} states ${durations.length} durations, not one`);return;}
+    const minutes=Number(durations[0][1])*(/^h/i.test(durations[0][2])?60:1);
+    const before=SESSION_TIMES.exec(norm(items[k-1])),after=SESSION_TIMES.exec(norm(items[k+1]));
+    const end=before&&clockMinutes(before[2]),start=after&&clockMinutes(after[1]);
+    if(end==null||start==null){why.push(`${said}: the times of the sessions around it can't be read`);return;}
+    // A gap past midnight wraps.
+    const gap=(start-end+1440)%1440;
+    if(minutes!==gap)why.push(`${said} says ${minutes} minutes, but the gap between the sessions around it is ${gap}`);
+  });
+  return {sessions,lines,why};
+}
+
 // The candidate's calendar invite preview: the date (in the agenda's own
-// zone), the agenda (one item per session, as above) and exactly the
-// candidate as recipient.
+// zone), the agenda (one item per session, as above, with only the gap lines
+// agendaFromList accepts between them) and exactly the candidate as recipient.
 function checkInvitePreview(text,plan,agendaItems){
   const t=text.replace(/\s+/g,' ');
-  const {why,firstOffset}=agendaWhy(agendaItems,plan);
+  const agenda=agendaFromList(agendaItems);
+  const {why,firstOffset}=agendaWhy(agenda.sessions,plan);
+  why.push(...agenda.why);
   if(firstOffset!==null){const date=wallClock(plan.sessions[0].start,firstOffset).shortDate;if(!t.includes(date))why.unshift(`it doesn't show the date ${date}`);}
   why.push(...exactly(emailsIn(t),[plan.candidate.email],'candidate invite'));
   if(why.length)fail(`The candidate's calendar invite preview doesn't match the approval: ${why.join('; ')}.`,why);
@@ -517,4 +553,4 @@ function classifyDialog(text){
   return {action:'stop',reason:`Ashby showed a dialog the booking doesn't recognise: "${t.slice(0,160)}". Nothing was confirmed.`};
 }
 
-module.exports={classifyInviteStatus,DRAFT_READ_OP,draftReadCopy,draftShape,draftsIn,maskAgendaItem,emailAgendaItems,zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,ONE_SESSION_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};
+module.exports={classifyInviteStatus,DRAFT_READ_OP,draftReadCopy,draftShape,draftsIn,maskAgendaItem,agendaFromList,emailAgendaItems,zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,ONE_SESSION_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};
