@@ -236,6 +236,18 @@ function formats(iso,timeZone){
     upper:time,lower:time.replace(' AM','am').replace(' PM','pm')};
 }
 
+// One composer field as the last save Ashby accepted holds it (`event`, a
+// normalizeDraft event), against the approved session, in the zone the
+// composer shows. The date is the start's day there; Start and End are exact
+// instants. `value` is what the save holds, for the log and the refusal.
+function savedField(k,event,session,timeZone){
+  const at=ms=>{if(!Number.isFinite(ms))return null;const f=formats(new Date(ms).toISOString(),timeZone);return {date:f.shortDate.replace(/, \d{4}$/,''),time:f.lower};};
+  const s=at(event?.start),e=at(event?.end);
+  if(k==='date')return {ok:!!s&&s.date===formats(session.start,timeZone).shortDate.replace(/, \d{4}$/,''),value:s?s.date:'no start'};
+  const [ms,f]=k==='start'?[event?.start,s]:[event?.end,e];
+  return {ok:ms===Date.parse(k==='start'?session.start:session.end),value:f?`${f.date} ${f.time}`:`no ${k}`};
+}
+
 // The zone Ashby's composer shows times in: a per-draft dropdown in the
 // scheduling view, not the account's zone or the candidate's. Read from its
 // "Select a timezone" buttons (seen October 14 and 16: two, reading
@@ -553,4 +565,4 @@ function classifyDialog(text){
   return {action:'stop',reason:`Ashby showed a dialog the booking doesn't recognise: "${t.slice(0,160)}". Nothing was confirmed.`};
 }
 
-module.exports={classifyInviteStatus,DRAFT_READ_OP,draftReadCopy,draftShape,draftsIn,maskAgendaItem,agendaFromList,emailAgendaItems,zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,ONE_SESSION_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};
+module.exports={classifyInviteStatus,DRAFT_READ_OP,draftReadCopy,draftShape,draftsIn,maskAgendaItem,agendaFromList,emailAgendaItems,zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,savedField,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,ONE_SESSION_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};

@@ -84,7 +84,8 @@ function composeOutcome(r){
 // the communications screen's controls (as JSON, which is what resolves an
 // unrecognised screen). Other events return null.
 function detailLine(e){
-  const field=f=>f?`${f.value}${f.typed?'':' (already set)'}`:'?';
+  // Each field as read back: the page's field, then the last accepted save.
+  const field=f=>f?`${f.page} (${f.typed?'typed':'already set'}; saved ${f.saved})`:'?';
   switch(e.type){
     case 'typed':return `session ${e.session} ("${short(e.title)}") entered: ${field(e.date)}, ${field(e.start)} – ${field(e.end)} ${e.zone}; approved ${e.approved}`;
     case 'save-checked':return `save ${e.seq} passed the content check: ${e.events.join('; ')}${e.slots?`; slots before: ${e.slots.before}; after: ${e.slots.after}`:''}`;

@@ -20,7 +20,7 @@
 // load-bearing; neither may be relaxed.
 const {guardWrites,classify}=require('./template-guard');
 const {installBookingPermits,installPermit,ORIGIN,OP}=require('./booking-permit');
-const {classifyInviteStatus,DRAFT_READ_OP,draftReadCopy,draftShape,draftsIn,normalizeDraft,maskAgendaItem,agendaFromList,checkFinal,formats,composerZone,checkInviteDropdowns,partitionPreviews,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,emailsIn}=require('./booking-check');
+const {classifyInviteStatus,DRAFT_READ_OP,draftReadCopy,draftShape,draftsIn,normalizeDraft,maskAgendaItem,agendaFromList,checkFinal,formats,savedField,composerZone,checkInviteDropdowns,partitionPreviews,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,emailsIn}=require('./booking-check');
 
 class Refusal extends Error{constructor(step,message){super(message);this.step=step;this.status=409;}}
 const esc=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
@@ -431,18 +431,36 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
       try{if(composerZone(await zoneButtons.allInnerTexts())!==state.zone)refuse(`The composer's time zone changed from ${state.zone} while composing.`);}
       catch(e){if(e instanceof Refusal)throw e;refuse(`${e.message} (at ${what})`);}
       const wantDate=a.shortDate.replace(/, \d{4}$/,'');// "Tue, Oct 20"
-      // What was entered, for the log: each field's value, and whether it had
-      // to be typed or already matched.
+      // Every field is read back before the next action, typed or not: the
+      // page's field must show the approved value and the last save Ashby
+      // accepted must hold it. No retry; a field that doesn't read back within
+      // the usual wait refuses. October 28: session 6's date and Start were
+      // typed, no save ever carried them, and the log said "entered" from the
+      // intended values; its End matched the page's field but not the draft.
+      async function readBack(k,want){
+        let shows,saved;const deadline=Date.now()+T.wait;
+        for(;;){
+          shows=await (await editor(eventId,what))[k].inputValue();
+          saved=savedField(k,state.last[i],s,shown.timeZone);
+          if(shows===want&&saved.ok)return {page:shows,saved:saved.value};
+          if(Date.now()>=deadline)break;
+          await sleep(250);
+        }
+        refuse(`${what}'s ${k==='date'?'date':k==='start'?'Start':'End'} didn't read back as ${want}: the page shows "${shows}" and the last save Ashby accepted has ${saved.value} (${state.saves} save${state.saves===1?'':'s'} accepted, the last ${state.lastSaveAt?`${((Date.now()-state.lastSaveAt)/1000).toFixed(1)}s ago`:'never'}).`);
+      }
+      // What was entered, for the log: each field as read back from the page
+      // and the last accepted save, and whether it had to be typed.
       const typed={type:'typed',session:i+1,title:s.title,zone:a.zone,approved:`${s.start}–${s.end}`};
       {const {date}=await editor(eventId,what);
-        typed.date={value:wantDate,typed:await date.inputValue()!==wantDate};
-        if(typed.date.typed)await after(async()=>{await date.click();await date.fill(wantDate);await page.keyboard.press('Enter');});}
+        const t=await date.inputValue()!==wantDate;
+        if(t)await after(async()=>{await date.click();await date.fill(wantDate);await page.keyboard.press('Enter');});
+        typed.date={typed:t,...await readBack('date',wantDate)};}
       for(const [k,want] of [['start',a.lower],['end',b.lower]]){
         const field=(await editor(eventId,what))[k];
-        typed[k]={value:want,typed:await field.inputValue()!==want};
-        if(!typed[k].typed)continue;
-        await after(async()=>{await field.click();await field.fill(want);
+        const t=await field.inputValue()!==want;
+        if(t)await after(async()=>{await field.click();await field.fill(want);
           const option=await one(timeOption(want),`the "${want}" option for ${what}'s ${k}`);await option.click();});
+        typed[k]={typed:t,...await readBack(k,want)};
       }
       note(typed);
       for(let j=0;j<s.interviewers.length;j++){

@@ -405,3 +405,21 @@ test('observing: a slot\'s alternates may narrow but never gain anyone; strays a
   assert.deepEqual(c.checkFinal(chosen,plan,{observeAlternates:true}),{strayAlternates:[{session:1,alternates:['u-hayley']}]});
   assert.throws(()=>c.checkFinal(N('u-hayley',['u-hayley']),plan,{observeAlternates:true}),/doesn't have exactly the approved interviewers/,'everything else is still checked');
 });
+
+test('read-back: a field passes only when the last accepted save holds the approved value in the composer\'s zone',()=>{
+  // October 28, session 6: the page read 1:30pm but the draft still held Oct 30 11:30am PDT.
+  const session={start:'2026-11-02T21:00:00.000Z',end:'2026-11-02T21:30:00.000Z'};
+  const zone='America/Los_Angeles';
+  const stale={start:Date.parse('2026-10-30T18:30:00.000Z'),end:Date.parse('2026-10-30T19:00:00.000Z')};
+  const done={start:Date.parse(session.start),end:Date.parse(session.end)};
+  for(const k of ['date','start','end'])assert.equal(c.savedField(k,stale,session,zone).ok,false,k);
+  assert.equal(c.savedField('date',stale,session,zone).value,'Fri, Oct 30');
+  assert.equal(c.savedField('start',stale,session,zone).value,'Fri, Oct 30 11:30am');
+  for(const k of ['date','start','end'])assert.equal(c.savedField(k,done,session,zone).ok,true,k);
+  assert.equal(c.savedField('end',done,session,zone).value,'Mon, Nov 2 1:30pm');
+  // After the date save only: the day is right, the times aren't yet.
+  const dated={start:Date.parse('2026-11-02T19:30:00.000Z'),end:Date.parse('2026-11-02T20:00:00.000Z')};
+  assert.deepEqual(['date','start','end'].map(k=>c.savedField(k,dated,session,zone).ok),[true,false,false]);
+  // No draft yet reads as a mismatch, never a pass.
+  assert.equal(c.savedField('start',undefined,session,zone).ok,false);
+});
