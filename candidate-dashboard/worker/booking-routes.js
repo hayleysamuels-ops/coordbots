@@ -47,6 +47,10 @@ function bookingRoutes({secret,clientId,expectedIdentity,adapter=null,draftReade
         if(!ashby)return res.status(503).json({error:'The Ashby check is not connected.'});
         result=require('./booking-compose').sendStatus({env:ashby.env,payload:data.payload,expectedIdentity});
       }
+      else if(data.action==='booking-settings'){
+        if(!ashby)return res.status(503).json({error:'The Ashby check is not connected.'});
+        result=require('./booking-compose').bookingSettings({env:ashby.env});
+      }
       else if(data.action==='compose'||data.action==='discard-draft'||data.action==='invite-status'){
         if(!ashby)return res.status(503).json({error:'The Ashby check is not connected.'});
         const run=require('./booking-compose')[{compose:'compose','discard-draft':'discard','invite-status':'inviteStatus'}[data.action]];

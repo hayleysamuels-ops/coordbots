@@ -19,7 +19,6 @@
 // Availability"). Exact-name matching here and the write guard are both
 // load-bearing; neither may be relaxed.
 const {guardWrites,classify}=require('./template-guard');
-const {sendRecipientsOutside,sendBlocked}=require('./booking-locks');
 const {installBookingPermits,installPermit,ORIGIN,OP}=require('./booking-permit');
 const {classifyInviteStatus,DRAFT_READ_OP,draftReadCopy,draftShape,draftsIn,normalizeDraft,maskAgendaItem,checkFinal,formats,composerZone,checkInviteDropdowns,partitionPreviews,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,emailsIn}=require('./booking-check');
 
@@ -215,12 +214,16 @@ const replied=json=>!!json&&!(json.errors&&json.errors.length);
 //     Any refusal still deletes it.
 //   `send` (booking-compose.js sets it only when every lock is open and the
 //     approved plan says `send: true`): click Schedule once, with one permit.
+// `beforeSend` (booking-compose.js, with `send` only): the send gate
+//   (send-gate.js), called once every other lock is open, just before the
+//   click; null lets the click go ahead (the send is then counted), anything
+//   else is {reason} and the draft is left for a person.
 // `observeAlternates` (booking-dry-run.js --observe-alternates only): lets a
 // slot's alternates narrow (checkSave), logs unapproved alternates left at the
 // end instead of refusing (checkFinal), and logs each eligible interviewer's
 // row on Ashby's interviewer page and every invite preview's recipients
 // (`observe` events). Never with a kept draft or Send.
-async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,expectedIdentity,checkExistingDrafts=false,supersedeDraftId=null,keepOnSuccess=false,send=false,observeAlternates=false}){
+async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,expectedIdentity,checkExistingDrafts=false,supersedeDraftId=null,keepOnSuccess=false,send=false,beforeSend=null,observeAlternates=false}){
   if(observeAlternates&&(keepOnSuccess||send))throw new Error('Observing alternates is for the dry run only: never with a kept draft or Send.');
   const T={settle:700,short:1500,wait:15000,...timing};
   const events=[];const note=e=>{events.push(e);log(e);};
@@ -626,12 +629,18 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     if(!(await schedule.isEnabled()))refuse('The Schedule button is disabled.');
     report.wouldSend={op:OP.send,interviewScheduleId:plan.interviewScheduleId,draftInterviewScheduleId:state.draftId,from,
       sessions:state.last.map((e,i)=>({title:e.title,start:new Date(e.start).toISOString(),end:new Date(e.end).toISOString(),interviewers:plan.sessions[i].interviewers.map(x=>x.email)}))};
-    const outside=sendRecipientsOutside(plan);
-    report.sendRecipients=outside.length?{allowed:false,outside}:{allowed:true};
-    note({type:'send-recipients',...report.sendRecipients});
-    // Every lock again, here: the announced plan, the allowlists and the
-    // recipients (the switch itself was checked by booking-compose.js).
-    const notSending=!(send&&keepOnSuccess)?null:plan.send!==true?'The approved post didn\'t say it would send.':sendBlocked(plan,{BOOKING_SEND:'on'});
+    // Every lock again, here: the announced plan, then the send gate (the
+    // switch itself was checked by booking-compose.js).
+    let notSending=!(send&&keepOnSuccess)?null:plan.send!==true?'The approved post didn\'t say it would send.':null;
+    // Then the send gate: the send locks again, Ashby read again, and the
+    // daily cap. Without a gate nothing is sent.
+    if(send&&keepOnSuccess&&!notSending){
+      step='send gate';
+      let gate;
+      try{gate=beforeSend?await beforeSend(plan):{reason:'No send gate was given.'};}catch(e){gate={reason:`The send gate failed: ${String(e.message).slice(0,200)}`};}
+      if(gate){notSending=gate.reason;if(gate.cap)report.sendCap=gate.cap;}
+      else pass('Ashby read again just before sending matches the approval, and the send is counted against the daily cap');
+    }
     if(!(send&&keepOnSuccess)||notSending){
       if(notSending){report.sendSkipped=notSending;note({type:'send-skipped',reason:notSending});}
       pass(`Schedule button found and enabled (not clicked: ${keepOnSuccess?'left for a person to send':'dry run'})`);

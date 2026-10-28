@@ -10,10 +10,13 @@
 //
 // Locks, checked before the session is read or a browser starts:
 //   - BOOKING_COMPOSE must be "on" in the worker's variables (the off switch);
-//   - the plan must be for an application in booking-locks.js.
+//   - the plan's job and stage must be on BOOKING_COMPOSE_JOBS (booking-locks.js);
+//   - for a compose, the application as Ashby has it now must be the plan's
+//     (send-gate.js, with the worker's read key).
 // When either is shut, the result is `skipped` with the reason: the
 // coordinator books by hand, as before the check existed.
-const {checkPlan,Stop,sendBlocked}=require('./booking-locks');
+const {checkPlan,Stop,sendBlocked,jobList,sendListProblem}=require('./booking-locks');
+const sendGate=require('./send-gate');
 
 const DEADLINE_MS=240000;
 
@@ -23,7 +26,7 @@ function skipped(reason){return {status:'skipped',reason};}
 // without a session or a browser.
 async function prepare({env,plan,loadSession,clientId,expectedIdentity,now}){
   if(env.BOOKING_COMPOSE!=='on')return {skip:skipped('The Ashby check is switched off on the scheduling worker (BOOKING_COMPOSE).')};
-  try{checkPlan(plan,{now});}
+  try{checkPlan(plan,{now,env});}
   catch(e){if(e instanceof Stop)return {skip:skipped(e.message)};throw e;}
   const saved=loadSession();
   if(!saved||saved.clientId!==clientId||saved.expectedIdentity!==expectedIdentity||!saved.storageState)
@@ -96,12 +99,11 @@ function detailLine(e){
     case 'draft-mentions':{const {type,...rest}=e;return `no draft read found; the requests that mentioned the draft (structure only): ${JSON.stringify(rest)}`;}
     case 'send':{const {type,...rest}=e;return `send: ${JSON.stringify(rest)}`;}
     case 'agenda-shape':{const {type,...rest}=e;return `candidate invite agenda unreadable, its shape (letters masked): ${JSON.stringify(rest)}`;}
-    case 'send-recipients':return e.allowed?'send recipients: all on the send allowlist':`send recipients: outside the send allowlist: ${e.outside.join(', ')} (reported only; nothing is sent)`;
     default:return null;
   }
 }
 
-async function compose({env,payload,chromium,loadSession,clientId,expectedIdentity,now=Date.now(),log=()=>{},say=console.log,composer=require('./booking-composer')}){
+async function compose({env,payload,chromium,loadSession,clientId,expectedIdentity,now=Date.now(),log=()=>{},say=console.log,composer=require('./booking-composer'),request=fetch}){
   const plan=payload?.plan,supersedeDraftId=payload?.supersedeDraftId??null;
   const tag=`[booking] Ashby check${ID.test(String(payload?.proposalId||''))?` for ${payload.proposalId}`:''}`;
   say(`${tag} started: application ${short(plan?.applicationId)}, schedule ${short(plan?.interviewScheduleId)}, ${plan?.sessions?.length??0} session(s), plan zone ${short(plan?.timeZone)}${supersedeDraftId?`, replacing draft ${short(supersedeDraftId)}`:''}`);
@@ -113,6 +115,9 @@ async function compose({env,payload,chromium,loadSession,clientId,expectedIdenti
     if(supersedeDraftId!==null&&!ID.test(String(supersedeDraftId)))throw Object.assign(Error('The earlier draft reference isn\'t a draft ID.'),{status:422});
     const ready=await prepare({env,plan,loadSession,clientId,expectedIdentity,now});
     if(ready.skip){say(`${tag} ${composeOutcome(ready.skip)}`);return ready.skip;}
+    // The application as Ashby has it now, before a browser starts.
+    const mismatch=await sendGate.applicationProblem({env,plan,request});
+    if(mismatch){const r=skipped(mismatch);say(`${tag} ${composeOutcome(r)}`);return r;}
     // Send only when the approved post announced it (plan.send, covered by the
     // approval's digest) and every lock is open now (booking-locks.js).
     const sendReason=plan.send!==true?null:sendBlocked(plan,env);
@@ -121,7 +126,8 @@ async function compose({env,payload,chromium,loadSession,clientId,expectedIdenti
     const isolation=env.ASHBY_BROWSER_ISOLATION||'sandbox';
     if(!['sandbox','container'].includes(isolation))throw Object.assign(Error('Unknown browser isolation configuration.'),{status:503});
     const result=await withBrowser({chromium,saved:ready.saved,isolation},({context,page})=>
-      composer.dryRun({context,page,plan,log:note,expectedIdentity,checkExistingDrafts:true,supersedeDraftId,keepOnSuccess:true,send}));
+      composer.dryRun({context,page,plan,log:note,expectedIdentity,checkExistingDrafts:true,supersedeDraftId,keepOnSuccess:true,send,
+        ...(send?{beforeSend:sendGate.createSendGate({env,request})}:{})}));
     say(`${tag} ${composeOutcome(result)}`);
     return result;
   }catch(e){
@@ -161,9 +167,21 @@ async function inviteStatus({env,payload,chromium,loadSession,clientId,expectedI
 function sendStatus({env,payload,expectedIdentity}){
   const plan=payload?.plan;
   if(env.BOOKING_COMPOSE!=='on')return {sendOn:false,reason:'The Ashby check is switched off on the scheduling worker (BOOKING_COMPOSE).'};
-  try{checkPlan(plan);}catch(e){if(e instanceof Stop)return {sendOn:false,reason:e.message};throw e;}
-  const reason=sendBlocked(plan,env);
+  try{checkPlan(plan,{env});}catch(e){if(e instanceof Stop)return {sendOn:false,reason:e.message};throw e;}
+  // Then what the send gate needs configured, and the daily cap as it stands
+  // (send-gate.js); Ashby itself is read again only at the click.
+  const reason=sendBlocked(plan,env)||sendGate.configProblem(env)||sendGate.capBlocked({file:sendGate.sendLogFile(env),env});
   return reason?{sendOn:false,reason}:{sendOn:true,as:expectedIdentity};
+}
+
+// The worker's booking settings as they stand, for the dashboard to post in
+// the channel when they change (booking-settings-watch.js): the switches, the
+// job lists, the interviewer domains, the cap, and whether the read key is
+// set (never the key). Read-only.
+function bookingSettings({env}){
+  const list=name=>{const l=jobList(env,name);return l.problem?{problem:l.problem}:{jobs:l.jobs};};
+  return {compose:env.BOOKING_COMPOSE==='on',send:env.BOOKING_SEND==='on',composeJobs:list('BOOKING_COMPOSE_JOBS'),sendJobs:list('BOOKING_SEND_JOBS'),
+    sendListProblem:sendListProblem(env),domains:sendGate.interviewerDomains(env),dailyCap:sendGate.dailyCap(env),readKey:!!String(env.ASHBY_READ_API_KEY||'').trim()};
 }
 
 async function discard({env,payload,chromium,loadSession,clientId,expectedIdentity,now=Date.now(),log=()=>{},say=console.log,composer=require('./booking-composer')}){
@@ -186,4 +204,4 @@ async function discard({env,payload,chromium,loadSession,clientId,expectedIdenti
   }
 }
 
-module.exports={compose,discard,inviteStatus,sendStatus,composeOutcome,detailLine,DEADLINE_MS};
+module.exports={compose,discard,inviteStatus,sendStatus,bookingSettings,composeOutcome,detailLine,DEADLINE_MS};

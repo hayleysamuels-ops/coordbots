@@ -30,10 +30,11 @@ function setup({ rows = [row("d1")], compose, discard, inviteStatus = null, book
     if (action === "invite-status") return typeof inviteStatus === "function" ? inviteStatus(payload) : inviteStatus;
     return typeof discard === "function" ? discard(payload) : discard; } };
   const facts = { scheduleState: async () => (typeof booked === "function" ? booked() : booked) };
-  const slackApi = { markApproved: async ({ row }) => { shown.push(row.ashbyCheck?.state); }, threadReply: async ({ text }) => { replies.push(text); } };
+  const notices = [];
+  const slackApi = { markApproved: async ({ row }) => { shown.push(row.ashbyCheck?.state); }, threadReply: async ({ text }) => { replies.push(text); }, notice: async n => { notices.push(n); } };
   const pauses = [];
   const check = createAshbyCheck({ store, worker, facts, slackApi, clientId: "luminai", availability, now: () => clock, log: { warn() {} }, pause: async ms => { pauses.push(ms); } });
-  return { store, calls, shown, replies, pauses, check, tick: ms => { clock += ms; } };
+  return { store, calls, shown, replies, notices, pauses, check, tick: ms => { clock += ms; } };
 }
 const composed = { status: "composed", draftId: "dr-1", cleanup: { deleted: false, kept: true, draftId: "dr-1" }, wouldSend: { from: "Anna Jones <anna@luminai.com>" }, checks: [{ name: "a" }, { name: "b" }] };
 
@@ -173,11 +174,11 @@ test("the Slack message says what's true in every state, and never that somethin
     not_started: [/didn't start:\* Ashby is busy\./, /no draft was made/],
     uncertain: [/didn't finish\*/, /a draft may be left in Ashby/, /never "Delete Activity"/],
     too_close: [/\*Not booked:\* too close to the first interview — book this in Ashby by hand\./, /no invitations or candidate email have been sent/],
-    skipped: [/Not booked yet\.\*/, /Not checked in Ashby: the check is only on for test candidates so far\./],
+    skipped: [/Not booked yet\.\*/, /Not checked in Ashby: the check isn't on for this job or stage yet\./],
   };
   for (const [state, patterns] of Object.entries(states)) {
     const check = { state, at, startedAt: at, composedAt: at, deleteBy: "2099-10-15T22:00:00Z", sentSeenAt: at, deletedAt: at, goneSeenAt: at, failedAt: at, supersededAt: at,
-      from: "Anna Jones <anna@luminai.com>", differences: [], step: "compose session 1", reason: state === "skipped" ? "Application x isn't one the booking robot may use." : state === "not_started" ? "Ashby is busy." : "The composer shows times in \"MDT\", not EDT.",
+      from: "Anna Jones <anna@luminai.com>", differences: [], step: "compose session 1", reason: state === "skipped" ? "This job isn't opted in (BOOKING_COMPOSE_JOBS)." : state === "not_started" ? "Ashby is busy." : "The composer shows times in \"MDT\", not EDT.",
       draftId: "dr-1", cleanup: { deleted: true } };
     calls.length = 0;
     await slack.markApproved({ channel: "C1", ts: "1.2", row: { id: "d1", plan: { candidateName: "TEST", jobTitle: "TEST", bookingPlan, sessions: [], notes: "" }, slackApproval: { email: "anna@carrara.is", name: "Anna Jones", at }, ashbyCheck: check } });
@@ -278,6 +279,19 @@ test("a composed check that was announced but didn't send says why", async () =>
   const s = setup({ rows: [sendingRow()], compose: { ...composed, sendSkipped: "Send is switched off on the scheduling worker (BOOKING_SEND)." } });
   await s.check.start((await s.store.list())[0]);await s.check.idle();
   assert.equal(s.store.data.d1.ashbyCheck.state, "composed");assert.match(s.store.data.d1.ashbyCheck.sendSkipped, /BOOKING_SEND/);
+  assert.deepEqual(s.notices, [], "no cap, no channel notice");
+});
+
+test("the daily send cap: the skipped send says why on its post, and the first at the cap posts one notice in the channel", async () => {
+  const sendCap = { firstAtCap: true, count: 10, cap: 10, resetsAt: "2099-10-15T09:00:00.000Z", resetsAtText: "Oct 15, 09:00 UTC" };
+  const reason = "The daily send cap is reached (10 sends in the last 24 hours; the cap is 10). The next send is allowed after Oct 15, 09:00 UTC.";
+  const s = setup({ rows: [sendingRow(), { ...sendingRow(), id: "d2", slack: { channel: "C1", ts: "1.d2" } }],
+    compose: p => ({ ...composed, sendSkipped: reason, sendCap: { ...sendCap, firstAtCap: p.proposalId === "d1" } }) });
+  for (const r of await s.store.list()) await s.check.start(r);
+  await s.check.idle();
+  assert.equal(s.store.data.d1.ashbyCheck.state, "composed");assert.equal(s.store.data.d2.ashbyCheck.sendSkipped, reason);
+  assert.equal(s.notices.length, 1);assert.equal(s.notices[0].channel, "C1");
+  assert.match(s.notices[0].text, /daily send cap is reached \(10 sends in the last 24 hours; the cap is 10\)\. Approved schedules are composed in Ashby but not sent until Oct 15, 09:00 UTC: a person needs to send each one/);
 });
 
 test("Slack, where Send is on: the button says approving sends, from Anna; each send state says plainly what happened", async () => {

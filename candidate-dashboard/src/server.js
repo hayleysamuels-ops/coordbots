@@ -116,6 +116,9 @@ function createServer() {
     if (scheduling.slackApi && slackConfig.schedulingChannelId) require("./scheduling/auto-post").createAutoPost({ on: slackConfig.schedulingAutoPost,
       dataDir: connectionConfig.dataDir, clientId: connectionConfig.schedulingClientId, channelId: slackConfig.schedulingChannelId,
       availability: availabilitySource, suggester: bookingRouter.suggestAgain, service: scheduling, store: scheduling.store, slackApi: scheduling.slackApi }).start();
+    // The worker's booking settings (job lists, domains, cap), posted in the channel when they change.
+    if (scheduling.slackApi && slackConfig.schedulingChannelId) require("./scheduling/booking-settings-watch").createBookingSettingsWatch({ worker: bookingWorker,
+      dataDir: connectionConfig.dataDir, channelId: slackConfig.schedulingChannelId, slackApi: scheduling.slackApi, jobTitle: bookingFacts.jobTitle }).start();
   }
 
   // Feature-gated markup and assets. Without the scheduling pilot, its pages

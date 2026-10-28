@@ -36,8 +36,8 @@ function createWorkerApp({connection,secret,clientId,expectedIdentity,draftReade
 // when exactly "on". Read from the env here; the robot itself is never loaded.
 function switchesLine(env){
   const compose=env.BOOKING_COMPOSE==="on",send=env.BOOKING_SEND==="on";
-  return "Ashby check "+(compose?"on (allowlisted applications only)":"off")+"; Send "+(send
-    ?(compose?"ON: an approved post that announced Send is sent once, to the send allowlist only":"on, but inert while the Ashby check is off")
+  return "Ashby check "+(compose?"on (BOOKING_COMPOSE_JOBS only)":"off")+"; Send "+(send
+    ?(compose?"ON: an approved post that announced Send is sent once, for BOOKING_SEND_JOBS only, after Ashby is read again and within the daily cap":"on, but inert while the Ashby check is off")
     :"off (BOOKING_SEND isn't \"on\"): nothing is sent");
 }
 async function start(){

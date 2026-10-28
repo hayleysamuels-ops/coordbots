@@ -1,66 +1,73 @@
 'use strict';
 // What the booking robot may touch, shared by the dry run (booking-dry-run.js)
-// and the Slack-approved check (booking-compose.js): the allowlisted
-// applications, and the plan checks made before a session is read or a
-// browser starts.
+// and the Slack-approved check (booking-compose.js): the opted-in jobs, and
+// the plan checks made before a session is read or a browser starts.
 const NOTICE_MINUTES=15;
 
-// The TEST candidate on the TEST job: its Initial Screen, First Round and
-// Onsite Interview scheduling activities (Onsite added October 14, 2026, for
-// the first Slack-approved check), and the First Round for the robot's Send,
-// with Hayley as its only interviewer: since October 20, 23:39Z, 199e1b3d, a
-// never-booked activity (the earlier First Rounds, bbf93574 and 8dc8e6b6, are
-// cancelled and on neither list; a re-used activity composes as "Rescheduling").
-// 199e1b3d was sent by the robot on October 26 and cancelled at 19:44Z. Since
-// October 26, 19:44Z: c95bfecf, a never-booked six-session Onsite for the
-// first multi-session robot Send (sent October 26, then cancelled). Since
-// October 27, 14:44Z: 81402bbd, a never-booked First Round, for trying the
-// Slack suggestion buttons and approvals from the new approvers (sent
-// October 27, then cancelled). Since October 27, 16:55Z: faecb1da, a
-// never-booked Initial Screen (Mary Petrino or Hayley eligible).
-const ALLOWED_APPLICATIONS={
-  '8dfd8f14-83c4-41f8-aaf1-416b75cb0892':{
-    jobId:'837cc1e9-15ed-4f07-8755-51ee29f4ea39',
-    candidateId:'fc88f24e-d59b-4e58-aa51-f0e94b1a32da',
-    candidateEmail:'hayleysamuels511@gmail.com',
-    interviewScheduleIds:['69ffae5a-240c-4d06-8b45-f9826dbf5623','18599066-1d55-493a-8c2f-1e970b04f86c','d98941b3-5900-4ecc-a5cb-c57ed6729702','199e1b3d-3f4f-4629-98a5-3ec323fd1206','c95bfecf-9e5c-4d61-8f32-2586d26fa96f','81402bbd-2e50-43bb-afd9-4fa53698c63f','faecb1da-ea68-410e-b57d-b95c13ab2eef'],
-  },
-};
-
-// Where a robot Send may happen (Hayley, 2026-10-20): these applications'
-// listed scheduling activities only, separately from what may be composed.
-const SEND_ALLOWED={
-  '8dfd8f14-83c4-41f8-aaf1-416b75cb0892':[
-    '199e1b3d-3f4f-4629-98a5-3ec323fd1206',// TEST, First Round (Hayley only; sent October 26, now cancelled)
-    'c95bfecf-9e5c-4d61-8f32-2586d26fa96f',// TEST, Onsite Interview, six sessions (sent October 26, now cancelled)
-    '81402bbd-2e50-43bb-afd9-4fa53698c63f',// TEST, First Round (Hayley only), October 27 (sent, now cancelled)
-    'faecb1da-ea68-410e-b57d-b95c13ab2eef',// TEST, Initial Screen (Mary or Hayley), October 27
-  ],
-};
-// Who a robot Send may reach (Hayley, 2026-10-19): the candidate and every
-// interviewer must be on this list. TEST's Onsite interviewers include
-// colleagues (Joe, Mary, Anna), so TEST-only alone wouldn't keep real invites
-// off their calendars. Joe, Mary and Anna added October 26 (Hayley): they're
-// internal, know the six-session Onsite test is coming, and stay the Onsite's
-// eligible interviewers, so its invites will reach their calendars.
-const SEND_RECIPIENTS=new Set(['hayleysamuels511@gmail.com','hayley@luminai.com','joe@luminai.com','mary@luminai.com','anna@luminai.com']);
-// The plan's recipients outside SEND_RECIPIENTS, [] when all are on it.
-function sendRecipientsOutside(plan){
-  const all=[plan?.candidate?.email,...(plan?.sessions||[]).flatMap(s=>(s.interviewers||[]).map(x=>x.email))].map(e=>String(e||'').toLowerCase());
-  return [...new Set(all)].filter(e=>!SEND_RECIPIENTS.has(e)).sort();
+// Which jobs the robot may compose for, and which it may also send for: the
+// worker's BOOKING_COMPOSE_JOBS and BOOKING_SEND_JOBS (Hayley, 2026-10-27:
+// per job, set in the worker's variables, so opting a job in or out needs no
+// commit; Railway access is the gate). Each is JSON naming job IDs, with
+// "all" or the stage titles allowed:
+//   {"837cc1e9-15ed-4f07-8755-51ee29f4ea39":"all"}
+//   {"837cc1e9-15ed-4f07-8755-51ee29f4ea39":["Initial Screen"]}
+// One worker serves one client, so the lists are that client's. Every send
+// job (and stage) must also be a compose job (and stage); a list that can't
+// be read, or a send list wider than the compose list, opens nothing. Before
+// October 27 these were per-schedule lists in this file, which took a commit
+// and a deploy to change; the send gate (send-gate.js) now reads Ashby again
+// before every Send instead.
+function jobList(env,name){
+  const raw=String(env?.[name]??'').trim();
+  if(!raw)return {jobs:{}};
+  let v;try{v=JSON.parse(raw);}catch(_){return {problem:`${name} isn't valid JSON.`};}
+  if(!v||typeof v!=='object'||Array.isArray(v))return {problem:`${name} must be a JSON object of job IDs.`};
+  const jobs={};
+  for(const [jobId,stages] of Object.entries(v)){
+    if(!isUuid(jobId))return {problem:`${name} has a key that isn't a job ID (${String(jobId).slice(0,40)}).`};
+    if(stages==='all'){jobs[jobId.toLowerCase()]='all';continue;}
+    if(!Array.isArray(stages)||!stages.length||!stages.every(isText))return {problem:`${name} must give each job "all" or a list of stage titles.`};
+    jobs[jobId.toLowerCase()]=stages.map(t=>t.trim().toLowerCase());
+  }
+  return {jobs};
+}
+// Whether a list allows this job and stage.
+function jobAllows(jobs,jobId,stageTitle){
+  const stages=jobs[String(jobId||'').toLowerCase()];
+  return stages==='all'||(Array.isArray(stages)&&stages.includes(String(stageTitle||'').trim().toLowerCase()));
+}
+// Why the plan's job and stage aren't on a list, or null.
+function jobBlocked(plan,env,name,what){
+  const list=jobList(env,name);
+  if(list.problem)return `${list.problem} Nothing is ${what} until it's fixed.`;
+  if(!jobAllows(list.jobs,plan?.jobId,plan?.stage?.title))
+    return `This job${list.jobs[String(plan?.jobId||'').toLowerCase()]?`'s ${String(plan?.stage?.title||'').slice(0,60)} stage`:''} isn't opted in (${name}).`;
+  return null;
+}
+// A send list must sit inside the compose list, job by job and stage by stage.
+function sendListProblem(env){
+  const send=jobList(env,'BOOKING_SEND_JOBS'),compose=jobList(env,'BOOKING_COMPOSE_JOBS');
+  if(send.problem||compose.problem)return send.problem||compose.problem;
+  for(const [jobId,stages] of Object.entries(send.jobs)){
+    const c=compose.jobs[jobId];
+    if(c==='all')continue;
+    if(!c||stages==='all'||!stages.every(t=>c.includes(t)))return `BOOKING_SEND_JOBS opts in job ${jobId}${stages==='all'?'':` (${stages.join(', ')})`} beyond what BOOKING_COMPOSE_JOBS allows.`;
+  }
+  return null;
 }
 
 // Why a robot Send may not happen for this plan and environment, or null when
 // every lock is open: BOOKING_SEND exactly "on" (separate from
-// BOOKING_COMPOSE), the plan's application and activity on SEND_ALLOWED, and
-// every recipient on SEND_RECIPIENTS. The plan's own `send: true` (announced
-// at posting) is checked by the caller.
+// BOOKING_COMPOSE), and the plan's job and stage on BOOKING_SEND_JOBS, which
+// sits inside BOOKING_COMPOSE_JOBS. Who the invitations reach is the send
+// gate's (send-gate.js): the candidate's email as Ashby has it, and
+// interviewers on the client's domains. The plan's own `send: true`
+// (announced at posting) is checked by the caller.
 function sendBlocked(plan,env){
   if(env?.BOOKING_SEND!=='on')return 'Send is switched off on the scheduling worker (BOOKING_SEND).';
-  if(!(SEND_ALLOWED[plan?.applicationId]||[]).includes(plan?.interviewScheduleId))return 'This application and scheduling activity aren\'t on the send allowlist.';
-  const outside=sendRecipientsOutside(plan);
-  if(outside.length)return `Recipients outside the send allowlist: ${outside.join(', ')}.`;
-  return null;
+  const wider=sendListProblem(env);
+  if(wider)return `${wider} Nothing is sent until it's fixed.`;
+  return jobBlocked(plan,env,'BOOKING_SEND_JOBS','sent');
 }
 
 class Stop extends Error{constructor(message,code=2){super(message);this.code=code;}}
@@ -69,16 +76,19 @@ const isUuid=v=>typeof v==='string'&&/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{1
 const isText=v=>typeof v==='string'&&v.trim().length>0;
 const isInstant=v=>typeof v==='string'&&/T.*(?:Z|[+-]\d\d:\d\d)$/.test(v)&&Number.isFinite(Date.parse(v));
 
-// The plan must be complete, for an allowed application, and in the future.
-function checkPlan(plan,{now=Date.now()}={}){
+// The plan must be complete, for a job and stage on BOOKING_COMPOSE_JOBS, and
+// in the future. That the application, job, candidate and email belong
+// together is Ashby's to say: read again before composing and before Send
+// (send-gate.js).
+function checkPlan(plan,{now=Date.now(),env}={}){
   if(!plan||typeof plan!=='object'||Array.isArray(plan))stop('The plan isn\'t a JSON object.');
-  const allowed=ALLOWED_APPLICATIONS[plan.applicationId];
-  if(!allowed)stop(`Application ${String(plan.applicationId).slice(0,40)} isn't one the booking robot may use.`);
-  if(plan.jobId!==allowed.jobId||plan.candidateId!==allowed.candidateId||String(plan.candidate?.email||'').toLowerCase()!==allowed.candidateEmail)
-    stop('The plan\'s job, candidate or candidate email doesn\'t match its application.');
-  if(!allowed.interviewScheduleIds.includes(plan.interviewScheduleId))stop('The plan\'s scheduling activity isn\'t one of its application\'s.');
+  for(const [what,v] of [['application',plan.applicationId],['job',plan.jobId],['candidate',plan.candidateId],['scheduling activity',plan.interviewScheduleId]])
+    if(!isUuid(v))stop(`The plan has no ${what} ID.`);
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(plan.candidate?.email||'')))stop('The plan has no candidate email.');
   for(const [what,v] of [['candidate name',plan.candidate?.name],['job title',plan.job?.title],['stage title',plan.stage?.title],['scheduling activity',plan.activityTitle]])
     if(!isText(v))stop(`The plan has no ${what}.`);
+  const blocked=jobBlocked(plan,env,'BOOKING_COMPOSE_JOBS','composed');
+  if(blocked)stop(blocked);
   try{new Intl.DateTimeFormat('en-US',{timeZone:plan.timeZone});}catch(_){stop('The plan\'s time zone isn\'t a valid IANA zone.');}
   if(typeof plan.timeZone!=='string'||!plan.timeZone.includes('/'))stop('The plan\'s time zone must be an IANA zone such as America/Denver.');
   if(!Array.isArray(plan.sessions)||!plan.sessions.length)stop('The plan has no sessions.');
@@ -94,4 +104,4 @@ function checkPlan(plan,{now=Date.now()}={}){
   return plan;
 }
 
-module.exports={ALLOWED_APPLICATIONS,SEND_ALLOWED,SEND_RECIPIENTS,sendRecipientsOutside,sendBlocked,checkPlan,Stop,stop,NOTICE_MINUTES};
+module.exports={jobList,jobAllows,sendListProblem,sendBlocked,checkPlan,Stop,stop,NOTICE_MINUTES};

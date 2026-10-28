@@ -18,14 +18,13 @@
 // Two locks, both checked before the session is read or a browser starts:
 //   - BOOKING_DRY_RUN must be "on" in the worker's variables. It is unset by
 //     default; set it for a test window and remove it afterwards.
-//   - The plan must be for an application listed in booking-locks.js, with
-//     that application's job, candidate, email and schedules. Adding one
-//     takes a commit.
+//   - The plan's job and stage must be on the worker's BOOKING_COMPOSE_JOBS
+//     (booking-locks.js).
 //
 // The run has a deadline: past it, the command exits 124 and says the draft
 // may not have been deleted.
 const DEADLINE_SECONDS=240;
-const {ALLOWED_APPLICATIONS,checkPlan,Stop,stop}=require('./booking-locks');
+const {checkPlan,Stop,stop}=require('./booking-locks');
 
 function checkFlag(env){
   if(env.BOOKING_DRY_RUN!=='on')stop('The booking dry run is off. Set BOOKING_DRY_RUN=on on the scheduling worker for the test window.');
@@ -47,7 +46,7 @@ const observeAlternatesArg=argv=>argv.includes('--observe-alternates');
 // without a session or a browser. Returns the composer's report.
 async function run({env,argv,chromium,loadSession,now=Date.now,log=()=>{},composer=require('./booking-composer')}){
   checkFlag(env);
-  const plan=checkPlan(readPlanArg(argv),{now:now()});
+  const plan=checkPlan(readPlanArg(argv),{now:now(),env});
   const clientId=env.SCHEDULING_CLIENT_ID,expectedIdentity=env.ASHBY_EXPECTED_IDENTITY;
   if(!clientId||!expectedIdentity)stop('The worker has no client or expected Ashby identity configured.');
   const saved=loadSession();
@@ -96,4 +95,4 @@ if(require.main===module){
   })().catch(e=>{console.error('[booking-dry-run]',e instanceof Stop?e.message:'failed: '+e.message);process.exit(e instanceof Stop?e.code:1);});
 }
 
-module.exports={run,checkFlag,checkPlan,readPlanArg,observeAlternatesArg,ALLOWED_APPLICATIONS,Stop};
+module.exports={run,checkFlag,checkPlan,readPlanArg,observeAlternatesArg,Stop};

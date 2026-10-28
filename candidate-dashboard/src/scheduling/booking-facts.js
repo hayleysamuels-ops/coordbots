@@ -196,6 +196,8 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
     }
     return out;
   }
-  return { load, application, scheduleState, resolveInterviewers, excludeDeactivated, interviewerLimits, debriefInterviewIds, candidateLinkedIn };
+  // A job's title, for the booking settings notice (booking-settings-watch.js); null when Ashby has none.
+  async function jobTitle(jobId) { const job = await read('job.info', { id: jobId }); return job?.id === jobId && typeof job.title === 'string' ? job.title : null; }
+  return { load, application, scheduleState, resolveInterviewers, excludeDeactivated, interviewerLimits, debriefInterviewIds, candidateLinkedIn, jobTitle };
 }
 module.exports = { createBookingFacts };

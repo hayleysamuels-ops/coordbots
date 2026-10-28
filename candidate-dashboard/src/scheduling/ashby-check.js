@@ -190,6 +190,10 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, availabili
     if (!row) return;
     await show(row);
     if (check.state === "composed") await reply(row, `Ashby check passed: ${check.checks.join("; ")}.`);
+    // The daily send cap, once each time it's reached (the worker says which
+    // skipped send is the first at the cap): one notice in the channel.
+    if (check.state === "composed" && result?.sendCap?.firstAtCap && row.slack?.channel)
+      await slackApi.notice({ channel: row.slack.channel, text: `The robot's daily send cap is reached (${result.sendCap.count} sends in the last 24 hours; the cap is ${result.sendCap.cap}). Approved schedules are composed in Ashby but not sent until ${result.sendCap.resetsAtText || result.sendCap.resetsAt}: a person needs to send each one from its draft.` }).catch(e => log.warn(`[ashby-check] Cap notice couldn't be posted: ${e.message}`));
     if (check.sentBy === "robot" && ["sent", "booked_invites_pending", "booked_invites_unknown"].includes(check.state)) await reply(row, invitesAndEmailReply(check));
     if (check.state === "send_uncertain") await reply(row, `The send may have gone (${check.reason}). Check the schedule in Ashby; nothing will be retried.`);
     if (result?.superseded?.draftId) {

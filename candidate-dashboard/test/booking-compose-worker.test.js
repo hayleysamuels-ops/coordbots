@@ -1,6 +1,6 @@
 'use strict';
 // The Slack-approved check in the worker (worker/booking-compose.js) and its
-// routes (worker/booking-routes.js): the off switch and the allowlist answer
+// routes (worker/booking-routes.js): the off switch and the job list answer
 // "skipped" before a session is read or a browser starts; the composer is
 // asked to check the schedule's drafts and keep its draft only on success;
 // and Ashby work takes turns.
@@ -15,7 +15,10 @@ const plan={jobId:'837cc1e9-15ed-4f07-8755-51ee29f4ea39',candidateId:'fc88f24e-d
   job:{title:'TEST'},stage:{title:'First Round'},activityTitle:'First Round Interview Schedule',
   sessions:[{title:'First Round',interviewId:'8b357d3b-5bff-41a6-896f-94da41ddd08c',start:'2099-10-15T19:00:00.000Z',end:'2099-10-15T19:30:00.000Z',
     interviewers:[{userId:'c251f667-e04c-403a-8c70-4cbc8fc3f435',name:'Hayley Samuels',email:'hayley@luminai.com'}]}]};
-const env={BOOKING_COMPOSE:'on',ASHBY_BROWSER_ISOLATION:'container'};
+const env={BOOKING_COMPOSE:'on',ASHBY_BROWSER_ISOLATION:'container',ASHBY_READ_API_KEY:'rk',BOOKING_COMPOSE_JOBS:JSON.stringify({[plan.jobId]:'all'})};
+// Ashby's application.info, as the read key sees it; matching the plan unless changed.
+const ashbyApp=(over={})=>({id:plan.applicationId,status:'Active',job:{id:plan.jobId},candidate:{id:plan.candidateId,primaryEmailAddress:{value:plan.candidate.email}},currentInterviewStage:{id:'s',title:'First Round'},...over});
+const answering=app=>async()=>({ok:true,status:200,json:async()=>({success:true,results:app})});
 const who={clientId:'luminai',expectedIdentity:'Anna Example'};
 const session={...who,storageState:{cookies:[],origins:[]}};
 const OLD='11111111-2222-4333-8444-555555555555',DRAFT='99999999-8888-4777-8666-555555555555';
@@ -25,13 +28,13 @@ function fakes(report={status:'composed',draftId:DRAFT,cleanup:{deleted:false,ke
   const context={setDefaultTimeout(){},route:async()=>{},newPage:async()=>({})};
   const chromium={launch:async()=>{seen.launched++;return {newContext:async()=>context,close:async()=>{seen.closed++;}};}};
   const composer={dryRun:async o=>{seen.dryRun=o;return report;},discardDraft:async o=>{seen.discardDraft=o;return {deleted:true,draftId:o.draftId};}};
-  return {seen,deps:{chromium,composer,loadSession:()=>{seen.sessionReads++;return session;},...who}};
+  return {seen,deps:{chromium,composer,loadSession:()=>{seen.sessionReads++;return session;},request:answering(ashbyApp()),...who}};
 }
 
-test('off unless BOOKING_COMPOSE is exactly "on", and only for allowlisted applications: skipped, no session read, no browser',async()=>{
+test('off unless BOOKING_COMPOSE is exactly "on", and only for jobs on BOOKING_COMPOSE_JOBS: skipped, no session read, no browser',async()=>{
   for(const [e,p,pattern] of [[{...env,BOOKING_COMPOSE:undefined},plan,/switched off/],[{...env,BOOKING_COMPOSE:'true'},plan,/switched off/],
-    [env,{...plan,applicationId:'00000000-0000-4000-8000-000000000000'},/isn't one the booking robot may use/],
-    [env,{...plan,interviewScheduleId:'00000000-0000-4000-8000-000000000000'},/scheduling activity isn't one of its application's/]]){
+    [env,{...plan,jobId:'00000000-0000-4000-8000-000000000000'},/This job isn't opted in \(BOOKING_COMPOSE_JOBS\)/],
+    [{...env,BOOKING_COMPOSE_JOBS:JSON.stringify({[plan.jobId]:['Initial Screen']})},plan,/This job's First Round stage isn't opted in/]]){
     for(const run of [compose,discard]){
       const {seen,deps}=fakes();
       const r=await run({env:e,payload:{plan:p,draftId:DRAFT},...deps});
@@ -39,6 +42,21 @@ test('off unless BOOKING_COMPOSE is exactly "on", and only for allowlisted appli
       assert.equal(seen.sessionReads,0);assert.equal(seen.launched,0);
     }
   }
+});
+
+test('before composing, the application as Ashby has it must be the plan\'s; otherwise skipped, before a browser starts',async()=>{
+  for(const [request,pattern] of [
+    [answering(ashbyApp({status:'Archived'})),/application in Ashby doesn't match the plan: the application is Archived/],
+    [answering(ashbyApp({job:{id:'other'}})),/on a different job/],
+    [answering(ashbyApp({candidate:{id:plan.candidateId,primaryEmailAddress:{value:'new@example.com'}}})),/primary email in Ashby is new@example.com/],
+    [async()=>({ok:false,status:401,json:async()=>({success:false,errors:['bad key']})}),/application couldn't be checked in Ashby: Ashby's application.info couldn't be read \(HTTP 401: bad key\)/]]){
+    const {seen,deps}=fakes();
+    const r=await compose({env,payload:{plan},...deps,request,say(){}});
+    assert.equal(r.status,'skipped');assert.match(r.reason,pattern);assert.equal(seen.launched,0);
+  }
+  const {seen,deps}=fakes();
+  const r=await compose({env:{...env,ASHBY_READ_API_KEY:''},payload:{plan},...deps,say(){}});
+  assert.match(r.reason,/no Ashby read key \(ASHBY_READ_API_KEY\)/);assert.equal(seen.launched,0);
 });
 
 test('a check composes with the drafts check, the earlier draft to replace, and the draft kept only on success',async()=>{
@@ -82,8 +100,8 @@ test('each check is logged: started, then its outcome with every draft created o
   const none=await logged({status:'refused',step:'check the schedule\'s drafts',reason:'Already has one.',cleanup:{deleted:false,reason:'no draft was created'}});
   assert.match(none[1],/: Already has one; no draft created$/);
   // Skipped, with no proposal ID (an older dashboard): no "for".
-  const skipped=await logged(undefined,{plan:{...plan,applicationId:'00000000-0000-4000-8000-000000000000'}});
-  assert.match(skipped[0],/^\[booking\] Ashby check started:/);assert.match(skipped[1],/^\[booking\] Ashby check skipped: Application 0{8}-0{4}-4000-8000-0{12} isn't one the booking robot may use; no draft created$/);
+  const skipped=await logged(undefined,{plan:{...plan,jobId:'00000000-0000-4000-8000-000000000000'}});
+  assert.match(skipped[0],/^\[booking\] Ashby check started:/);assert.match(skipped[1],/^\[booking\] Ashby check skipped: This job isn't opted in \(BOOKING_COMPOSE_JOBS\); no draft created$/);
   // A run that throws still says so.
   const lines=[],{deps}=fakes();
   await assert.rejects(compose({env,payload:{plan,supersedeDraftId:'bad'},...deps,say:l=>lines.push(l)}),{status:422});
@@ -119,19 +137,8 @@ test('typed times, each save and the communications screen are logged as the che
   assert.equal(lines[1],'[booking] Ashby check session 1 ("First Round") entered: Thu, Oct 15, 1:00pm – 1:30pm MDT; approved a–b');
 });
 
-test('a robot Send may reach only the allowlisted recipients; until Send exists that is only reported',()=>{
-  const {SEND_RECIPIENTS,sendRecipientsOutside}=require('../worker/booking-locks');
-  assert.deepEqual([...SEND_RECIPIENTS].sort(),['anna@luminai.com','hayley@luminai.com','hayleysamuels511@gmail.com','joe@luminai.com','mary@luminai.com']);
-  assert.deepEqual(sendRecipientsOutside(plan),[]);
-  // TEST's Onsite: colleagues on three sessions, all on the list since October 26.
-  const onsite={...plan,sessions:['hayley@luminai.com','joe@luminai.com','Mary@Luminai.com','anna@luminai.com','hayley@luminai.com'].map(email=>({...plan.sessions[0],interviewers:[{...plan.sessions[0].interviewers[0],email}]}))};
-  assert.deepEqual(sendRecipientsOutside(onsite),[]);
-  const other={...onsite,sessions:[...onsite.sessions,{...plan.sessions[0],interviewers:[{...plan.sessions[0].interviewers[0],email:'tom@luminai.com'}]}]};
-  assert.deepEqual(sendRecipientsOutside(other),['tom@luminai.com']);
-  assert.deepEqual(sendRecipientsOutside({...plan,candidate:{...plan.candidate,email:'someone@example.com'}}),['someone@example.com']);
+test('a Send note on the schedule menu is logged as is',()=>{
   const {detailLine}=require('../worker/booking-compose');
-  assert.equal(detailLine({type:'send-recipients',allowed:true}),'send recipients: all on the send allowlist');
-  assert.equal(detailLine({type:'send-recipients',allowed:false,outside:['joe@luminai.com']}),'send recipients: outside the send allowlist: joe@luminai.com (reported only; nothing is sent)');
   assert.equal(detailLine({type:'screen',at:'schedule-menu',note:'"Schedule" is a plain button here'}),'screen (schedule-menu): "Schedule" is a plain button here');
 });
 
@@ -145,32 +152,48 @@ test('an unreadable candidate agenda is logged by its shape only',()=>{
 
 const FIRST_ROUND='199e1b3d-3f4f-4629-98a5-3ec323fd1206';
 const sendPlan={...plan,interviewScheduleId:FIRST_ROUND,send:true,sendAs:'Anna Jones Example'};
-test('Send needs every lock: the announced plan, BOOKING_SEND exactly "on", the send allowlist, and only allowlisted recipients',async()=>{
+const sendLog=require('path').join(require('fs').mkdtempSync(require('path').join(require('os').tmpdir(),'send-log-')),'send-log.json');
+const sendEnv={...env,BOOKING_SEND:'on',BOOKING_SEND_JOBS:JSON.stringify({[plan.jobId]:'all'}),BOOKING_INTERVIEWER_DOMAINS:'luminai.com',BOOKING_SEND_DAILY_CAP:'10',BOOKING_SEND_LOG_FILE:sendLog};
+test('Send needs every lock: the announced plan, BOOKING_SEND exactly "on", and the job and stage on BOOKING_SEND_JOBS inside BOOKING_COMPOSE_JOBS',async()=>{
   const {sendBlocked}=require('../worker/booking-locks');
-  const sendEnv={...env,BOOKING_SEND:'on'};
   assert.equal(sendBlocked(sendPlan,sendEnv),null);
   assert.match(sendBlocked(sendPlan,env),/switched off .*BOOKING_SEND/);
   assert.match(sendBlocked(sendPlan,{...env,BOOKING_SEND:'true'}),/switched off/);
-  assert.match(sendBlocked({...sendPlan,interviewScheduleId:plan.interviewScheduleId},sendEnv),/aren't on the send allowlist/,'compose-allowed but not send-allowed');
-  const tom={...sendPlan,sessions:[{...sendPlan.sessions[0],interviewers:[{...sendPlan.sessions[0].interviewers[0],email:'tom@luminai.com'}]}]};
-  assert.match(sendBlocked(tom,sendEnv),/outside the send allowlist: tom@luminai.com/);
+  const composeOnly={...sendEnv,BOOKING_SEND_JOBS:undefined};
+  assert.match(sendBlocked(sendPlan,composeOnly),/This job isn't opted in \(BOOKING_SEND_JOBS\)/,'compose-allowed but not send-allowed');
+  assert.match(sendBlocked(sendPlan,{...sendEnv,BOOKING_SEND_JOBS:JSON.stringify({[plan.jobId]:['Onsite']}),BOOKING_COMPOSE_JOBS:JSON.stringify({[plan.jobId]:['First Round','Onsite']})}),/First Round stage isn't opted in \(BOOKING_SEND_JOBS\)/);
+  assert.equal(sendBlocked(sendPlan,{...sendEnv,BOOKING_SEND_JOBS:JSON.stringify({[plan.jobId]:['first round']}),BOOKING_COMPOSE_JOBS:JSON.stringify({[plan.jobId]:['First Round']})}),null,'stage titles match regardless of case');
+  // A send list wider than the compose list opens nothing.
+  const OTHER='00000000-0000-4000-8000-000000000000';
+  assert.match(sendBlocked(sendPlan,{...sendEnv,BOOKING_SEND_JOBS:JSON.stringify({[plan.jobId]:'all',[OTHER]:'all'})}),/opts in job 00000000-0000-4000-8000-000000000000 beyond what BOOKING_COMPOSE_JOBS allows\. Nothing is sent until it's fixed/);
+  assert.match(sendBlocked(sendPlan,{...sendEnv,BOOKING_COMPOSE_JOBS:JSON.stringify({[plan.jobId]:['First Round']})}),/beyond what BOOKING_COMPOSE_JOBS allows/,'"all" is wider than one stage');
+  assert.match(sendBlocked(sendPlan,{...sendEnv,BOOKING_SEND_JOBS:'[1]'}),/must be a JSON object of job IDs/);
   // compose() passes `send` to the composer only when the plan announced it and every lock is open.
   const decided=async(p,e)=>{const lines=[],{seen,deps}=fakes();await compose({env:e,payload:{plan:p},...deps,say:l=>lines.push(l)});return {send:seen.dryRun.send,lines};};
   const on=await decided(sendPlan,sendEnv);
   assert.equal(on.send,true);assert.match(on.lines[1],/send: every lock is open; Schedule will be clicked once/);
+  // With send, the composer gets the send gate; without it, none.
+  {const {seen,deps}=fakes();await compose({env:sendEnv,payload:{plan:sendPlan},...deps,say(){}});assert.equal(typeof seen.dryRun.beforeSend,'function');}
+  {const {seen,deps}=fakes();await compose({env,payload:{plan:sendPlan},...deps,say(){}});assert.equal(seen.dryRun.beforeSend,undefined);}
   assert.equal((await decided({...sendPlan,send:undefined},sendEnv)).send,false,'not announced at posting: never sends');
   const off=await decided(sendPlan,env);
   assert.equal(off.send,false);assert.match(off.lines[1],/send announced but not happening: Send is switched off/);
-  assert.equal((await decided(tom,sendEnv)).send,false);
+  assert.equal((await decided(sendPlan,{...sendEnv,BOOKING_SEND_JOBS:JSON.stringify({[plan.jobId]:['Onsite']})})).send,false,'a stage off the send list');
 });
 
 test('send-status, at posting, is read-only and says whether approving would send',()=>{
   const {sendStatus}=require('../worker/booking-compose');
-  const sendEnv={...env,BOOKING_SEND:'on'};
   assert.deepEqual(sendStatus({env:sendEnv,payload:{plan:sendPlan},expectedIdentity:'Anna Jones Example'}),{sendOn:true,as:'Anna Jones Example'});
+  // The send gate's configuration and the cap as it stands, read at posting too.
+  assert.match(sendStatus({env:{...sendEnv,ASHBY_READ_API_KEY:''},payload:{plan:sendPlan}}).reason,/ASHBY_READ_API_KEY/);
+  assert.match(sendStatus({env:{...sendEnv,BOOKING_SEND_DAILY_CAP:''},payload:{plan:sendPlan}}).reason,/BOOKING_SEND_DAILY_CAP/);
+  const full=require('path').join(require('fs').mkdtempSync(require('path').join(require('os').tmpdir(),'send-log-')),'send-log.json');
+  require('fs').writeFileSync(full,JSON.stringify({sends:[{at:new Date().toISOString(),interviewScheduleId:FIRST_ROUND}]}));
+  assert.match(sendStatus({env:{...sendEnv,BOOKING_SEND_DAILY_CAP:'1',BOOKING_SEND_LOG_FILE:full},payload:{plan:sendPlan}}).reason,/daily send cap is reached/);
   assert.equal(sendStatus({env,payload:{plan:sendPlan}}).sendOn,false);
   assert.match(sendStatus({env:{...sendEnv,BOOKING_COMPOSE:undefined},payload:{plan:sendPlan}}).reason,/BOOKING_COMPOSE/);
-  assert.match(sendStatus({env:sendEnv,payload:{plan:{...sendPlan,applicationId:'00000000-0000-4000-8000-000000000000'}}}).reason,/isn't one the booking robot may use/);
+  assert.match(sendStatus({env:sendEnv,payload:{plan:{...sendPlan,jobId:'00000000-0000-4000-8000-000000000000'}}}).reason,/isn't opted in \(BOOKING_COMPOSE_JOBS\)/);
+  assert.match(sendStatus({env:{...sendEnv,BOOKING_SEND_JOBS:undefined},payload:{plan:sendPlan}}).reason,/isn't opted in \(BOOKING_SEND_JOBS\)/);
 });
 
 test('the draft is found in a read response by its ID, at any depth, exactly',()=>{
@@ -267,7 +290,7 @@ test('the log says plainly whether the check sent',()=>{
 async function serve({inspect,chromium=null,writeWaitMs=400,signIn=false}){
   const secret='s'.repeat(40);
   const router=bookingRoutes({secret,...who,draftReader:{inspect},writeWaitMs,sleep:ms=>new Promise(r=>setTimeout(r,ms)),
-    ashby:{env,chromium,loadSession:()=>session,connection:{status:async()=>({signInOpen:signIn})}}});
+    ashby:{env,chromium,loadSession:()=>session,request:answering(ashbyApp()),connection:{status:async()=>({signInOpen:signIn})}}});
   const app=express();app.use('/booking',router);
   const server=await new Promise(r=>{const s=app.listen(0,()=>r(s));});
   const call=async(action,payload={})=>{const res=await fetch(`http://127.0.0.1:${server.address().port}/booking`,{method:'POST',...signed(secret,{action,...who,payload})});return {status:res.status,body:await res.json()};};
@@ -282,11 +305,11 @@ test('Ashby work takes turns: a check waits for inspections, and inspections are
   const inspection=s.call('inspect-plan',{});
   await new Promise(r=>setTimeout(r,50));
   // A check can't start while the inspection runs; after the wait it gives up with a 409.
-  const check=await s.call('compose',{plan:{...plan,applicationId:'00000000-0000-4000-8000-000000000000'}});
+  const check=await s.call('compose',{plan:{...plan,jobId:'00000000-0000-4000-8000-000000000000'}});
   assert.equal(check.status,409);assert.match(check.body.error,/busy with another check for two minutes/);
   release();assert.equal((await inspection).status,200);
-  // With nothing running, the check starts (and here is skipped by the allowlist).
-  const skippedRun=await s.call('compose',{plan:{...plan,applicationId:'00000000-0000-4000-8000-000000000000'}});
+  // With nothing running, the check starts (and here is skipped by the job list).
+  const skippedRun=await s.call('compose',{plan:{...plan,jobId:'00000000-0000-4000-8000-000000000000'}});
   assert.equal(skippedRun.status,200);assert.equal(skippedRun.body.result.status,'skipped');
 });
 
@@ -312,39 +335,23 @@ test('a check doesn\'t start while the Ashby sign-in window is open',async t=>{
 
 test('the worker\'s startup line says whether the Ashby check and Send are on, each only when exactly "on"',()=>{
   const {switchesLine}=require('../worker/server');
-  assert.equal(switchesLine({BOOKING_COMPOSE:'on'}),'Ashby check on (allowlisted applications only); Send off (BOOKING_SEND isn\'t "on"): nothing is sent');
-  assert.equal(switchesLine({BOOKING_COMPOSE:'on',BOOKING_SEND:'on'}),'Ashby check on (allowlisted applications only); Send ON: an approved post that announced Send is sent once, to the send allowlist only');
+  assert.equal(switchesLine({BOOKING_COMPOSE:'on'}),'Ashby check on (BOOKING_COMPOSE_JOBS only); Send off (BOOKING_SEND isn\'t "on"): nothing is sent');
+  assert.equal(switchesLine({BOOKING_COMPOSE:'on',BOOKING_SEND:'on'}),'Ashby check on (BOOKING_COMPOSE_JOBS only); Send ON: an approved post that announced Send is sent once, for BOOKING_SEND_JOBS only, after Ashby is read again and within the daily cap');
   assert.match(switchesLine({BOOKING_COMPOSE:'on',BOOKING_SEND:'true'}),/Send off/);
   assert.equal(switchesLine({BOOKING_SEND:'on'}),'Ashby check off; Send on, but inert while the Ashby check is off');
 });
 
-test('the cancelled First Round is on neither list; the new one is on both',()=>{
-  const {ALLOWED_APPLICATIONS,SEND_ALLOWED}=require('../worker/booking-locks');
-  const test=ALLOWED_APPLICATIONS['8dfd8f14-83c4-41f8-aaf1-416b75cb0892'];
-  assert.ok(test.interviewScheduleIds.includes('199e1b3d-3f4f-4629-98a5-3ec323fd1206'));for(const old of ['bbf93574-2e4c-4c61-8cd9-4e6f69d7d661','8dc8e6b6-1aa2-4470-8b00-e932459fc499'])assert.ok(!test.interviewScheduleIds.includes(old),old);
-  assert.ok(!Object.values(SEND_ALLOWED).flat().includes('8dc8e6b6-1aa2-4470-8b00-e932459fc499'));
-  assert.deepEqual(SEND_ALLOWED['8dfd8f14-83c4-41f8-aaf1-416b75cb0892'],['199e1b3d-3f4f-4629-98a5-3ec323fd1206','c95bfecf-9e5c-4d61-8f32-2586d26fa96f','81402bbd-2e50-43bb-afd9-4fa53698c63f','faecb1da-ea68-410e-b57d-b95c13ab2eef']);
-});
-test('the six-session TEST Onsite c95bfecf may be composed and sent; the old Onsite only composed',()=>{
-  const {ALLOWED_APPLICATIONS,SEND_ALLOWED}=require('../worker/booking-locks');
-  const app='8dfd8f14-83c4-41f8-aaf1-416b75cb0892';
-  assert.ok(ALLOWED_APPLICATIONS[app].interviewScheduleIds.includes('c95bfecf-9e5c-4d61-8f32-2586d26fa96f'));
-  assert.ok(SEND_ALLOWED[app].includes('c95bfecf-9e5c-4d61-8f32-2586d26fa96f'));
-  assert.ok(!SEND_ALLOWED[app].includes('d98941b3-5900-4ecc-a5cb-c57ed6729702'));
-});
-
-test('the October 27 TEST First Round 81402bbd may be composed and sent',()=>{
-  const {ALLOWED_APPLICATIONS,SEND_ALLOWED}=require('../worker/booking-locks');
-  const app='8dfd8f14-83c4-41f8-aaf1-416b75cb0892';
-  assert.ok(ALLOWED_APPLICATIONS[app].interviewScheduleIds.includes('81402bbd-2e50-43bb-afd9-4fa53698c63f'));
-  assert.ok(SEND_ALLOWED[app].includes('81402bbd-2e50-43bb-afd9-4fa53698c63f'));
-});
-
-test('the October 27 TEST Initial Screen faecb1da may be composed and sent',()=>{
-  const {ALLOWED_APPLICATIONS,SEND_ALLOWED}=require('../worker/booking-locks');
-  const app='8dfd8f14-83c4-41f8-aaf1-416b75cb0892';
-  assert.ok(ALLOWED_APPLICATIONS[app].interviewScheduleIds.includes('faecb1da-ea68-410e-b57d-b95c13ab2eef'));
-  assert.ok(SEND_ALLOWED[app].includes('faecb1da-ea68-410e-b57d-b95c13ab2eef'));
+test('a job list names job IDs with "all" or stage titles; anything else opens nothing',()=>{
+  const {jobList,jobAllows}=require('../worker/booking-locks');
+  const J='837cc1e9-15ed-4f07-8755-51ee29f4ea39';
+  assert.deepEqual(jobList({},'BOOKING_SEND_JOBS'),{jobs:{}},'unset: no jobs');
+  assert.deepEqual(jobList({X:JSON.stringify({[J.toUpperCase()]:[' Initial Screen ']})},'X'),{jobs:{[J]:['initial screen']}});
+  for(const bad of ['{x','"all"','[]',JSON.stringify({'not-a-job':'all'}),JSON.stringify({[J]:[]}),JSON.stringify({[J]:'some'}),JSON.stringify({[J]:[1]})])
+    assert.ok(jobList({X:bad},'X').problem,bad);
+  assert.equal(jobAllows({[J]:'all'},J,'Onsite'),true);
+  assert.equal(jobAllows({[J]:['initial screen']},J,'Initial Screen'),true);
+  assert.equal(jobAllows({[J]:['initial screen']},J,'Onsite'),false);
+  assert.equal(jobAllows({},J,'Onsite'),false);
 });
 
 test('slot states are logged at creation and around a refused or slot-changing save, by ID with approved names (diagnostic only)',()=>{

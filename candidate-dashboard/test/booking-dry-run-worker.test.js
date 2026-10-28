@@ -1,6 +1,6 @@
 'use strict';
 // The booking dry run as a worker command (worker/booking-dry-run.js): its two
-// locks (the BOOKING_DRY_RUN variable and the application allowlist) must stop
+// locks (the BOOKING_DRY_RUN variable and the compose job list) must stop
 // a run before the saved session is read or a browser starts.
 //
 // What may reach the booking robot: the dry run's command, and the worker's
@@ -14,21 +14,22 @@ const {run,Stop}=require('../worker/booking-dry-run');
 
 const root=path.join(__dirname,'..');
 // A require or import of the robot's modules (mentions in comments are fine).
-const LOADS_ROBOT=/\b(?:require|import)\s*\(\s*[^)]*booking-(?:composer|permit|dry-run|compose|locks)\b/;
+const LOADS_ROBOT=/\b(?:require|import)\s*\(\s*[^)]*(?:booking-(?:composer|permit|dry-run|compose|locks)|send-gate)\b/;
 const loadsRobot=file=>LOADS_ROBOT.test(fs.readFileSync(file,'utf8'));
-const robotLoads=file=>[...fs.readFileSync(file,'utf8').matchAll(/\b(?:require|import)\s*\(\s*['"]([^'"]*booking-(?:composer|permit|dry-run|compose|locks)[^'"]*)['"]/g)].map(m=>m[1]);
+const robotLoads=file=>[...fs.readFileSync(file,'utf8').matchAll(/\b(?:require|import)\s*\(\s*['"]([^'"]*(?:booking-(?:composer|permit|dry-run|compose|locks)|send-gate)[^'"]*)['"]/g)].map(m=>m[1]);
 
 test('only the worker\'s booking routes reach the robot, through the Slack-approved check; the dashboard never does',()=>{
   // The worker's own modules, other than the robot itself.
-  const worker=fs.readdirSync(path.join(root,'worker')).filter(f=>f.endsWith('.js')&&!/^booking-(composer|permit|check|dry-run|compose|locks)\.js$/.test(f));
+  const worker=fs.readdirSync(path.join(root,'worker')).filter(f=>f.endsWith('.js')&&!/^(?:booking-(composer|permit|check|dry-run|compose|locks)|send-gate)\.js$/.test(f));
   assert.ok(worker.includes('server.js')&&worker.includes('booking-routes.js')&&worker.includes('bootstrap.js'));
   for(const f of worker){
     const loads=robotLoads(path.join(root,'worker',f));
     if(f==='booking-routes.js')assert.deepEqual([...new Set(loads)],['./booking-compose'],'the booking routes load only the Slack-approved check (compose, its delete, and the read-only send status)');
     else assert.ok(!loadsRobot(path.join(root,'worker',f)),`worker/${f} must not load the booking robot`);
   }
-  // The check loads the composer and the locks, never the dry run's command.
-  assert.deepEqual([...new Set(robotLoads(path.join(root,'worker/booking-compose.js')))].sort(),['./booking-composer','./booking-locks']);
+  // The check loads the composer, the locks and the send gate, never the dry run's command.
+  assert.deepEqual([...new Set(robotLoads(path.join(root,'worker/booking-compose.js')))].sort(),['./booking-composer','./booking-locks','./send-gate']);
+  assert.deepEqual(robotLoads(path.join(root,'worker/send-gate.js')),['./booking-locks'],'the send gate loads only the locks');
   // The dashboard and its Slack handlers.
   const walk=dir=>fs.readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(path.join(dir,e.name)):e.name.endsWith('.js')?[path.join(dir,e.name)]:[]);
   for(const f of walk(path.join(root,'src')))assert.ok(!loadsRobot(f),`${path.relative(root,f)} must not load the booking robot`);
@@ -62,7 +63,14 @@ test('Send is one permit, in the composer only, armed once after the re-read, fo
   const reread=composer.indexOf("step='re-read the draft';"),passReread=composer.indexOf('just before Schedule, and it equals the approval exactly'),
     branch=composer.indexOf("step='send';"),arm=composer.indexOf('sending.armed=true'),click=composer.indexOf('schedule.click()');
   assert.ok(reread>0&&reread<passReread&&passReread<branch&&branch<arm&&arm<click,'re-read, then the send branch, then arm, then click');
-  assert.match(composer.slice(composer.indexOf('const notSending='),branch),/plan\.send!==true\?'The approved post didn\\'t say it would send\.':sendBlocked\(plan,\{BOOKING_SEND:'on'\}\)/,'every lock is checked again in the composer');
+  assert.match(composer.slice(composer.indexOf('let notSending='),branch),/plan\.send!==true\?'The approved post didn\\'t say it would send\.':null;/,'the announced plan is checked again in the composer');
+  assert.match(fs.readFileSync(require.resolve('../worker/send-gate'),'utf8'),/return async function beforeSend\(plan\)\{\s*const locked=sendBlocked\(plan,env\);\s*if\(locked\)return \{reason:locked\};/,'and every send lock again, first, in the gate');
+  // Then the send gate (Ashby read again, the daily cap), after the re-read and
+  // before the send branch; no gate, no send; a gate that throws doesn't send.
+  const gate=composer.indexOf("step='send gate';");
+  assert.ok(passReread<gate&&gate<branch,'the gate runs after the re-read and before the send branch');
+  assert.match(composer.slice(gate,branch),/gate=beforeSend\?await beforeSend\(plan\):\{reason:'No send gate was given\.'\};\}catch\(e\)\{gate=\{reason:/);
+  assert.match(composer.slice(gate,branch),/if\(gate\)\{notSending=gate\.reason;/);
   // One click on Schedule, ever; nothing after it is clicked, answered or retried.
   assert.equal((composer.match(/schedule\.click\(/g)||[]).length,1,'exactly one click on Schedule');
   assert.doesNotMatch(composer,/schedule\.(?:press|tap|dispatchEvent|dblclick)\(/);
@@ -83,7 +91,7 @@ const plan={jobId:'837cc1e9-15ed-4f07-8755-51ee29f4ea39',candidateId:'fc88f24e-d
     {title:'First Round',interviewId:'2edf27b9-b916-4264-9219-28f3ba29b2e4',start:'2099-10-15T19:30:00.000Z',end:'2099-10-15T20:00:00.000Z',
       interviewers:[{userId:'4a8a726c-adce-4653-8874-3828c8f4e4a2',name:'Mary Petrino',email:'mary@luminai.com'}]}]};
 const argv=p=>['node','worker/booking-dry-run.js','--plan-base64',Buffer.from(JSON.stringify(p)).toString('base64')];
-const env={BOOKING_DRY_RUN:'on',SCHEDULING_CLIENT_ID:'luminai',ASHBY_EXPECTED_IDENTITY:'Anna Example',ASHBY_BROWSER_ISOLATION:'container'};
+const env={BOOKING_DRY_RUN:'on',SCHEDULING_CLIENT_ID:'luminai',ASHBY_EXPECTED_IDENTITY:'Anna Example',ASHBY_BROWSER_ISOLATION:'container',BOOKING_COMPOSE_JOBS:JSON.stringify({[plan.jobId]:'all'})};
 const session={clientId:'luminai',expectedIdentity:'Anna Example',storageState:{cookies:[],origins:[]}};
 
 // A browser and composer that record what happened; nothing is launched for real.
@@ -105,17 +113,19 @@ test('off unless BOOKING_DRY_RUN is exactly "on": no session read, no browser',a
   }
 });
 
-test('only the allowlisted application, with its own job, candidate, email and schedules',async()=>{
+test('only a job (and stage) on BOOKING_COMPOSE_JOBS, with every ID in place',async()=>{
+  const OTHER='00000000-0000-4000-8000-000000000000';
   const cases=[
-    [{...plan,applicationId:'00000000-0000-4000-8000-000000000000'},/isn't one the booking robot may use/],
-    [{...plan,jobId:'00000000-0000-4000-8000-000000000000'},/job, candidate or candidate email doesn't match/],
-    [{...plan,candidateId:'00000000-0000-4000-8000-000000000000'},/job, candidate or candidate email doesn't match/],
-    [{...plan,candidate:{name:'TEST',email:'someone@example.com'}},/job, candidate or candidate email doesn't match/],
-    [{...plan,interviewScheduleId:'00000000-0000-4000-8000-000000000000'},/scheduling activity isn't one of its application's/],
+    [{...plan,jobId:OTHER},env,/This job isn't opted in \(BOOKING_COMPOSE_JOBS\)/],
+    [plan,{...env,BOOKING_COMPOSE_JOBS:undefined},/isn't opted in/],
+    [plan,{...env,BOOKING_COMPOSE_JOBS:JSON.stringify({[plan.jobId]:['Onsite']})},/This job's First Round stage isn't opted in/],
+    [plan,{...env,BOOKING_COMPOSE_JOBS:'{not json'},/BOOKING_COMPOSE_JOBS isn't valid JSON\. Nothing is composed until it's fixed/],
+    [{...plan,applicationId:'app-1'},env,/no application ID/],
+    [{...plan,candidate:{name:'TEST',email:'nobody'}},env,/no candidate email/],
   ];
-  for(const [p,pattern] of cases){
+  for(const [p,e,pattern] of cases){
     const {seen,deps}=fakes();
-    await refused(run({env,argv:argv(p),...deps}),pattern);
+    await refused(run({env:e,argv:argv(p),...deps}),pattern);
     assert.equal(seen.sessionReads,0);assert.equal(seen.launched,null);
   }
 });

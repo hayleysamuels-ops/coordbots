@@ -194,7 +194,7 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       case "send_uncertain": return `⚠️ *The send may have gone:* Schedule was clicked once${check.attemptedAt ? ` at ${escape(when(check.attemptedAt))}` : ""} (${escape(check.reason || "Ashby's answer wasn't a clear acceptance")}), and Ashby doesn't show the schedule as Scheduled yet. Check ${scheduleIn(plan)}: if it isn't Scheduled, book it by hand. Nothing will be retried.`;
       case "uncertain": return `*The Ashby check didn't finish* (${escape(check.reason)}). Nothing was sent, but a draft may be left in Ashby. ${deleteByHand(plan)} ${byHand}`;
       case "too_close": return "*Not booked:* too close to the first interview — book this in Ashby by hand. Nothing has been scheduled in Ashby, and no invitations or candidate email have been sent.";
-      case "skipped": return `*Not booked yet.* Nothing has been scheduled in Ashby, and no invitations or candidate email have been sent. Book this schedule in Ashby by hand for now.\nNot checked in Ashby: ${/booking robot may use/.test(check.reason || "") ? "the check is only on for test candidates so far." : escape(check.reason || "the check is off.")}`;
+      case "skipped": return `*Not booked yet.* Nothing has been scheduled in Ashby, and no invitations or candidate email have been sent. Book this schedule in Ashby by hand for now.\nNot checked in Ashby: ${/isn't opted in \(BOOKING_COMPOSE_JOBS\)/.test(check.reason || "") ? "the check isn't on for this job or stage yet." : escape(check.reason || "the check is off.")}`;
       default: return "*Not booked yet.* Nothing has been scheduled in Ashby, and no invitations or candidate email have been sent. Book this schedule in Ashby by hand for now.";
     }
   }

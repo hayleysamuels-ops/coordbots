@@ -1073,7 +1073,8 @@ file permits it or the composer clicks Schedule.
        then post a fresh TEST First Round option (only a post made with Send on
        is marked) and approve it. Turning it off: delete the variable and
        redeploy; posts already marked then compose only and say so.
-  - **Recipient allowlist** (`SEND_RECIPIENTS` in `worker/booking-locks.js`):
+  - **Recipient allowlist** (removed October 27; replaced by the send gate's
+    interviewer domains and fresh read, see "Sending beyond TEST" below) (`SEND_RECIPIENTS` in `worker/booking-locks.js`):
     a robot Send may reach only hayleysamuels511@gmail.com and
     hayley@luminai.com, as candidate and every interviewer. TEST's Onsite has
     colleagues (Joe, Mary, Anna) as interviewers, so "TEST-only" alone wouldn't
@@ -1199,6 +1200,75 @@ file permits it or the composer clicks Schedule.
   - TEST is at Onsite Interview in Ashby (October 14), with availability submitted
     on its Onsite schedule (`d98941b3…`, now on the allowlist). Its earlier
     Initial Screen and First Round schedules are cancelled.
+
+## Sending beyond TEST: job lists, a fresh read, a daily cap (October 27, 2026)
+
+Before this, the robot could compose and send only for scheduling activities
+listed one by one in `worker/booking-locks.js` (`ALLOWED_APPLICATIONS`,
+`SEND_ALLOWED`) and reach only `SEND_RECIPIENTS`, so booking a real
+candidate took a commit and a deploy. Decided with Hayley: option C for
+recipients, a per-job opt-in for sending, Railway access as the gate.
+
+**Worker variables (one worker serves one client, so these are that client's):**
+
+| Variable | What it does | Unset or unreadable |
+|---|---|---|
+| `BOOKING_COMPOSE_JOBS` | JSON: job ID → `"all"` or a list of stage titles (case-insensitive). The jobs the Ashby check may compose for. | nothing is composed (skipped: book by hand) |
+| `BOOKING_SEND_JOBS` | Same shape: the jobs and stages the robot may also send for. Must sit inside `BOOKING_COMPOSE_JOBS`. | nothing is sent (composed for a person) |
+| `ASHBY_READ_API_KEY` | A read-only Ashby key (applications, candidates, users, interview schedules) used only by the worker for the fresh reads. Hayley set it on October 27 and deleted the worker's old `ASHBY_API_KEY`, which nothing in the worker image read (the web service's `ASHBY_API_KEY` is separate and required). | nothing is composed or sent |
+| `BOOKING_INTERVIEWER_DOMAINS` | Comma-separated, e.g. `luminai.com`. Every interviewer's email must be on one, exactly. | nothing is sent |
+| `BOOKING_SEND_DAILY_CAP` | Sends allowed in any 24 hours (10 for Luminai). | nothing is sent |
+
+Example for TEST only: `BOOKING_COMPOSE_JOBS={"837cc1e9-15ed-4f07-8755-51ee29f4ea39":"all"}`,
+the same for `BOOKING_SEND_JOBS`. `BOOKING_COMPOSE` and `BOOKING_SEND` are
+unchanged: still the off switches.
+
+**What happens, in order:**
+- *Posting:* `send-status` says the post would send only if `BOOKING_SEND` is
+  on, the job and stage are on both lists, the gate is configured, and the cap
+  isn't reached.
+- *Before composing* (`booking-compose.js`, before a browser starts): the job
+  and stage on `BOOKING_COMPOSE_JOBS`, and `application.info` read with the
+  read key: active, the plan's job, candidate and primary email. Any mismatch
+  or failed read: skipped, nothing made.
+- *Just before the Schedule click* (`worker/send-gate.js`, after the draft
+  re-read): the send locks again; then a fresh read of `application.info`,
+  `interviewSchedule.list` and each interviewer's `user.info`. The send goes
+  ahead only if the application is active, on the plan's job, for the plan's
+  candidate with the plan's primary email, in the plan's stage (by title);
+  the scheduling activity is the application's, in its current stage, never
+  booked (not Scheduled, WaitingOnFeedback, Complete or Cancelled, and no
+  interview events); no other schedule on the application is booked for the
+  future; every interviewer is an enabled Ashby user with the plan's email on
+  an interviewer domain. Then the cap: the send is counted in
+  `send-log.json` beside the saved session *before* the click, so an
+  uncertain send counts. Any "no" leaves the draft composed for a person, with
+  the reason on the Slack post; nothing is deleted or refused.
+- *At the cap:* the post says "Not sent automatically: The daily send cap is
+  reached …", and the first skip in each stretch at the cap posts one notice in
+  the channel with when sends resume. An unreadable send log counts as full.
+- *Settings changes:* the dashboard asks the worker for its settings every five
+  minutes (`booking-settings`, read-only, never the key) and posts them in the
+  channel when they differ from the last post
+  (`src/scheduling/booking-settings-watch.js`, state in
+  `<DATA_DIR>/booking-settings.json`). That's the change record: Railway
+  keeps none people see.
+
+**Changing a list** restarts the worker. A check that is running is cut off
+and reported uncertain (the sweep handles it), so change lists when nothing is
+being composed. Removing a job while its drafts are waiting leaves the sweep
+unable to delete them (discard is behind the compose list too): delete those by
+hand or wait until they're gone.
+
+**Field names checked live on October 27** (read-only, TEST): `application.info`
+gives `status`, `job.id`, `candidate.primaryEmailAddress.value`,
+`currentInterviewStage.{id,title}`; `interviewSchedule.list` rows give
+`applicationId`, `status`, `interviewStageId`, `interviewEvents[].endTime`
+(cancelled schedules have no events); `user.info` gives `email`, `isEnabled`;
+`job.info` takes `{id}` and gives `title`.
+
+**Not changed:** auto-post still has its own application list
+(`AUTO_POST_APPLICATIONS`, TEST only) and its own switch.
 
 ## Next work, in order
 
