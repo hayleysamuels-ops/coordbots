@@ -150,7 +150,7 @@ test('an unreadable candidate agenda is logged by its shape only',()=>{
 
 // ---- the robot's Send: every lock ------------------------------------------
 
-const FIRST_ROUND='199e1b3d-3f4f-4629-98a5-3ec323fd1206';
+const FIRST_ROUND='299e1b3d-3f4f-4629-98a5-3ec323fd1206';// a never-sent activity (199e1b3d was sent October 26)
 const sendPlan={...plan,interviewScheduleId:FIRST_ROUND,send:true,sendAs:'Anna Jones Example'};
 const sendLog=require('path').join(require('fs').mkdtempSync(require('path').join(require('os').tmpdir(),'send-log-')),'send-log.json');
 const sendEnv={...env,BOOKING_SEND:'on',BOOKING_SEND_JOBS:JSON.stringify({[plan.jobId]:'all'}),BOOKING_INTERVIEWER_DOMAINS:'luminai.com',BOOKING_SEND_DAILY_CAP:'10',BOOKING_SEND_LOG_FILE:sendLog};
@@ -187,6 +187,7 @@ test('send-status, at posting, is read-only and says whether approving would sen
   // The send gate's configuration and the cap as it stands, read at posting too.
   assert.match(sendStatus({env:{...sendEnv,ASHBY_READ_API_KEY:''},payload:{plan:sendPlan}}).reason,/ASHBY_READ_API_KEY/);
   assert.match(sendStatus({env:{...sendEnv,BOOKING_SEND_DAILY_CAP:''},payload:{plan:sendPlan}}).reason,/BOOKING_SEND_DAILY_CAP/);
+  assert.match(sendStatus({env:sendEnv,payload:{plan:{...sendPlan,interviewScheduleId:'faecb1da-ea68-410e-b57d-b95c13ab2eef'}}}).reason,/already sent this scheduling activity/,'a sent activity is compose-only at posting');
   const full=require('path').join(require('fs').mkdtempSync(require('path').join(require('os').tmpdir(),'send-log-')),'send-log.json');
   require('fs').writeFileSync(full,JSON.stringify({sends:[{at:new Date().toISOString(),interviewScheduleId:FIRST_ROUND}]}));
   assert.match(sendStatus({env:{...sendEnv,BOOKING_SEND_DAILY_CAP:'1',BOOKING_SEND_LOG_FILE:full},payload:{plan:sendPlan}}).reason,/daily send cap is reached/);

@@ -168,9 +168,11 @@ function sendStatus({env,payload,expectedIdentity}){
   const plan=payload?.plan;
   if(env.BOOKING_COMPOSE!=='on')return {sendOn:false,reason:'The Ashby check is switched off on the scheduling worker (BOOKING_COMPOSE).'};
   try{checkPlan(plan,{env});}catch(e){if(e instanceof Stop)return {sendOn:false,reason:e.message};throw e;}
-  // Then what the send gate needs configured, and the daily cap as it stands
-  // (send-gate.js); Ashby itself is read again only at the click.
-  const reason=sendBlocked(plan,env)||sendGate.configProblem(env)||sendGate.capBlocked({file:sendGate.sendLogFile(env),env});
+  // Then what the send gate needs configured, whether the robot has sent this
+  // activity before, and the daily cap as it stands (send-gate.js); Ashby
+  // itself is read again only at the click.
+  const file=sendGate.sendLogFile(env);
+  const reason=sendBlocked(plan,env)||sendGate.configProblem(env)||sendGate.alreadySent({file,interviewScheduleId:plan.interviewScheduleId})||sendGate.capBlocked({file,env});
   return reason?{sendOn:false,reason}:{sendOn:true,as:expectedIdentity};
 }
 

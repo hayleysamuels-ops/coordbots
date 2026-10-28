@@ -14,9 +14,15 @@
 //    for the future; and every interviewer is an enabled Ashby user whose
 //    email is the plan's and on the client's interviewer domains
 //    (BOOKING_INTERVIEWER_DOMAINS).
-// 2. The daily cap (BOOKING_SEND_DAILY_CAP): at most that many Send clicks in
-//    any 24 hours, counted in a file beside the saved session. A click is
-//    counted before it's made, so one whose outcome is unknown still counts.
+// 2. Once only (Hayley, 2026-10-27): every scheduling activity the robot has
+//    sent is recorded for good, and the robot never sends it again. Ashby
+//    can't be relied on for this: a cancelled booking's activity goes back to
+//    NeedsScheduling with no interviews, which reads as never booked
+//    (faecb1da, October 27). Recorded before the click, like the cap.
+// 3. The daily cap (BOOKING_SEND_DAILY_CAP): at most that many Send clicks in
+//    any 24 hours. A click is counted before it's made, so one whose outcome
+//    is unknown still counts.
+// Both are kept in one file beside the saved session (send-log.json).
 const fs=require('fs'),path=require('path');
 const {sendBlocked}=require('./booking-locks');
 
@@ -130,12 +136,35 @@ async function applicationProblem({env,plan,request=fetch}){
   return why.length?`The application in Ashby doesn't match the plan: ${why.join('; ')}.`:null;
 }
 
-// The send log: the time of each Send click, newest last, and when the cap
-// was last reported reached. Unreadable is treated as full, not empty.
+// The robot's sends on TEST before the send log existed (October 26 and 27).
+const SENT_BEFORE_LOG=[
+  {interviewScheduleId:'199e1b3d-3f4f-4629-98a5-3ec323fd1206',at:'2026-10-26T00:00:00.000Z'},// TEST First Round
+  {interviewScheduleId:'c95bfecf-9e5c-4d61-8f32-2586d26fa96f',at:'2026-10-26T00:00:00.000Z'},// TEST Onsite, six sessions
+  {interviewScheduleId:'81402bbd-2e50-43bb-afd9-4fa53698c63f',at:'2026-10-27T00:00:00.000Z'},// TEST First Round
+  {interviewScheduleId:'faecb1da-ea68-410e-b57d-b95c13ab2eef',at:'2026-10-27T22:35:52.486Z'},// TEST Initial Screen, with Mary
+];
+// The send log: `sends`, the time of each Send click in the last 24 hours
+// (for the cap); `sent`, every scheduling activity the robot has sent, kept
+// for good; and when the cap was last reported reached. Unreadable is treated
+// as full and as already sent, never as empty.
 function readLog(file){
-  try{const d=JSON.parse(fs.readFileSync(file,'utf8'));if(Array.isArray(d?.sends))return d;}
-  catch(e){if(e.code==='ENOENT')return {sends:[]};}
+  try{const d=JSON.parse(fs.readFileSync(file,'utf8'));if(Array.isArray(d?.sends)&&(d.sent===undefined||Array.isArray(d.sent)))return {...d,sent:d.sent||[]};}
+  catch(e){if(e.code==='ENOENT')return {sends:[],sent:[]};}
   return null;
+}
+// When the robot sent this activity, or null if it never has. Throws when the
+// log can't be read.
+function sentAt(file,interviewScheduleId){
+  const log=readLog(file);
+  if(!log)throw Error('The send log couldn\'t be read, so whether the robot has sent this activity before couldn\'t be checked.');
+  const id=String(interviewScheduleId||'').toLowerCase();
+  return [...SENT_BEFORE_LOG,...log.sent].find(x=>String(x?.interviewScheduleId||'').toLowerCase()===id)?.at||null;
+}
+// Why the robot mustn't send this activity because it already has, or null.
+function alreadySent({file,interviewScheduleId}){
+  if(!file)return NO_LOG;
+  let at;try{at=sentAt(file,interviewScheduleId);}catch(e){return e.message;}
+  return at?`The robot already sent this scheduling activity (${utc(at)}). It never sends an activity twice, even after a cancellation: a person sends this one from its draft, or post a fresh activity.`:null;
 }
 function writeLog(file,log){
   fs.mkdirSync(path.dirname(file),{recursive:true,mode:0o700});
@@ -167,7 +196,7 @@ function capBlocked({file,env,now=Date.now()}){
   return s.reached?capReason(cap,s):null;
 }
 
-// Counts one send against the cap, when the cap allows it. Returns
+// Records one send, once only and when the cap allows it. Returns
 // {reason, firstAtCap} when it doesn't (firstAtCap: the first time this
 // stretch at the cap is reported, for one notice in the channel), or null
 // once the send is recorded.
@@ -176,13 +205,16 @@ function takeSend({file,env,interviewScheduleId,now=Date.now()}){
   if(cap===null)return {reason:configProblem(env)};
   const s=capState(file,cap,now);
   if(!s)return {reason:'The send log couldn\'t be read, so the daily send cap couldn\'t be checked.'};
+  const again=alreadySent({file,interviewScheduleId});
+  if(again)return {reason:again};
   if(s.reached){
     const firstAtCap=s.log.capNoticeFor!==s.resetsAt;
     if(firstAtCap)try{writeLog(file,{...s.log,capNoticeFor:s.resetsAt});}catch(_){/* the notice may repeat */}
     return {reason:capReason(cap,s),firstAtCap,count:s.recent.length,cap,resetsAt:s.resetsAt,resetsAtText:utc(s.resetsAt)};
   }
-  try{writeLog(file,{...s.log,sends:[...s.recent,{at:new Date(now).toISOString(),interviewScheduleId}]});}
-  catch(e){return {reason:`The send couldn't be counted against the daily cap (${String(e.message).slice(0,120)}), so it wasn't made.`};}
+  const at=new Date(now).toISOString();
+  try{writeLog(file,{...s.log,sends:[...s.recent,{at,interviewScheduleId}],sent:[...s.log.sent,{at,interviewScheduleId}]});}
+  catch(e){return {reason:`The send couldn't be recorded in the send log (${String(e.message).slice(0,120)}), so it wasn't made.`};}
   return null;
 }
 
@@ -204,6 +236,9 @@ function createSendGate({env,request=fetch,now=()=>Date.now()}){
     if(config)return {reason:config};
     const file=sendLogFile(env);
     if(!file)return {reason:NO_LOG};
+    // Already sent: refused before Ashby is read.
+    const again=alreadySent({file,interviewScheduleId:plan.interviewScheduleId});
+    if(again)return {reason:again};
     let facts;
     try{facts=await readSendFacts({key:String(env.ASHBY_READ_API_KEY).trim(),plan,request});}
     catch(e){return {reason:`Ashby couldn't be read again just before sending: ${e.message}.`};}
@@ -215,4 +250,4 @@ function createSendGate({env,request=fetch,now=()=>Date.now()}){
   };
 }
 
-module.exports={createSendGate,applicationProblem,readSendFacts,factsProblem,configProblem,capBlocked,takeSend,sendLogFile,interviewerDomains,dailyCap,BOOKED_STATUSES};
+module.exports={SENT_BEFORE_LOG,alreadySent,createSendGate,applicationProblem,readSendFacts,factsProblem,configProblem,capBlocked,takeSend,sendLogFile,interviewerDomains,dailyCap,BOOKED_STATUSES};

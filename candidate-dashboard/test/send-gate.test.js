@@ -7,7 +7,7 @@ const fs=require('fs'),os=require('os'),path=require('path');
 const {createSendGate,readSendFacts,factsProblem,configProblem,capBlocked,takeSend,sendLogFile}=require('../worker/send-gate');
 
 const APP='8dfd8f14-83c4-41f8-aaf1-416b75cb0892',JOB='837cc1e9-15ed-4f07-8755-51ee29f4ea39',CAND='fc88f24e-d59b-4e58-aa51-f0e94b1a32da';
-const SCHED='199e1b3d-3f4f-4629-98a5-3ec323fd1206',STAGE='5e1b0e4c-0000-4000-8000-000000000001';
+const SCHED='299e1b3d-3f4f-4629-98a5-3ec323fd1206',STAGE='5e1b0e4c-0000-4000-8000-000000000001';
 const HAYLEY='c251f667-e04c-403a-8c70-4cbc8fc3f435',MARY='a0000000-0000-4000-8000-000000000002';
 const NOW=Date.parse('2099-10-14T12:00:00Z');
 const plan={applicationId:APP,jobId:JOB,candidateId:CAND,interviewScheduleId:SCHED,stage:{title:'First Round'},candidate:{name:'TEST',email:'hayleysamuels511@gmail.com'},
@@ -135,9 +135,51 @@ test('the gate: the send locks, then the read, then the cap; only a send that pa
   f=facts();
   assert.equal(await gate(plan),null);
   assert.equal(JSON.parse(fs.readFileSync(file,'utf8')).sends.length,1,'counted before the click');
-  const capped=await gate(plan);
+  assert.match((await gate(plan)).reason,/already sent this scheduling activity/,'the same activity again: once only, before the cap');
+  // Another activity on the same application, at the cap. (Ashby's answers stand in for it.)
+  const other='399e1b3d-3f4f-4629-98a5-3ec323fd1206';
+  f=facts({schedules:[{id:other,applicationId:APP,interviewStageId:STAGE,status:'CandidateAvailabilitySubmitted',interviewEvents:[]}]});
+  const capped=await gate({...plan,interviewScheduleId:other});
   assert.match(capped.reason,/cap is reached/);assert.equal(capped.cap.firstAtCap,true);assert.equal(capped.cap.cap,1);
   const down=createSendGate({env,request:async()=>{throw Error('ECONNRESET');},now:()=>NOW});
-  assert.match((await down(plan)).reason,/^Ashby couldn't be read again just before sending: Ashby's application.info couldn't be read \(ECONNRESET\)\.$/);
+  assert.match((await down({...plan,interviewScheduleId:'499e1b3d-3f4f-4629-98a5-3ec323fd1206'})).reason,/^Ashby couldn't be read again just before sending: Ashby's application.info couldn't be read \(ECONNRESET\)\.$/);
   assert.match((await createSendGate({env:{...env,ASHBY_READ_API_KEY:''},request})(plan)).reason,/ASHBY_READ_API_KEY/);
+});
+
+test('once only: an activity the robot has sent is refused for good, even after the 24-hour cap window', async () => {
+  const {alreadySent,SENT_BEFORE_LOG}=require('../worker/send-gate');
+  const file=tmpLog(),env={BOOKING_SEND_DAILY_CAP:'10'},day=24*3600000;
+  assert.equal(takeSend({file,env,interviewScheduleId:'s1',now:NOW}),null);
+  const again=takeSend({file,env,interviewScheduleId:'s1',now:NOW+40*day});
+  assert.match(again.reason,/^The robot already sent this scheduling activity \(Oct 14, 12:00 UTC\)\. It never sends an activity twice, even after a cancellation/);
+  assert.equal(again.cap,undefined,'not a cap refusal');
+  // The cap's window drops old sends; the record of what was sent doesn't.
+  assert.equal(takeSend({file,env,interviewScheduleId:'s2',now:NOW+40*day}),null);
+  const log=JSON.parse(fs.readFileSync(file,'utf8'));
+  assert.deepEqual(log.sends.map(s=>s.interviewScheduleId),['s2']);
+  assert.deepEqual(log.sent.map(s=>s.interviewScheduleId),['s1','s2']);
+  // At the cap, the record is kept too.
+  const capped={BOOKING_SEND_DAILY_CAP:'1'};
+  assert.match(takeSend({file,env:capped,interviewScheduleId:'s3',now:NOW+40*day}).reason,/cap is reached/);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file,'utf8')).sent.map(s=>s.interviewScheduleId),['s1','s2']);
+  // The robot's TEST sends from before the log, faecb1da among them, with no log at all.
+  assert.deepEqual(SENT_BEFORE_LOG.map(x=>x.interviewScheduleId.slice(0,8)),['199e1b3d','c95bfecf','81402bbd','faecb1da']);
+  const fresh=tmpLog();
+  assert.match(alreadySent({file:fresh,interviewScheduleId:'FAECB1DA-EA68-410E-B57D-B95C13AB2EEF'}),/already sent this scheduling activity \(Oct 27, 22:35 UTC\)/);
+  assert.equal(alreadySent({file:fresh,interviewScheduleId:SCHED.replace('199e','299e')}),null);
+  // An unreadable log, or a `sent` that isn't a list, counts as already sent.
+  fs.writeFileSync(fresh,JSON.stringify({sends:[],sent:'x'}));
+  assert.match(alreadySent({file:fresh,interviewScheduleId:'s9'}),/send log couldn't be read/);
+  assert.match(alreadySent({file:null,interviewScheduleId:'s9'}),/nowhere to keep its send log/);
+  // A log from before `sent` existed reads as having sent nothing yet.
+  fs.writeFileSync(fresh,JSON.stringify({sends:[{at:new Date(NOW).toISOString(),interviewScheduleId:'s9'}]}));
+  assert.equal(alreadySent({file:fresh,interviewScheduleId:'s9'}),null);
+});
+
+test('the gate refuses an activity it has sent before reading Ashby', async () => {
+  const file=tmpLog(),jobs=JSON.stringify({[JOB]:'all'});
+  const env={BOOKING_SEND:'on',BOOKING_SEND_JOBS:jobs,BOOKING_COMPOSE_JOBS:jobs,ASHBY_READ_API_KEY:'rk',BOOKING_INTERVIEWER_DOMAINS:'luminai.com',BOOKING_SEND_DAILY_CAP:'10',BOOKING_SEND_LOG_FILE:file};
+  let reads=0;
+  const r=await createSendGate({env,request:async()=>{reads++;throw Error('unreachable');},now:()=>NOW})({...plan,interviewScheduleId:'faecb1da-ea68-410e-b57d-b95c13ab2eef'});
+  assert.match(r.reason,/already sent this scheduling activity/);assert.equal(reads,0);
 });

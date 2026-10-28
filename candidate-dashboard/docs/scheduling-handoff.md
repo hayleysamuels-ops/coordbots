@@ -1240,7 +1240,15 @@ unchanged: still the off switches.
   booked (not Scheduled, WaitingOnFeedback, Complete or Cancelled, and no
   interview events); no other schedule on the application is booked for the
   future; every interviewer is an enabled Ashby user with the plan's email on
-  an interviewer domain. Then the cap: the send is counted in
+  an interviewer domain. "Never booked" from Ashby isn't enough on its own: a
+  cancelled booking's activity goes back to NeedsScheduling with no
+  interviews (seen on `faecb1da`, October 27, which also kept a draft at the
+  cancelled time). So, *once only* (Hayley, October 27): every activity the
+  robot sends is recorded for good in `send-log.json` (`sent`), and the robot
+  never sends it again; it's checked first, before Ashby is read, and at
+  posting, so the button says compose only. The four TEST activities sent
+  before the log existed (`199e1b3d`, `c95bfecf`, `81402bbd`, `faecb1da`) are
+  listed in `SENT_BEFORE_LOG`. An unreadable log counts as already sent. Then the cap: the send is counted in
   `send-log.json` beside the saved session *before* the click, so an
   uncertain send counts. Any "no" leaves the draft composed for a person, with
   the reason on the Slack post; nothing is deleted or refused.
