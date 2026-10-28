@@ -30,3 +30,27 @@ test('full schedule re-reads trusted plan and availability and never dispatches'
  assert.equal((await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body})).status,403);assert.equal(calls,0);
  const r=await fetch(url,{method:'POST',headers,body});assert.equal(r.status,200);const result=await r.json();assert.equal(result.proposals[0].events[0].interviewer.name,'Plan Interviewer');assert.equal(result.bookingEnabled,false);assert.equal(dispatches,0);
 });
+
+// A stage's activities are separate schedules (R1's two interview types; an
+// onsite's pre-onsite chat): the plan is checked against the template's own
+// activity, and only that one is carried on.
+test('the full plan uses the activity the template belongs to',async t=>{
+ const roomba=[{sessionId:'s0',interviewId:'i0',title:'R1 Technical Interview (Roomba)',durationMinutes:60}],applied=[{sessionId:'s1',interviewId:'i1',title:'Applied AI Interview',durationMinutes:60}];
+ const plan={applicationId:'app',candidateId:'candidate',stageId:'stage',templateRevision:'v1',activities:[{id:'a0',title:'R1 Tech Interview Schedule',sessions:roomba},{id:'a1',title:'Applied AI Interview Schedule',sessions:applied}]};
+ let observed;
+ const app=express();app.use(express.json());app.use((req,res,next)=>{req.schedulingUser={id:'coordinator',canApprove:true};next();});
+ app.use('/booking',bookingRoutes({facts:{application:async()=>plan},availability:{requests:async()=>({stageId:'stage',requests:[{scheduleId:'request',updatedAt:'version'}]})},inspectPlan:async input=>({...input,...observed})}));
+ const server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});t.after(()=>new Promise(resolve=>server.close(resolve)));
+ const load=()=>fetch(`http://127.0.0.1:${server.address().port}/booking/full-plan`,{method:'POST',headers,body:JSON.stringify({applicationId:'app',scheduleId:'request'})});
+ observed={activityId:'a1',sessions:applied};
+ let r=await load();assert.equal(r.status,200);let body=await r.json();
+ assert.equal(body.activityId,'a1');assert.deepEqual(body.activities.map(a=>a.id),['a1']);assert.deepEqual(body.sessions.map(s=>s.title),['Applied AI Interview']);
+ // The worker's sessions must still be exactly that activity's.
+ observed={activityId:'a1',sessions:roomba};
+ r=await load();assert.equal(r.status,409);assert.match((await r.json()).error,/no longer match the published plan/);
+ // An activity the plan doesn't have, or a worker that didn't say which, on a two-activity stage.
+ observed={activityId:'gone',sessions:applied};
+ r=await load();assert.equal(r.status,409);assert.match((await r.json()).error,/activity isn't in the published plan/);
+ observed={sessions:applied};
+ r=await load();assert.equal(r.status,409);assert.match((await r.json()).error,/didn't say which one the template is\. Update the scheduling worker\./);
+});

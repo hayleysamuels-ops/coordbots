@@ -368,6 +368,33 @@ done and verified, in this order:
     deactivated-account handling is generic. He's still listed in Ashby slots
     (Lunch and both One on Ones on the Applied AI Engineer onsite), where
     removing him would make the template match what Ashby books.
+- **The template is matched to one activity** (October 28, 2026). A pending
+  schedule belongs to one activity, and its template is that activity's. The
+  plan check used to compare the template against every activity in the stage
+  at once, so any stage with more than one refused. Two kinds exist at Luminai:
+  - **Alternatives:** Applied AI Engineer's R1 has "R1 Technical Interview
+    (Roomba)" and "Applied AI Interview" as separate activities, one run per
+    candidate.
+  - **Separate schedules:** five jobs' Onsite stages add a Pre Onsite Chat,
+    Breakfast with Kesava or Dinner as their own activities.
+
+  How it works now:
+  - `worker/plan-reader.js` matches the template against each activity:
+    the same interviews, count, durations and order. It returns the one that
+    fits (`activityId`).
+  - **None fits:** it refuses, and the refusal lists what the template has,
+    including any interview that's in none of the stage's activities, read from
+    the page. That still catches a stale template.
+  - **More than one fits** (identical activities): it refuses rather than
+    guessing.
+  - `fullPlan` (`booking-routes.js`) compares and carries only that activity.
+    A worker without `activityId` still works where a stage has one activity,
+    and asks to be updated where it has more.
+
+  Not handled: alternatives inside one activity. The FDE onsites list "Coding
+  - Roomba" and "URL Shortener" in one activity. If only one of those runs,
+  the template still refuses, and that would need a per-job rule. Unconfirmed
+  with Anna.
 - **Interviewer identity overrides** (October 14, 2026, rules revision 7).
   Ashby's slots list interviewers by name, and the dashboard matches names to
   active Ashby accounts. A name with more than one active account refuses,

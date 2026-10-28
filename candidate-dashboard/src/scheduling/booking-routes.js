@@ -43,7 +43,12 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     if(!request||pending.stageId!==plan.stageId)throw Object.assign(Error('Choose a current pending schedule for this stage.'),{status:409});
     const observed=await inspectPlan({...plan,scheduleId:request.scheduleId});
     if(observed.applicationId!==plan.applicationId||observed.candidateId!==plan.candidateId||observed.scheduleId!==request.scheduleId)throw Object.assign(Error('The interview plan belongs to another request.'),{status:409});
-    const expected=plan.activities.flatMap(a=>a.sessions);
+    // The template is one activity's (plan-reader.js matches it), and only
+    // that activity is compared and carried on. A worker from before it named
+    // the activity is still understood where the stage has just one.
+    const activity=observed.activityId?plan.activities.find(a=>a.id===observed.activityId):plan.activities.length===1?plan.activities[0]:null;
+    if(!activity)throw Object.assign(Error(observed.activityId?"The template's activity isn't in the published plan. Reload the plan.":'This stage has more than one activity, and the scheduling worker didn\'t say which one the template is. Update the scheduling worker.'),{status:409});
+    const expected=activity.sessions;
     if(!Array.isArray(observed.sessions)||observed.sessions.length!==expected.length||observed.sessions.some((s,i)=>s.sessionId!==expected[i].sessionId||s.interviewId!==expected[i].interviewId||s.durationMinutes!==expected[i].durationMinutes))throw Object.assign(Error('The template interviews no longer match the published plan.'),{status:409});
     const latest=await availability.requests(plan.applicationId);
     if(latest.stageId!==plan.stageId||!latest.requests.some(r=>r.scheduleId===request.scheduleId&&r.updatedAt===request.updatedAt))throw Object.assign(Error('The pending schedule changed. Reload its plan.'),{status:409});
@@ -55,7 +60,8 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     // Debriefs (Ashby isDebrief) are marked when the rules defer them until
     // the onsite is confirmed; agendas then leave them out (agendaSessions).
     if(rules&&rules.get().debriefs?.afterOnsiteConfirmed&&facts.debriefInterviewIds){const ids=await facts.debriefInterviewIds();sessions=sessions.map(s=>ids.has(s.interviewId)?{...s,isDebrief:true}:s);}
-    return {...plan,scheduleId:request.scheduleId,sessions,checkedAt:observed.checkedAt,bookingEnabled:false};
+    // activities narrows to the template's own, so the booking plan names it.
+    return {...plan,activities:[activity],activityId:activity.id,scheduleId:request.scheduleId,sessions,checkedAt:observed.checkedAt,bookingEnabled:false};
   }
   router.post('/full-plan',handle(fullPlan));
   router.post('/calendar-availability',handle(async req=>{

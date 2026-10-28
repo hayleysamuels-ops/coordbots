@@ -10,15 +10,15 @@ const slot=names=>`Slot #1 —\n${names.length} Eligible Matches\nSpecific Emplo
 // A bare block is a collapsed event: Ashby's "Configure: Interviewers | Room"
 // control, with its slots not yet on the page.
 const waits=[];
-function page({blocks,events,errors={}}){
+function page({blocks,events,errors={},unknown=[]}){
   return {
     getByRole:(role,q)=>({waitFor:async()=>{if(q.name==='Events'&&errors.events)throw Object.assign(Error('Timeout 15000ms exceeded.'),{name:'TimeoutError'});}}),
     waitForFunction:async(fn,arg,opts)=>{
       if(arg===null&&errors.calculating)throw Object.assign(Error('Timeout 30000ms exceeded.'),{name:'TimeoutError'});
-      if(typeof arg==='number'){waits.push(opts.timeout);if(events!==arg)throw Object.assign(Error(`Timeout ${opts.timeout}ms exceeded.`),{name:'TimeoutError'});}
+      if(Array.isArray(arg)){waits.push(opts.timeout);if(!arg.includes(events))throw Object.assign(Error(`Timeout ${opts.timeout}ms exceeded.`),{name:'TimeoutError'});}
     },
     waitForTimeout:async()=>{},
-    evaluate:async(fn,arg)=>arg===undefined?(errors.errorPage?'Something went wrong':'Events'):arg.loading?!!errors.loading:arg.rows?events
+    evaluate:async(fn,arg)=>arg===undefined?(errors.errorPage?'Something went wrong':'Events'):arg.loading?!!errors.loading:arg.rows?events:arg.unknown?unknown
       :(blocks[arg.title]||[]).map(b=>({text:b.bare?`${arg.title}\nConfigure: Interviewers | Room`:slot(b.names||['Pat Doe']),duration:b.duration,top:b.top,slots:!b.bare})),
   };
 }
@@ -78,4 +78,42 @@ test('a real mismatch is reported before missing interviewers',async()=>{
   const e=await readPlan(page({events:2,blocks:{'Recruiter Screen':[{duration:30,top:0,bare:true}],Extra:[{duration:15,top:50}]}}),plan([['Recruiter Screen',45]])).then(()=>null,x=>x);
   assert.equal(e.kind,'mismatch');
   assert.deepEqual(e.issues,['"Recruiter Screen" is 30 minutes in the template but 45 in the plan','the template has 2 interviews and the plan has 1']);
+});
+
+// A stage's activities are separate schedules: the template is one of them.
+const stage=(...activities)=>({activities:activities.map(([title,sessions],a)=>({id:'a'+a,title,sessions:sessions.map(([t,d],i)=>({sessionId:`s${a}.${i}`,interviewId:`i${a}.${i}`,title:t,durationMinutes:d}))}))});
+const r1=stage(['R1 Tech Interview Schedule',[['R1 Technical Interview (Roomba)',60]]],['Applied AI Interview Schedule',[['Applied AI Interview',60]]]);
+
+test('a template that is one of the stage\'s activities is read as that activity',async()=>{
+  for(const [title,id] of [['R1 Technical Interview (Roomba)','a0'],['Applied AI Interview','a1']]){
+    const r=await readPlan(page({events:1,blocks:{[title]:[{duration:60,top:0}]}}),r1);
+    assert.equal(r.activityId,id);assert.deepEqual(r.sessions.map(s=>s.title),[title]);
+  }
+  // An onsite with a separate pre-onsite chat: the main loop's template.
+  const onsite=stage(['Onsite Interview Schedule',[['Welcome',15],['System Design',60]]],['Pre Onsite Chat Schedule',[['Pre Onsite Chat',30]]]);
+  const r=await readPlan(page({events:2,blocks:{Welcome:[{duration:15,top:0}],'System Design':[{duration:60,top:100}]}}),onsite);
+  assert.equal(r.activityId,'a0');assert.equal(r.activityTitle,'Onsite Interview Schedule');
+});
+
+test('a stale template still refuses, and says what it has, including an interview in no activity',async()=>{
+  // An interview the plan doesn't have at all.
+  let e=await readPlan(page({events:1,blocks:{},unknown:[{title:'Coding - URL Shortener',duration:60,top:0}]}),r1).then(()=>null,x=>x);
+  assert.equal(e.status,409);assert.equal(e.kind,'mismatch');
+  assert.match(e.message,/doesn't match any of this stage's 2 activities\. The template has "Coding - URL Shortener" \(60 min\), not in this stage's plan\./);
+  assert.match(e.message,/"R1 Tech Interview Schedule": "R1 Technical Interview \(Roomba\)" isn't in the template/);
+  assert.deepEqual(e.issues,['"R1 Tech Interview Schedule": "R1 Technical Interview (Roomba)" isn\'t in the template','"Applied AI Interview Schedule": "Applied AI Interview" isn\'t in the template']);
+  // A known interview plus an extra one: the extra still refuses.
+  e=await readPlan(page({events:2,blocks:{'Applied AI Interview':[{duration:60,top:0}]},unknown:[{title:'Take-home review',duration:30,top:100}]}),r1).then(()=>null,x=>x);
+  assert.equal(e.kind,'mismatch');
+  assert.match(e.message,/The template has "Applied AI Interview" \(60 min\), "Take-home review" \(30 min\), not in this stage's plan\./);
+  assert.match(e.message,/"Applied AI Interview Schedule": the template has 2 interviews and the plan has 1/);
+  // A wrong duration on the right interview.
+  e=await readPlan(page({events:1,blocks:{'Applied AI Interview':[{duration:45,top:0}]}}),r1).then(()=>null,x=>x);
+  assert.match(e.message,/"Applied AI Interview Schedule": "Applied AI Interview" is 45 minutes in the template but 60 in the plan/);
+});
+
+test('a template two activities both fit is refused, not guessed',async()=>{
+  const twins=stage(['First',[['Chat',30]]],['Second',[['Chat',30]]]);
+  const e=await readPlan(page({events:1,blocks:{Chat:[{duration:30,top:0}]}}),twins).then(()=>null,x=>x);
+  assert.equal(e.status,409);assert.equal(e.kind,'ambiguous');assert.match(e.message,/matches 2 activities in this stage \("First", "Second"\)/);
 });

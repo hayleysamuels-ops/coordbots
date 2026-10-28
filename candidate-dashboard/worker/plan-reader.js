@@ -177,12 +177,34 @@ async function expandEvents(page,byTitle,matched,blocksFor,guard,{deadline,secon
   console.log(`[plan-reader] Expanded ${clicks} event${clicks===1?'':'s'}; ${compared} of ${before.length} fields unchanged${compared<before.length?' (the rest were re-rendered, so not compared)':''}; rows unchanged; writes blocked: ${guard.blocked.length}; sockets held closed: ${guard.sockets}.`);
 }
 
+// Event rows holding none of the stage's titles, read in the page, for a
+// refusal to name: each row is the largest block around one duration field,
+// and its interview is the row's first line of visible text that isn't the
+// duration. Read only, after any mismatch is already certain.
+const unknownRows=({titles})=>{
+  const durations=e=>[...e.querySelectorAll('input')].filter(x=>(x.type==='number'||x.getAttribute('role')==='spinbutton')&&x.getBoundingClientRect().width);
+  const out=[];
+  for(const input of durations(document)){
+    let row=input;
+    while(row.parentElement&&durations(row.parentElement).length===1)row=row.parentElement;
+    if([...row.querySelectorAll('*')].some(e=>e.children.length===0&&titles.includes(e.textContent.trim())))continue;
+    const line=(row.innerText||'').split('\n').map(l=>l.trim()).find(l=>l&&!/^\d+$/.test(l)&&!/^min(ute)?s?$/i.test(l));
+    out.push({title:line?line.slice(0,120):null,duration:Number(input.value),top:row.getBoundingClientRect().top+window.scrollY});
+  }
+  return out;
+};
 async function readPlan(page,input,{guard=null,budgetMs=60000}={}){
   // One time budget for the whole read. Every wait takes what it needs from it,
   // so Step 2 returns within budgetMs however many events the template has.
   const deadline=Date.now()+budgetMs,seconds=Math.round(budgetMs/1000);
   const left=cap=>{const ms=Math.min(cap,deadline-Date.now());if(ms<=0)readFail(`Ashby's schedule template was still loading when the read's ${seconds} seconds ran out. Try again; nothing was clicked or saved.`);return ms;};
-  const sessions=input.activities?.flatMap(a=>a.sessions)||[];
+  // A pending schedule belongs to one activity, and its template is that
+  // activity's, so the template is matched against each activity in the
+  // stage, never all of them at once. A stage's activities can be
+  // alternatives (Applied AI Engineer's R1: one interview type per candidate)
+  // or separate schedules (an onsite's pre-onsite chat or dinner).
+  const activities=(input.activities||[]).filter(a=>a.sessions?.length);
+  const sessions=activities.flatMap(a=>a.sessions);
   if(!sessions.length||sessions.length>30)fail('The current interview plan could not be verified.');
   const errorPage=async()=>/Something went wrong|An error occurred|Page not found/i.test(await page.evaluate(()=>document.body.innerText.slice(0,4000)).catch(()=>''));
   await step(()=>page.getByRole('heading',{name:'Events',exact:true}).waitFor({state:'visible',timeout:left(15000)}),'The schedule template page opened, but its Events section never loaded. Ashby may be slow or showing an error; try again.').catch(async e=>{if(await errorPage())readFail('Ashby showed an error page instead of the schedule template. Try again, or open it in Ashby.');throw e;});
@@ -192,8 +214,9 @@ async function readPlan(page,input,{guard=null,budgetMs=60000}={}){
   // for every row to render; a different number that settles is a mismatch,
   // counted below, but a page with no rows at all is a read failure.
   const countRows=()=>[...document.querySelectorAll('input')].filter(x=>(x.type==='number'||x.getAttribute('role')==='spinbutton')&&x.getBoundingClientRect().width).length;
-  try{await page.waitForFunction(count=>[...document.querySelectorAll('input')].filter(x=>(x.type==='number'||x.getAttribute('role')==='spinbutton')&&x.getBoundingClientRect().width).length===count,sessions.length,{timeout:left(30000)});}catch(e){if(!timedOut(e))throw e;}
-  const rows=await page.evaluate(countRows,{rows:true});
+  const counts=[...new Set(activities.map(a=>a.sessions.length))];
+  try{await page.waitForFunction(counts=>counts.includes([...document.querySelectorAll('input')].filter(x=>(x.type==='number'||x.getAttribute('role')==='spinbutton')&&x.getBoundingClientRect().width).length),counts,{timeout:left(30000)});}catch(e){if(!timedOut(e))throw e;}
+  let rows=await page.evaluate(countRows,{rows:true});
   if(!rows)readFail("The schedule template's Events section loaded, but no event rows appeared within 30 seconds. Ashby may be slow; try again, or open the template in Ashby.");
   // The row for a title: the smallest block that holds the title and exactly one
   // duration field. Only innermost blocks count: a page-level container that
@@ -239,19 +262,45 @@ async function readPlan(page,input,{guard=null,budgetMs=60000}={}){
   // Calculating matches...", then the eligible-match count. Wait once for the
   // page as a whole to stop loading, not per event.
   await settle(page,deadline,seconds,()=>titlesStillLoading());
-  const issues=[],matched=new Map(),byTitle=new Map();
-  for(const s of sessions){const t=s.title.trim();if(!byTitle.has(t))byTitle.set(t,[]);byTitle.get(t).push(s);}
-  for(const [title,group] of byTitle){
-    const blocks=await blocksFor(title);
-    if(!blocks.length){issues.push(`"${title}" isn't in the template`);continue;}
-    if(blocks.length!==group.length){issues.push(`"${title}" appears ${blocks.length} time${blocks.length===1?'':'s'} in the template but ${group.length} time${group.length===1?'':'s'} in the plan`);continue;}
-    // Repeated titles pair up in page order, as the plan lists them.
-    group.forEach((s,k)=>{const b=blocks[k];if(b.duration!==s.durationMinutes)issues.push(`"${title}"${group.length>1?` (${k+1} of ${group.length})`:''} is ${b.duration} minutes in the template but ${s.durationMinutes} in the plan`);matched.set(s,b);});
+  // Counted again once loading has settled: the wait above stops at the
+  // first count any activity has, which a half-rendered page can pass through.
+  rows=await page.evaluate(countRows,{rows:true});
+  const found=new Map();
+  for(const t of titles)found.set(t,await blocksFor(t));
+  // One activity against the template: every difference, as before.
+  const compare=activitySessions=>{
+    const issues=[],matched=new Map(),byTitle=new Map();
+    for(const s of activitySessions){const t=s.title.trim();if(!byTitle.has(t))byTitle.set(t,[]);byTitle.get(t).push(s);}
+    for(const [title,group] of byTitle){
+      const blocks=found.get(title);
+      if(!blocks.length){issues.push(`"${title}" isn't in the template`);continue;}
+      if(blocks.length!==group.length){issues.push(`"${title}" appears ${blocks.length} time${blocks.length===1?'':'s'} in the template but ${group.length} time${group.length===1?'':'s'} in the plan`);continue;}
+      // Repeated titles pair up in page order, as the plan lists them.
+      group.forEach((s,k)=>{const b=blocks[k];if(b.duration!==s.durationMinutes)issues.push(`"${title}"${group.length>1?` (${k+1} of ${group.length})`:''} is ${b.duration} minutes in the template but ${s.durationMinutes} in the plan`);matched.set(s,b);});
+    }
+    const placed=activitySessions.filter(s=>matched.has(s));
+    for(let k=1;k<placed.length;k++)if(matched.get(placed[k]).top<matched.get(placed[k-1]).top){issues.push(`the order differs: the template has "${placed[k].title.trim()}" before "${placed[k-1].title.trim()}"`);break;}
+    if(rows!==activitySessions.length)issues.push(`the template has ${rows} interview${rows===1?'':'s'} and the plan has ${activitySessions.length}`);
+    return {issues,matched,byTitle,placed};
+  };
+  const results=activities.map(activity=>({activity,...compare(activity.sessions)}));
+  const fits=results.filter(r=>!r.issues.length);
+  // What the template has, so a refusal says it: the plan's titles where they
+  // were found, and each other row as the page shows it.
+  const has=async()=>{
+    const known=[...found].flatMap(([title,blocks])=>blocks.map(b=>({top:b.top,text:`"${title}" (${b.duration} min)`})));
+    const other=(await page.evaluate(unknownRows,{unknown:true,titles})||[]).map(r=>({top:r.top,text:`${r.title?`"${r.title}"`:'an interview whose name couldn\'t be read'} (${Number.isFinite(r.duration)?`${r.duration} min`:'duration unread'}), not in this stage's plan`}));
+    const list=[...known,...other].sort((a,b)=>a.top-b.top).map(r=>r.text);
+    return list.length?`The template has ${list.join(', ')}.`:'';
+  };
+  if(fits.length>1)throw Object.assign(Error(`The schedule template matches ${fits.length} activities in this stage (${fits.map(r=>`"${r.activity.title}"`).join(', ')}), so which one it belongs to can't be told. Make the activities' interviews differ in Ashby.`),{status:409,kind:'ambiguous'});
+  if(!fits.length){
+    const template=await has();
+    if(results.length===1){const {issues}=results[0];throw Object.assign(Error(`The schedule template doesn't match the published plan: ${issues.join('; ')}. ${template?template+' ':''}Update the template in Ashby, or reload the plan if it just changed.`),{status:409,kind:'mismatch',issues});}
+    const issues=results.flatMap(r=>r.issues.map(i=>`"${r.activity.title}": ${i}`));
+    throw Object.assign(Error(`The schedule template doesn't match any of this stage's ${results.length} activities. ${template?template+' ':''}${results.map(r=>`"${r.activity.title}": ${r.issues.join('; ')}`).join('. ')}. Update the template in Ashby, or reload the plan if it just changed.`),{status:409,kind:'mismatch',issues});
   }
-  const placed=sessions.filter(s=>matched.has(s));
-  for(let k=1;k<placed.length;k++)if(matched.get(placed[k]).top<matched.get(placed[k-1]).top){issues.push(`the order differs: the template has "${placed[k].title.trim()}" before "${placed[k-1].title.trim()}"`);break;}
-  if(rows!==sessions.length)issues.push(`the template has ${rows} interview${rows===1?'':'s'} and the plan has ${sessions.length}`);
-  if(issues.length)throw Object.assign(Error(`The schedule template doesn't match the published plan: ${issues.join('; ')}. Update the template in Ashby, or reload the plan if it just changed.`),{status:409,kind:'mismatch',issues});
+  const [{activity,matched,byTitle,placed}]=fits;
   // An event without slot text is collapsed, not empty: "Configure: Interviewers
   // | Room" holds the expander, and the slots aren't on the page until it's
   // opened. Whether Ashby shows them expanded depends on per-user UI state, so
@@ -259,8 +308,8 @@ async function readPlan(page,input,{guard=null,budgetMs=60000}={}){
   if(placed.some(s=>!matched.get(s).slots))await expandEvents(page,byTitle,matched,blocksFor,guard,{deadline,seconds,titlesStillLoading});
   // Every unsupported slot is reported at once, not just the first.
   const read=[],refused=[];
-  for(const s of sessions){try{read.push({...s,...parseAssignment(matched.get(s).text,s.title)});}catch(e){if(e.status!==409)throw e;refused.push(e.message);}}
+  for(const s of activity.sessions){try{read.push({...s,...parseAssignment(matched.get(s).text,s.title)});}catch(e){if(e.status!==409)throw e;refused.push(e.message);}}
   if(refused.length)throw Object.assign(Error(refused.join(' ')),{status:409,kind:'unsupported_slot',issues:refused});
-  return {sessions:read,source:'ashby_schedule_template',bookingEnabled:false};
+  return {sessions:read,activityId:activity.id??null,activityTitle:activity.title??null,source:'ashby_schedule_template',bookingEnabled:false};
 }
 module.exports={readPlan,parseAssignment};
