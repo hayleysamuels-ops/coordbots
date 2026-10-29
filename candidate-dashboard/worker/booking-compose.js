@@ -104,6 +104,8 @@ function detailLine(e){
     // A delete as Ashby sent it (October 29: kept as the fallback if deleting
     // from the Drafts tab ever stops working). The draft ID and Ashby's query only.
     case 'request':return `${e.op} request as Ashby sent it: ${String(e.body??'').slice(0,4000)}`;
+    // Which way the drafts check went: the tab read, or a schedule plainly showing none.
+    case 'drafts-check':return `drafts check${e.after?` (after ${e.after})`:''}: ${e.how==='none'?'no Drafts tab on a plainly loaded schedule page, so no drafts':`the Drafts tab listed ${e.count} draft${e.count===1?'':'s'}`}`;
     case 'agenda-between':return `candidate invite agenda lines between sessions (unmasked): ${JSON.stringify(e.lines)}`;
     case 'agenda-shape':{const {type,...rest}=e;return `candidate invite agenda unreadable, its shape (letters masked): ${JSON.stringify(rest)}`;}
     default:return null;

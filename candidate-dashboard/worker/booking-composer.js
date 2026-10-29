@@ -347,12 +347,14 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     // none, so nobody can send the wrong one.
     if(checkExistingDrafts){
       step='check the schedule\'s drafts';
-      let ids=await listDrafts(page,plan,{one,go,T});
+      let {ids,how}=await listDrafts(page,plan,{one,go,T});
+      note({type:'drafts-check',how,count:ids.length});
       if(supersedeDraftId&&ids.includes(supersedeDraftId)){
         const r=await deleteDraft(page,plan,supersedeDraftId,{arm:()=>{superseding.armed=true;},done:()=>superseding.discarded},{one,go,sleep,T});
         if(!r.deleted)refuse(`Couldn't delete the earlier draft the dashboard composed for this schedule: ${r.reason}.`);
         report.superseded={draftId:supersedeDraftId,deleted:true};
-        ids=await listDrafts(page,plan,{one,go,T});
+        ({ids,how}=await listDrafts(page,plan,{one,go,T}));
+        note({type:'drafts-check',how,count:ids.length,after:'deleting the earlier draft'});
       }else if(supersedeDraftId)report.superseded={draftId:supersedeDraftId,deleted:false,reason:'it was no longer in Ashby'};
       if(ids.length)refuse(`This schedule already has ${ids.length===1?'a draft':`${ids.length} drafts`} in Ashby that the dashboard didn't make. Send or delete ${ids.length===1?'it':'them'} in Ashby first.`);
       pass('the schedule has no other drafts');
@@ -751,10 +753,12 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
 
 // The draft IDs listed on the schedule's Drafts tab. Reached in-app, through
 // the schedule first (a cold draft URL errors).
+// `how` says which way the read went: 'tab' (the Drafts tab was read) or
+// 'none' (no Drafts tab, on a plainly loaded schedule: draftsTab).
 async function listDrafts(page,plan,{one,go,T}){
   await go(`/schedules/${plan.interviewScheduleId}`);await go(`/schedules/${plan.interviewScheduleId}/drafts`);
-  if((await draftsTab(page,plan,{one,T})).none)return [];
-  return page.locator('a[href^="/schedules/drafts/"]').evaluateAll(links=>[...new Set(links.map(a=>a.getAttribute('href').split('/')[3]).filter(Boolean))]);
+  if((await draftsTab(page,plan,{one,T})).none)return {ids:[],how:'none'};
+  return {how:'tab',ids:await page.locator('a[href^="/schedules/drafts/"]').evaluateAll(links=>[...new Set(links.map(a=>a.getAttribute('href').split('/')[3]).filter(Boolean))])};
 }
 
 // The schedule's Drafts tab, from a fresh load of the app, never from wherever
