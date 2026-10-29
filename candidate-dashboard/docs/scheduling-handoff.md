@@ -423,6 +423,61 @@ done and verified, in this order:
   - **Not shown yet:** the dashboard and the Slack post don't say which coding
     interview was left out; the agenda simply lists the one that runs.
   - **Unverified on a real onsite.** The first FDE onsite post is the check.
+- **Onsites still off, and why** (October 29, 2026). Every open role's
+  non-onsite stages are on compose and send, except the three listed below; of
+  the onsites, only TEST's and the three FDE ones are. The rest wait on two
+  things.
+  - **Suspected alternative pairs, to confirm with Anna** before declaring
+    them in `sessions.alternatives`. Until then a template with both books both,
+    so these onsites stay off:
+    - Software Engineer, Product and Platform (one plan, "Platform Eng"):
+      "System Design" / "Full-Stack Development Exercise", 60 each.
+    - Executive Director, Strategic Partnerships: the two "One on One"s (30
+      each, different interviews). Duplicates or alternatives?
+    - Applied AI Engineer - New Grad, **and Applied AI Engineer's own onsite**:
+      "Applied AI Interview (Spreadsheet Parsing)" / "System Design (Virtual)".
+      Applied AI Engineer's onsite also has two "One on One"s.
+  - **Ashby-side fixes** (the plans as the API returned them on October 29):
+    - **Welcome isn't first.** Software Engineer (Product and Platform), Senior
+      Product Manager and Executive Director list Welcome last; Strategy Lead
+      lists it 4th. The reader requires the template's order to match the
+      plan's, and the preview requires Welcome first, so each refuses either
+      way. Fix: move Welcome to the start of the onsite activity in the
+      interview plan, and in each schedule's template. (This assumes the API's
+      order is the plan's order; the Applied AI Engineer onsite, which has
+      posted, lists Welcome first.)
+    - **Activities with the same name in one stage.** The composer finds the
+      activity's card by name and refuses on more than one. Marketing Lead: the
+      main loop and Pre Onsite Chat are both "Onsite Interview Interview
+      Schedule". Deployment Strategist: all four (main loop, Breakfast with
+      Kesava, Dinner, Pre Onsite Chat). Executive Director: three of four (main
+      loop, Breakfast with Kesava, Dinner). Fix: give each activity its own
+      name ("Onsite Main Loop", "Breakfast with Kesava", ...).
+    - **Interview names ending in a tab character:** Product Designer's
+      "Take-Home Presentation" and "Whiteboarding", and Recruiting
+      Coordinator's "Leadership Interview". The reader trims whitespace, so
+      this may be harmless, but it's invisible in Ashby and untested. Fix:
+      retype the names.
+  - **Also off, though not onsites:**
+    - Software Engineer (Product and Platform), Hiring Manager Screen and
+      Founder Interview. The plan reuses activity names across stages ("Initial
+      Screen Interview Schedule" in Initial Screen and Hiring Manager Screen,
+      "Final Interview Loop" in the onsite and Founder Interview), and the
+      composer finds the activity's card by name. It may refuse on the
+      duplicate, or start a draft on the wrong activity; that draft fails the
+      agenda check and is deleted, but if the delete fails the orphaned draft
+      blocks later posts, as orphans have before. Fix: give each activity its
+      own name, then opt the stages in.
+    - Applied AI Engineer - New Grad, "Applied AI Interview": a stage of type
+      Lead, before Application Review. No schedule at a Lead-type stage has been
+      handled; not worth finding out on send.
+- **TEST should get its own interview plan** (October 29, 2026; Hayley to
+  raise with Mary). TEST and Product Designer both use the organisation's
+  "Default Interview Plan" (`88c2cce1`), Product Designer since February and
+  TEST since it was opened on October 12. Activities and templates are per
+  job, so rebuilding TEST's Onsite activity didn't touch Product Designer's;
+  but the stages are shared, so adding, removing or renaming a stage on TEST
+  (the role rebuilt constantly) would move Product Designer's too.
 - **Unverified: a "Welcome" multi-slot block on the Applied AI onsite.** It was
   carried forward from a conversation as a known gap, but nothing substantiates
   it: not this file, not the code, not a run. What's recorded (October 1) is
