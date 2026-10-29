@@ -40,6 +40,18 @@
     }
     field.querySelector("button").onclick = () => field.remove(); sessions.append(field);
   }
+  // An approval whose Ashby check stopped or left a draft, with nothing booked,
+  // can be released (the server checks again, and checks Ashby).
+  const releasable = row => row.state === "discussion_approved" && row.plan?.bookingPlan?.interviewScheduleId
+    && ["refused", "delete_failed", "uncertain", "composed"].includes(row.ashbyCheck?.state)
+    && !(row.ashbyCheck.state === "refused" && (!row.ashbyCheck.draftId || row.ashbyCheck.cleanup?.deleted === true));
+  // What a release would clear, shown before anything is cleared.
+  function releasePreview(p) {
+    return `<p><strong>Releasing schedule ${esc(p.scheduleId)}</strong> (Ashby shows it ${esc(p.ashbyStatus)}). This clears:</p><ul>${p.clearing.map(c =>
+      `<li>The approval ${esc(c.approval)} for ${esc(c.candidateName)}${c.activityTitle ? ` (${esc(c.activityTitle)})` : ""}, approved by ${esc(c.approvedBy || "unknown")}${c.approvedAt ? ` at ${esc(new Date(c.approvedAt).toLocaleString())}` : ""}; its Ashby check ${esc(c.state)}${c.step ? ` at "${esc(c.step)}"` : ""}.
+      ${c.draftId ? `Its draft ${esc(c.draftUrl)} will be deleted.` : "It has no draft in Ashby."}</li>`).join("")}</ul>
+      <button data-release-confirm="${esc(p.scheduleId)}" data-token="${esc(p.token)}">Release and delete the draft</button>`;
+  }
   function render() {
     const status = state.status;
     message.textContent = status.bookingMessage + (status.canApprove ? "" : " Individual coordinator sign-in is required to approve or draft schedules.");
@@ -61,6 +73,8 @@
         <button data-action="reconcile-slack" data-outcome="not_posted" data-id="${esc(row.id)}" ${status.canApprove ? "" : "disabled"}>It isn't there: clear it so it can be posted again</button>
         <label>or paste its link <input type="url" class="reconcile-link" placeholder="https://….slack.com/archives/…"></label>
         <button data-action="reconcile-slack" data-outcome="posted" data-id="${esc(row.id)}" ${status.canApprove ? "" : "disabled"}>It's there: record this message</button></div>` : ""}
+        ${releasable(row) ? `<div class="scheduling-actions"><p>Approved in Slack, but the Ashby check ${esc(row.ashbyCheck.state === "composed" ? "left a draft waiting" : "stopped")} and nothing was booked. Releasing discards this approval so the schedule can be posted again.</p>
+        <button data-release="${esc(row.plan.bookingPlan.interviewScheduleId)}" ${status.canApprove ? "" : "disabled"}>Release this schedule…</button><div class="release-preview"></div></div>` : ""}
         ${row.slack ? `<p>Shared in ${esc(row.slack.channel)}. Draft reference: ${esc(row.id)}</p>` : ""}
       </article>`;
     }).join("") : "<p>No schedule drafts yet.</p>";
@@ -108,6 +122,23 @@
       try { await api("/import/" + encodeURIComponent(sourceButton.dataset.import), {}); await refresh(); }
       catch (e) { message.textContent = e.message; }
       finally { sourceButton.disabled = false; }
+      return;
+    }
+    const releaseButton = event.target.closest("button[data-release],button[data-release-confirm]");
+    if (releaseButton && !releaseButton.disabled) {
+      releaseButton.disabled = true;
+      try {
+        if (releaseButton.dataset.release) {
+          const p = await api("/release/preview", { scheduleId: releaseButton.dataset.release });
+          releaseButton.closest(".scheduling-actions").querySelector(".release-preview").innerHTML = releasePreview(p);
+        } else {
+          const r = await api("/release", { scheduleId: releaseButton.dataset.releaseConfirm, token: releaseButton.dataset.token });
+          const said = r.released.map(x => `Approval ${x.approval}: ${x.released ? "released" : `not released (${x.reason})`}${x.draft ? `; draft ${x.draft.outcome === "deleted" ? "deleted" : x.draft.outcome === "gone" ? "already gone" : `NOT deleted (${x.draft.reason}): delete it by hand at ${x.draft.url}`}` : ""}.`).join(" ");
+          // After the refresh, which rewrites the status line.
+          await refresh(); message.textContent = said;
+        }
+      } catch (e) { message.textContent = e.message; }
+      finally { releaseButton.disabled = false; }
       return;
     }
     const button = event.target.closest("button[data-action]"); if (!button || button.disabled) return;

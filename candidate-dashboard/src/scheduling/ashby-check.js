@@ -17,6 +17,8 @@
 //     (the last four only where the post announced Send, plan.send)
 //   composed → sent | deleted | gone | delete_failed | superseded
 //   send_uncertain → sent | booked_invites_pending | booked_invites_unknown
+//   refused | delete_failed | uncertain | composed → released (a person
+//     released the schedule so it can be posted again; release below)
 // A robot send is `sent` only when Ashby's API shows the schedule Scheduled
 // *and* its page shows the invitations sent (October 20: a booking stood
 // with "Pending invites", and the message wrongly said they went out). The
@@ -54,6 +56,8 @@ function compareBooked(plan, booked) {
 
 const { availabilityChange } = require("./availability-gate");
 const { confirmedSend } = require("./slack");
+const { blocksRepost } = require("./store");
+const crypto = require("crypto");
 
 function createAshbyCheck({ store, worker, facts, slackApi, clientId, availability = null, now = () => Date.now(), log = console, sweepMs = 300000, pause = ms => new Promise(r => setTimeout(r, ms)) }) {
   let chain = Promise.resolve();
@@ -291,13 +295,73 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, availabili
     }
   }
 
+  // Releasing one schedule so it can be posted again (October 29: an orphan
+  // draft blocked every attempt on TEST's schedule 7cc41417, and clearing it
+  // took deleting the whole activity). One named schedule at a time, never a
+  // reset: the approval record is what stops a candidate getting two sets of
+  // invites. Only an unbooked run that refused or left its draft can be
+  // released; anything sent or possibly sent, still running, or meant to be
+  // booked by hand refuses, and so does a schedule Ashby shows as booked.
+  // `preview` says what would be cleared, with a token; `release` needs that
+  // token, so it clears exactly what was shown. Each draft is deleted by its
+  // recorded link (the worker's discard-draft); one that can't be is named,
+  // with its link, for deleting by hand.
+  const RELEASABLE = new Set(["refused", "delete_failed", "uncertain", "composed"]);
+  const SENT_OR_MAYBE = new Set(["sent", "booked_invites_pending", "booked_invites_unknown", "send_uncertain"]);
+  const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
+  async function releasable(scheduleId) {
+    if (typeof scheduleId !== "string" || !/^[0-9a-f-]{36}$/i.test(scheduleId)) fail(422, "Name one Ashby interview schedule ID to release.");
+    const rows = (await store.list()).filter(r => r.clientId === clientId && r.plan?.bookingPlan?.interviewScheduleId === scheduleId && r.state === "discussion_approved" && blocksRepost(r));
+    if (!rows.length) fail(404, `Nothing to release: no approval on schedule ${scheduleId} is blocking a new post.`);
+    for (const r of rows) {
+      const state = r.ashbyCheck?.state || "none";
+      if (SENT_OR_MAYBE.has(state)) fail(409, `Not released: the approval ${r.id} on this schedule was sent, or may have been (${state}). Nothing was cleared.`);
+      if (!RELEASABLE.has(state)) fail(409, `Not released: the approval ${r.id} on this schedule is "${state}", not a run that refused or left a draft. Nothing was cleared.`);
+    }
+    const plan = rows[0].plan.bookingPlan;
+    let booked;
+    try { booked = await facts.scheduleState(plan.applicationId, scheduleId); }
+    catch (e) { fail(503, `Not released: Ashby's schedule couldn't be read to confirm it isn't booked (${e.message}). Nothing was cleared.`); }
+    if (booked && SENT_STATUSES.has(booked.status)) fail(409, `Not released: Ashby shows this schedule as ${booked.status}. Nothing was cleared.`);
+    const clearing = rows.map(r => ({ approval: r.id, candidateName: r.plan.candidateName, activityTitle: r.plan.bookingPlan.activityTitle || null,
+      approvedBy: r.slackApproval?.name || r.slackApproval?.email || null, approvedAt: r.slackApproval?.at || null, state: r.ashbyCheck.state,
+      step: r.ashbyCheck.step || null, draftId: r.ashbyCheck.draftId || null, draftUrl: r.ashbyCheck.draftId ? draftUrl(r.ashbyCheck.draftId) : null, revision: r.revision }));
+    const token = crypto.createHash("sha256").update(JSON.stringify([scheduleId, clearing.map(c => [c.approval, c.revision])])).digest("hex").slice(0, 32);
+    return { rows, preview: { scheduleId, ashbyStatus: booked ? booked.status : "no longer in Ashby", clearing, token } };
+  }
+  async function preview(scheduleId) { return (await releasable(scheduleId)).preview; }
+  function release(scheduleId, token, user) {
+    return serially(async () => {
+      const { rows, preview: shown } = await releasable(scheduleId);
+      if (token !== shown.token) fail(409, "Not released: what this schedule would clear changed since it was shown. Look again before releasing.");
+      const released = [];
+      for (const row of rows) {
+        const check = row.ashbyCheck;
+        let draft = null;
+        if (check.draftId) {
+          let result;
+          try { result = await worker.call("discard-draft", { plan: row.plan.bookingPlan, draftId: check.draftId, proposalId: row.id }); }
+          catch (e) { result = { deleted: false, reason: e.message }; }
+          draft = { id: check.draftId, url: draftUrl(check.draftId), outcome: result?.deleted ? "deleted" : result?.absent ? "gone" : "not_deleted",
+            ...(result?.deleted || result?.absent ? {} : { reason: String(result?.reason || "the scheduling worker didn't delete it").slice(0, 300) }) };
+        }
+        const done = await setCheck(row.id, r => r.revision === row.revision, { state: "released", releasedAt: iso(), releasedBy: user.id, previous: { state: check.state, step: check.step || null, reason: check.reason || null }, draftId: check.draftId || null, ...(draft ? { draftUrl: draft.url, draft } : {}) });
+        if (!done) { released.push({ approval: row.id, released: false, reason: "it changed while being released", draft }); continue; }
+        log.log?.(`[ashby-check] Released ${row.id} (schedule ${scheduleId}, was ${check.state}) by ${user.id}; draft ${draft ? `${draft.id} ${draft.outcome}` : "none"}`);
+        await show(done);
+        released.push({ approval: row.id, released: true, draft });
+      }
+      return { scheduleId, released };
+    });
+  }
+
   function startSweeping() {
     const timer = setInterval(() => sweep().catch(e => log.warn(`[ashby-check] Sweep failed: ${e.message}`)), sweepMs);
     timer.unref?.();
     return () => clearInterval(timer);
   }
 
-  return { start, sweep, recover, startSweeping, idle: () => chain };
+  return { start, sweep, recover, startSweeping, preview, release, idle: () => chain };
 }
 
 module.exports = { draftUrl, createAshbyCheck, deleteByFor, compareBooked, UNSENT_BEFORE_FIRST_MS, UNSENT_AFTER_COMPOSE_MS };

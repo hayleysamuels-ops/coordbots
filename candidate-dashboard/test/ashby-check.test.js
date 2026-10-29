@@ -505,3 +505,58 @@ test("which sends count as clean", () => {
     assert.equal(confirmedSend({ ...ok, state }), false, state);
   assert.equal(confirmedSend(null), false);
 });
+
+test("release: one named schedule, previewed first; the draft is deleted by its link and the schedule can be posted again", async () => {
+  const { blocksRepost } = require("../src/scheduling/store");
+  const refused = { state: "refused", step: "check the composed draft", reason: "x", draftId: "dr-9", cleanup: { deleted: false, reason: "Couldn't find the Drafts tab." } };
+  const s = setup({ rows: [row("d1", { ashbyCheck: refused })], booked: { status: "Cancelled" }, discard: { deleted: true, draftId: "dr-9" } });
+  assert.equal(blocksRepost(s.store.data.d1), true, "blocks before release");
+  const p = await s.check.preview(SCHED);
+  assert.equal(p.ashbyStatus, "Cancelled");
+  assert.deepEqual(p.clearing.map(c => [c.approval, c.state, c.step, c.approvedBy, c.draftId, c.draftUrl]),
+    [["d1", "refused", "check the composed draft", "Anna Jones", "dr-9", "https://app.ashbyhq.com/schedules/drafts/dr-9"]]);
+  assert.deepEqual(s.calls, [], "a preview deletes nothing");
+  await assert.rejects(s.check.release(SCHED, "wrong", { id: "hayley" }), { status: 409 }, "the token from the preview is required");
+  const r = await s.check.release(SCHED, p.token, { id: "hayley" });
+  assert.deepEqual(r.released, [{ approval: "d1", released: true, draft: { id: "dr-9", url: "https://app.ashbyhq.com/schedules/drafts/dr-9", outcome: "deleted" } }]);
+  assert.deepEqual(s.calls, [{ action: "discard-draft", payload: { plan: bookingPlan, draftId: "dr-9", proposalId: "d1" } }]);
+  const c = s.store.data.d1.ashbyCheck;
+  assert.equal(c.state, "released");assert.equal(c.releasedBy, "hayley");assert.equal(c.previous.state, "refused");
+  assert.equal(blocksRepost(s.store.data.d1), false, "can be posted again");
+  assert.deepEqual(s.shown, ["released"]);
+  await assert.rejects(s.check.preview(SCHED), { status: 404 }, "nothing left to release");
+});
+
+test("release names a draft it couldn't delete, with its link, and still releases", async () => {
+  const s = setup({ rows: [row("d1", { ashbyCheck: { state: "delete_failed", draftId: "dr-9" } })], booked: null, discard: { deleted: false, reason: "Couldn't find the Drafts tab." } });
+  const p = await s.check.preview(SCHED);
+  assert.equal(p.ashbyStatus, "no longer in Ashby");
+  const r = await s.check.release(SCHED, p.token, { id: "hayley" });
+  assert.deepEqual(r.released[0].draft, { id: "dr-9", url: "https://app.ashbyhq.com/schedules/drafts/dr-9", outcome: "not_deleted", reason: "Couldn't find the Drafts tab." });
+  const calls = [];
+  const slack = createSlack("x", async (url, o) => { calls.push(JSON.parse(o.body)); return { ok: true, json: async () => ({ ok: true }) }; }, { displayTimeZone: "America/Los_Angeles", interactive: true });
+  await slack.markApproved({ channel: "C1", ts: "1.2", keepDetail: true, row: s.store.data.d1 });
+  const text = calls[0].blocks.map(b => b.text?.text || "").join("\n");
+  assert.match(text, /\*Released\* at .*: this approval was discarded so the schedule can be posted again\. Nothing from it was booked or sent\./);
+  assert.match(text, /\*Its draft couldn't be deleted\* \(Couldn't find the Drafts tab\.\)\. The draft is https:\/\/app\.ashbyhq\.com\/schedules\/drafts\/dr-9\./);
+});
+
+test("release refuses anything sent, possibly sent, booked in Ashby, unreadable, or not a refused or abandoned run", async () => {
+  for (const state of ["sent", "booked_invites_pending", "booked_invites_unknown", "send_uncertain"]) {
+    const s = setup({ rows: [row("d1", { ashbyCheck: { state, draftId: "dr-1" } })], booked: { status: "Cancelled" } });
+    await assert.rejects(s.check.preview(SCHED), e => e.status === 409 && /was sent, or may have been/.test(e.message), state);
+  }
+  for (const state of ["queued", "running", "too_close", "skipped", "superseded"]) {
+    const s = setup({ rows: [row("d1", { ashbyCheck: { state } })], booked: { status: "Cancelled" } });
+    await assert.rejects(s.check.preview(SCHED), e => e.status === 409 && /not a run that refused or left a draft/.test(e.message), state);
+  }
+  const booked = setup({ rows: [row("d1", { ashbyCheck: { state: "composed", draftId: "dr-1" } })], booked: { status: "Scheduled" } });
+  await assert.rejects(booked.check.preview(SCHED), e => e.status === 409 && /Ashby shows this schedule as Scheduled/.test(e.message));
+  const unread = setup({ rows: [row("d1", { ashbyCheck: { state: "composed", draftId: "dr-1" } })], booked: () => { throw new Error("timeout"); } });
+  await assert.rejects(unread.check.preview(SCHED), e => e.status === 503 && /couldn't be read/.test(e.message));
+  // Only the named schedule: another schedule's approval is never touched.
+  const other = setup({ rows: [row("d1", { ashbyCheck: { state: "refused", draftId: "dr-1", cleanup: { deleted: false } } })], booked: { status: "Cancelled" } });
+  await assert.rejects(other.check.preview("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"), { status: 404 });
+  await assert.rejects(other.check.preview(undefined), { status: 422 });
+  for (const s of [booked, unread, other]) assert.deepEqual(s.calls, [], "nothing deleted");
+});

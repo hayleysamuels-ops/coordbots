@@ -13,7 +13,7 @@ const path = require("path");
 //   availability_changed (the candidate's availability changed before the
 //     check; nothing was made in Ashby);
 //   deleted (the sweep deleted the unsent draft) or gone (the draft left Ashby
-//     unsent).
+//     unsent), or released (a person released the schedule: ashby-check.js).
 // Everything else blocks, including an approval with no check, or one skipped
 // or too close (booked by hand), an uncertain check or a failed delete (a
 // draft may be left), and superseded: a later approval for the schedule may
@@ -24,7 +24,7 @@ function blocksRepost(row) {
   if (row.state !== "discussion_approved" || !row.ashbyCheck) return true;
   const check = row.ashbyCheck;
   if (check.state === "refused") return !(!check.draftId || check.cleanup?.deleted === true);
-  return !["not_started", "availability_changed", "deleted", "gone"].includes(check.state);
+  return !["not_started", "availability_changed", "deleted", "gone", "released"].includes(check.state);
 }
 
 function createStore(dir) {

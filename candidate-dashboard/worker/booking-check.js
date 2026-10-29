@@ -382,6 +382,13 @@ function maskAgendaItem(text){
 const SESSION_LINE=/^\s*\d{1,2}:\d\d [AP]M - /;
 const SESSION_TIMES=/^(\d{1,2}:\d\d\s*[AP]M) - (\d{1,2}:\d\d\s*[AP]M)/;
 const DURATION=/(?<![\w:])(\d+)\s*(hours?|hrs?|h|minutes?|mins?|m)(?![a-z])/gi;
+// A duration written as hours:minutes ("---- 0:30 Break -----", the SOP's own
+// separator in Slack; October 29). Never a clock time: one followed by AM or PM
+// isn't a duration, and a bare one like "12:00" reads as 720 minutes, which
+// won't equal a gap.
+const CLOCK_DURATION=/(?<![\w:])(\d{1,2}):([0-5]\d)(?![\w:])(?!\s*[AP]M\b)/gi;
+const durationsIn=text=>[...[...text.matchAll(DURATION)].map(m=>Number(m[1])*(/^h/i.test(m[2])?60:1)),
+  ...[...text.matchAll(CLOCK_DURATION)].map(m=>Number(m[1])*60+Number(m[2]))];
 function agendaFromList(items){
   const norm=v=>String(v||'').replace(/\s+/g,' ').trim();
   const session=items.map(t=>SESSION_LINE.test(t));
@@ -391,9 +398,9 @@ function agendaFromList(items){
     const text=norm(raw);lines.push(text);
     const said=`agenda line "${text.slice(0,60)}"`;
     if(!session[k-1]||!session[k+1]){why.push(`${said} isn't between two sessions`);return;}
-    const durations=[...text.matchAll(DURATION)];
+    const durations=durationsIn(text);
     if(durations.length!==1){why.push(`${said} states ${durations.length} durations, not one`);return;}
-    const minutes=Number(durations[0][1])*(/^h/i.test(durations[0][2])?60:1);
+    const minutes=durations[0];
     const before=SESSION_TIMES.exec(norm(items[k-1])),after=SESSION_TIMES.exec(norm(items[k+1]));
     const end=before&&clockMinutes(before[2]),start=after&&clockMinutes(after[1]);
     if(end==null||start==null){why.push(`${said}: the times of the sessions around it can't be read`);return;}

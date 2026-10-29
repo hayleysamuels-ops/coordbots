@@ -423,3 +423,14 @@ test('read-back: a field passes only when the last accepted save holds the appro
   // No draft yet reads as a mismatch, never a pass.
   assert.equal(c.savedField('start',undefined,session,zone).ok,false);
 });
+
+test('a gap line may state its duration as hours:minutes, the SOP\'s Slack separator; a clock time never passes as one',()=>{
+  const S=(a,b)=>`${a} - ${b} (Onsite)`;
+  const around=mid=>c.agendaFromList([S('10:00 AM','10:30 AM'),mid,S('11:00 AM','11:30 AM')]).why;
+  assert.deepEqual(around('---- 0:30 Break -----'),[]);
+  assert.deepEqual(around('----- 30m Break -----'),[],'Ashby\'s own form, October 28');
+  assert.match(around('Lunch 12:00')[0],/says 720 minutes, but the gap .* is 30/);
+  assert.match(around('Break 0:30 PM')[0],/states 0 durations/);
+  assert.match(around('0:30 and 30m')[0],/states 2 durations/);
+  assert.match(around('0:45 Break')[0],/says 45 minutes/);
+});

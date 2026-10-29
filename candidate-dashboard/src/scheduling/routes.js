@@ -24,6 +24,16 @@ function routes(service) {
   router.post("/:id/share", handle(req => service.share(req.params.id, req.body, req.schedulingUser)));
   router.post("/:id/reject", handle(req => service.reject(req.params.id, req.body, req.schedulingUser)));
   router.post("/:id/reconcile-slack", handle(req => service.reconcileSlack(req.params.id, req.body, req.schedulingUser)));
+  // Releasing one schedule so it can be posted again (ashby-check.js release):
+  // first what it would clear, then the release itself, which needs the
+  // preview's token. Approvers only.
+  const releaser = req => {
+    if (!req.schedulingUser?.canApprove || !req.schedulingUser.id) throw Object.assign(new Error("Sign in with an individual scheduling approver account."), { status: 403 });
+    if (!service.ashbyCheck) throw Object.assign(new Error("The Ashby check isn't running here, so there's nothing to release."), { status: 503 });
+    return service.ashbyCheck;
+  };
+  router.post("/release/preview", handle(req => releaser(req).preview(req.body.scheduleId)));
+  router.post("/release", handle(req => releaser(req).release(req.body.scheduleId, req.body.token, req.schedulingUser)));
   router.post("/:id/book", handle(req => service.approveBooking(req.params.id, req.body, req.schedulingUser)));
   return router;
 }

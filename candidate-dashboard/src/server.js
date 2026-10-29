@@ -71,6 +71,8 @@ function createServer() {
         slackApi: scheduling.slackApi, clientId: connectionConfig.schedulingClientId, availability: availabilitySource });
       ashbyCheck.recover().catch(e => console.warn(`[ashby-check] Recovery failed: ${e.message}`));
       ashbyCheck.startSweeping();
+      // The review routes' release action (routes.js) uses it.
+      scheduling.ashbyCheck = ashbyCheck;
       slackInteractions = require("./scheduling/slack-interactions").createSlackInteractions({
         service: scheduling, slackApi: scheduling.slackApi, signingSecret: slackConfig.schedulingSlackSigningSecret,
         teamId: slackConfig.schedulingSlackTeamId, appId: slackConfig.schedulingSlackAppId,
