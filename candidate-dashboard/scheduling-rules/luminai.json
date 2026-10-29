@@ -3,7 +3,7 @@
   "$comment": "Reproduces candidate-dashboard on feature/client-ashby-connection as of 2026-09-22, plus revision 2's assumed 9–5 Pacific meeting hours and interviewer attendance. The dashboard reads this file at runtime.",
   "schemaVersion": 2,
   "clientId": "luminai",
-  "rulesRevision": 8,
+  "rulesRevision": 9,
 
   "trial": {
     "stageTitleContains": null,
@@ -25,6 +25,11 @@
     ],
     "preferredInterviewers": [
       { "match": "exact", "value": "Welcome", "emails": ["gabrielle@luminai.com"], "reason": "Luminai Scheduling SOP: Gabrielle Struckell hosts Welcome; another eligible interviewer only when Gabrielle is unavailable." }
+    ],
+    "alternatives": [
+      { "jobId": "5ba29c75-1b89-4ffc-8f58-5db207afc527", "label": "coding interviews", "interviews": ["Coding - Roomba", "Coding - URL Shortner"], "reason": "Forward Deployed Engineer onsite: one coding exercise per candidate (Anna, 2026-10-29). Names as Ashby spells them on this job." },
+      { "jobId": "009c1c4e-152b-44f0-bcb1-0879f8287b62", "label": "coding interviews", "interviews": ["Coding - Roomba", "URL Shortner"], "reason": "FDE Team Lead onsite: one coding exercise per candidate (Anna, 2026-10-29). Names as Ashby spells them on this job." },
+      { "jobId": "85218d8e-1de8-47ef-9ac9-f6b2067f89aa", "label": "coding interviews", "interviews": ["Coding - Roomba", "URL Shortener"], "reason": "FDE - New Grad onsite: one coding exercise per candidate (Anna, 2026-10-29). Names as Ashby spells them on this job." }
     ]
   },
 

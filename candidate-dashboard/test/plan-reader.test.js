@@ -117,3 +117,49 @@ test('a template two activities both fit is refused, not guessed',async()=>{
   const e=await readPlan(page({events:1,blocks:{Chat:[{duration:30,top:0}]}}),twins).then(()=>null,x=>x);
   assert.equal(e.status,409);assert.equal(e.kind,'ambiguous');assert.match(e.message,/matches 2 activities in this stage \("First", "Second"\)/);
 });
+
+// Alternatives (scheduling-rules sessions.alternatives): the FDE onsites list
+// two coding exercises in one activity, and only one runs per candidate.
+const fde=stage(['Onsite Interview Schedule',[['Welcome',15],['Coding - Roomba',60],['URL Shortner',60],['Solution Decomp',60]]],['Pre Onsite Chat Schedule',[['Pre Onsite Chat',30]]]);
+const coding={label:'coding interviews',titles:['Coding — Roomba','URL Shortner']};
+const onsitePage=(...coding)=>page({events:2+coding.length,blocks:{Welcome:[{duration:15,top:0}],...Object.fromEntries(coding.map((t,i)=>[t,[{duration:60,top:100+i*50}]])),'Solution Decomp':[{duration:60,top:300}]}});
+
+test('alternatives: a template with either one alone is read, and the other is named as left out',async()=>{
+  for(const [kept,out] of [['Coding - Roomba','URL Shortner'],['URL Shortner','Coding - Roomba']]){
+    // The row-count wait accepts the template's one-fewer count, so it doesn't
+    // sit out its 30 seconds.
+    const p=onsitePage(kept),counts=[];const wait=p.waitForFunction;p.waitForFunction=(fn,arg,opts)=>{if(Array.isArray(arg))counts.push(...arg);return wait(fn,arg,opts);};
+    const r=await readPlan(p,{...fde,alternatives:[coding]});
+    assert.ok(counts.includes(3),`waited for ${counts}`);
+    assert.equal(r.activityId,'a0');
+    assert.deepEqual(r.sessions.map(s=>s.title),['Welcome',kept,'Solution Decomp']);
+    assert.deepEqual(r.alternativesLeftOut.map(s=>s.title),[out]);
+    assert.equal(r.alternativesLeftOut[0].sessionId,out==='URL Shortner'?'s0.2':'s0.1');
+  }
+});
+
+test('alternatives: both in the template refuses, saying only one should run',async()=>{
+  const e=await readPlan(onsitePage('Coding - Roomba','URL Shortner'),{...fde,alternatives:[coding]}).then(()=>null,x=>x);
+  assert.equal(e.status,409);assert.equal(e.kind,'alternatives_both');
+  assert.equal(e.message,'Both coding interviews are in the template ("Coding - Roomba" and "URL Shortner"), and only one should run. Remove the one this candidate isn\'t taking from the schedule\'s template in Ashby, then load the plan again. Nothing was booked.');
+});
+
+test('alternatives: neither in the template refuses as a mismatch naming both',async()=>{
+  const e=await readPlan(onsitePage(),{...fde,alternatives:[coding]}).then(()=>null,x=>x);
+  assert.equal(e.status,409);assert.equal(e.kind,'mismatch');
+  assert.match(e.message,/"Onsite Interview Schedule": "Coding - Roomba" isn't in the template; "URL Shortner" isn't in the template/);
+});
+
+test('alternatives: a job with no pair declared behaves exactly as before',async()=>{
+  // One coding interview: refused as one interview fewer than the plan.
+  let e=await readPlan(onsitePage('Coding - Roomba'),fde).then(()=>null,x=>x);
+  assert.equal(e.kind,'mismatch');
+  assert.match(e.message,/"URL Shortner" isn't in the template; the template has 3 interviews and the plan has 4/);
+  // Both: matches, and both are carried (the case the rule exists to stop).
+  const r=await readPlan(onsitePage('Coding - Roomba','URL Shortner'),fde);
+  assert.deepEqual(r.sessions.map(s=>s.title),['Welcome','Coding - Roomba','URL Shortner','Solution Decomp']);
+  assert.deepEqual(r.alternativesLeftOut,[]);
+  // A pair declared for interviews this activity doesn't hold changes nothing.
+  const other=await readPlan(onsitePage('Coding - Roomba','URL Shortner'),{...fde,alternatives:[{label:'x',titles:['Case Study','Take-home']}]});
+  assert.deepEqual(other.sessions.map(s=>s.title),r.sessions.map(s=>s.title));
+});

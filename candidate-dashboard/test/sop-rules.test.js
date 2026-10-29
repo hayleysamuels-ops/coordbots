@@ -64,9 +64,13 @@ test('the preferred host is used, flagged, only when nobody else is free',()=>{
   assert.equal(r.proposals[0].flagCount,1);
 });
 
-test('Luminai\'s rules: WFH Wednesdays, Gabrielle for Welcome, deferred debriefs, Sanjay 07:00–17:00 Pacific, Joe Penn\'s and Kesava\'s accounts',()=>{
+test('Luminai\'s rules: WFH Wednesdays, Gabrielle for Welcome, deferred debriefs, Sanjay 07:00–17:00 Pacific, Joe Penn\'s and Kesava\'s accounts, the FDE coding alternatives',()=>{
   const r=loadRules({clientId:'luminai',log:{log(){},warn(){}}}).get();
-  assert.equal(r.rulesRevision,8);
+  assert.equal(r.rulesRevision,9);
+  // Each FDE job's two coding interviews, spelled as Ashby has them on that job.
+  assert.deepEqual(['5ba29c75-1b89-4ffc-8f58-5db207afc527','009c1c4e-152b-44f0-bcb1-0879f8287b62','85218d8e-1de8-47ef-9ac9-f6b2067f89aa','837cc1e9-15ed-4f07-8755-51ee29f4ea39'].map(j=>r.alternativesFor(j).map(g=>[g.label,...g.titles])),
+    [[['coding interviews','Coding - Roomba','Coding - URL Shortner']],[['coding interviews','Coding - Roomba','URL Shortner']],[['coding interviews','Coding - Roomba','URL Shortener']],[]]);
+  assert.equal(r.alternativeKey(' Coding — Roomba '),r.alternativeKey('coding - roomba'));
   assert.deepEqual([r.identityFor('Joe Penn'),r.identityFor(' joe  penn '),r.identityFor('Mary Petrino')],['joe@luminai.com','joe@luminai.com',null]);
   assert.deepEqual([r.identityFor('Kesava Kirupa Dinakaran'),r.identityFor('kesava  kirupa dinakaran')],['kesava@luminai.com','kesava@luminai.com']);
   assert.deepEqual([r.agenda.excludedWeekdays.days,r.agenda.excludedWeekdays.timezone],[['wed'],'America/Los_Angeles']);
@@ -103,4 +107,17 @@ test('interviewer identity overrides need a name, a lowercase email and a reason
   // Optional: rules without the section have no overrides.
   const d=doc(()=>{});delete d.interviewerIdentities;
   assert.equal(parseRules(d,'luminai').identityFor('Joe Penn'),null);
+});
+
+test('an alternatives rule needs a job ID, a label, two or more different interviews and a reason, each interview in one rule per job',()=>{
+  const {parseRules}=require('../src/scheduling/rules');
+  const job='5ba29c75-1b89-4ffc-8f58-5db207afc527';
+  const doc=rule=>{const d=JSON.parse(JSON.stringify(require('../scheduling-rules/luminai.json')));d.sessions.alternatives=rule;return d;};
+  const ok={jobId:job,label:'coding interviews',interviews:['A','B'],reason:'One per candidate.'};
+  assert.deepEqual(parseRules(doc([ok]),'luminai').alternativesFor(job.toUpperCase()),[{label:'coding interviews',titles:['A','B']}]);
+  assert.deepEqual(parseRules(doc(undefined),'luminai').alternativesFor(job),[]);
+  for(const [rule,pattern] of [[{...ok,jobId:'FDE'},/lowercase Ashby job ID/],[{...ok,label:' '},/needs a label/],[{...ok,interviews:['A']},/two or more different/],[{...ok,interviews:['Coding - A','coding — a']},/two or more different/],[{...ok,reason:''},/needs a reason/]])
+    assert.throws(()=>parseRules(doc([rule]),'luminai'),pattern);
+  assert.throws(()=>parseRules(doc([ok,{...ok,interviews:['b','C']}]),'luminai'),/"b" is in two alternatives rules for job/);
+  assert.throws(()=>parseRules(doc({}),'luminai'),/sessions.alternatives must be a list/);
 });

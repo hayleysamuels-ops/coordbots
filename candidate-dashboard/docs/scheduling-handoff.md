@@ -391,25 +391,38 @@ done and verified, in this order:
     A worker without `activityId` still works where a stage has one activity,
     and asks to be updated where it has more.
 
-  **Not handled: alternatives inside one activity. The FDE onsites are off
-  because of it** (October 29, 2026). All three Forward Deployed Engineer jobs
-  (FDE, Team Lead, New Grad) list "Coding - Roomba" and "URL Shortener" as
-  two interviews inside their one Onsite activity. Anna confirmed only one runs
-  per onsite. The reader compares the template with that activity, so either:
-  - **One coding interview removed from the template:** the template has one
-    interview fewer than the activity, and the reader refuses. That's safe, but
-    the onsite never posts.
-  - **Both left in the template (the dangerous case):** the template matches,
-    the plan carries both 60-minute coding sessions, and the bot books both.
-    The candidate sits two coding exercises. That's candidate-facing, and
-    nothing flags it.
+  **Alternatives inside one activity** (October 29, 2026, rules revision 9).
+  All three Forward Deployed Engineer jobs (FDE, Team Lead, New Grad) list two
+  60-minute coding interviews inside their one Onsite activity. Anna confirmed
+  only one runs per onsite. Before this rule, either:
+  - **One coding interview removed from the template:** the reader refused
+    (one interview fewer than the activity). Safe, but the onsite never posted.
+  - **Both left in the template (the dangerous case):** the template matched,
+    the plan carried both, and the bot would have booked both. The candidate
+    sits two coding exercises, and nothing flagged it.
 
-  Supporting it needs a rule naming the alternative pair, so the reader accepts
-  either one but not both. Until then the FDE onsites stay off
-  `BOOKING_COMPOSE_JOBS`. Every other FDE stage has one activity with one
-  interview, the shape that has been booking, and is opted in compose-only
-  (not send). That includes Team Lead's Closing & Final Conversations: the risk
-  is about shape, not how late the stage is.
+  How it works now:
+  - `sessions.alternatives` in the client's rules names, per job, interviews of
+    which only one runs, with a label for the refusal. Another role declares a
+    group there; no code change. Names match ignoring case, spacing and the kind
+    of dash, so spell them as Ashby does. **Ashby spells the second coding
+    interview differently on each job:** FDE "Coding - URL Shortner", Team Lead
+    "URL Shortner", New Grad "URL Shortener". The rules use those spellings.
+  - The dashboard sends the job's groups with the plan read.
+    `worker/plan-reader.js`:
+    - **one in the template:** accepted; the others are left out and named
+      (`alternativesLeftOut`);
+    - **both:** refused, `Both coding interviews are in the template ("…" and
+      "…"), and only one should run.`;
+    - **neither:** the ordinary mismatch, naming both as missing.
+  - `fullPlan` (`booking-routes.js`) checks the worker's answer rather than
+    trusting it: only a declared group's interviews may be left out, each group
+    keeps exactly one, and more than one kept refuses with the same words (so a
+    worker without the rule can't pass the dangerous case either). The left-out
+    interview is removed from the plan's activity too.
+  - **Not shown yet:** the dashboard and the Slack post don't say which coding
+    interview was left out; the agenda simply lists the one that runs.
+  - **Unverified on a real onsite.** The first FDE onsite post is the check.
 - **Unverified: a "Welcome" multi-slot block on the Applied AI onsite.** It was
   carried forward from a conversation as a known gap, but nothing substantiates
   it: not this file, not the code, not a run. What's recorded (October 1) is

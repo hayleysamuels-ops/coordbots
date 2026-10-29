@@ -54,3 +54,43 @@ test('the full plan uses the activity the template belongs to',async t=>{
  observed={sessions:applied};
  r=await load();assert.equal(r.status,409);assert.match((await r.json()).error,/didn't say which one the template is\. Update the scheduling worker\./);
 });
+
+// Alternatives (scheduling-rules sessions.alternatives): the worker leaves out
+// the coding interview the template doesn't have, and the dashboard checks it.
+test('the full plan carries one of a job\'s alternatives and refuses both',async t=>{
+ const {parseRules}=require('../src/scheduling/rules');
+ const doc=JSON.parse(JSON.stringify(require('../scheduling-rules/luminai.json')));
+ const rules={get:()=>parseRules(doc,'luminai')};
+ const s=(i,title,d)=>({sessionId:'s'+i,interviewId:'i'+i,title,durationMinutes:d});
+ const onsite=[s(0,'Welcome',15),s(1,'Coding - Roomba',60),s(2,'URL Shortner',60),s(3,'Solution Decomp',60)];
+ const plan={applicationId:'app',candidateId:'candidate',stageId:'stage',templateRevision:'v1',jobId:'009c1c4e-152b-44f0-bcb1-0879f8287b62',activities:[{id:'a0',title:'Onsite Interview Schedule',sessions:onsite}]};
+ let observed,sent;
+ const app=express();app.use(express.json());app.use((req,res,next)=>{req.schedulingUser={id:'coordinator',canApprove:true};next();});
+ app.use('/booking',bookingRoutes({rules,facts:{application:async()=>plan},availability:{requests:async()=>({stageId:'stage',requests:[{scheduleId:'request',updatedAt:'version'}]})},inspectPlan:async input=>{sent=input;return {...input,...observed};}}));
+ const server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});t.after(()=>new Promise(resolve=>server.close(resolve)));
+ const load=async()=>{const r=await fetch(`http://127.0.0.1:${server.address().port}/booking/full-plan`,{method:'POST',headers,body:JSON.stringify({applicationId:'app',scheduleId:'request'})});return {status:r.status,body:await r.json()};};
+ // Either one alone: carried, the other out of the plan and the activity.
+ for(const [kept,out] of [[1,2],[2,1]]){
+  observed={activityId:'a0',sessions:onsite.filter((_,i)=>i!==out),alternativesLeftOut:[onsite[out]]};
+  const r=await load();assert.equal(r.status,200,JSON.stringify(r.body));
+  assert.deepEqual(sent.alternatives,[{label:'coding interviews',titles:['Coding - Roomba','URL Shortner']}]);
+  assert.deepEqual(r.body.sessions.map(x=>x.title),['Welcome',onsite[kept].title,'Solution Decomp']);
+  assert.deepEqual(r.body.activities[0].sessions.map(x=>x.title),['Welcome',onsite[kept].title,'Solution Decomp']);
+  assert.deepEqual(r.body.alternativesLeftOut,[onsite[out].title]);
+ }
+ // Both: a worker without the rule matches a template that has both. Refused.
+ observed={activityId:'a0',sessions:onsite};
+ let r=await load();assert.equal(r.status,409);
+ assert.equal(r.body.error,'Both coding interviews are in the template ("Coding - Roomba" and "URL Shortner"), and only one should run. Remove the one this candidate isn\'t taking from the schedule\'s template in Ashby, then load the plan again. Nothing was booked.');
+ // Neither, or something left out that no rule covers: refused.
+ observed={activityId:'a0',sessions:[onsite[0],onsite[3]],alternativesLeftOut:[onsite[1],onsite[2]]};
+ r=await load();assert.equal(r.status,409);assert.match(r.body.error,/^None of the coding interviews \("Coding - Roomba", "URL Shortner"\) is in the template/);
+ observed={activityId:'a0',sessions:[onsite[0],onsite[1]],alternativesLeftOut:[onsite[2],onsite[3]]};
+ r=await load();assert.equal(r.status,409);assert.match(r.body.error,/no alternatives rule covers/);
+ // A job with no rule: every interview required, as before.
+ plan.jobId='837cc1e9-15ed-4f07-8755-51ee29f4ea39';
+ observed={activityId:'a0',sessions:onsite};
+ r=await load();assert.equal(r.status,200);assert.deepEqual(sent.alternatives,[]);assert.equal(r.body.sessions.length,4);assert.deepEqual(r.body.alternativesLeftOut,[]);
+ observed={activityId:'a0',sessions:onsite.filter((_,i)=>i!==2),alternativesLeftOut:[onsite[2]]};
+ r=await load();assert.equal(r.status,409);assert.match(r.body.error,/no alternatives rule covers/);
+});

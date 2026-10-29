@@ -164,6 +164,21 @@
               "reason": { "type": ["string", "null"] }
             }
           }
+        },
+        "alternatives": {
+          "type": "array",
+          "description": "Interviews in one scheduling activity of which only one runs per candidate, per job (Luminai: the FDE onsites list two coding exercises). The schedule's template must keep exactly one of them: the plan reader accepts a template with any one alone and leaves the others out of the booking; both refuses, saying only one should run; none refuses as a mismatch. Names are matched to the job's Ashby interview names ignoring case, spacing and the kind of dash, so spell them as Ashby does. Optional; a job with no rule is compared as before, every interview required.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["jobId", "label", "interviews", "reason"],
+            "properties": {
+              "jobId": { "type": "string", "pattern": "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$" },
+              "label": { "type": "string", "minLength": 1, "description": "What the interviews are, plural, for the refusal: \"Both <label> are in the template\"." },
+              "interviews": { "type": "array", "minItems": 2, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+              "reason": { "type": "string", "minLength": 1 }
+            }
+          }
         }
       }
     },

@@ -66,6 +66,22 @@ function parseRules(doc, clientId) {
     if (!["exact", "contains"].includes(p.match) || typeof p.value !== "string" || !p.value.trim()) invalid("Each preferred-interviewer rule needs match (exact or contains) and a session name.");
     if (!Array.isArray(p.emails) || !p.emails.length || p.emails.some(e => !EMAIL.test(e))) invalid(`The preferred interviewers for "${p.value}" must be lowercase emails.`);
   }
+  // Interviews in one activity of which only one runs per candidate (the FDE
+  // onsites' two coding exercises), per job. Names match whatever dash is used,
+  // ignoring case and spacing, as worker/plan-reader.js matches them.
+  const titleKey = t => String(t || "").replace(/[\u2010-\u2015\u2212]/g, "-").replace(/\s+/g, " ").trim().toLowerCase();
+  const alternatives = doc.sessions?.alternatives ?? [];
+  if (!Array.isArray(alternatives)) invalid("sessions.alternatives must be a list.");
+  const alternativeTitles = new Map();
+  for (const a of alternatives) {
+    if (!/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(a?.jobId || "")) invalid("Each alternatives rule needs a lowercase Ashby job ID.");
+    if (typeof a.label !== "string" || !a.label.trim()) invalid(`The alternatives rule for job ${a.jobId} needs a label (what the interviews are, e.g. "coding interviews").`);
+    if (!Array.isArray(a.interviews) || a.interviews.some(t => typeof t !== "string" || !t.trim()) || new Set(a.interviews.map(titleKey)).size !== a.interviews.length || a.interviews.length < 2) invalid(`The alternatives rule for job ${a.jobId} needs two or more different interview names.`);
+    if (typeof a.reason !== "string" || !a.reason.trim()) invalid(`The alternatives rule for job ${a.jobId} needs a reason.`);
+    const seen = alternativeTitles.get(a.jobId) || new Set();
+    for (const t of a.interviews) { if (seen.has(titleKey(t))) invalid(`"${t}" is in two alternatives rules for job ${a.jobId}.`); seen.add(titleKey(t)); }
+    alternativeTitles.set(a.jobId, seen);
+  }
   const debriefs = doc.debriefs;
   if (debriefs !== undefined && (typeof debriefs?.afterOnsiteConfirmed !== "boolean" || typeof debriefs?.meetingHoursExempt !== "boolean")) invalid("debriefs needs afterOnsiteConfirmed and meetingHoursExempt, each true or false.");
   // The Ashby account an ambiguous interviewer name means. Keys are matched
@@ -89,6 +105,9 @@ function parseRules(doc, clientId) {
   return {
     clientId, rulesRevision: doc.rulesRevision,
     agenda: { singleDay: doc.agenda.singleDay === true, minBreakMinutes, maxGapMinutes, maxGapCount, excludedWeekdays: ex ? { days: [...ex.days], timezone: ex.timezone, reason: ex.reason || null } : null },
+    // This job's alternatives, as the template reader takes them: [] when none.
+    alternativesFor: jobId => alternatives.filter(a => a.jobId === String(jobId || "").toLowerCase()).map(a => ({ label: a.label.trim(), titles: [...a.interviews] })),
+    alternativeKey: titleKey,
     // Emails in preference order for this session name; [] when none applies.
     preferredFor: title => [...new Set(preferred.filter(p => matches(p, title)).flatMap(p => p.emails))],
     debriefs: debriefs ? { afterOnsiteConfirmed: debriefs.afterOnsiteConfirmed, meetingHoursExempt: debriefs.meetingHoursExempt } : { afterOnsiteConfirmed: false, meetingHoursExempt: false },
