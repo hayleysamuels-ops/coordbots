@@ -164,11 +164,11 @@ test("the Slack message says what's true in every state, and never that somethin
   const states = {
     queued: [/Waiting to be checked in Ashby/, /Nothing is booked or sent/],
     running: [/Checking in Ashby\* \(started Oct 14, 3:00 PM PDT\)/, /stopping before Send\. Nothing will be booked or sent/],
-    composed: [/Composed and waiting in Ashby\* \(checked Oct 14, 3:00 PM PDT\): open TEST's First Round Interview Schedule in Ashby, go to its Drafts tab, open the draft and click Send\. The candidate's confirmation email will come from Anna Jones &lt;anna@luminai\.com&gt;\./, /Not sent yet\.\* If it isn't sent by Oct 15, 3:00 PM PDT, the draft is deleted and this needs booking by hand/],
+    composed: [/Composed and waiting in Ashby\* \(checked Oct 14, 3:00 PM PDT\): open TEST's First Round Interview Schedule in Ashby, choose Drafts in the left sidebar under SCHEDULES, open the draft and click Send\. The candidate's confirmation email will come from Anna Jones &lt;anna@luminai\.com&gt;\./, /Not sent yet\.\* If it isn't sent by Oct 15, 3:00 PM PDT, the draft is deleted and this needs booking by hand/],
     sent: [/Sent in Ashby\* \(seen Oct 14, 3:00 PM PDT\): what was booked matches this approval/],
     deleted: [/Draft deleted unsent\* at Oct 14, 3:00 PM PDT\. \*Not booked:\* this needs booking in Ashby by hand\./],
     gone: [/no longer in Ashby/, /Not booked:\* book this schedule in Ashby by hand/],
-    delete_failed: [/couldn't be deleted/, /The draft is https:\/\/app\.ashbyhq\.com\/schedules\/drafts\/dr-1\. Delete it from the Drafts tab/, /never "Delete Activity"/],
+    delete_failed: [/couldn't be deleted/, /The draft is https:\/\/app\.ashbyhq\.com\/schedules\/drafts\/dr-1\. Delete it from TEST's First Round Interview Schedule in Ashby: choose Drafts in the left sidebar under SCHEDULES/, /never "Delete Activity"/],
     superseded: [/Superseded\* at Oct 14, 3:00 PM PDT by a later approval/],
     refused: [/The Ashby check stopped\* at "compose session 1": The composer shows times in "MDT", not EDT\./, /The draft it made was deleted\./, /Not booked:\* book this schedule in Ashby by hand/],
     not_started: [/didn't start:\* Ashby is busy\./, /no draft was made/],

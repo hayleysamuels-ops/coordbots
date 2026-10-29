@@ -75,7 +75,7 @@ async function run({env,argv,chromium,loadSession,now=Date.now,log=()=>{},compos
 if(require.main===module){
   let draftId=null;
   setTimeout(()=>{
-    console.error(`[booking-dry-run] timed out after ${DEADLINE_SECONDS}s. The draft ${draftId?draftId+' ':''}may not have been deleted: check the schedule's Drafts tab.`);
+    console.error(`[booking-dry-run] timed out after ${DEADLINE_SECONDS}s. The draft ${draftId?draftId+' ':''}may not have been deleted: check the schedule's Drafts page (left sidebar, under SCHEDULES).`);
     process.exit(124);
   },DEADLINE_SECONDS*1000).unref();
   // A shell in the container is root. Run as the worker's own user, as

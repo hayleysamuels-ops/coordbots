@@ -580,7 +580,8 @@ done and verified, in this order:
     The first real send uses hayleysamuels511@gmail.com as candidate and hayley@luminai.com as
     interviewer. Development runs locally against TEST with Hayley's session first.
   - **Discarding a draft:** `ApiDeleteDraftInterviewSchedule(draftInterviewScheduleId)`, from the
-    schedule's **Drafts** tab (`/schedules/<schedule>/drafts`), via the unlabelled icon button
+    schedule's **Drafts** page (`/schedules/<schedule>/drafts`; in Ashby, **Drafts** in the
+    schedule's left sidebar under SCHEDULES, between Current and Template — not a tab across the top), via the unlabelled icon button
     beside the draft's link. It fires on one click with **no confirmation**. The worker finds
     it only as the single button beside the single link to that exact draft, and the
     permission is bound to that draft's ID. An unsent draft is visible: the schedule's header
@@ -596,7 +597,7 @@ done and verified, in this order:
     text is exactly the target time, never Enter. End moves with Start, keeping the length.
     Saves carry exact instants with offset (`2026-10-12T13:00:00.000-06:00`).
   - **Discard verified (October 13):** with only `ApiDeleteDraftInterviewSchedule` permitted, once,
-    bound to the TEST draft `28d21b6a…`, one click deleted it (`200`) and the Drafts tab then
+    bound to the TEST draft `28d21b6a…`, one click deleted it (`200`) and the Drafts page then
     listed no drafts. TEST's availability-request schedule (`69ffae5a…`) is still open.
 - **Booking through Ashby's API sends nothing** (tested October 12, 2026). Don't repeat this test.
   - **What was blocking it:** nothing in Ashby's permissions. "Blocked on IT permissions"
@@ -727,7 +728,7 @@ even if clicked.
      --plan-base64 <base64 plan JSON>`. It runs as the worker's user, has a
      240-second deadline (exit 124, naming any draft left behind), and prints a
      report without page contents.
-  3. Check the schedule's Drafts tab is empty.
+  3. Check the schedule's Drafts page is empty (left sidebar, under SCHEDULES).
 - **Run in the worker, October 14, 2026** (TEST, First Round, Hayley then Mary on
   October 15, 19:00–20:00Z), Anna's saved session:
   - Two plans in America/New_York (taken then, wrongly, to be Anna's account
@@ -736,7 +737,7 @@ even if clicked.
     `9abfb9f`), showed "America/Denver" and "MDT".
   - The same plan in America/Denver: `dry_run_complete`, 11/11 checks, 3 saves
     with none refused, the confirmation email from "Anna Jones
-    <anna@luminai.com>", the draft deleted, and the Drafts tab empty afterwards.
+    <anna@luminai.com>", the draft deleted, and the Drafts page empty afterwards.
     The only blocked write was the expected `ApiUpdateDraftScheduleCalendarSettings`.
 - **Not yet verified:**
   - What sets the per-draft zone dropdown's starting value on a new draft. It has
@@ -1179,7 +1180,7 @@ file permits it or the composer clicks Schedule.
   In the worker, Ashby work takes turns: a check waits up to 2 minutes for running
   inspections, and an inspection during a check gets "Ashby is busy". A check also
   won't start while the Ashby sign-in window is open.
-- **Before making a draft** the check reads the schedule's Drafts tab. A draft the
+- **Before making a draft** the check reads the schedule's Drafts page. A draft the
   dashboard composed for the same schedule earlier (from an earlier approval) is
   deleted first, by its recorded ID, and that earlier message says "Superseded".
   Any other draft refuses: someone else's draft could be sent by mistake.
@@ -1253,7 +1254,7 @@ file permits it or the composer clicks Schedule.
   - Whether a reopened draft keeps everything, including "Calendar Invites: Send
     Now" and the confirmation email settings.
   - Who invitations come from when someone other than Anna clicks Send.
-  - That Ashby's Drafts tab lists every draft on a schedule (the "no other
+  - That Ashby's Drafts page lists every draft on a schedule (the "no other
     drafts" check relies on it).
   - TEST is at Onsite Interview in Ashby (October 14), with availability submitted
     on its Onsite schedule (`d98941b3…`, now on the allowlist). Its earlier

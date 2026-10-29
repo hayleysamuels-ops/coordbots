@@ -157,7 +157,7 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
   // Activity", which cancels the whole scheduling activity.
   const scheduleName = plan => `${escape(plan.candidateName)}'s ${escape(plan.bookingPlan?.activityTitle || "interview schedule")}`;
   const scheduleIn = plan => `${scheduleName(plan)} in Ashby`;
-  const deleteByHand = (plan, check) => `${check?.draftId ? `The draft is ${check.draftUrl || `https://app.ashbyhq.com/schedules/drafts/${check.draftId}`}. ` : ""}Delete it from the Drafts tab of ${scheduleIn(plan)}, with the button beside the draft (never "Delete Activity").`;
+  const deleteByHand = (plan, check) => `${check?.draftId ? `The draft is ${check.draftUrl || `https://app.ashbyhq.com/schedules/drafts/${check.draftId}`}. ` : ""}Delete it from ${scheduleIn(plan)}: choose Drafts in the left sidebar under SCHEDULES, then the button beside the draft (never "Delete Activity").`;
   // The Ashby check's state, under the approval (ashby-check.js). Every line
   // says plainly whether anything is booked or sent.
   // The candidate's confirmation email after a robot send, from Ashby's answer
@@ -177,7 +177,7 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
         : `*Checking in Ashby* (started ${escape(when(check.startedAt))}): composing this schedule as the connected Ashby account, stopping before Send. Nothing will be booked or sent.`;
       // A confirmation email that's off is said first and plainly: the SOP
       // expects one, and nothing else would tell the sender it won't go.
-      case "composed": return `${check.sendSkipped ? `*Not sent automatically:* ${escape(check.sendSkipped)} A person needs to send it.\n` : ""}${check.confirmationEmail === "off" ? "⚠️ *No candidate confirmation email will be sent:* it's turned off for this schedule in Ashby. If the candidate needs one, turn it on in the draft before sending and check it there.\n" : ""}*Composed and waiting in Ashby* (checked ${escape(when(check.composedAt))}): open ${scheduleIn(plan)}, go to its Drafts tab, open the draft and click Send.${check.from ? ` The candidate's confirmation email will come from ${escape(check.from)}.` : ""}\n*Not sent yet.* If it isn't sent by ${escape(when(check.deleteBy))}, the draft is deleted and this needs booking by hand. If you change it in Ashby, or send it much later, check calendars again first.`;
+      case "composed": return `${check.sendSkipped ? `*Not sent automatically:* ${escape(check.sendSkipped)} A person needs to send it.\n` : ""}${check.confirmationEmail === "off" ? "⚠️ *No candidate confirmation email will be sent:* it's turned off for this schedule in Ashby. If the candidate needs one, turn it on in the draft before sending and check it there.\n" : ""}*Composed and waiting in Ashby* (checked ${escape(when(check.composedAt))}): open ${scheduleIn(plan)}, choose Drafts in the left sidebar under SCHEDULES, open the draft and click Send.${check.from ? ` The candidate's confirmation email will come from ${escape(check.from)}.` : ""}\n*Not sent yet.* If it isn't sent by ${escape(when(check.deleteBy))}, the draft is deleted and this needs booking by hand. If you change it in Ashby, or send it much later, check calendars again first.`;
       // Sent by the robot's one click: only with Ashby's own evidence that the
       // invitations went out (ashby-check.js). The confirmation email isn't
       // claimed delivered, only whether it was on.

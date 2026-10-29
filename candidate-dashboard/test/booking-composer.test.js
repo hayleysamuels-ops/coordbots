@@ -27,19 +27,21 @@ const plan={jobId:'job-1',candidateId:'cand-1',applicationId:'app-1',interviewSc
 // button (which must never be clicked) beside "Start Manual Schedule".
 // `zone` gives the composer one session's fields and a time-zone button per
 // label (a label or a list; '' for no button). `existing` lists drafts already on the
-// schedule's Drafts tab; the run's own draft (draft-1) joins them once created.
+// schedule's Drafts page; the run's own draft (draft-1) joins them once created.
 // Drafts live on the stand-in's server side, as Ashby's do, so a full load
 // (the cleanup starts from one) still lists them; other page state starts over.
 // `emptyDrafts` is how the Drafts route shows a schedule with none: its heading
-// ('heading', seen October 29 00:52), the schedule's tabs without a Drafts tab
+// ('heading', seen October 29 00:52), the schedule's sidebar links without Drafts
 // ('hidden', seen October 29 on a cancelled schedule), or nothing ('broken').
 // `stuck` gives a draft page that, once shown, ignores route changes and asks
 // before the page is left, like the October 28 composer stuck on "Saving...".
-function app({menu=['Send Direct Booking Link','Request Candidate Availability','Manual Schedule','View All Scheduling Options'],dialogAfterManual=null,strayWrite=null,submitted=false,zone=null,existing=[],stuck=false,emptyDrafts='heading'}={}){
+function app({menu=['Send Direct Booking Link','Request Candidate Availability','Manual Schedule','View All Scheduling Options'],dialogAfterManual=null,strayWrite=null,submitted=false,zone=null,existing=[],stuck=false,emptyDrafts='heading',realtime=false}={}){
   return `<!doctype html><html><body><nav><a href="/candidates/pipeline">Pipeline</a></nav><main id="m"></main><script>
   const drafts=${JSON.stringify(existing)};
   const gql=(name,variables)=>fetch('/api/graphql',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operationName:name,query:'mutation '+name+' { x }',variables})}).then(r=>r.json());
   // Like Ashby, every page loads something: one read query, answered by the stand-in.
+  // realtime: like Ashby since October 29, every full load asks for a live-update token.
+  if(${JSON.stringify(realtime)})gql('ApiCreateRealtimeToken',{}).catch(()=>{});
   function render(){if(window.__stuck)return;fetch('/api/graphql',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operationName:'ApiLoad',query:'query ApiLoad { x }'})});
     const p=location.pathname,m=document.getElementById('m');m.innerHTML='';
     if(p.endsWith('/feed')){
@@ -54,7 +56,7 @@ function app({menu=['Send Direct Booking Link','Request Candidate Availability',
             history.pushState({},'','/schedules/drafts/'+r.data.draftInterviewSchedule.id);render();
             if(${JSON.stringify(dialogAfterManual)}){const d=document.createElement('div');d.setAttribute('role','alertdialog');d.innerHTML='<p>'+${JSON.stringify(dialogAfterManual)}+'</p><button>Confirm Anyway</button><button>Cancel</button>';document.body.appendChild(d);}}});};
     } else if(p.endsWith('/drafts')&&!drafts.length&&${JSON.stringify(emptyDrafts)}!=='heading'){
-      // No drafts: the schedule's tabs without a Drafts tab ('hidden'), or a page that never loaded ('broken').
+      // No drafts: the schedule's sidebar links without Drafts ('hidden'), or a page that never loaded ('broken').
       if(${JSON.stringify(emptyDrafts)}==='hidden')m.innerHTML='<nav><a href="/schedules/sched-1">Current</a><a href="/schedules/sched-1/template">Template</a></nav>';
     } else if(p.endsWith('/drafts')){
       m.innerHTML='<h2>Draft Schedules</h2>'+drafts.map(id=>'<div><a href="/schedules/drafts/'+id+'">open</a><button data-id="'+id+'"></button></div>').join('');
@@ -277,7 +279,7 @@ test('a screen still loading is never read: ready() refuses while a request is i
 
 test('a refused run\'s draft is deleted from a fresh load even when the composer ignores leaving, and the link is recorded',async t=>{
   // October 28: from a composer stuck on "Saving...", changing the route in-app
-  // never showed the Drafts tab, and the draft was left.
+  // never showed the Drafts page, and the draft was left.
   const r=await run(t,{appOptions:{stuck:true}});if(!r)return;
   assert.equal(r.report.status,'refused');
   assert.deepEqual(r.report.cleanup,{deleted:true,draftId:'draft-1'});
@@ -285,7 +287,7 @@ test('a refused run\'s draft is deleted from a fresh load even when the composer
   assert.deepEqual(r.received,[OP.create,discarded('draft-1')]);
 });
 
-test('a schedule plainly showing no Drafts tab has no drafts; a page that didn\'t load is still a failure',async t=>{
+test('a schedule plainly showing no Drafts page has no drafts; a page that didn\'t load is still a failure',async t=>{
   const del=draftId=>({context,page,respond,timing})=>discardDraft({context,page,plan,draftId,respond,timing});
   // The sweep or a release deleting a draft that's already gone: nothing to clean, so no failure and no link to chase.
   const hidden=await run(t,{appOptions:{emptyDrafts:'hidden'},task:del('d-old')});if(!hidden)return;
@@ -293,21 +295,41 @@ test('a schedule plainly showing no Drafts tab has no drafts; a page that didn\'
   assert.deepEqual(hidden.received,[]);
   const broken=await run(t,{appOptions:{emptyDrafts:'broken'},task:del('d-old')});
   assert.equal(broken.report.deleted,false);assert.notEqual(broken.report.absent,true);
-  assert.match(broken.report.reason,/^Couldn't find the Drafts tab: the schedule's Current and Template tabs aren't showing\.$/);
-  // Before making a draft, a schedule with no Drafts tab has no other drafts.
+  assert.match(broken.report.reason,/^Couldn't find the schedule's Drafts page \(left sidebar, under SCHEDULES\): the schedule's Current and Template links \(left sidebar, under SCHEDULES\) aren't showing\.$/);
+  // Before making a draft, a schedule with no Drafts page has no other drafts.
   const first=await run(t,{appOptions:{emptyDrafts:'hidden'},runOptions:{checkExistingDrafts:true,keepOnSuccess:true}});
   assert.ok(first.report.checks.some(c=>c.name==='the schedule has no other drafts'));
   assert.ok(first.received.includes(OP.create));
 });
 
-test('what stops a page without the Drafts tab counting as no drafts',()=>{
+test('what stops a page without the Drafts heading counting as no drafts',()=>{
   const {noDraftsWhy}=require('../worker/booking-composer');
   const ok={path:'/schedules/s1/drafts',current:true,template:true,drafts:false,draftLinks:0,saving:false,error:null};
   assert.deepEqual(noDraftsWhy(ok,'s1'),[]);
   assert.deepEqual(noDraftsWhy({...ok,saving:true},'s1'),['Ashby shows "Saving..."']);
   assert.deepEqual(noDraftsWhy({...ok,path:'/schedules/drafts/d1'},'s1'),['the page is /schedules/drafts/d1, not this schedule']);
-  assert.deepEqual(noDraftsWhy({...ok,drafts:true},'s1'),['a Drafts tab is listed but its page didn\'t show']);
+  assert.deepEqual(noDraftsWhy({...ok,drafts:true},'s1'),['the Drafts link is in the sidebar but its page didn\'t show']);
   assert.deepEqual(noDraftsWhy({...ok,draftLinks:1},'s1'),['1 draft link is on the page']);
   assert.deepEqual(noDraftsWhy({...ok,error:'Something went wrong'},'s1'),['Ashby shows "Something went wrong"']);
-  assert.deepEqual(noDraftsWhy({...ok,current:false},'s1'),['the schedule\'s Current and Template tabs aren\'t showing']);
+  assert.deepEqual(noDraftsWhy({...ok,current:false},'s1'),['the schedule\'s Current and Template links (left sidebar, under SCHEDULES) aren\'t showing']);
+});
+
+test('only the named writes Ashby makes on its own are ignored, each alone; anything batched with one still stops the run',()=>{
+  const {expectedBlock}=require('../worker/booking-composer');
+  const b=summary=>({ashby:true,mutation:true,summary});
+  assert.equal(expectedBlock(b('POST /api/graphql mutation ApiCreateRealtimeToken')),true);
+  assert.equal(expectedBlock(b('POST /api/graphql mutation ApiUpdateDraftScheduleCalendarSettings')),true);
+  // October 29: a realtime token batched after a real write would have passed the old ends-with match.
+  assert.equal(expectedBlock(b('POST /api/graphql mutation ApiUpdateDraftSchedule, mutation ApiCreateRealtimeToken')),false);
+  assert.equal(expectedBlock(b('POST /api/graphql mutation ApiCreateRealtimeTokenV2')),false);
+  assert.equal(expectedBlock(b('POST /api/graphql mutation ApiScheduleInterviewScheduleFromDraft')),false);
+  assert.equal(expectedBlock({...b('POST /api/graphql mutation ApiCreateRealtimeToken'),ashby:false}),false);
+});
+
+test('Ashby\'s realtime token on every page load doesn\'t stop the run',async t=>{
+  // October 29, run f2d8ef88: two blocked tokens from the run's own page loads refused it at "open Manual Schedule".
+  const r=await run(t,{appOptions:{realtime:true}});if(!r)return;
+  assert.notEqual(r.report.step,'open Manual Schedule');
+  assert.doesNotMatch(r.report.reason||'',/ApiCreateRealtimeToken/);
+  assert.ok(r.report.checks.some(c=>c.name==='draft created and matches the approved agenda'));
 });

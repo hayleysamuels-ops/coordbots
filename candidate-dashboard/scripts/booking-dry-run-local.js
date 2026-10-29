@@ -30,7 +30,7 @@ const executablePath=process.env.CHROME_PATH||'/Applications/Google Chrome.app/C
 
 let draftId=null;
 setTimeout(()=>{
-  console.error(`[booking-dry-run] timed out after ${timeoutSeconds}s. The draft ${draftId?draftId+' ':''}may not have been deleted: check the schedule's Drafts tab.`);
+  console.error(`[booking-dry-run] timed out after ${timeoutSeconds}s. The draft ${draftId?draftId+' ':''}may not have been deleted: check the schedule's Drafts page (left sidebar, under SCHEDULES).`);
   process.exit(124);
 },timeoutSeconds*1000).unref();
 

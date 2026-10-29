@@ -399,7 +399,7 @@ test('a run\'s draft already gone from Ashby is said plainly, with nothing to de
 
 test('the drafts check says which way it went',()=>{
   const {detailLine}=require('../worker/booking-compose');
-  assert.equal(detailLine({type:'drafts-check',how:'none',count:0}),'drafts check: no Drafts tab on a plainly loaded schedule page, so no drafts');
-  assert.equal(detailLine({type:'drafts-check',how:'tab',count:1}),'drafts check: the Drafts tab listed 1 draft');
-  assert.equal(detailLine({type:'drafts-check',how:'tab',count:0,after:'deleting the earlier draft'}),'drafts check (after deleting the earlier draft): the Drafts tab listed 0 drafts');
+  assert.equal(detailLine({type:'drafts-check',how:'none',count:0}),'drafts check: no Drafts page on a plainly loaded schedule, so no drafts');
+  assert.equal(detailLine({type:'drafts-check',how:'tab',count:1}),'drafts check: the Drafts page listed 1 draft');
+  assert.equal(detailLine({type:'drafts-check',how:'tab',count:0,after:'deleting the earlier draft'}),'drafts check (after deleting the earlier draft): the Drafts page listed 0 drafts');
 });
