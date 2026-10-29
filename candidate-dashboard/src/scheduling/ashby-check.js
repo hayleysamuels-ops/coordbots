@@ -31,6 +31,8 @@
 const UNSENT_BEFORE_FIRST_MS = 2 * 3600 * 1000, UNSENT_AFTER_COMPOSE_MS = 24 * 3600 * 1000;
 const SENT_STATUSES = new Set(["Scheduled", "WaitingOnFeedback", "Complete"]);
 
+const draftUrl = id => `https://app.ashbyhq.com/schedules/drafts/${id}`;
+
 function deleteByFor(plan, composedAt) {
   return new Date(Math.min(Date.parse(plan.sessions[0].start) - UNSENT_BEFORE_FIRST_MS, Date.parse(composedAt) + UNSENT_AFTER_COMPOSE_MS)).toISOString();
 }
@@ -193,6 +195,8 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, availabili
       } else if (result?.status === "refused" || result?.status === "error") check = { state: "refused", step: result.step, reason: result.reason, draftId: result.draftId || null, cleanup: result.cleanup || null };
       else check = { state: "uncertain", reason: result?.reason || "The Ashby check gave no clear result.", draftId: result?.draftId || null };
     }
+    // A draft's own link is kept with its ID, so a left draft always says where it is.
+    if (check.draftId) check = { ...check, draftUrl: draftUrl(check.draftId) };
     row = await setCheck(id, stateIs("running"), check);
     if (!row) return;
     await show(row);
@@ -296,4 +300,4 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, availabili
   return { start, sweep, recover, startSweeping, idle: () => chain };
 }
 
-module.exports = { createAshbyCheck, deleteByFor, compareBooked, UNSENT_BEFORE_FIRST_MS, UNSENT_AFTER_COMPOSE_MS };
+module.exports = { draftUrl, createAshbyCheck, deleteByFor, compareBooked, UNSENT_BEFORE_FIRST_MS, UNSENT_AFTER_COMPOSE_MS };

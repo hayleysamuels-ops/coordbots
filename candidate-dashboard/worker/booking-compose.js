@@ -64,7 +64,7 @@ const short=v=>String(v??'').replace(/\s+/g,' ').trim().slice(0,300);
 const clause=v=>short(v).replace(/\.$/,'');// a reason inside a line
 function composeOutcome(r){
   const made=r.draftId?`draft ${r.draftId} created`:'no draft created';
-  const kept=r.send?.attempted?'kept (a send was attempted)':r.cleanup?.kept?'kept for a person to send':r.cleanup?.deleted?'deleted':r.draftId?`NOT deleted (${short(r.cleanup?.reason||'no reason given')}); delete it by hand`:'';
+  const kept=r.send?.attempted?'kept (a send was attempted)':r.cleanup?.kept?'kept for a person to send':r.cleanup?.deleted?'deleted':r.draftId?`NOT deleted (${short(r.cleanup?.reason||'no reason given')}); delete it by hand: ${r.draftUrl||r.draftId}`:'';
   const replaced=r.superseded?.draftId?`; earlier draft ${r.superseded.draftId} ${r.superseded.deleted?'deleted':'NOT deleted'}`:'';
   const zone=r.displayZone?`; composer zone ${r.displayZone}`:'';
   const writes=r.writes?`; ${r.writes.saves} save${r.writes.saves===1?'':'s'}${r.writes.refusedSaves?`, ${r.writes.refusedSaves} refused`:''}`:'';
@@ -99,6 +99,11 @@ function detailLine(e){
     case 'invites':return `invites on the schedule's page: ${e.state.toUpperCase()} (${(e.evidence||[]).map(short).join(' | ')||'nothing shown'})`;
     case 'draft-mentions':{const {type,...rest}=e;return `no draft read found; the requests that mentioned the draft (structure only): ${JSON.stringify(rest)}`;}
     case 'send':{const {type,...rest}=e;return `send: ${JSON.stringify(rest)}`;}
+    // Ashby's own requests the guard stopped; telemetry it stops is left out.
+    case 'blocked':return e.ashby?`write guard blocked: ${short(e.detail)}`:null;
+    // A delete as Ashby sent it (October 29: kept as the fallback if deleting
+    // from the Drafts tab ever stops working). The draft ID and Ashby's query only.
+    case 'request':return `${e.op} request as Ashby sent it: ${String(e.body??'').slice(0,4000)}`;
     case 'agenda-between':return `candidate invite agenda lines between sessions (unmasked): ${JSON.stringify(e.lines)}`;
     case 'agenda-shape':{const {type,...rest}=e;return `candidate invite agenda unreadable, its shape (letters masked): ${JSON.stringify(rest)}`;}
     default:return null;
@@ -191,7 +196,7 @@ function bookingSettings({env}){
 async function discard({env,payload,chromium,loadSession,clientId,expectedIdentity,now=Date.now(),log=()=>{},say=console.log,composer=require('./booking-composer')}){
   const plan=payload?.plan,draftId=payload?.draftId;
   const tag=`[booking] Unsent draft ${short(draftId)}${ID.test(String(payload?.proposalId||''))?` for ${payload.proposalId}`:''}`;
-  const done=r=>{say(`${tag}: ${r.status==='skipped'?`not deleted, skipped: ${short(r.reason)}`:r.deleted?'deleted':r.absent?'already gone from Ashby':`NOT deleted (${short(r.reason||'no reason given')})`}`);return r;};
+  const done=r=>{say(`${tag}: ${r.status==='skipped'?`not deleted, skipped: ${short(r.reason)}`:r.deleted?'deleted':r.absent?'already gone from Ashby':`NOT deleted (${short(r.reason||'no reason given')}); delete it by hand: ${r.draftUrl||draftId}`}`);return r;};
   say(`${tag}: deleting (schedule ${short(plan?.interviewScheduleId)})`);
   try{
     if(!ID.test(String(draftId||'')))throw Object.assign(Error('The draft reference isn\'t a draft ID.'),{status:422});

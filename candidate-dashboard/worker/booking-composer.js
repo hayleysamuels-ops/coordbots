@@ -202,6 +202,9 @@ function helpers(page,T,refuse){
   return {sleep,one,until,go,net,ready};
 }
 const replied=json=>!!json&&!(json.errors&&json.errors.length);
+// A draft's own link, recorded with its ID wherever a draft may be left, so
+// every left draft comes with the way to it.
+const draftUrl=id=>id?`${ORIGIN}/schedules/drafts/${id}`:null;
 
 // `respond` is for tests only: a stand-in for Ashby's replies to permitted writes.
 // `onRefusal(page)` runs before cleanup when the run stops (local debugging).
@@ -227,13 +230,13 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
   if(observeAlternates&&(keepOnSuccess||send))throw new Error('Observing alternates is for the dry run only: never with a kept draft or Send.');
   const T={settle:700,short:1500,wait:15000,...timing};
   const events=[];const note=e=>{events.push(e);log(e);};
-  const guard=await guardWrites(context,{warn:m=>note({type:'blocked',detail:m.replace('[write-guard] ','')})});
+  const guard=await guardWrites(context,{warn:m=>note({type:'blocked',ashby:!!guard.blocked[guard.blocked.length-1]?.ashby,detail:m.replace('[write-guard] ','')})});
   const state={};
   const budget=saveBudget(plan);
   const permits=await installBookingPermits(context,{plan,state,log:note,observeAlternates,maxSaves:budget.limit,...(respond?{respond}:{})});
   // The earlier draft's delete: that draft only, once, and only while armed.
   const superseding={armed:false,discarded:undefined};
-  if(supersedeDraftId)await installPermit(context,{op:OP.discard,max:1,log:note,...(respond?{respond}:{}),
+  if(supersedeDraftId)await installPermit(context,{op:OP.discard,max:1,log:note,capture:true,...(respond?{respond}:{}),
     bound:v=>superseding.armed&&v.draftInterviewScheduleId===supersedeDraftId,onResponse:json=>{superseding.discarded=replied(json);}});
   // Send: one ApiScheduleInterviewScheduleFromDraft, for this schedule and this
   // run's draft only, and only while armed, which is just before the one click
@@ -737,6 +740,9 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
       :report.send?.attempted?{deleted:false,kept:true,draftId:state.draftId,reason:'a send was attempted'}
       :keepOnSuccess&&report.status==='composed'?{deleted:false,kept:true,draftId:state.draftId}
       :await discard(page,plan,state,{one,go,sleep,T}).catch(e=>({deleted:false,reason:e.message}));
+    // A draft left behind: what the screen held when the delete gave up.
+    if(state.draftId&&!report.cleanup.deleted&&!report.cleanup.kept)note({type:'screen',at:'cleanup failed',...await screenSnapshot(page,net).catch(err=>({error:err.message}))});
+    report.draftUrl=draftUrl(state.draftId);
     report.writes={saves:state.saves,refusedSaves:state.refusals?.length||0};
     report.blocked=[...new Set(guard.blocked.filter(b=>b.ashby).map(b=>b.summary))];
   }
@@ -751,15 +757,32 @@ async function listDrafts(page,plan,{one,go}){
   return page.locator('a[href^="/schedules/drafts/"]').evaluateAll(links=>[...new Set(links.map(a=>a.getAttribute('href').split('/')[3]).filter(Boolean))]);
 }
 
+// The schedule's Drafts tab, from a fresh load of the app, never from wherever
+// the run stopped (October 28: from a composer stuck on "Saving...", changing
+// the route in-app never showed the tab, and the draft was left). A fresh load
+// also leaves the draft, so opening a communications screen again can't
+// refresh it. Leaving a page with unsaved edits may ask first; leaving is the
+// point, so that one question is accepted. A second fresh load if the tab
+// doesn't show; then it refuses.
+async function openDraftsTab(page,plan,{one,go,T}){
+  const heading=page.getByRole('heading',{name:'Draft Schedules',exact:true});
+  for(let attempt=1;;attempt++){
+    const leave=d=>{if(d.type()==='beforeunload')d.accept().catch(()=>{});};
+    page.on('dialog',leave);
+    try{await page.goto(ORIGIN+'/home/upcoming',{waitUntil:'domcontentloaded'});}finally{page.off('dialog',leave);}
+    await page.getByRole('link',{name:'Pipeline',exact:true}).waitFor({state:'visible',timeout:T.wait});
+    await go(`/schedules/${plan.interviewScheduleId}`);await go(`/schedules/${plan.interviewScheduleId}/drafts`);
+    if(attempt>=2||await heading.waitFor({state:'visible',timeout:T.wait}).then(()=>true,()=>false))return one(heading,'the Drafts tab');
+  }
+}
+
 // Delete one draft from the schedule's Drafts tab: the single button beside
 // the single link to this exact draft. `permit.arm()` lets the delete through
 // (for this draft only), and `permit.done()` says whether Ashby accepted it.
 // Then confirm it's gone. With `allowAbsent`, a draft that isn't listed is
 // reported as absent rather than refused.
 async function deleteDraft(page,plan,draftId,permit,{one,go,sleep,T,allowAbsent=false}){
-  // Leave the draft (opening a communications screen again would refresh it).
-  await go(`/schedules/${plan.interviewScheduleId}`);await go(`/schedules/${plan.interviewScheduleId}/drafts`);
-  await one(page.getByRole('heading',{name:'Draft Schedules',exact:true}),'the Drafts tab');
+  await openDraftsTab(page,plan,{one,go,T});
   const links=page.locator(`a[href="/schedules/drafts/${draftId}"]`);
   if(allowAbsent&&!(await links.count()))return {deleted:false,absent:true,draftId};
   const link=await one(links,'the link to this draft');
@@ -783,7 +806,7 @@ async function discard(page,plan,state,h){
 // only: no permits, every write blocked. Never throws: unknown on failure.
 async function readInviteStatus({context,page,plan,log=()=>{},timing={},expectedIdentity}){
   const T={settle:700,short:1500,wait:15000,...timing};
-  const guard=await guardWrites(context,{warn:m=>log({type:'blocked',detail:m.replace('[write-guard] ','')})});
+  const guard=await guardWrites(context,{warn:m=>log({type:'blocked',ashby:!!guard.blocked[guard.blocked.length-1]?.ashby,detail:m.replace('[write-guard] ','')})});
   const refuse=m=>{throw new Refusal('read invite status',m);};
   const h=helpers(page,T,refuse),net=h.net;
   try{
@@ -799,9 +822,9 @@ async function readInviteStatus({context,page,plan,log=()=>{},timing={},expected
 // person) is reported as absent. Never throws: the result says what happened.
 async function discardDraft({context,page,plan,draftId,log=()=>{},timing={},respond,expectedIdentity}){
   const T={settle:700,short:1500,wait:15000,...timing};
-  const guard=await guardWrites(context,{warn:m=>log({type:'blocked',detail:m.replace('[write-guard] ','')})});
+  const guard=await guardWrites(context,{warn:m=>log({type:'blocked',ashby:!!guard.blocked[guard.blocked.length-1]?.ashby,detail:m.replace('[write-guard] ','')})});
   const flag={armed:false,discarded:undefined};
-  await installPermit(context,{op:OP.discard,max:1,log,...(respond?{respond}:{}),
+  await installPermit(context,{op:OP.discard,max:1,log,capture:true,...(respond?{respond}:{}),
     bound:v=>flag.armed&&v.draftInterviewScheduleId===draftId,onResponse:json=>{flag.discarded=replied(json);}});
   let step='open the application';
   const refuse=m=>{throw new Refusal(step,m);};
@@ -809,9 +832,14 @@ async function discardDraft({context,page,plan,draftId,log=()=>{},timing={},resp
   try{
     await openApplication(page,plan,{refuse,sleep:h.sleep,go:h.go,net:h.net,T,expectedIdentity});
     step='delete the draft';
-    return await deleteDraft(page,plan,draftId,{arm:()=>{flag.armed=true;},done:()=>flag.discarded},{...h,T,allowAbsent:true});
-  }catch(e){return {deleted:false,draftId,step,reason:e.message};}
+    const r=await deleteDraft(page,plan,draftId,{arm:()=>{flag.armed=true;},done:()=>flag.discarded},{...h,T,allowAbsent:true});
+    if(!r.deleted&&!r.absent)log({type:'screen',at:'cleanup failed',...await screenSnapshot(page,h.net).catch(err=>({error:err.message}))});
+    return {...r,draftUrl:draftUrl(draftId)};
+  }catch(e){
+    log({type:'screen',at:'cleanup failed',step,...await screenSnapshot(page,h.net).catch(err=>({error:err.message}))});
+    return {deleted:false,draftId,draftUrl:draftUrl(draftId),step,reason:e.message};
+  }
   finally{log({type:'blocked-summary',blocked:[...new Set(guard.blocked.filter(b=>b.ashby).map(b=>b.summary))]});}
 }
 
-module.exports={dryRun,discardDraft,readInviteStatus,helpers,openApplication,networkWatch,screenSnapshot,readInviteSettings,readPreviewSections,Refusal};
+module.exports={dryRun,discardDraft,draftUrl,readInviteStatus,helpers,openApplication,networkWatch,screenSnapshot,readInviteSettings,readPreviewSections,Refusal};

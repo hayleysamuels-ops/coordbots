@@ -28,13 +28,16 @@ const plan={jobId:'job-1',candidateId:'cand-1',applicationId:'app-1',interviewSc
 // `zone` gives the composer one session's fields and a time-zone button per
 // label (a label or a list; '' for no button). `existing` lists drafts already on the
 // schedule's Drafts tab; the run's own draft (draft-1) joins them once created.
-// (Page state starts over on a full load.)
-function app({menu=['Send Direct Booking Link','Request Candidate Availability','Manual Schedule','View All Scheduling Options'],dialogAfterManual=null,strayWrite=null,submitted=false,zone=null,existing=[]}={}){
+// Drafts live on the stand-in's server side, as Ashby's do, so a full load
+// (the cleanup starts from one) still lists them; other page state starts over.
+// `stuck` gives a draft page that, once shown, ignores route changes and asks
+// before the page is left, like the October 28 composer stuck on "Saving...".
+function app({menu=['Send Direct Booking Link','Request Candidate Availability','Manual Schedule','View All Scheduling Options'],dialogAfterManual=null,strayWrite=null,submitted=false,zone=null,existing=[],stuck=false}={}){
   return `<!doctype html><html><body><nav><a href="/candidates/pipeline">Pipeline</a></nav><main id="m"></main><script>
   const drafts=${JSON.stringify(existing)};
   const gql=(name,variables)=>fetch('/api/graphql',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operationName:name,query:'mutation '+name+' { x }',variables})}).then(r=>r.json());
   // Like Ashby, every page loads something: one read query, answered by the stand-in.
-  function render(){fetch('/api/graphql',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operationName:'ApiLoad',query:'query ApiLoad { x }'})});
+  function render(){if(window.__stuck)return;fetch('/api/graphql',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operationName:'ApiLoad',query:'query ApiLoad { x }'})});
     const p=location.pathname,m=document.getElementById('m');m.innerHTML='';
     if(p.endsWith('/feed')){
       m.innerHTML='<div role="dialog" aria-labelledby="cn"><h2 id="cn">TEST</h2><p>t@example.com</p><section><h2>Initial Screen Interview Schedule</h2>'+(${JSON.stringify(submitted)}?'<button id="sched">Schedule</button><button id="start">Start Manual Schedule</button>':'<button id="act">Actions</button>')+'</section></div>';
@@ -50,7 +53,7 @@ function app({menu=['Send Direct Booking Link','Request Candidate Availability',
     } else if(p.endsWith('/drafts')){
       m.innerHTML='<h2>Draft Schedules</h2>'+drafts.map(id=>'<div><a href="/schedules/drafts/'+id+'">open</a><button data-id="'+id+'"></button></div>').join('');
       m.querySelectorAll('button[data-id]').forEach(b=>b.onclick=async()=>{const id=b.dataset.id,r=await gql('${OP.discard}',{draftInterviewScheduleId:id}).catch(()=>({}));if(r.data)drafts.splice(drafts.indexOf(id),1);});
-    } else if(p.startsWith('/schedules/drafts/')){m.innerHTML='<h1>Scheduling TEST TEST Initial Screen Unsaved</h1>'+(${JSON.stringify(zone)}===null?'':
+    } else if(p.startsWith('/schedules/drafts/')){if(${JSON.stringify(stuck)}){window.__stuck=true;addEventListener('beforeunload',e=>{e.preventDefault();e.returnValue='';});}m.innerHTML='<h1>Scheduling TEST TEST Initial Screen Unsaved</h1>'+(${JSON.stringify(zone)}===null?'':
       [].concat(${JSON.stringify(zone)}).filter(Boolean).map(z=>'<button aria-label="Select a timezone">'+z+'</button>').join('')+'<input aria-label="Set interview date..."><input role="combobox" aria-label="Start..."><input role="combobox" aria-label="End...">');}
   }
   addEventListener('popstate',render);render();
@@ -65,12 +68,15 @@ async function run(t,{appOptions,baseline,runOptions={},task=null}={}){
   // The stand-in app: pages, and replies to read queries (the guard lets
   // queries through; they must never reach Ashby). Writes go to the guard and
   // the permits, whose replies come from `respond` below.
+  const drafts=[...(appOptions?.existing||[])];
   await context.route('https://app.ashbyhq.com/**',route=>{const r=route.request();
-    if(r.method()==='GET')return route.fulfill({contentType:'text/html',body:app(appOptions)});
+    if(r.method()==='GET')return route.fulfill({contentType:'text/html',body:app({...appOptions,existing:drafts})});
     if(/^\s*query\b/.test(JSON.parse(r.postData()||'{}').query||''))return route.fulfill({contentType:'application/json',body:'{"data":{}}'});
     return route.fallback();});
   const received=[];
   const respond=async route=>{const b=JSON.parse(route.request().postData());received.push(b.operationName===OP.discard?`${OP.discard}:${b.variables.draftInterviewScheduleId}`:b.operationName);
+    if(b.operationName===OP.create)drafts.push('draft-1');
+    if(b.operationName===OP.discard&&drafts.includes(b.variables.draftInterviewScheduleId))drafts.splice(drafts.indexOf(b.variables.draftInterviewScheduleId),1);
     if(b.operationName===OP.create)return {status:200,json:{data:{draftInterviewSchedule:{id:'draft-1',draftSchedule:{events:[baseline||{id:'ev-1',title:'Initial',startTimeISO:'2099-10-12T17:00:00.000Z',endTimeISO:'2099-10-12T17:30:00.000Z',interviewId:'int-1',interviewSlots:[{selected:'u-m'}]}]}}}}};
     return {status:200,json:{data:{id:'x'}}};};
   const page=await context.newPage();
@@ -169,10 +175,10 @@ test('the dashboard\'s earlier draft for the schedule is deleted first, by its I
 test('the sweep\'s delete removes exactly the named draft, and reports one that\'s already gone',async t=>{
   const del=draftId=>({context,page,respond,timing})=>discardDraft({context,page,plan,draftId,respond,timing});
   const r=await run(t,{appOptions:{existing:['d-old','someone-elses']},task:del('d-old')});if(!r)return;
-  assert.deepEqual(r.report,{deleted:true,draftId:'d-old'});
+  assert.deepEqual(r.report,{deleted:true,draftId:'d-old',draftUrl:'https://app.ashbyhq.com/schedules/drafts/d-old'});
   assert.deepEqual(r.received,[discarded('d-old')]);
   const gone=await run(t,{appOptions:{existing:['someone-elses']},task:del('d-old')});
-  assert.deepEqual(gone.report,{deleted:false,absent:true,draftId:'d-old'});
+  assert.deepEqual(gone.report,{deleted:false,absent:true,draftId:'d-old',draftUrl:'https://app.ashbyhq.com/schedules/drafts/d-old'});
   assert.deepEqual(gone.received,[]);
 });
 
@@ -261,4 +267,14 @@ test('a screen still loading is never read: ready() refuses while a request is i
   release();await page.waitForTimeout(300);
   await h.ready('the draft composer');
   assert.equal(refusals.length,1);
+});
+
+test('a refused run\'s draft is deleted from a fresh load even when the composer ignores leaving, and the link is recorded',async t=>{
+  // October 28: from a composer stuck on "Saving...", changing the route in-app
+  // never showed the Drafts tab, and the draft was left.
+  const r=await run(t,{appOptions:{stuck:true}});if(!r)return;
+  assert.equal(r.report.status,'refused');
+  assert.deepEqual(r.report.cleanup,{deleted:true,draftId:'draft-1'});
+  assert.equal(r.report.draftUrl,'https://app.ashbyhq.com/schedules/drafts/draft-1');
+  assert.deepEqual(r.received,[OP.create,discarded('draft-1')]);
 });

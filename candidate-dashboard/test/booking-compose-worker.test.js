@@ -95,8 +95,8 @@ test('each check is logged: started, then its outcome with every draft created o
     `[booking] Ashby check for ${PROPOSAL} composed; draft ${DRAFT} created, kept for a person to send; earlier draft ${OLD} deleted; composer zone America/Denver; 3 saves`]);
   const refused=await logged({status:'refused',step:'compose session 1 ("First Round")',reason:'Something.',draftId:DRAFT,cleanup:{deleted:true,draftId:DRAFT},writes:{saves:0,refusedSaves:1}});
   assert.equal(refused[1],`[booking] Ashby check for ${PROPOSAL} refused at "compose session 1 ("First Round")": Something; draft ${DRAFT} created, deleted; 0 saves, 1 refused`);
-  const left=await logged({status:'error',step:'compose',reason:'Boom.',draftId:DRAFT,cleanup:{deleted:false,reason:'Ashby didn\'t answer'}});
-  assert.match(left[1],new RegExp(`draft ${DRAFT} created, NOT deleted \\(Ashby didn't answer\\); delete it by hand$`));
+  const left=await logged({status:'error',step:'compose',reason:'Boom.',draftId:DRAFT,draftUrl:`https://app.ashbyhq.com/schedules/drafts/${DRAFT}`,cleanup:{deleted:false,reason:'Ashby didn\'t answer'}});
+  assert.match(left[1],new RegExp(`draft ${DRAFT} created, NOT deleted \\(Ashby didn't answer\\); delete it by hand: https://app.ashbyhq.com/schedules/drafts/${DRAFT}$`));
   const none=await logged({status:'refused',step:'check the schedule\'s drafts',reason:'Already has one.',cleanup:{deleted:false,reason:'no draft was created'}});
   assert.match(none[1],/: Already has one; no draft created$/);
   // Skipped, with no proposal ID (an older dashboard): no "for".
@@ -380,4 +380,13 @@ test('observing alternates is reachable only from the dry run, never with a kept
   assert.doesNotMatch(src,/observeAlternates/,'the Slack-approved check never observes');
   const {detailLine}=require('../worker/booking-compose');
   assert.equal(detailLine({type:'observe',what:'invite preview recipients',candidate:['a@b.c'],interviewers:[['m@l.c']]}),'observe (invite preview recipients): {"candidate":["a@b.c"],"interviewers":[["m@l.c"]]}');
+});
+
+test('the guard\'s blocks on Ashby and each delete request are logged; telemetry blocks aren\'t',()=>{
+  const {detailLine}=require('../worker/booking-compose');
+  assert.equal(detailLine({type:'blocked',ashby:true,detail:'Blocked a write during load: POST /api/graphql mutation ApiUpdateDraftScheduleCalendarSettings'}),
+    'write guard blocked: Blocked a write during load: POST /api/graphql mutation ApiUpdateDraftScheduleCalendarSettings');
+  assert.equal(detailLine({type:'blocked',ashby:false,detail:'Blocked a write during load: POST /v1/rum (not GraphQL)'}),null);
+  const body=JSON.stringify({operationName:'ApiDeleteDraftInterviewSchedule',query:'mutation ApiDeleteDraftInterviewSchedule($id: ID!) { x }',variables:{draftInterviewScheduleId:'d-1'}});
+  assert.equal(detailLine({type:'request',op:'ApiDeleteDraftInterviewSchedule',body}),`ApiDeleteDraftInterviewSchedule request as Ashby sent it: ${body}`);
 });

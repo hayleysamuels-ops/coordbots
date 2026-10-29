@@ -67,6 +67,10 @@ test('the dry run\'s writes: create once, content-checked saves, refreshes, disc
   assert.equal(await s.send(OP.discard,{draftInterviewScheduleId:'draft-1'}),200);
   assert.equal(await s.send(OP.discard,{draftInterviewScheduleId:'draft-1'}),'blocked','a second discard');
   assert.deepEqual(s.received,[OP.create,OP.save,OP.save,OP.refresh,OP.discard]);
+  // The delete is logged exactly as sent, for the record.
+  const captured=s.log.filter(e=>e.type==='request');
+  assert.equal(captured.length,1);assert.equal(captured[0].op,OP.discard);
+  assert.deepEqual(JSON.parse(captured[0].body).variables,{draftInterviewScheduleId:'draft-1'});
 });
 
 test('a draft that doesn\'t match the approval still records its ID for cleanup, but no save passes',async t=>{

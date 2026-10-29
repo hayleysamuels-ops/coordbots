@@ -33,7 +33,7 @@ function isMutation(o){return typeof o?.query==='string'&&/^\s*mutation\b/.test(
 // returning {response}; tests pass a stand-in returning {status,json}. Whatever `bound` returns for a request (truthy to
 // permit it) is handed to `onResponse(json, status, verdict)` with that
 // request's reply, so overlapping requests never share state.
-async function installPermit(context,{origin=ORIGIN,op,max=1,bound,respond=async route=>({response:await route.fetch()}),onResponse=()=>{},log=()=>{}}){
+async function installPermit(context,{origin=ORIGIN,op,max=1,bound,respond=async route=>({response:await route.fetch()}),onResponse=()=>{},log=()=>{},capture=false}){
   let count=0;
   await context.route('**/*',async route=>{
     const r=route.request();
@@ -46,6 +46,8 @@ async function installPermit(context,{origin=ORIGIN,op,max=1,bound,respond=async
     if(!verdict)return route.fallback();
     count++;
     log({type:'permitted',op,use:count,of:max});
+    // With `capture`, the request exactly as Ashby sent it, for the record.
+    if(capture)log({type:'request',op,body:r.postData()});
     let reply;
     try{reply=await respond(route);}
     catch(e){log({type:'uncertain',op,message:e.message});return route.abort('failed');}
@@ -132,7 +134,7 @@ async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxS
       if(ok(json)){state.saves++;state.lastSaveAt=Date.now();if(verdict.seq>state.lastSeq){state.last=verdict.next;state.lastSeq=verdict.seq;}}}});
   permits.refresh=await installPermit(context,{op:OP.refresh,max:maxRefreshes,respond,log,bound:forDraft,
     onResponse:json=>{if(ok(json))state.lastRefreshAt=Date.now();}});
-  permits.discard=await installPermit(context,{op:OP.discard,max:1,respond,log,
+  permits.discard=await installPermit(context,{op:OP.discard,max:1,respond,log,capture:true,
     bound:v=>state.cleanup&&forDraft(v),onResponse:json=>{state.discarded=ok(json);}});
   return permits;
 }

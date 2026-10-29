@@ -168,11 +168,11 @@ test("the Slack message says what's true in every state, and never that somethin
     sent: [/Sent in Ashby\* \(seen Oct 14, 3:00 PM PDT\): what was booked matches this approval/],
     deleted: [/Draft deleted unsent\* at Oct 14, 3:00 PM PDT\. \*Not booked:\* this needs booking in Ashby by hand\./],
     gone: [/no longer in Ashby/, /Not booked:\* book this schedule in Ashby by hand/],
-    delete_failed: [/couldn't be deleted/, /never "Delete Activity"/],
+    delete_failed: [/couldn't be deleted/, /The draft is https:\/\/app\.ashbyhq\.com\/schedules\/drafts\/dr-1\. Delete it from the Drafts tab/, /never "Delete Activity"/],
     superseded: [/Superseded\* at Oct 14, 3:00 PM PDT by a later approval/],
     refused: [/The Ashby check stopped\* at "compose session 1": The composer shows times in "MDT", not EDT\./, /The draft it made was deleted\./, /Not booked:\* book this schedule in Ashby by hand/],
     not_started: [/didn't start:\* Ashby is busy\./, /no draft was made/],
-    uncertain: [/didn't finish\*/, /a draft may be left in Ashby/, /never "Delete Activity"/],
+    uncertain: [/didn't finish\*/, /a draft may be left in Ashby/, /The draft is https:\/\/app\.ashbyhq\.com\/schedules\/drafts\/dr-1\./, /never "Delete Activity"/],
     too_close: [/\*Not booked:\* too close to the first interview — book this in Ashby by hand\./, /no invitations or candidate email have been sent/],
     skipped: [/Not booked yet\.\*/, /Not checked in Ashby: the check isn't on for this job or stage yet\./],
   };
