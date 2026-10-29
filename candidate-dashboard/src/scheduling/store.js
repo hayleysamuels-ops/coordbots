@@ -8,7 +8,8 @@ const path = require("path");
 // same option again: while it could still lead to a booking, or could still
 // have a draft in Ashby. It stops blocking once rejected, or once it was
 // approved and its Ashby check ended with nothing booked and no draft left:
-//   refused, with no draft made or its delete confirmed;
+//   refused, with no draft made, its delete confirmed, or the schedule
+//     plainly showing no drafts;
 //   not_started (no draft was made);
 //   availability_changed (the candidate's availability changed before the
 //     check; nothing was made in Ashby);
@@ -23,7 +24,7 @@ function blocksRepost(row) {
   if (row.state === "rejected") return false;
   if (row.state !== "discussion_approved" || !row.ashbyCheck) return true;
   const check = row.ashbyCheck;
-  if (check.state === "refused") return !(!check.draftId || check.cleanup?.deleted === true);
+  if (check.state === "refused") return !(!check.draftId || check.cleanup?.deleted === true || check.cleanup?.absent === true);
   return !["not_started", "availability_changed", "deleted", "gone", "released"].includes(check.state);
 }
 

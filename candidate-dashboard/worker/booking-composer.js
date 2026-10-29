@@ -347,12 +347,12 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     // none, so nobody can send the wrong one.
     if(checkExistingDrafts){
       step='check the schedule\'s drafts';
-      let ids=await listDrafts(page,plan,{one,go});
+      let ids=await listDrafts(page,plan,{one,go,T});
       if(supersedeDraftId&&ids.includes(supersedeDraftId)){
         const r=await deleteDraft(page,plan,supersedeDraftId,{arm:()=>{superseding.armed=true;},done:()=>superseding.discarded},{one,go,sleep,T});
         if(!r.deleted)refuse(`Couldn't delete the earlier draft the dashboard composed for this schedule: ${r.reason}.`);
         report.superseded={draftId:supersedeDraftId,deleted:true};
-        ids=await listDrafts(page,plan,{one,go});
+        ids=await listDrafts(page,plan,{one,go,T});
       }else if(supersedeDraftId)report.superseded={draftId:supersedeDraftId,deleted:false,reason:'it was no longer in Ashby'};
       if(ids.length)refuse(`This schedule already has ${ids.length===1?'a draft':`${ids.length} drafts`} in Ashby that the dashboard didn't make. Send or delete ${ids.length===1?'it':'them'} in Ashby first.`);
       pass('the schedule has no other drafts');
@@ -741,7 +741,7 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
       :keepOnSuccess&&report.status==='composed'?{deleted:false,kept:true,draftId:state.draftId}
       :await discard(page,plan,state,{one,go,sleep,T}).catch(e=>({deleted:false,reason:e.message}));
     // A draft left behind: what the screen held when the delete gave up.
-    if(state.draftId&&!report.cleanup.deleted&&!report.cleanup.kept)note({type:'screen',at:'cleanup failed',...await screenSnapshot(page,net).catch(err=>({error:err.message}))});
+    if(state.draftId&&!report.cleanup.deleted&&!report.cleanup.absent&&!report.cleanup.kept)note({type:'screen',at:'cleanup failed',...await screenSnapshot(page,net).catch(err=>({error:err.message}))});
     report.draftUrl=draftUrl(state.draftId);
     report.writes={saves:state.saves,refusedSaves:state.refusals?.length||0};
     report.blocked=[...new Set(guard.blocked.filter(b=>b.ashby).map(b=>b.summary))];
@@ -751,9 +751,9 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
 
 // The draft IDs listed on the schedule's Drafts tab. Reached in-app, through
 // the schedule first (a cold draft URL errors).
-async function listDrafts(page,plan,{one,go}){
+async function listDrafts(page,plan,{one,go,T}){
   await go(`/schedules/${plan.interviewScheduleId}`);await go(`/schedules/${plan.interviewScheduleId}/drafts`);
-  await one(page.getByRole('heading',{name:'Draft Schedules',exact:true}),'the Drafts tab');
+  if((await draftsTab(page,plan,{one,T})).none)return [];
   return page.locator('a[href^="/schedules/drafts/"]').evaluateAll(links=>[...new Set(links.map(a=>a.getAttribute('href').split('/')[3]).filter(Boolean))]);
 }
 
@@ -762,18 +762,54 @@ async function listDrafts(page,plan,{one,go}){
 // the route in-app never showed the tab, and the draft was left). A fresh load
 // also leaves the draft, so opening a communications screen again can't
 // refresh it. Leaving a page with unsaved edits may ask first; leaving is the
-// point, so that one question is accepted. A second fresh load if the tab
-// doesn't show; then it refuses.
+// point, so that one question is accepted. A second fresh load if neither
+// the tab nor a plainly empty schedule shows (draftsTab); then it refuses.
 async function openDraftsTab(page,plan,{one,go,T}){
-  const heading=page.getByRole('heading',{name:'Draft Schedules',exact:true});
   for(let attempt=1;;attempt++){
     const leave=d=>{if(d.type()==='beforeunload')d.accept().catch(()=>{});};
     page.on('dialog',leave);
     try{await page.goto(ORIGIN+'/home/upcoming',{waitUntil:'domcontentloaded'});}finally{page.off('dialog',leave);}
     await page.getByRole('link',{name:'Pipeline',exact:true}).waitFor({state:'visible',timeout:T.wait});
     await go(`/schedules/${plan.interviewScheduleId}`);await go(`/schedules/${plan.interviewScheduleId}/drafts`);
-    if(attempt>=2||await heading.waitFor({state:'visible',timeout:T.wait}).then(()=>true,()=>false))return one(heading,'the Drafts tab');
+    try{return await draftsTab(page,plan,{one,T});}
+    catch(e){if(attempt>=2||!(e instanceof Refusal))throw e;}
   }
+}
+
+// The Drafts tab, or plain evidence that the schedule has no drafts. Ashby
+// hides the tab when a schedule has none (seen October 29 on TEST's cancelled
+// schedule; at 00:52 on October 29 the route still showed its heading with
+// none, on a schedule not yet booked). So a missing tab is "no drafts" only on
+// a schedule page that is plainly loaded and well: its Current and Template
+// tabs showing, no Drafts tab, no draft link anywhere, not "Saving...", and no
+// Ashby error (the network is already quiet: go() waits for that). Anything
+// else is the real failure (October 28: a composer stuck on "Saving..."), and
+// the refusal says what was wrong. Returns {none:true} or {tab:true}.
+async function draftsTab(page,plan,{one,T}){
+  const heading=page.getByRole('heading',{name:'Draft Schedules',exact:true});
+  if(await heading.waitFor({state:'visible',timeout:T.wait}).then(()=>true,()=>false)){await one(heading,'the Drafts tab');return {tab:true};}
+  const shown=await page.evaluate(id=>{
+    const visible=el=>{const r=el.getBoundingClientRect();return r.width>0&&r.height>0&&getComputedStyle(el).visibility!=='hidden';};
+    const link=p=>[...document.querySelectorAll(`a[href="${p}"]`)].some(visible);
+    const heads=[...document.querySelectorAll('h1,h2,h3,[role="heading"]')].filter(visible).map(h=>h.innerText.replace(/\s+/g,' ').trim());
+    return {path:location.pathname,current:link(`/schedules/${id}`),template:link(`/schedules/${id}/template`),drafts:link(`/schedules/${id}/drafts`),
+      draftLinks:document.querySelectorAll('a[href^="/schedules/drafts/"]').length,saving:heads.some(h=>/Saving\.\.\./.test(h)),
+      error:(document.body.innerText.match(/Something went wrong|problem with the network connection|Page not found/)||[null])[0]};
+  },plan.interviewScheduleId);
+  const why=noDraftsWhy(shown,plan.interviewScheduleId);
+  if(!why.length)return {none:true};
+  throw new Refusal('the Drafts tab',`Couldn't find the Drafts tab: ${why.join('; ')}.`);
+}
+// What stops a page without the Drafts tab counting as "no drafts" (empty: it does).
+function noDraftsWhy(s,scheduleId){
+  const why=[];
+  if(!String(s.path||'').startsWith(`/schedules/${scheduleId}`))why.push(`the page is ${s.path}, not this schedule`);
+  if(!s.current||!s.template)why.push('the schedule\'s Current and Template tabs aren\'t showing');
+  if(s.drafts)why.push('a Drafts tab is listed but its page didn\'t show');
+  if(s.draftLinks)why.push(`${s.draftLinks} draft link${s.draftLinks===1?' is':'s are'} on the page`);
+  if(s.saving)why.push('Ashby shows "Saving..."');
+  if(s.error)why.push(`Ashby shows "${s.error}"`);
+  return why;
 }
 
 // Delete one draft from the schedule's Drafts tab: the single button beside
@@ -782,7 +818,8 @@ async function openDraftsTab(page,plan,{one,go,T}){
 // Then confirm it's gone. With `allowAbsent`, a draft that isn't listed is
 // reported as absent rather than refused.
 async function deleteDraft(page,plan,draftId,permit,{one,go,sleep,T,allowAbsent=false}){
-  await openDraftsTab(page,plan,{one,go,T});
+  // A schedule plainly showing no drafts: there's nothing to delete.
+  if((await openDraftsTab(page,plan,{one,go,T})).none)return {deleted:false,absent:true,draftId};
   const links=page.locator(`a[href="/schedules/drafts/${draftId}"]`);
   if(allowAbsent&&!(await links.count()))return {deleted:false,absent:true,draftId};
   const link=await one(links,'the link to this draft');
@@ -842,4 +879,4 @@ async function discardDraft({context,page,plan,draftId,log=()=>{},timing={},resp
   finally{log({type:'blocked-summary',blocked:[...new Set(guard.blocked.filter(b=>b.ashby).map(b=>b.summary))]});}
 }
 
-module.exports={dryRun,discardDraft,draftUrl,readInviteStatus,helpers,openApplication,networkWatch,screenSnapshot,readInviteSettings,readPreviewSections,Refusal};
+module.exports={dryRun,discardDraft,draftUrl,noDraftsWhy,readInviteStatus,helpers,openApplication,networkWatch,screenSnapshot,readInviteSettings,readPreviewSections,Refusal};

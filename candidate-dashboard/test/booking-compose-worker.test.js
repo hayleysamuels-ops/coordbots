@@ -390,3 +390,9 @@ test('the guard\'s blocks on Ashby and each delete request are logged; telemetry
   const body=JSON.stringify({operationName:'ApiDeleteDraftInterviewSchedule',query:'mutation ApiDeleteDraftInterviewSchedule($id: ID!) { x }',variables:{draftInterviewScheduleId:'d-1'}});
   assert.equal(detailLine({type:'request',op:'ApiDeleteDraftInterviewSchedule',body}),`ApiDeleteDraftInterviewSchedule request as Ashby sent it: ${body}`);
 });
+
+test('a run\'s draft already gone from Ashby is said plainly, with nothing to delete by hand',async()=>{
+  const {composeOutcome}=require('../worker/booking-compose');
+  assert.equal(composeOutcome({status:'refused',step:'x',reason:'Y.',draftId:'d1',draftUrl:'https://app.ashbyhq.com/schedules/drafts/d1',cleanup:{deleted:false,absent:true,draftId:'d1'}}),
+    'refused at "x": Y; draft d1 created, already gone from Ashby');
+});

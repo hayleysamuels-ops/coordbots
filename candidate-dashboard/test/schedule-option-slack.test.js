@@ -392,6 +392,10 @@ test("an earlier post blocks a repost while it could still book or leave a draft
     approved({ state: "not_started", reason: "x" }),
     approved({ state: "deleted", draftId: "d" }),
     approved({ state: "gone", draftId: "d" }),
+    // The schedule plainly showed no drafts when the run cleaned up (worker draftsTab).
+    approved({ state: "refused", draftId: "d", cleanup: { deleted: false, absent: true, draftId: "d" } }),
+    // Released by a person (ashby-check.js release).
+    approved({ state: "released", draftId: "d" }),
   ];
   const blocks = [
     { state: "draft" }, { state: "sharing" }, { state: "discussion_uncertain" }, { state: "shared" },

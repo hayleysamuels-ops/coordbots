@@ -44,7 +44,7 @@
   // can be released (the server checks again, and checks Ashby).
   const releasable = row => row.state === "discussion_approved" && row.plan?.bookingPlan?.interviewScheduleId
     && ["refused", "delete_failed", "uncertain", "composed"].includes(row.ashbyCheck?.state)
-    && !(row.ashbyCheck.state === "refused" && (!row.ashbyCheck.draftId || row.ashbyCheck.cleanup?.deleted === true));
+    && !(row.ashbyCheck.state === "refused" && (!row.ashbyCheck.draftId || row.ashbyCheck.cleanup?.deleted === true || row.ashbyCheck.cleanup?.absent === true));
   // What a release would clear, shown before anything is cleared.
   function releasePreview(p) {
     return `<p><strong>Releasing schedule ${esc(p.scheduleId)}</strong> (Ashby shows it ${esc(p.ashbyStatus)}). This clears:</p><ul>${p.clearing.map(c =>

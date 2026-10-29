@@ -30,9 +30,12 @@ const plan={jobId:'job-1',candidateId:'cand-1',applicationId:'app-1',interviewSc
 // schedule's Drafts tab; the run's own draft (draft-1) joins them once created.
 // Drafts live on the stand-in's server side, as Ashby's do, so a full load
 // (the cleanup starts from one) still lists them; other page state starts over.
+// `emptyDrafts` is how the Drafts route shows a schedule with none: its heading
+// ('heading', seen October 29 00:52), the schedule's tabs without a Drafts tab
+// ('hidden', seen October 29 on a cancelled schedule), or nothing ('broken').
 // `stuck` gives a draft page that, once shown, ignores route changes and asks
 // before the page is left, like the October 28 composer stuck on "Saving...".
-function app({menu=['Send Direct Booking Link','Request Candidate Availability','Manual Schedule','View All Scheduling Options'],dialogAfterManual=null,strayWrite=null,submitted=false,zone=null,existing=[],stuck=false}={}){
+function app({menu=['Send Direct Booking Link','Request Candidate Availability','Manual Schedule','View All Scheduling Options'],dialogAfterManual=null,strayWrite=null,submitted=false,zone=null,existing=[],stuck=false,emptyDrafts='heading'}={}){
   return `<!doctype html><html><body><nav><a href="/candidates/pipeline">Pipeline</a></nav><main id="m"></main><script>
   const drafts=${JSON.stringify(existing)};
   const gql=(name,variables)=>fetch('/api/graphql',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operationName:name,query:'mutation '+name+' { x }',variables})}).then(r=>r.json());
@@ -50,6 +53,9 @@ function app({menu=['Send Direct Booking Link','Request Candidate Availability',
           if(i.textContent==='Manual Schedule'){const r=await gql('${OP.create}',{interviewScheduleId:'sched-1'});drafts.push(r.data.draftInterviewSchedule.id);
             history.pushState({},'','/schedules/drafts/'+r.data.draftInterviewSchedule.id);render();
             if(${JSON.stringify(dialogAfterManual)}){const d=document.createElement('div');d.setAttribute('role','alertdialog');d.innerHTML='<p>'+${JSON.stringify(dialogAfterManual)}+'</p><button>Confirm Anyway</button><button>Cancel</button>';document.body.appendChild(d);}}});};
+    } else if(p.endsWith('/drafts')&&!drafts.length&&${JSON.stringify(emptyDrafts)}!=='heading'){
+      // No drafts: the schedule's tabs without a Drafts tab ('hidden'), or a page that never loaded ('broken').
+      if(${JSON.stringify(emptyDrafts)}==='hidden')m.innerHTML='<nav><a href="/schedules/sched-1">Current</a><a href="/schedules/sched-1/template">Template</a></nav>';
     } else if(p.endsWith('/drafts')){
       m.innerHTML='<h2>Draft Schedules</h2>'+drafts.map(id=>'<div><a href="/schedules/drafts/'+id+'">open</a><button data-id="'+id+'"></button></div>').join('');
       m.querySelectorAll('button[data-id]').forEach(b=>b.onclick=async()=>{const id=b.dataset.id,r=await gql('${OP.discard}',{draftInterviewScheduleId:id}).catch(()=>({}));if(r.data)drafts.splice(drafts.indexOf(id),1);});
@@ -277,4 +283,31 @@ test('a refused run\'s draft is deleted from a fresh load even when the composer
   assert.deepEqual(r.report.cleanup,{deleted:true,draftId:'draft-1'});
   assert.equal(r.report.draftUrl,'https://app.ashbyhq.com/schedules/drafts/draft-1');
   assert.deepEqual(r.received,[OP.create,discarded('draft-1')]);
+});
+
+test('a schedule plainly showing no Drafts tab has no drafts; a page that didn\'t load is still a failure',async t=>{
+  const del=draftId=>({context,page,respond,timing})=>discardDraft({context,page,plan,draftId,respond,timing});
+  // The sweep or a release deleting a draft that's already gone: nothing to clean, so no failure and no link to chase.
+  const hidden=await run(t,{appOptions:{emptyDrafts:'hidden'},task:del('d-old')});if(!hidden)return;
+  assert.deepEqual(hidden.report,{deleted:false,absent:true,draftId:'d-old',draftUrl:'https://app.ashbyhq.com/schedules/drafts/d-old'});
+  assert.deepEqual(hidden.received,[]);
+  const broken=await run(t,{appOptions:{emptyDrafts:'broken'},task:del('d-old')});
+  assert.equal(broken.report.deleted,false);assert.notEqual(broken.report.absent,true);
+  assert.match(broken.report.reason,/^Couldn't find the Drafts tab: the schedule's Current and Template tabs aren't showing\.$/);
+  // Before making a draft, a schedule with no Drafts tab has no other drafts.
+  const first=await run(t,{appOptions:{emptyDrafts:'hidden'},runOptions:{checkExistingDrafts:true,keepOnSuccess:true}});
+  assert.ok(first.report.checks.some(c=>c.name==='the schedule has no other drafts'));
+  assert.ok(first.received.includes(OP.create));
+});
+
+test('what stops a page without the Drafts tab counting as no drafts',()=>{
+  const {noDraftsWhy}=require('../worker/booking-composer');
+  const ok={path:'/schedules/s1/drafts',current:true,template:true,drafts:false,draftLinks:0,saving:false,error:null};
+  assert.deepEqual(noDraftsWhy(ok,'s1'),[]);
+  assert.deepEqual(noDraftsWhy({...ok,saving:true},'s1'),['Ashby shows "Saving..."']);
+  assert.deepEqual(noDraftsWhy({...ok,path:'/schedules/drafts/d1'},'s1'),['the page is /schedules/drafts/d1, not this schedule']);
+  assert.deepEqual(noDraftsWhy({...ok,drafts:true},'s1'),['a Drafts tab is listed but its page didn\'t show']);
+  assert.deepEqual(noDraftsWhy({...ok,draftLinks:1},'s1'),['1 draft link is on the page']);
+  assert.deepEqual(noDraftsWhy({...ok,error:'Something went wrong'},'s1'),['Ashby shows "Something went wrong"']);
+  assert.deepEqual(noDraftsWhy({...ok,current:false},'s1'),['the schedule\'s Current and Template tabs aren\'t showing']);
 });

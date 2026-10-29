@@ -64,7 +64,7 @@ const short=v=>String(v??'').replace(/\s+/g,' ').trim().slice(0,300);
 const clause=v=>short(v).replace(/\.$/,'');// a reason inside a line
 function composeOutcome(r){
   const made=r.draftId?`draft ${r.draftId} created`:'no draft created';
-  const kept=r.send?.attempted?'kept (a send was attempted)':r.cleanup?.kept?'kept for a person to send':r.cleanup?.deleted?'deleted':r.draftId?`NOT deleted (${short(r.cleanup?.reason||'no reason given')}); delete it by hand: ${r.draftUrl||r.draftId}`:'';
+  const kept=r.send?.attempted?'kept (a send was attempted)':r.cleanup?.kept?'kept for a person to send':r.cleanup?.deleted?'deleted':r.cleanup?.absent?'already gone from Ashby':r.draftId?`NOT deleted (${short(r.cleanup?.reason||'no reason given')}); delete it by hand: ${r.draftUrl||r.draftId}`:'';
   const replaced=r.superseded?.draftId?`; earlier draft ${r.superseded.draftId} ${r.superseded.deleted?'deleted':'NOT deleted'}`:'';
   const zone=r.displayZone?`; composer zone ${r.displayZone}`:'';
   const writes=r.writes?`; ${r.writes.saves} save${r.writes.saves===1?'':'s'}${r.writes.refusedSaves?`, ${r.writes.refusedSaves} refused`:''}`:'';
