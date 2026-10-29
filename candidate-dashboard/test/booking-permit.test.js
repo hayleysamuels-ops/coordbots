@@ -4,7 +4,7 @@
 // test reaches Ashby; what's measured is what the stand-in received.
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const {guardWrites}=require('../worker/template-guard');
-const {installBookingPermits,OP}=require('../worker/booking-permit');
+const {installBookingPermits,saveBudget,SAVE_CEILING,OP}=require('../worker/booking-permit');
 
 let chromium=null;
 try{chromium=require('../worker/node_modules/playwright').chromium;}catch(_){}
@@ -90,4 +90,24 @@ test('each save is logged with its number, its check result and its times, then 
     {type:'save-checked',seq:1,events:['1 2099-10-12T17:00Z–17:30Z u-hayley']},{type:'save-result',seq:1,accepted:true},
     {type:'refused-save',seq:2,reason:true},
     {type:'save-checked',seq:3,events:['1 2099-10-20T19:05Z–19:35Z u-hayley']},{type:'save-result',seq:3,accepted:true}]);
+});
+
+test('the save limit comes from the plan: four per session and two per interviewer slot, with a ceiling',()=>{
+  const sessions=(n,people)=>({sessions:Array.from({length:n},()=>({interviewers:Array(people).fill(HAYLEY)}))});
+  // TEST onsite, October 28: six sessions, one interviewer each. 15 saves were made.
+  assert.deepEqual(saveBudget(sessions(6,1)),{limit:36,sessions:6,slots:6,ceiling:SAVE_CEILING});
+  // The case the old fixed 25 couldn't hold: every field typed and every slot picked once is 30.
+  assert.ok(saveBudget(sessions(6,1)).limit>=30);
+  assert.equal(saveBudget(sessions(6,6)).limit,SAVE_CEILING,'the largest plan under the ceiling');
+  assert.ok(saveBudget(sessions(7,6)).limit>SAVE_CEILING,'over it refuses before any draft');
+  assert.equal(saveBudget(plan).limit,6);
+});
+
+test('the save permit stops at the plan\'s limit, and the save over it falls to the guard',async t=>{
+  const s=await setup(t);if(!s)return;
+  assert.equal(await s.send(OP.create,{interviewScheduleId:'sched-1'}),200);
+  const ok=save({interviewSlots:[{selected:'u-hayley',alternates:[]}]});
+  for(let n=1;n<=saveBudget(plan).limit;n++)assert.equal(await s.send(OP.save,ok),200,`save ${n}`);
+  assert.equal(await s.send(OP.save,ok),'blocked','one over the limit');
+  assert.equal(s.state.saves,saveBudget(plan).limit);
 });

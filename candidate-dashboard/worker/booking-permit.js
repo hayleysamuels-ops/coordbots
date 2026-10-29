@@ -70,13 +70,32 @@ const who=(id,names)=>id==null?'-':names.has(id)?`${id} (${names.get(id)})`:id;
 const slotSummary=(events,names)=>events.map((e,i)=>e.slots.map((s,j)=>`event ${i+1} slot ${j+1}: selected ${who(s.selected,names)}; alternates ${s.alternates===null?'(none sent)':`[${s.alternates.map(a=>who(a,names)).join(', ')}]`}`).join('; ')).join('; ');
 const planNames=plan=>new Map((plan.sessions||[]).flatMap(s=>(s.interviewers||[]).map(x=>[x.userId,x.name||x.email||x.userId])));
 
+// The draft saves a booking may make, from the plan alone, as an upper bound
+// on what's been seen. October 28 (TEST onsite cfc50220, 15 saves): each
+// session's date and Start cost a save each, every session after the first
+// opened with a save that changed nothing, and End was already right. Counted
+// here as four per session (one opening save, and date, Start and End all
+// typed) plus two per interviewer slot, whether or not the slot already holds
+// the right person. A pick's cost hasn't been seen on a multi-session booking;
+// two is budgeted because guessing low stops a booking partway with a draft to
+// clean up, and an unused allowance sends nothing. The plan's count is the
+// save permit's limit, so a booking can't run out of saves partway through.
+// SAVE_CEILING is the only limit here not derived from the plan: a plan whose
+// count is over it refuses before any draft is made. Six sessions of six
+// interviewers each is 6×4 + 36×2 = 96.
+const SAVE_CEILING=96;
+function saveBudget(plan){
+  const sessions=(plan.sessions||[]).length,slots=(plan.sessions||[]).reduce((n,s)=>n+(s.interviewers||[]).length,0);
+  return {limit:sessions*4+slots*2,sessions,slots,ceiling:SAVE_CEILING};
+}
+
 // The booking's permits, sharing one `state`:
 //   draftId     set from the create response; until then, nothing draft-bound passes
 //   created     the draft as Ashby created it (each slot's eligible list)
 //   last        the last accepted draft contents
 //   refusals    every save refused on content, with the reason
 //   cleanup     true only while the draft is being deleted
-async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxSaves=25,maxRefreshes=10,observeAlternates=false}){
+async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxSaves=saveBudget(plan).limit,maxRefreshes=10,observeAlternates=false}){
   Object.assign(state,{draftId:null,created:null,last:null,saves:0,lastSaveAt:0,lastRefreshAt:0,refusals:[],baselineError:null,cleanup:false,sent:0,lastSeq:0,zone:null,attempts:0});
   const forDraft=v=>!!state.draftId&&v.draftInterviewScheduleId===state.draftId;
   const names=planNames(plan);
@@ -118,4 +137,4 @@ async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxS
   return permits;
 }
 
-module.exports={installPermit,installBookingPermits,parsedOps,isMutation,OP,ORIGIN,slotSummary};
+module.exports={installPermit,installBookingPermits,saveBudget,SAVE_CEILING,parsedOps,isMutation,OP,ORIGIN,slotSummary};

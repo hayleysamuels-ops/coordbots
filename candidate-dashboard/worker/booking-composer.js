@@ -19,7 +19,7 @@
 // Availability"). Exact-name matching here and the write guard are both
 // load-bearing; neither may be relaxed.
 const {guardWrites,classify}=require('./template-guard');
-const {installBookingPermits,installPermit,ORIGIN,OP}=require('./booking-permit');
+const {installBookingPermits,installPermit,saveBudget,ORIGIN,OP}=require('./booking-permit');
 const {classifyInviteStatus,DRAFT_READ_OP,draftReadCopy,draftShape,draftsIn,normalizeDraft,maskAgendaItem,agendaFromList,checkFinal,formats,savedField,composerZone,checkInviteDropdowns,partitionPreviews,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,emailsIn}=require('./booking-check');
 
 class Refusal extends Error{constructor(step,message){super(message);this.step=step;this.status=409;}}
@@ -229,7 +229,8 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
   const events=[];const note=e=>{events.push(e);log(e);};
   const guard=await guardWrites(context,{warn:m=>note({type:'blocked',detail:m.replace('[write-guard] ','')})});
   const state={};
-  await installBookingPermits(context,{plan,state,log:note,observeAlternates,...(respond?{respond}:{})});
+  const budget=saveBudget(plan);
+  const permits=await installBookingPermits(context,{plan,state,log:note,observeAlternates,maxSaves:budget.limit,...(respond?{respond}:{})});
   // The earlier draft's delete: that draft only, once, and only while armed.
   const superseding={armed:false,discarded:undefined};
   if(supersedeDraftId)await installPermit(context,{op:OP.discard,max:1,log:note,...(respond?{respond}:{}),
@@ -321,12 +322,18 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
     if(state.refusals.length>seenRefusals)refuse(state.refusals[state.refusals.length-1]);
     const unexpected=guard.blocked.slice(seenBlocked).filter(b=>b.ashby&&!(b.mutation&&[...EXPECTED_BLOCKED].some(n=>b.summary.endsWith(' '+n))));
     seenBlocked=guard.blocked.length;
+    if(unexpected.some(b=>b.summary.endsWith(' '+OP.save))&&permits.save.count>=budget.limit)refuse(`Ashby needed more than the ${budget.limit} draft saves this plan allows (${budget.sessions} session${budget.sessions===1?'':'s'}, ${budget.slots} interviewer slot${budget.slots===1?'':'s'}); the save over the limit was blocked.`);
     if(unexpected.length)refuse(`Ashby tried a write the booking doesn't permit: ${unexpected.map(b=>b.summary).join('; ')}.`);
     seenRefusals=state.refusals.length;
   }
   const report={mode:keepOnSuccess?'compose':'dry-run',status:'refused',step:null,reason:null,draftId:null,checks:[],wouldSend:null,cleanup:null};
   const pass=(name,detail)=>{report.checks.push({name,ok:true,...(detail?{detail}:{})});note({type:'check',name,...(detail?.draftId?{draftId:detail.draftId}:{})});};
   try{
+    // 0. The plan's draft saves must fit under the ceiling before anything
+    // opens, so a booking never runs out partway (saveBudget).
+    step='check the save budget';
+    if(budget.limit>budget.ceiling)refuse(`This plan could need ${budget.limit} draft saves (${budget.sessions} sessions, ${budget.slots} interviewer slots), over the booking's ceiling of ${budget.ceiling}. Nothing was opened in Ashby.`);
+    pass(`save budget: ${budget.limit} for ${budget.sessions} session${budget.sessions===1?'':'s'} and ${budget.slots} interviewer slot${budget.slots===1?'':'s'}`);
     // 1. Ashby's shell, then the application inside the app. A cold load of a
     // deep URL shows an error page under the guard.
     step='open the application';
