@@ -391,10 +391,31 @@ done and verified, in this order:
     A worker without `activityId` still works where a stage has one activity,
     and asks to be updated where it has more.
 
-  Not handled: alternatives inside one activity. The FDE onsites list "Coding
-  - Roomba" and "URL Shortener" in one activity. If only one of those runs,
-  the template still refuses, and that would need a per-job rule. Unconfirmed
-  with Anna.
+  **Not handled: alternatives inside one activity. The FDE onsites are off
+  because of it** (October 29, 2026). All three Forward Deployed Engineer jobs
+  (FDE, Team Lead, New Grad) list "Coding - Roomba" and "URL Shortener" as
+  two interviews inside their one Onsite activity. Anna confirmed only one runs
+  per onsite. The reader compares the template with that activity, so either:
+  - **One coding interview removed from the template:** the template has one
+    interview fewer than the activity, and the reader refuses. That's safe, but
+    the onsite never posts.
+  - **Both left in the template (the dangerous case):** the template matches,
+    the plan carries both 60-minute coding sessions, and the bot books both.
+    The candidate sits two coding exercises. That's candidate-facing, and
+    nothing flags it.
+
+  Supporting it needs a rule naming the alternative pair, so the reader accepts
+  either one but not both. Until then the FDE onsites stay off
+  `BOOKING_COMPOSE_JOBS`. Every other FDE stage has one activity with one
+  interview, the shape that has been booking, and is opted in compose-only
+  (not send). That includes Team Lead's Closing & Final Conversations: the risk
+  is about shape, not how late the stage is.
+- **Unverified: a "Welcome" multi-slot block on the Applied AI onsite.** It was
+  carried forward from a conversation as a known gap, but nothing substantiates
+  it: not this file, not the code, not a run. What's recorded (October 1) is
+  "Welcome 2", meaning two *eligible interviewers*, not two *slots*. The
+  composer loops over every slot of a session, and the final check requires
+  the slot count to match. Treat it as unverified until an onsite read shows it.
 - **Interviewer identity overrides** (October 14, 2026, rules revision 7).
   Ashby's slots list interviewers by name, and the dashboard matches names to
   active Ashby accounts. A name with more than one active account refuses,
