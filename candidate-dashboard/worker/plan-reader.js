@@ -19,7 +19,9 @@ function parseAssignment(text,title='This interview'){
   const namedFix='Only named interviewers are supported: use Specific Employees in the template.';
   const slotStarts=lines.map((s,i)=>/^Slot\s*#\d+\b/.test(s)?i:-1).filter(i=>i>=0);
   if(!slotStarts.length)refuse(`no interviewer slot could be found (Ashby shows ${quote(lines.slice(1,4).join(' · ')||'nothing')})`,namedFix);
-  if(slotStarts.length>1)refuse(`it has ${slotStarts.length} interviewer slots, so it needs ${slotStarts.length} interviewers on the panel`,'Only single-interviewer events are supported: use one slot that lists every eligible interviewer.');
+  // Slots are ANDed: each is one more person on the panel. Never suggest
+  // merging them into one slot: that turns a panel into a one-person interview.
+  if(slotStarts.length>1)fail(`"${name}" is a panel: it has ${slotStarts.length} interviewer slots, so it expects ${slotStarts.length} people. Panel events aren't supported yet, so this can't be proposed or booked here; schedule it by hand in Ashby.`);
   // Ashby heads the section "Interviewers N", N being its slot count.
   const heading=lines.map(l=>l.match(/^Interviewers (\d+)$/)).find(Boolean);
   if(heading&&Number(heading[1])!==slotStarts.length)fail(`"${name}": Ashby shows "Interviewers ${heading[1]}" but ${slotStarts.length} slot${slotStarts.length===1?' was':'s were'} read. Load the plan again; if it persists, check the event in Ashby.`);

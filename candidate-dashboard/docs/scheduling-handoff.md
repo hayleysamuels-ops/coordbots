@@ -478,12 +478,45 @@ done and verified, in this order:
   job, so rebuilding TEST's Onsite activity didn't touch Product Designer's;
   but the stages are shared, so adding, removing or renaming a stage on TEST
   (the role rebuilt constantly) would move Product Designer's too.
-- **Unverified: a "Welcome" multi-slot block on the Applied AI onsite.** It was
-  carried forward from a conversation as a known gap, but nothing substantiates
-  it: not this file, not the code, not a run. What's recorded (October 1) is
-  "Welcome 2", meaning two *eligible interviewers*, not two *slots*. The
-  composer loops over every slot of a session, and the final check requires
-  the slot count to match. Treat it as unverified until an onsite read shows it.
+- **Confirmed: panel events (several interviewer slots) block the Senior PM
+  onsite** (October 30, 2026, Hubert Lin, Senior Product Manager, Onsite
+  Interview). "Welcome" has 2 interviewer slots and "Case Study Presentation"
+  has 4, so the plan read refuses both. The gap was real; it was carried
+  forward against the Applied AI onsite, whose "Welcome 2" turned out to mean
+  two *eligible interviewers*, not two slots. Senior PM's onsite was already off
+  both lists, so nothing live is blocked.
+  - **The refusal** (since October 30) calls the event a panel, says how many
+    people it expects, and that panels aren't supported yet. It no longer
+    suggests "one slot that lists every eligible interviewer": that's right
+    when one of several eligible people attends, and wrong for a real panel,
+    where it would silently turn a four-person Case Study Presentation into a
+    one-person interview.
+  - **What the slots contain is still unread:** the reader stops at the slot
+    count, so whether these slots name people, draw from pools or use hiring
+    team roles isn't known yet.
+  - **Panel support: approved, not scheduled.** It's the next substantial piece
+    after the Slack reply feature. Sized October 30 as medium to large, almost
+    all on the dashboard side:
+    - **Template reader:** read each slot separately (its own eligible list,
+      plus the pool and role checks). Moderate.
+    - **Calendar search** (`full-calendar-schedule.js`, `full-schedule.js`):
+      fill every slot with a different person, all free at once. The search
+      grows with the product of the eligible lists (4 slots of 5 eligible is
+      625 combinations per start time). Limits, Gabrielle-first, busy and
+      meeting-hours flags, and option variety become per person. The biggest
+      piece.
+    - **Booking plan** (`booking-plan.js`, today `interviewers: [one]`): small.
+      **Slack post and preview:** small to moderate. **In person or video, per
+      person** (a panel can mix them): moderate.
+    - **Worker:** the composer, save budget (2 per slot), agenda check and
+      invite check already work per slot or per list. Probably nothing to
+      change, but never run with more than one slot.
+    - **Only a real run settles:** alternates across slots when one person is
+      eligible for two, how a panel reads on the agenda line, and one invite
+      per event or per person.
+    - **Estimate:** template reader plus calendar search, a few days with
+      tests; then one guarded TEST run with a two-slot event before any role
+      goes on a list.
 - **Interviewer identity overrides** (October 14, 2026, rules revision 7).
   Ashby's slots list interviewers by name, and the dashboard matches names to
   active Ashby accounts. A name with more than one active account refuses,
