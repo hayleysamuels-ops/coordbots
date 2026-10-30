@@ -84,7 +84,11 @@ function createAutoPost({ on = false, dataDir, clientId, channelId, availability
     // The submission the option was built from must be the one just read.
     if (!found.submission || availabilityChange(postedAvailability(current), found.submission, now())) return failed(new Error("the availability changed while the option was being built"), "build an option");
     const stale = [];
-    for (const r of open.filter(r => !sameAs(r))) {
+    // A standing request that can't be kept leaves the open post where it is:
+    // its buttons and thread are the ways out the notice names (a press
+    // there rebuilds from the new availability).
+    const keepOpen = found.result?.status === "request_unavailable";
+    for (const r of keepOpen ? [] : open.filter(r => !sameAs(r))) {
       try { stale.push(await service.withdrawForSuggestion(r, { by: ACTOR.id, kind: "resubmitted" })); }
       catch (e) { log.warn(`[auto-post] ${r.id} wasn't withdrawn: ${e.message}`); }
     }
@@ -94,7 +98,11 @@ function createAutoPost({ on = false, dataDir, clientId, channelId, availability
       catch (e) { log.warn(`[auto-post] ${scheduleId}: the option couldn't be posted: ${e.message}`); await notice(`Auto-post: an option was found for ${found.result.candidateName || "a candidate"}, but it couldn't be posted (${e.message}). Post one from booking review on the dashboard.`); }
     } else {
       const r = found.result, name = r.candidateName || "a candidate";
-      await notice(!r.proposals?.length
+      // A standing request (requests.js) that can't be kept is said with its ways out.
+      await notice(r.status === "request_unavailable"
+        ? `Auto-post: ${name} submitted availability, but nothing was posted. ${require("./requests").staleRequestText(r.requestFailure.request, r.requestFailure.why,
+          { where: "notice", slackPost: await service.slackPostOpen({ applicationId, scheduleId }).catch(() => false) })}`
+        : !r.proposals?.length
         ? `Auto-post: ${name} submitted availability, but no agenda fits it (${r.reason || "no reason given"}). Nothing was posted. Check the availability in booking review.`
         : `Auto-post: ${name} submitted availability, but every option has calendar clashes (${r.proposals.length} found), so none was posted automatically. One with clashes can be posted from booking review.`);
     }

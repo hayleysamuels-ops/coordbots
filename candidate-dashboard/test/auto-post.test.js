@@ -139,3 +139,30 @@ test("a read that keeps failing is tried three rounds, then said once and left",
   await f.auto.round();
   assert.equal(f.posts.length, 1);
 });
+
+test("a standing Slack request that can't be kept: the open post stays, and the notice names both ways out", async t => {
+  const f = fixture(t);
+  await f.auto.round();
+  const request = { session: 0, interviewId: "i1", label: "First Round", userId: "u-v", name: "Vamsi Chitters", by: "anna@carrara.is", byName: "Anna Jones" };
+  f.setFound(() => ({ status: "request_unavailable", requestFailure: { request, why: "not_eligible" }, proposals: [], reason: "x" }));
+  f.ashby.updatedAt = "2099-10-27T09:00:00.000Z";f.ashby.windows = second;
+  await f.auto.round();
+  assert.equal(f.calls.notices[0].text, 'Auto-post: TEST submitted availability, but nothing was posted. Vamsi Chitters was requested for First Round by Anna Jones, but Ashby no longer lists Vamsi Chitters as eligible for First Round, so no new option can keep that request. To keep it, make Vamsi Chitters eligible for First Round again in Ashby, then post an option from booking review. To drop it instead, on the open post for this candidate, choose First Round under "Suggest different interviewer" so anyone eligible can take it, or @mention the bot in its thread naming who should take First Round; or press "Drop" next to this request in booking review on the dashboard, so anyone eligible can take First Round. Other requests are kept either way.');
+  const [old] = await rows(f.store);
+  assert.equal(old.state, "shared");
+  assert.equal(f.calls.replaced.length, 0);
+});
+
+test("a stale request with only a typed-in post open: the notice points to booking review, not to Slack", async t => {
+  const f = fixture(t);
+  await f.auto.round();
+  // The open post was built from coordinator-typed times: Slack can't rebuild it.
+  const [open] = await rows(f.store);
+  await f.store.replace(open.id, open.revision, { ...open, revision: open.revision + 1, plan: { ...open.plan, timezoneSource: "coordinator_entered" } });
+  const request = { session: 0, interviewId: "i1", label: "First Round", userId: "u-v", name: "Vamsi Chitters", by: "anna@carrara.is", byName: "Anna Jones" };
+  f.setFound(() => ({ status: "request_unavailable", requestFailure: { request, why: "Ashby daily interview limit is 0" }, proposals: [], reason: "x" }));
+  f.ashby.updatedAt = "2099-10-27T09:00:00.000Z";f.ashby.windows = second;
+  await f.auto.round();
+  assert.match(f.calls.notices[0].text, /To keep it, raise Vamsi Chitters's daily interview limit above 0 in Ashby, then post an option from booking review\. To drop it instead, press "Drop" next to this request in booking review on the dashboard, so anyone eligible can take First Round\. Other requests are kept either way\.$/);
+  assert.doesNotMatch(f.calls.notices[0].text, /Suggest different interviewer|@mention/);
+});

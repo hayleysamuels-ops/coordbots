@@ -17,8 +17,8 @@
 // resubmission starts again from just this request. An amend leaves the
 // person it took off out of that session from then on, and lets back in the
 // person it put on (an amend is an explicit choice, so it outranks an earlier
-// "different interviewer"). What it requires isn't carried: a later button
-// press may pick anyone eligible.
+// "different interviewer"). Who it asked for is kept separately, as a
+// standing request on every later post (requests.js).
 const fail = message => { throw Object.assign(new Error(message), { status: 500 }); };
 const isInstant = v => typeof v === "string" && /T.*(?:Z|[+-]\d\d:\d\d)$/.test(v) && Number.isFinite(Date.parse(v));
 const MAX = 50;

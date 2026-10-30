@@ -1021,8 +1021,40 @@ Nothing is booked or sent: the replacement needs Schedule like any post.
   post's notes say "Amended in Slack by … : replace X with Y on Onsite 2, same
   times". The person taken off stays out of that session for later button
   presses; the person put on is let back in if an earlier press had left them
-  out. The requirement itself isn't carried: a later button press may pick
-  anyone eligible.
+  out.
+- **Standing requests** (`requests.js`, since October 30): the person an
+  amend put on stays required on that session for every later rebuild of the
+  schedule, kept on each post as `plan.requested` (under the digest) with who
+  asked. That covers both suggestion buttons, a later amend, auto-post on a
+  resubmission, and booking review's calendar-checked preview and Post (which
+  read the latest post's requests, `service.requestsFor`). Each new post's
+  notes list the requests it keeps.
+  - It ends only by an explicit choice, one request at a time: a later amend
+    on that session replaces it; "Suggest different interviewer" on that
+    session releases it (the thread and the new post's notes say so); booking
+    review's **Drop** next to a request posts without that one, keeping the
+    rest (the notes say who dropped which). Nothing drops them all at once:
+    clearing one request must never lose another.
+  - Nothing fits with the request kept: the thread names it and who asked
+    ("No other time fits with Vamsi Chitters on Onsite 2 (requested by Anna
+    Jones): …"). The post stays open.
+  - A request that can't be kept (the person is no longer eligible, can't be
+    scheduled, or the session is no longer that interview in Ashby) blocks the
+    rebuild and says why. **The fix comes first** ("To keep it, make Vamsi
+    Chitters eligible for Onsite 2 again in Ashby, then …"; or raise their
+    interview limit above 0, or add their meeting hours to the rules), since
+    keeping it is usually what was wanted and it works whatever the post. The
+    drop is the fallback, and only ever that one request. Nothing to restore
+    when the session itself went, so then only the drop is named.
+  - Slack's ways to drop it ("Suggest different interviewer" on that session,
+    or an @mention naming someone else) are offered only where they work: on
+    a post Slack can rebuild (built from the candidate's submitted
+    availability with an Ashby plan; `service.slackPostOpen`). A post from
+    typed-in times has no buttons and refuses an @mention, so booking review
+    and auto-post point to booking review's Drop instead. Auto-post leaves the
+    open post in place in this case, so its buttons and thread still work.
+  - Booking review's preview without calendar checks can't require anyone; it
+    lists the requests as not applied.
 - **Failures are worded apart:** "The request couldn't be read" only when the
   model answered with something unusable; when the service failed (HTTP
   error, timeout, wrong answer shape) the thread says so and that the wording

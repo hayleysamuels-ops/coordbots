@@ -30,6 +30,7 @@ const crypto = require("crypto");
 const { nextSuggestion } = require("./suggestion");
 const { availabilityChange } = require("./availability-gate");
 const { replacePost } = require("./slack-replace");
+const { releaseSession, describeRequests, staleRequestText } = require("./requests");
 
 const WINDOW_S = 300;
 
@@ -92,11 +93,16 @@ function createSlackInteractions({ service, slackApi, signingSecret, teamId, app
     }
   }
 
-  // Why no replacement was posted, from the rebuilt result.
-  function noneText(result, what) {
+  // Why no replacement was posted, from the rebuilt result. With standing
+  // requests (requests.js) kept, it names them and who asked for them.
+  function noneText(result, what, requested = []) {
+    if (result.status === "request_unavailable") return `${staleRequestText(result.requestFailure.request, result.requestFailure.why, { where: "slack" })} This post is still open.`;
     if (result.status === "no_other_interviewer") return `${result.reason} This post is still open.`;
-    if (!result.proposals?.length) return `No other option fits for ${what}: ${result.reason || "the candidate's availability and the rules leave none"} This post is still open.`;
-    return `Every other option for ${what} has calendar clashes (${result.proposals.length} found), so none was posted. This post is still open; an option with clashes can be posted from booking review on the dashboard.`;
+    const keeping = requested.length ? ` with ${describeRequests(requested)}` : "";
+    if (!result.proposals?.length) return keeping
+      ? `${what === "another time" ? "No other time" : `No option with ${what}`} fits${keeping}: ${result.reason || "the candidate's availability and the rules leave none"} This post is still open.`
+      : `No other option fits for ${what}: ${result.reason || "the candidate's availability and the rules leave none"} This post is still open.`;
+    return `Every other option for ${what}${keeping} has calendar clashes (${result.proposals.length} found), so none was posted. This post is still open; an option with clashes can be posted from booking review on the dashboard.`;
   }
 
   async function suggest(payload, kind) {
@@ -115,15 +121,18 @@ function createSlackInteractions({ service, slackApi, signingSecret, teamId, app
     try {
       const row = await service.suggestionSource({ draftId: value.d, digest: value.g, channelId: payload.channel.id, messageTs: message.message_ts });
       let steer = nextSuggestion(row, { kind, session: kind === "interviewer" ? value.i : null, by: who.email });
-      await reply(`Looking for ${what}, asked by ${who.name || who.email}. This post stays open until a replacement is ready.`);
-      const find = s => suggester({ applicationId: row.plan.applicationId, scheduleId: row.plan.bookingPlan.interviewScheduleId, steer: s });
+      // Standing requests are kept, except that a different interviewer for a
+      // requested session is an explicit new choice, so it releases that one.
+      const { requested, released } = kind === "interviewer" ? releaseSession(row.plan.requested, value.i) : { requested: releaseSession(row.plan.requested, -1).requested, released: null };
+      await reply(`Looking for ${what}, asked by ${who.name || who.email}.${released ? ` This drops the earlier request for ${released.name} on ${released.label} (asked by ${released.byName}).` : ""}${requested.length ? ` Keeping ${describeRequests(requested)}.` : ""} This post stays open until a replacement is ready.`);
+      const find = s => suggester({ applicationId: row.plan.applicationId, scheduleId: row.plan.bookingPlan.interviewScheduleId, steer: { ...s, requested, released } });
       let found = await find(steer);
       // The candidate resubmitted since this post: earlier steers don't carry over.
       if (row.plan.suggestion && found.submission && availabilityChange(row.plan.submittedAvailability, found.submission, now())) {
         steer = nextSuggestion(row, { kind, session: kind === "interviewer" ? value.i : null, by: who.email, carry: false });
         found = await find(steer);
       }
-      if (found.index < 0) return await reply(noneText(found.result, what));
+      if (found.index < 0) return await reply(noneText(found.result, what, requested));
       return await reply(await replacePost({ service, slackApi, log, row, found, record: steer, by: who.email, kind, session: kind === "interviewer" ? value.i : null,
         channel: payload.channel.id, ts: message.message_ts, done: `Replaced: the new option (${what}) is posted in the channel. Nothing from this post was booked or sent.` }));
     } catch (e) {

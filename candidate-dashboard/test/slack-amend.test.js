@@ -48,7 +48,9 @@ async function fixture(t, { reading = swap(2, "Joe", "Mary"), found, approve = f
     calls.suggester.push(input);
     const f = typeof found === "function" ? found(input) : found || { index: 0, result: { proposals: [swapped] } };
     return { submission: submitted, ...f, post: (u, suggestion) => service.postScheduleOption({ applicationId: "app", candidateId: "candidate", timezone: "America/Los_Angeles", option: swapped, optionNumber: 1, sourceRef: `full-schedule:x:${calls.suggester.length + 1}`,
-      availabilitySource: "ashby", attendance: ["in_person", "in_person"], rulesRevision: 1, calendarCheck: { checkedAt: Date.now(), flags: [[], []] }, bookingPlan, submittedAvailability: submitted, suggestion }, u) };
+      availabilitySource: "ashby", attendance: ["in_person", "in_person"], rulesRevision: 1, calendarCheck: { checkedAt: Date.now(), flags: [[], []] }, bookingPlan, submittedAvailability: submitted, suggestion,
+      // As booking-routes postOption does with the steer's standing requests.
+      requested: input.steer.requested || [], requestsReleased: input.steer.released || null }, u) };
   };
   const users = { U0ANNA: { email: "Anna@carrara.is", name: "Anna Jones" }, U0OTHER: { email: "someone@carrara.is", name: "Someone Else" }, U0JOE: { email: "joe@luminai.com", name: "Joe Penn" } };
   const slackApi = { userInfo: async id => users[id] || null, threadReply: async x => calls.replies.push(x.text), markReplaced: async x => calls.replaced.push(x.row), markApproved: async () => {},
@@ -61,7 +63,7 @@ async function fixture(t, { reading = swap(2, "Joe", "Mary"), found, approve = f
   const amender = createSlackAmend({ service, slackApi, facts, timeZone: "America/Los_Angeles", now: () => clock.now, log, suggester,
     readPlan: async input => { calls.plans++; assert.deepEqual(input, { applicationId: "app", scheduleId: SCHED }); return { sessions: [{ interviewId: "i1" }, { interviewId: "i2" }] }; },
     interpret: async args => { calls.read.push(args); if (typeof reading === "function") return reading(args); return reading; } });
-  const handler = createSlackInteractions({ service, slackApi, signingSecret: SECRET, teamId: "T0CARRARA", appId: "A0SCHED", channelId: "C0CONFIG", approvers: ["anna@carrara.is"], amender, log });
+  const handler = createSlackInteractions({ service, slackApi, signingSecret: SECRET, teamId: "T0CARRARA", appId: "A0SCHED", channelId: "C0CONFIG", approvers: ["anna@carrara.is"], suggester, amender, log });
   const app = express(); app.post("/i", express.raw({ type: "application/x-www-form-urlencoded" }), handler);
   const server = await new Promise(resolve => { const s = app.listen(0, "127.0.0.1", () => resolve(s)); });
   t.after(() => new Promise(resolve => server.close(resolve)));
@@ -76,7 +78,15 @@ async function fixture(t, { reading = swap(2, "Joe", "Mary"), found, approve = f
     // Done at a reply, or at a settled restatement that isn't "Confirmed" (a confirm then replies).
     await until(() => calls.replies.length > before.replies || calls.settled.slice(before.settled).some(x => !/Confirmed by/.test(x.text)));
   };
-  return { service, store, row, posts, calls, clock, mention, press };
+  // A suggestion button on any post (its ts), waiting for the final reply.
+  const click = async (action, post, user = "U0OTHER") => {
+    const before = calls.replies.length;
+    const body = "payload=" + encodeURIComponent(JSON.stringify({ type: "block_actions", trigger_id: crypto.randomUUID(), team: { id: "T0CARRARA" }, api_app_id: "A0SCHED", user: { id: user }, channel: { id: "C0CONFIG" },
+      container: { message_ts: post.slack.ts }, actions: [action] }));
+    await fetch(`http://127.0.0.1:${server.address().port}/i`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", ...sign(body) }, body });
+    await until(() => calls.replies.slice(before).some(r => !/^Looking for/.test(r)));
+  };
+  return { service, store, row, posts, calls, clock, mention, press, click };
 }
 
 test("a clear request: named session first, then restated; only the asker confirms; replaced at the same times with only that change", async t => {
@@ -214,4 +224,59 @@ test("the restatement's buttons and the replaced post's wording, within Slack's 
   assert.match(calls[2].blocks.at(-1).text.text, /anna@carrara\.is asked to replace Joe Penn with Mary Petrino on Onsite, and a new option was posted below\./);
   assert.equal(suggestionNote({ kind: "amend", by: "a@b", replaces: "d", change: { label: "Onsite 2", out: joe, in: mary, moved: true } }),
     "Amended in Slack by a@b: replace Joe Penn with Mary Petrino on Onsite 2; no agenda at the earlier times fit, so the times moved. It replaces the earlier post (draft d).");
+});
+
+// ---- standing requests: an amend's person stays on through later presses ----
+
+const mariaRequest = { session: 1, interviewId: "i2", label: "Onsite 2", userId: "u-mary", name: "Mary Petrino", by: "anna@carrara.is", byName: "Anna Jones" };
+async function amended(t, opts) {
+  const f = await fixture(t, opts);
+  await f.mention(); await f.press(true);
+  const fresh = (await f.store.list()).find(r => r.id !== f.row.id && r.state === "shared");
+  return { f, fresh };
+}
+
+test("an amend leaves a standing request, and a later 'another time' keeps it, naming who asked", async t => {
+  let n = 0;
+  const { f, fresh } = await amended(t, { found: input => (++n > 1 ? { index: -1, result: { status: "no_calendar_fit", reason: "No agenda fits.", proposals: [] } } : undefined) });
+  assert.deepEqual(fresh.plan.requested, [mariaRequest]);
+  assert.match(fresh.plan.notes, /Keeps the Slack request: Mary Petrino on Onsite 2 \(requested by Anna Jones\)\./);
+  assert.equal(await f.service.requestsFor({ applicationId: "app", scheduleId: SCHED }).then(r => r[0].name), "Mary Petrino");
+  await f.click({ action_id: "suggest_time", value: JSON.stringify({ d: fresh.id, g: fresh.digest }) }, fresh);
+  assert.deepEqual(f.calls.suggester.at(-1).steer.requested, [mariaRequest]);
+  assert.match(f.calls.replies.at(-2), /Keeping Mary Petrino on Onsite 2 \(requested by Anna Jones\)\./);
+  assert.equal(f.calls.replies.at(-1), "No other time fits with Mary Petrino on Onsite 2 (requested by Anna Jones): No agenda fits. This post is still open.");
+});
+
+test("'Suggest different interviewer' on the requested session releases it, and both posts say so", async t => {
+  const { f, fresh } = await amended(t);
+  await f.click({ action_id: "suggest_interviewer", selected_option: { value: JSON.stringify({ d: fresh.id, g: fresh.digest, i: 1 }) } }, fresh);
+  const steer = f.calls.suggester.at(-1).steer;
+  assert.deepEqual(steer.requested, []);
+  assert.deepEqual(steer.released, mariaRequest);
+  assert.match(f.calls.replies.find(r => /^Looking for/.test(r) && /drops/.test(r)), /This drops the earlier request for Mary Petrino on Onsite 2 \(asked by Anna Jones\)\./);
+  const third = (await f.store.list()).find(r => r.state === "shared");
+  assert.equal(third.plan.requested, undefined);
+  assert.match(third.plan.notes, /Releases the Slack request for Mary Petrino on Onsite 2 \(requested by Anna Jones\)\./);
+});
+
+test("a standing request that can't be kept: the thread says why and names both ways out", async t => {
+  let n = 0;
+  const { f, fresh } = await amended(t, { found: () => (++n > 1 ? { index: -1, result: { status: "request_unavailable", requestFailure: { request: mariaRequest, why: "not_eligible" }, reason: "x", proposals: [] } } : undefined) });
+  await f.click({ action_id: "suggest_time", value: JSON.stringify({ d: fresh.id, g: fresh.digest }) }, fresh);
+  assert.equal(f.calls.replies.at(-1), 'Mary Petrino was requested for Onsite 2 by Anna Jones, but Ashby no longer lists Mary Petrino as eligible for Onsite 2, so no new option can keep that request. To keep it, make Mary Petrino eligible for Onsite 2 again in Ashby, then try again here. To drop it instead, choose Onsite 2 under "Suggest different interviewer" so anyone eligible can take it, or @mention me here naming who should take Onsite 2. Other requests are kept either way. This post is still open.');
+  assert.equal((await f.store.get(fresh.id)).state, "shared");
+});
+
+test("a post from typed-in times can't be amended from Slack: the mention is refused before anything is read", async t => {
+  const f = await fixture(t);
+  const option = { start: bookingPlan.sessions[0].start, end: bookingPlan.sessions[1].end, events: bookingPlan.sessions.map(s => ({ title: s.title, start: s.start, end: s.end, interviewer: { name: s.interviewers[0].name } })) };
+  await f.service.reject(f.row.id, { revision: f.row.revision, digest: f.row.digest }, { id: "coordinator", canApprove: true }).catch(() => {});
+  const typed = await f.service.postScheduleOption({ applicationId: "app", candidateId: "candidate", timezone: "America/Los_Angeles", option, optionNumber: 1, sourceRef: "full-schedule:x:typed", availabilitySource: "manual",
+    attendance: ["in_person", "in_person"], rulesRevision: 1, calendarCheck: { checkedAt: Date.now(), flags: [[], []] }, bookingPlan, submittedAvailability: submitted }, { id: "coordinator", canApprove: true });
+  const row = await f.store.get(typed.id);
+  await f.mention(undefined, "U0ANNA", row.slack.ts);
+  assert.match(f.calls.replies.at(-1), /^This post wasn't built from the candidate's submitted availability with an Ashby plan, so another option can't be suggested from Slack\. Use booking review on the dashboard\. Nothing was changed\.$/);
+  assert.equal(f.calls.read.length, 0);
+  assert.equal(await f.service.slackPostOpen({ applicationId: "app", scheduleId: SCHED }), true, "the earlier post from submitted availability is still open");
 });

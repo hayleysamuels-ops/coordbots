@@ -121,17 +121,37 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
   // `steer` (Slack's suggestion buttons and amends only): avoidStarts and
   // excludeInterviewers for the calendar-checked solver; an amend adds
   // requireInterviewers and, for its first search, fixedStarts.
+  // Standing interviewer requests (requests.js) apply to every calendar-checked
+  // rebuild: Slack passes steer.requested (and steer.released); anything else
+  // (booking review, auto-post) reads the latest post's, less any booking
+  // review drops one by one (dropRequests: the sessions whose request to
+  // drop), which the new post then says. Never all at once: dropping one
+  // request must not lose another.
+  async function standingRequests(plan,req,steer){
+    const {checkRequested}=require('./requests');
+    if(steer.requested!==undefined)return {requested:checkRequested(steer.requested),released:steer.released||null,dropped:[]};
+    const latest=discussion?.requestsFor?await discussion.requestsFor({applicationId:plan.applicationId,scheduleId:plan.scheduleId}):[];
+    const drop=req.body.dropRequests===undefined?[]:req.body.dropRequests;
+    if(!Array.isArray(drop)||drop.length>30||!drop.every(n=>Number.isInteger(n)&&n>=0))throw Object.assign(Error('Choose which Slack requests to drop.'),{status:422});
+    return {requested:latest.filter(r=>!drop.includes(r.session)),released:null,dropped:latest.filter(r=>drop.includes(r.session))};
+  }
   async function suggestFull(req,steer={}){
     const loaded=await fullPlan(req),{plan,deferred}=agendaSessions(loaded);
     if(!plan.sessions.length)throw Object.assign(Error('Every session in this plan is a debrief, which is scheduled only once the onsite is confirmed.'),{status:409});
+    const requests=await standingRequests(plan,req,steer);
     let windows=req.body.windows,timezone=req.body.timezone,unreadWeeks=[],submission=null;
     if(req.body.availabilitySource==='ashby'){
       submission=await availability.load({applicationId:plan.applicationId,scheduleId:plan.scheduleId});
       if(submission.stageId!==plan.stageId)throw Object.assign(Error('The candidate stage changed. Reload the plan.'),{status:409});
       windows=submission.localWindows;timezone=submission.timezone;unreadWeeks=submission.unreadWeeks||[];
     }else if(req.body.availabilitySource!=='manual')throw Object.assign(Error('Choose an availability source.'),{status:422});
-    const result=req.body.calendarCheck===true?await calendarChecked(plan,windows,timezone,steer):unchecked(plan,windows,timezone);
-    return {plan,submission,result:{...result,proposals:result.proposals.map(p=>({...p,optionDigest:optionDigest(p)})),candidateName:plan.candidateName,checkedAt:plan.checkedAt,unreadWeeks,debriefsDeferred:deferred}};
+    // Without calendar checks nothing can be required, so the requests are
+    // listed with the result as not applied.
+    const result=req.body.calendarCheck===true?await calendarChecked(plan,windows,timezone,steer,requests.requested):unchecked(plan,windows,timezone);
+    return {plan,submission,requests,result:{...result,proposals:result.proposals.map(p=>({...p,optionDigest:optionDigest(p)})),candidateName:plan.candidateName,checkedAt:plan.checkedAt,unreadWeeks,debriefsDeferred:deferred,
+      requests:{...requests,applied:req.body.calendarCheck===true,
+        ...(result.status==='request_unavailable'?{unavailableText:require('./requests').staleRequestText(result.requestFailure.request,result.requestFailure.why,{where:'dashboard',
+          slackPost:discussion?.slackPostOpen?await discussion.slackPostOpen({applicationId:plan.applicationId,scheduleId:plan.scheduleId}):false})}:{})}}};
   }
   // Without calendar checks: back-to-back agendas with this client's start
   // windows applied (never silently skipped, so rules must be loaded), and the
@@ -145,13 +165,25 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
   // Calendar-constrained options: interviewers' primary Google calendars as a
   // hard constraint, meeting hours assumed from client rules, zero limits
   // excluded (calendar-inputs.js). Anyone excluded is listed with the result.
-  async function calendarChecked(plan,windows,timezone,{avoidStarts=[],excludeInterviewers=[],requireInterviewers=[],fixedStarts=null}={}){
+  // A standing request that can't be kept (its session moved or went, or its
+  // person isn't eligible or can't be scheduled) returns status
+  // request_unavailable with `requestFailure` ({request, why}), for the caller
+  // to word with the ways out (requests.js staleRequestText).
+  async function calendarChecked(plan,windows,timezone,{avoidStarts=[],excludeInterviewers=[],requireInterviewers=[],fixedStarts=null}={},requested=[]){
     if(!googleCalendar?.status().connected||!googleFreeBusy)throw Object.assign(Error('Connect read-only Google Calendar availability first.'),{status:409});
     if(!rules)throw Object.assign(Error('Scheduling rules are not loaded.'),{status:503});
-    const inputs=await require('./calendar-inputs').buildCalendarInputs({plan,windows,timezone,rules:rules.get(),facts,freeBusy:googleFreeBusy,excludeInterviewers,requireInterviewers});
+    const totalMinutes=plan.sessions.reduce((n,s)=>n+s.durationMinutes,0);
+    const unavailable=(request,why,reason,context={})=>({status:'request_unavailable',requestFailure:{request,why},bookingEnabled:false,availabilityVerified:false,meetingHoursAssumed:true,totalMinutes,timezone,proposals:[],reason,...context});
+    const {require:needed,gone}=require('./requests').requirementsFor(requested,plan.sessions);
+    if(gone.length)return unavailable(gone[0],'session_gone',`${gone[0].label} is no longer that interview in the plan in Ashby.`);
+    // An amend's own pins win for their sessions; requests fill the rest.
+    const pinned=new Set(requireInterviewers.map(r=>r.session)),required=[...requireInterviewers,...needed.filter(r=>!pinned.has(r.session)).map(({request,...r})=>r)];
+    const inputs=await require('./calendar-inputs').buildCalendarInputs({plan,windows,timezone,rules:rules.get(),facts,freeBusy:googleFreeBusy,excludeInterviewers,requireInterviewers:required});
     const startWindowsApplied=(inputs.sessions||[]).flatMap(s=>(s.placementWindows||[]).map(w=>({title:s.title,earliestStart:w.earliestStart,latestStart:w.latestStart,timezone:w.timezone})));
     const context={calendarCheck:{excluded:inputs.excluded,meetingHours:inputs.meetingHours,limitsPolicy:inputs.limitsPolicy,busySource:inputs.busySource,rulesRevision:inputs.rulesRevision,startWindowsApplied}};
-    if(inputs.blocked){const totalMinutes=plan.sessions.reduce((n,s)=>n+s.durationMinutes,0);return {status:inputs.noOtherInterviewer?'no_other_interviewer':'no_calendar_fit',bookingEnabled:false,availabilityVerified:false,meetingHoursAssumed:true,totalMinutes,timezone,proposals:[],reason:inputs.blocked,...context};}
+    const failedRequest=inputs.requirement&&needed.find(r=>r.session===inputs.requirement.session&&r.userId===inputs.requirement.userId)?.request;
+    if(failedRequest)return unavailable(failedRequest,inputs.requirement.why,inputs.blocked,context);
+    if(inputs.blocked)return {status:inputs.noOtherInterviewer?'no_other_interviewer':'no_calendar_fit',bookingEnabled:false,availabilityVerified:false,meetingHoursAssumed:true,totalMinutes,timezone,proposals:[],reason:inputs.blocked,...context};
     // Hard rule: Welcome opens the day. Sessions are never reordered, so a
     // template with Welcome elsewhere is refused rather than rearranged.
     const welcome=plan.sessions.findIndex(s=>/^welcome\b/i.test(String(s.title||'').trim()));
@@ -179,7 +211,7 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
   // Posts option `index` of a rebuilt result (suggestFull), as `user`. Shared
   // by the dashboard's Post button and Slack's suggestion buttons.
   // `suggestion` (Slack only) records what the post replaced and why.
-  async function postOption({plan,result,submission,index,availabilitySource,user,suggestion=null,origin=null}){
+  async function postOption({plan,result,submission,requests=null,index,availabilitySource,user,suggestion=null,origin=null}){
     if(!discussion)throw Object.assign(Error('Slack discussion posting is not connected.'),{status:503});
     const option=result.proposals[index];
     if(!option)throw Object.assign(Error('There is no such schedule option.'),{status:409});
@@ -203,6 +235,8 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     return discussion.postScheduleOption({bookingPlan:composed.plan,applicationId:plan.applicationId,candidateId:plan.candidateId,timezone:result.timezone,option:chosen,optionNumber:index+1,linkedinUrl,
       sourceRef:`full-schedule:${plan.scheduleId}:${ref}`,availabilitySource,attendance,
       ...(suggestion?{suggestion}:{}),...(origin?{origin}:{}),
+      // Standing requests travel only on calendar-checked posts, where they were applied.
+      ...(requests&&result.requests?.applied?{requested:requests.requested,requestsReleased:requests.released,requestsDropped:requests.dropped}:{}),
       // The candidate's submission this option was built from, kept in the
       // plan (so the approval's digest covers it) for the check at approval.
       submittedAvailability:submission?require('./availability-gate').postedAvailability(submission):null,rulesRevision:clientRules.rulesRevision,

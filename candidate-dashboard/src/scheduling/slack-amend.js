@@ -26,6 +26,10 @@
 //      widens to any time with the same people, and the thread says the time
 //      moved. Only a replacement with no calendar flags is posted, through
 //      the buttons' path (slack-replace.js); else the post stays open.
+//   7. The change stays as a standing request (requests.js): every later
+//      rebuild for the schedule keeps that person on that session, until a
+//      later amend or "Suggest different interviewer" on it, or booking
+//      review's "Drop the Slack requests", says otherwise.
 // Nothing is booked or sent: the replacement is a new post, which needs
 // Schedule like any other.
 //
@@ -37,6 +41,7 @@ const { resolveChange, whichSession, eligibleFor, sessionLabels, whenOf } = requ
 const { nextSuggestion } = require("./suggestion");
 const { availabilityChange } = require("./availability-gate");
 const { replacePost } = require("./slack-replace");
+const { withRequest, describeRequests, staleRequestText } = require("./requests");
 
 const LAPSE_MS = 30 * 60 * 1000;
 
@@ -150,8 +155,17 @@ function createSlackAmend({ service, slackApi, facts, readPlan, suggester, timeZ
       // also keeps every session's time.
       const requireInterviewers = sessions.map((s, i) => i === change.session ? { session: i, userId: change.in.userId, name: change.in.name } : { session: i, userId: s.interviewers[0].userId, name: s.interviewers[0].name });
       const fixedStarts = sessions.map(s => s.start);
+      // The change becomes a standing request (requests.js), replacing any
+      // earlier one for that session; later rebuilds keep it.
+      const requested = withRequest(row.plan.requested, { session: change.session, interviewId: sessions[change.session].interviewId, label: change.label,
+        userId: change.in.userId, name: change.in.name, by: p.email, byName: p.name });
       const find = (record, fixed) => suggester({ applicationId: row.plan.applicationId, scheduleId: row.plan.bookingPlan.interviewScheduleId,
-        steer: { ...record, requireInterviewers, ...(fixed ? { fixedStarts } : {}) } });
+        steer: { ...record, requireInterviewers, requested, ...(fixed ? { fixedStarts } : {}) } });
+      // Another session's standing request that can't be kept is worded with
+      // the ways out; this change's own person failing is said plainly.
+      const blockedText = r => r.status === "request_unavailable" && r.requestFailure.request.session !== change.session
+        ? `${staleRequestText(r.requestFailure.request, r.requestFailure.why, { where: "slack" })} This post is still open.` : `${r.reason} This post is still open.`;
+      const others = requested.filter(r => r.session !== change.session), keeping = others.length ? `, ${describeRequests(others)}` : "";
       let record = nextSuggestion(row, { kind: "amend", session: change.session, by: p.email, change });
       let found = await find(record, true);
       // The candidate resubmitted since this post: earlier steers don't carry over.
@@ -161,14 +175,14 @@ function createSlackAmend({ service, slackApi, facts, readPlan, suggester, timeZ
       }
       let moved = null;
       if (found.index < 0) {
-        if (found.result.status === "no_other_interviewer") return await reply(`${found.result.reason} This post is still open.`);
+        if (["no_other_interviewer", "request_unavailable"].includes(found.result.status)) return await reply(blockedText(found.result));
         moved = found.result.proposals?.length ? "someone's calendar clashes at those times" : "those times no longer fit the candidate's availability and the rules";
         found = await find(record, false);
         if (found.index < 0) {
           const r = found.result;
-          return await reply(r.status === "no_other_interviewer" ? `${r.reason} This post is still open.`
-            : !r.proposals?.length ? `No agenda with ${what} and everyone else unchanged fits: ${r.reason || "the candidate's availability and the rules leave none"} This post is still open.`
-            : `Every agenda with ${what} and everyone else unchanged has calendar clashes (${r.proposals.length} found), so none was posted. This post is still open; an option with clashes can be posted from booking review on the dashboard.`);
+          return await reply(["no_other_interviewer", "request_unavailable"].includes(r.status) ? blockedText(r)
+            : !r.proposals?.length ? `No agenda with ${what}${keeping} and everyone else unchanged fits: ${r.reason || "the candidate's availability and the rules leave none"} This post is still open.`
+            : `Every agenda with ${what}${keeping} and everyone else unchanged has calendar clashes (${r.proposals.length} found), so none was posted. This post is still open; an option with clashes can be posted from booking review on the dashboard.`);
         }
       }
       record = { ...record, change: { ...record.change, moved: !!moved } };

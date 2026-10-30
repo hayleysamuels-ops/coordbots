@@ -119,7 +119,7 @@ test("hours that are neither verified nor marked assumed still refuse", () => {
 
 // ---- the booking route ----------------------------------------------------------
 
-async function route(t, { busy, sessions, debriefIds } = {}) {
+async function route(t, { busy, sessions, debriefIds, requested = [], slackPost = false } = {}) {
   const planSessions = (sessions || plan.sessions).map(s => ({ ...s }));
   const posted = [], state = { busy: busy || {} };
   const { facts: base } = sources();
@@ -132,7 +132,7 @@ async function route(t, { busy, sessions, debriefIds } = {}) {
     facts, googleFreeBusy: freeBusy, googleCalendar: { status: () => ({ connected: true }) }, rules: { get: () => rulesDoc() },
     availability: { requests: async () => ({ stageId: "stage", requests: [{ scheduleId: "req", updatedAt: "v" }] }), load: async ({ scheduleId }) => ({ scheduleId, stageId: "stage", timezone, windows: [], localWindows: windows }) },
     inspectPlan: async input => ({ ...input, sessions: planSessions.map(s => ({ ...s })) }),
-    discussion: { postScheduleOption: async input => { posted.push(input); return { state: "shared", channelName: "#test" }; } },
+    discussion: { postScheduleOption: async input => { posted.push(input); return { state: "shared", channelName: "#test" }; }, requestsFor: async () => requested, slackPostOpen: async () => slackPost },
   }));
   const server = await new Promise(resolve => { const s = app.listen(0, "127.0.0.1", () => resolve(s)); });
   t.after(() => new Promise(resolve => server.close(resolve)));
@@ -259,4 +259,64 @@ test("fixed starts: that one agenda or none, with every other rule still applied
   // A gap longer than the break budget allows isn't placed, fixed or not.
   assert.equal(proposeCalendarSchedule({ ...input, fixedStarts: ["2099-01-05T19:00:00.000Z", "2099-01-05T21:00:00.000Z"] }).proposals.length, 0);
   assert.throws(() => proposeCalendarSchedule({ ...input, fixedStarts: [at[0]] }), /one start per session/);
+});
+
+// Standing requests from Slack amends (requests.js): booking review keeps them
+// unless asked to drop them, and says why when one can't be kept.
+const tomOnFlexible = { session: 0, interviewId: "i1", label: "Flexible", userId: TOM.userId, name: "Tom Reyes", by: "anna@carrara.is", byName: "Anna Jones" };
+
+test("booking review keeps a Slack request, and the post carries it", async t => {
+  const { call, posted } = await route(t, { requested: [tomOnFlexible] });
+  const result = await (await call("/suggest-full-schedule", request)).json();
+  assert.ok(result.proposals.length > 0);
+  assert.ok(result.proposals.every(p => p.events[0].interviewer.name === "Tom Reyes"));
+  assert.deepEqual(result.requests, { requested: [tomOnFlexible], released: null, dropped: [], applied: true });
+  await call("/post-full-schedule-option", { ...request, optionIndex: 0, optionDigest: result.proposals[0].optionDigest });
+  assert.deepEqual(posted[0].requested, [tomOnFlexible]);
+  assert.deepEqual(posted[0].requestsDropped, []);
+  // Without calendar checks nothing is required, and it says so.
+  const plain = await (await call("/suggest-full-schedule", { ...request, calendarCheck: false })).json();
+  assert.equal(plain.requests.applied, false);
+});
+
+test("dropping one request in booking review keeps the others, and the post says which was dropped", async t => {
+  const anaOnFixed = { ...tomOnFlexible, session: 1, interviewId: "i2", label: "Fixed", userId: ANA.userId, name: "Ana Silva" };
+  const { call, posted } = await route(t, { requested: [tomOnFlexible, anaOnFixed] });
+  // Ana can't take Fixed, so nothing can be proposed until that one goes.
+  const stuck = await (await call("/suggest-full-schedule", request)).json();
+  assert.equal(stuck.status, "request_unavailable");
+  const result = await (await call("/suggest-full-schedule", { ...request, dropRequests: [1] })).json();
+  assert.ok(result.proposals.length > 0);
+  assert.ok(result.proposals.every(p => p.events[0].interviewer.name === "Tom Reyes"));
+  assert.deepEqual(result.requests.requested, [tomOnFlexible]);
+  assert.deepEqual(result.requests.dropped, [anaOnFixed]);
+  await call("/post-full-schedule-option", { ...request, dropRequests: [1], optionIndex: 0, optionDigest: result.proposals[0].optionDigest });
+  assert.deepEqual(posted[0].requested, [tomOnFlexible]);
+  assert.deepEqual(posted[0].requestsDropped, [anaOnFixed]);
+  assert.equal((await call("/suggest-full-schedule", { ...request, dropRequests: true })).status, 422);
+});
+
+test("a request that can't be kept leads with the fix in Ashby, then the drop; Slack is offered only with a post it can rebuild", async t => {
+  const anaOnFixed = { ...tomOnFlexible, session: 1, interviewId: "i2", label: "Fixed", userId: ANA.userId, name: "Ana Silva" };
+  let { call } = await route(t, { requested: [anaOnFixed] });
+  let result = await (await call("/suggest-full-schedule", request)).json();
+  assert.equal(result.status, "request_unavailable");
+  assert.equal(result.proposals.length, 0);
+  assert.equal(result.requests.unavailableText, 'Ana Silva was requested for Fixed by Anna Jones, but Ashby no longer lists Ana Silva as eligible for Fixed, so no new option can keep that request. To keep it, make Ana Silva eligible for Fixed again in Ashby, then preview again. To drop it instead, press "Drop" next to this request here, so anyone eligible can take Fixed. Other requests are kept either way.');
+  ({ call } = await route(t, { requested: [anaOnFixed], slackPost: true }));
+  result = await (await call("/suggest-full-schedule", request)).json();
+  assert.match(result.requests.unavailableText, /here, so anyone eligible can take Fixed; or, on the open post in Slack, choose Fixed under "Suggest different interviewer" so anyone eligible can take it, or @mention the bot in its thread naming who should take Fixed\. Other/);
+  // Nothing to restore when the session itself went: only the drop.
+  ({ call } = await route(t, { requested: [{ ...tomOnFlexible, interviewId: "i-old" }] }));
+  result = await (await call("/suggest-full-schedule", request)).json();
+  assert.equal(result.requestFailure.why, "session_gone");
+  assert.equal(result.requests.unavailableText, 'Tom Reyes was requested for Flexible by Anna Jones, but Flexible is no longer that interview in the plan in Ashby, so no new option can keep that request. To drop it, press "Drop" next to this request here, so anyone eligible can take Flexible. Other requests are kept either way.');
+});
+
+test("the fix named for each reason a request can't be kept", () => {
+  const { fixFor } = require("../src/scheduling/requests");
+  const r = { name: "Vamsi Chitters", label: "Onsite 2" };
+  assert.equal(fixFor(r, "Ashby weekly interview limit is 0"), "raise Vamsi Chitters's weekly interview limit above 0 in Ashby");
+  assert.equal(fixFor(r, "No meeting hours in the client rules"), "add Vamsi Chitters's meeting hours to this client's scheduling rules");
+  assert.equal(fixFor(r, "session_gone"), null);
 });

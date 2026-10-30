@@ -131,7 +131,7 @@ async function fixture(t, { found } = {}) {
 test("another time: found, then the post is withdrawn and the new option posted with its steer", async t => {
   const f = await fixture(t);
   await f.press(f.timeAction);
-  assert.deepEqual(f.calls.suggester[0], { applicationId: "app", scheduleId: SCHED, steer: { replaces: f.row.id, kind: "time", by: "anna@carrara.is", avoidStarts: ["2099-10-30T18:00:00.000Z"], excludeInterviewers: [] } });
+  assert.deepEqual(f.calls.suggester[0], { applicationId: "app", scheduleId: SCHED, steer: { replaces: f.row.id, kind: "time", by: "anna@carrara.is", avoidStarts: ["2099-10-30T18:00:00.000Z"], excludeInterviewers: [], requested: [], released: null } });
   const old = await f.store.get(f.row.id);
   assert.equal(old.state, "rejected");assert.equal(old.replaced.by, "anna@carrara.is");assert.equal(old.replaced.kind, "time");
   assert.equal(blocksRepost(old), false);

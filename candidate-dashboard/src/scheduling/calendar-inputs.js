@@ -55,9 +55,11 @@ async function buildCalendarInputs({ plan, windows, timezone, rules, facts, free
   const exclusionOf = userId => excluded.find(x => x.email === people.find(p => p.userId === userId)?.email)?.reason || "excluded";
   for (const r of requireInterviewers) {
     const s = resolved.sessions[r.session];
-    const why = !s ? "isn't on the plan" : !s.eligibleInterviewers.some(p => p.userId === r.userId) ? "isn't eligible for it in Ashby any more" : !usable.has(r.userId) ? `can't be scheduled (${exclusionOf(r.userId)})` : null;
-    if (why) return { excluded, meetingHours: hoursUsed, limitsPolicy: rules.limitsPolicy, rulesRevision: rules.rulesRevision, busySource: "Google free/busy, primary calendars",
-      blocked: `${r.name} can't take session ${r.session + 1}${s ? ` ("${s.title}")` : ""}: ${r.name} ${why}.`, noOtherInterviewer: true };
+    const code = !s ? "session_gone" : !s.eligibleInterviewers.some(p => p.userId === r.userId) ? "not_eligible" : !usable.has(r.userId) ? exclusionOf(r.userId) : null;
+    const why = code === "session_gone" ? "isn't on the plan" : code === "not_eligible" ? "isn't eligible for it in Ashby any more" : `can't be scheduled (${code})`;
+    // `requirement` lets the caller word a standing request (requests.js).
+    if (code) return { excluded, meetingHours: hoursUsed, limitsPolicy: rules.limitsPolicy, rulesRevision: rules.rulesRevision, busySource: "Google free/busy, primary calendars",
+      blocked: `${r.name} can't take session ${r.session + 1}${s ? ` ("${s.title}")` : ""}: ${r.name} ${why}.`, noOtherInterviewer: true, requirement: { session: r.session, userId: r.userId, why: code } };
   }
   const sessions = resolved.sessions.map((s, i) => {
     const placementWindows = rules.placementFor(s.title);

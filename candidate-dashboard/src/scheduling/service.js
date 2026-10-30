@@ -17,6 +17,11 @@ function text(value, label, max = 200) {
   if (typeof value !== "string" || !value.trim() || value.length > max) fail(400, "Provide " + label);
   return value.trim();
 }
+// Whether Slack can rebuild a post (its suggestion buttons show, and an
+// @mention amend is accepted): built from the candidate's submitted
+// availability with an Ashby plan. Typed-in times and posts without a plan
+// can only be redone from booking review.
+const rebuildable = row => !!(row?.plan?.bookingPlan?.interviewScheduleId && row.plan.submittedAvailability && row.plan.timezoneSource === "candidate_submitted");
 function createService({ store, candidates, clientId, channelId, channelName, candidateChannels = {}, routing = "candidate", slack, booking = null, templateReader = null, sourceProposals = null }) {
   function destination(candidateId) {
     const route = routing === "client" ? { channelId, channelName: channelName || channelId } : candidateChannels[candidateId];
@@ -110,7 +115,9 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
         // (availability-gate.js), checked again before the Ashby check composes.
         ...(meta.submittedAvailability ? { submittedAvailability: require("./availability-gate").postedAvailability(meta.submittedAvailability) } : {}),
         // What a Slack suggestion replaced, and every steer so far (suggestion.js).
-        ...(meta.suggestion ? { suggestion: require("./suggestion").checkSuggestion(meta.suggestion) } : {}) };
+        ...(meta.suggestion ? { suggestion: require("./suggestion").checkSuggestion(meta.suggestion) } : {}),
+        // Standing interviewer requests from Slack amends (requests.js).
+        ...(meta.requested?.length ? { requested: require("./requests").checkRequested(meta.requested) } : {}) };
       const row = { id: crypto.randomUUID(), clientId, revision: 1, state: "draft", plan, digest: digest(plan), bookingApproval: null,
         audit: [{ action: "drafted", by: user.id, at: new Date().toISOString() }] };
       if (!await store.insert(row)) fail(409, meta.sourceRef ? "This option was already posted to Slack, or another discussion draft for this candidate is still open. Check the channel and the Scheduling tab." : "An active discussion draft already exists. Review or reject it first."); return row;
@@ -126,7 +133,9 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
     // `calendarCheck` is set only for options the server built against Google
     // free/busy (booking-routes calendarChecked); it changes the wording, not
     // the posting path.
-    async postScheduleOption({ applicationId, candidateId, timezone, option, optionNumber, sourceRef, availabilitySource, attendance, rulesRevision, calendarCheck = null, linkedinUrl = null, bookingPlan = null, submittedAvailability = null, suggestion = null, origin = null }, user) {
+    // `requested` (standing interviewer requests, requests.js) is kept on the
+    // new post; `requestsReleased` and `requestsDropped` are said in its notes.
+    async postScheduleOption({ applicationId, candidateId, timezone, option, optionNumber, sourceRef, availabilitySource, attendance, rulesRevision, calendarCheck = null, linkedinUrl = null, bookingPlan = null, submittedAvailability = null, suggestion = null, origin = null, requested = [], requestsReleased = null, requestsDropped = [] }, user) {
       actor(user);
       const c = await candidate(applicationId);
       if (c.candidateId !== candidateId) fail(409, "Candidate changed in Ashby. Suggest the full schedule again.");
@@ -142,8 +151,10 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
       const source = availabilitySource === "ashby" ? "candidate-submitted availability" : "coordinator-entered availability";
       const checked = calendarCheck ? `Checked against interviewers' primary Google calendars at ${new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(calendarCheck.checkedAt))}.${calendarCheck.meetingHoursAssumed ? " Meeting hours are assumed from client rules, not verified." : ""} Other calendars and non-zero interview limits were not checked.` : "Not calendar-checked: suggested interviewers are eligible choices, not confirmed available.";
       const flags = calendarCheck?.flags || option.events.map(() => []), flagged = flags.reduce((n, f) => n + f.length, 0);
+      const { describeRequest, describeRequests } = require("./requests");
+      const requestNote = `${requested?.length ? `Keeps the Slack request${requested.length === 1 ? "" : "s"}: ${describeRequests(requested)}. ` : ""}${requestsReleased ? `Releases the Slack request for ${describeRequest(requestsReleased)}. ` : ""}${requestsDropped?.length ? `Drops the Slack request${requestsDropped.length === 1 ? "" : "s"} for ${describeRequests(requestsDropped)}, in booking review by ${user.id}. ` : ""}`;
       const row = await this.draft({ applicationId, timezone,
-        notes: `${origin === "auto" ? "Posted automatically when the candidate submitted availability. " : ""}${suggestion ? `${require("./suggestion").suggestionNote(suggestion)} ` : ""}Full schedule option ${optionNumber} from booking review, built from ${source}. ${checked} Nothing has been booked and no invitations have been sent.`,
+        notes: `${origin === "auto" ? "Posted automatically when the candidate submitted availability. " : ""}${suggestion ? `${require("./suggestion").suggestionNote(suggestion)} ` : ""}${requestNote}Full schedule option ${optionNumber} from booking review, built from ${source}. ${checked} Nothing has been booked and no invitations have been sent.`,
         sessions: option.events.map((e, i) => ({ title: e.title, start: e.start, end: e.end,
           interviewers: `${e.interviewer.name} (${!calendarCheck ? "suggested, not calendar-checked" : flags[i].length ? "calendar clash flagged" : "free on primary calendar"})`.slice(0, 500),
           location: attendance[i] === "video" ? "Video link required" : "Room / location to confirm" })) },
@@ -153,7 +164,7 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
           // slack.js for why plain). Never the eligible alternatives.
           ...(calendarCheck ? { format: "calendar_checked", people: option.events.map(e => [{ name: e.interviewer.name }]), ...(flagged ? { flags } : {}), ...(linkedinUrl ? { linkedinUrl } : {}), ...(bookingPlan ? { bookingPlan } : {}) } : {}),
           ...(availabilitySource === "ashby" && submittedAvailability ? { submittedAvailability } : {}),
-          ...(suggestion ? { suggestion } : {}) });
+          ...(suggestion ? { suggestion } : {}), ...(requested?.length ? { requested } : {}) });
       try {
         const shared = await this.share(row.id, { revision: row.revision, digest: row.digest, channelId }, user);
         return { id: shared.id, state: shared.state, issue: shared.issue || null, channelName: name, revision: shared.revision, digest: shared.digest };
@@ -251,7 +262,7 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
     async suggestionSource({ draftId, digest: posted, channelId: clickedChannel, messageTs }) {
       const row = await postedRow({ draftId, digest: posted, channelId: clickedChannel, messageTs, what: "replaced",
         already: r => fail(409, `This schedule was already approved by ${r.slackApproval.name || r.slackApproval.email}, so it can't be replaced.`) });
-      if (!row.plan.bookingPlan?.interviewScheduleId || !row.plan.submittedAvailability || row.plan.timezoneSource !== "candidate_submitted")
+      if (!rebuildable(row))
         fail(409, "This post wasn't built from the candidate's submitted availability with an Ashby plan, so another option can't be suggested from Slack. Use booking review on the dashboard.");
       return row;
     },
@@ -278,6 +289,20 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
     async postInThread(clickedChannel, threadTs) {
       if (typeof clickedChannel !== "string" || typeof threadTs !== "string") return null;
       return (await store.list()).find(r => r.clientId === clientId && r.slack?.channel === clickedChannel && r.slack?.ts === threadTs) || null;
+    },
+    // The standing interviewer requests in force for a schedule: the latest
+    // post's for it (requests.js), whatever its state, or none.
+    async requestsFor({ applicationId, scheduleId }) {
+      const rows = (await store.list()).filter(r => r.clientId === clientId && r.plan.applicationId === applicationId && r.plan.bookingPlan?.interviewScheduleId === scheduleId);
+      // Newest first; a withdrawn post loses a tie to its replacement.
+      const latest = rows.sort((a, b) => Date.parse(b.audit?.[0]?.at || 0) - Date.parse(a.audit?.[0]?.at || 0) || (a.state === "rejected") - (b.state === "rejected"))[0];
+      return require("./requests").checkRequested(latest?.plan.requested);
+    },
+    // Whether the schedule has an open post Slack can rebuild, so a message
+    // may point at its buttons and thread (requests.js staleRequestText).
+    async slackPostOpen({ applicationId, scheduleId }) {
+      return (await store.list()).some(r => r.clientId === clientId && r.state === "shared" && r.plan.format === "calendar_checked" && r.plan.applicationId === applicationId
+        && r.plan.bookingPlan?.interviewScheduleId === scheduleId && rebuildable(r) && Date.parse(r.plan.sessions[0].start) > Date.now());
     },
     // The replacement's draft ID, on the withdrawn post, once it's posted.
     async recordReplacement(oldId, newId) {

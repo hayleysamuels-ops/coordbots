@@ -92,9 +92,9 @@
   // flag travels with the request, so posting rebuilds the same kind of option.
   const preview=calendarCheck=>async()=>{
     const button=calendarCheck?'suggest-calendar':'suggest-full';
-    const f=$('prepare'),request={...requestDetails(),...(calendarCheck?{calendarCheck:true}:{})},version=fullPlanVersion,session=sessionVersion;
+    const f=$('prepare'),request={...requestDetails(),...(calendarCheck?{calendarCheck:true}:{}),...(calendarCheck&&dropRequests.scheduleId===requestDetails().scheduleId&&dropRequests.sessions.length?{dropRequests:dropRequests.sessions}:{})},version=fullPlanVersion,session=sessionVersion;
     busyStart(button);$('full-suggestions').textContent='Preparing the entire agenda from the current Ashby template and candidate availability…';
-    try{const result=await api('/suggest-full-schedule',request);const {calendarCheck:_,...plain}=request;if(version!==fullPlanVersion||session!==sessionVersion||!credentials)return;
+    try{const result=await api('/suggest-full-schedule',request);const {calendarCheck:_,dropRequests:__,...plain}=request;if(version!==fullPlanVersion||session!==sessionVersion||!credentials)return;
       // Dropped because the inputs changed while it ran: say so, rather than
       // leave "Preparing…" on screen with the spinner gone.
       if(JSON.stringify(plain)!==JSON.stringify(requestDetails())){$('full-suggestions').textContent='The availability or plan changed while this agenda was being prepared, so it was discarded. Run it again.';return;}
@@ -108,8 +108,18 @@
       const cc=result.calendarCheck,checkedNote=cc?`<p>${result.status==='calendar_checked'?'Interviewers are free on their primary Google calendars':'Checked against primary Google calendars'}${result.calendarCheckedAt?' at '+esc(fmt(result.calendarCheckedAt)):''}${attention?'; each clash is flagged on its session':''}. Meeting hours are assumed from client rules (${[...new Set(cc.meetingHours.map(h=>h.source==='override'?'individual overrides':`${h.start}–${h.end} ${h.timezone}`))].map(esc).join('; ')}), not verified.</p>${cc.excluded.length?`<p class="sched-warning">Excluded: ${cc.excluded.map(x=>esc(x.name)+' ('+esc(x.reason)+')').join('; ')}.</p>`:''}${windowsLine(cc.startWindowsApplied)}`:`${windowsLine(result.startWindowsApplied)}<p class="sched-warning">Not checked: ${(result.notChecked||['interviewer calendars']).map(esc).join(', ')}. Suggested interviewers are eligible choices, not confirmed available.</p>`;
       const gapsNote=result.unreadWeeks?.length?`<p class="sched-warning">${result.unreadWeeks.length===1?'Week':'Weeks'} ${result.unreadWeeks.map(g=>esc(String(g.week))+(g.shown?` (${esc(g.shown)})`:'')).join(', ')} of the candidate’s availability couldn’t be read, so these options leave out any times the candidate gave then.</p>`:'';
       const debriefNote=result.debriefsDeferred?.length?`<p class="sched-status-line">Not proposed here: ${result.debriefsDeferred.map(esc).join(', ')}. A debrief is scheduled once the onsite is confirmed.</p>`:'';
+      // Standing requests from Slack amends (src/scheduling/requests.js): kept
+      // on calendar-checked options unless dropped here, and said either way.
+      // One Drop or Keep per request, so clearing one never loses another.
+      const rq=result.requests||{},who=r=>`${esc(r.name)} on ${esc(r.label)} (requested by ${esc(r.byName)})`;
+      const failed=rq.unavailableText?result.requestFailure?.request?.session:null;
+      const kept=(rq.requested||[]).map(r=>`<li>${who(r)}${r.session===failed?' <span class="sched-flag">can’t be kept</span>':' <span class="muted">kept</span>'} <button type="button" class="drop-request" data-session="${r.session}">Drop</button></li>`);
+      const gone=(rq.dropped||[]).map(r=>`<li>${who(r)} <span class="sched-flag">dropped: a post from here won’t keep it, and says so</span> <button type="button" class="keep-request" data-session="${r.session}">Keep</button></li>`);
+      const requestsNote=(rq.unavailableText?`<p class="sched-warning">${esc(rq.unavailableText)}</p>`:'')
+        +(kept.length||gone.length?(rq.applied?`<p class="sched-status-line">Slack requests for this schedule:</p><ul>${kept.join('')}${gone.join('')}</ul>`
+          :`<p class="sched-warning">Not applied without calendar checks: the Slack request${kept.length===1?'':'s'} for ${(rq.requested||[]).map(who).join(', ')}. Use the calendar-checked preview to keep ${kept.length===1?'it':'them'}.</p>`):'');
       const variety=result.proposals.length>1?'<p class="sched-status-line">Each option differs from the others by day, by at least an hour, or by interviewer.</p>':'';
-      $('full-suggestions').innerHTML=`<h2>${result.diagnosis?'No schedule fits':attention?'⚠️ Calendar-checked options need attention':cc?'Calendar-checked schedule options':'Schedule options without calendar checks'}</h2><p${attention?' class="sched-warning"':''}>${esc(cc?result.reason.replace(' Meeting hours are assumed from client rules, not verified.',''):result.reason)}</p>${checkedNote}${gapsNote}${debriefNote}${result.diagnosis?diagnosisHtml(result.diagnosis):''}${typeof variety==='string'?variety:''}<p>Shown in ${esc(result.timezone)}. These options cannot send invitations. Posting one to Slack is for discussion only and books nothing.</p>`+result.proposals.map((p,i)=>`<article><h3>Option ${i+1}: ${esc(fmt(p.start))}${p.flagCount?` <span class="sched-flag">⚠️ ${p.flagCount} clash${p.flagCount===1?'':'es'}, needs attention</span>`:''}</h3><p><button type="button" class="post-option" data-index="${i}" data-digest="${esc(p.optionDigest)}">${p.flagCount?'Post to Slack for discussion, flagged':'Post to Slack for discussion'}</button> <span class="post-option-status" role="status"></span></p><table><thead><tr><th>Interview</th><th>Time</th><th>Suggested interviewer</th></tr></thead><tbody>${p.events.map(e=>`<tr><td>${esc(e.title)}</td><td>${esc(fmt(e.start))}–${esc(fmt(e.end))}</td><td>${esc(e.interviewer.name)}${cc?(e.flags?.length?' <span class="sched-flag">⚠️ clash</span>':' <span class="muted">free</span>'):''}${(e.flags||[]).map(f=>`<p class="sched-warning sched-flag-detail">${esc(flagText(f))}</p>`).join('')}<details><summary>Eligible alternatives</summary>${e.eligibleInterviewers.map(i=>esc(i.name)).join(', ')}</details></td></tr>`).join('')}</tbody></table></article>`).join('');
+      $('full-suggestions').innerHTML=`<h2>${rq.unavailableText?'A Slack request can’t be kept':result.diagnosis?'No schedule fits':attention?'⚠️ Calendar-checked options need attention':cc?'Calendar-checked schedule options':'Schedule options without calendar checks'}</h2>${rq.unavailableText?'':`<p${attention?' class="sched-warning"':''}>${esc(cc?result.reason.replace(' Meeting hours are assumed from client rules, not verified.',''):result.reason)}</p>`}${requestsNote}${checkedNote}${gapsNote}${debriefNote}${result.diagnosis?diagnosisHtml(result.diagnosis):''}${typeof variety==='string'?variety:''}<p>Shown in ${esc(result.timezone)}. These options cannot send invitations. Posting one to Slack is for discussion only and books nothing.</p>`+result.proposals.map((p,i)=>`<article><h3>Option ${i+1}: ${esc(fmt(p.start))}${p.flagCount?` <span class="sched-flag">⚠️ ${p.flagCount} clash${p.flagCount===1?'':'es'}, needs attention</span>`:''}</h3><p><button type="button" class="post-option" data-index="${i}" data-digest="${esc(p.optionDigest)}">${p.flagCount?'Post to Slack for discussion, flagged':'Post to Slack for discussion'}</button> <span class="post-option-status" role="status"></span></p><table><thead><tr><th>Interview</th><th>Time</th><th>Suggested interviewer</th></tr></thead><tbody>${p.events.map(e=>`<tr><td>${esc(e.title)}</td><td>${esc(fmt(e.start))}–${esc(fmt(e.end))}</td><td>${esc(e.interviewer.name)}${cc?(e.flags?.length?' <span class="sched-flag">⚠️ clash</span>':' <span class="muted">free</span>'):''}${(e.flags||[]).map(f=>`<p class="sched-warning sched-flag-detail">${esc(flagText(f))}</p>`).join('')}<details><summary>Eligible alternatives</summary>${e.eligibleInterviewers.map(i=>esc(i.name)).join(', ')}</details></td></tr>`).join('')}</tbody></table></article>`).join('');
       suggestedRequest=request;
     }catch(e){if(version===fullPlanVersion&&session===sessionVersion)$('full-suggestions').replaceChildren(Object.assign(document.createElement('p'),{className:'sched-message',textContent:e.message}));}finally{busyEnd(button);}
   };
@@ -146,14 +156,20 @@
   // server's claim-before-posting and per-option check are the real guard.
   // An unconfirmed post's button becomes "Check Slack", which opens the
   // reconcile choices (reconcileHtml) for that draft.
-  let suggestedRequest=null;
+  // dropRequests holds the schedule it was pressed for, so it never carries
+  // over to another candidate's schedule, and the sessions whose request to drop.
+  let suggestedRequest=null,dropRequests={scheduleId:null,sessions:[]};
   $('full-suggestions').addEventListener('click',async e=>{
     if(await reconcileClick(e))return;
+    // Dropping (or keeping) the Slack requests reruns the calendar-checked preview.
+    const toggle=e.target.closest('.drop-request,.keep-request');
+    if(toggle){const id=requestDetails().scheduleId,n=Number(toggle.dataset.session),now=dropRequests.scheduleId===id?dropRequests.sessions:[];
+      dropRequests={scheduleId:id,sessions:toggle.classList.contains('drop-request')?[...new Set([...now,n])]:now.filter(x=>x!==n)};return preview(true)();}
     const check=e.target.closest('.check-slack');
     if(check){const box=check.parentElement.querySelector('.reconcile');if(box)box.hidden=!box.hidden;return;}
     const button=e.target.closest('.post-option');if(!button||button.disabled||!suggestedRequest)return;
     const status=button.parentElement.querySelector('.post-option-status'),buttons=[...$('full-suggestions').querySelectorAll('.post-option')],session=sessionVersion;
-    const {calendarCheck:_,...sameForm}=suggestedRequest;
+    const {calendarCheck:_,dropRequests:__,...sameForm}=suggestedRequest;
     if(JSON.stringify(sameForm)!==JSON.stringify(requestDetails())){status.textContent='The request changed. Suggest the full schedule again.';return;}
     for(const b of buttons)b.disabled=true;busyStart(button,'Posting…');status.textContent='Rechecking Ashby and posting…';
     let posted=false;
