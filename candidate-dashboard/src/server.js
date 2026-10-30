@@ -35,6 +35,11 @@ function createServer() {
   let slackInteractions = null, suggestAgain = null;
   app.post("/api/slack/interactions", express.raw({ type: "application/x-www-form-urlencoded", limit: "64kb" }),
     (req, res) => slackInteractions ? slackInteractions(req, res) : res.status(404).end());
+  // Slack's Events API (an @mention asking to change a proposal), under the
+  // same conditions and the same signature check (slack-events.js).
+  let slackEvents = null;
+  app.post("/api/slack/events", express.raw({ type: "application/json", limit: "64kb" }),
+    (req, res) => slackEvents ? slackEvents(req, res) : res.status(404).end());
 
   // Ahead of static files and every other /api/* route: nothing else on this
   // server is reachable without valid credentials.
@@ -80,6 +85,12 @@ function createServer() {
         // Booking review's rebuild, mounted below; resolved when a button is pressed.
         suggester: input => { if (!suggestAgain) throw new Error("Booking review isn't mounted."); return suggestAgain(input); } });
       console.log("[slack] Schedule button enabled: interactivity endpoint /api/slack/interactions is live.");
+      slackEvents = require("./scheduling/slack-events").createSlackEvents({
+        signingSecret: slackConfig.schedulingSlackSigningSecret, teamId: slackConfig.schedulingSlackTeamId,
+        appId: slackConfig.schedulingSlackAppId, channelId: slackConfig.schedulingChannelId, on: slackConfig.schedulingAmend,
+        // Steps 3 to 7 (amend.js) replace this.
+        onMention: async m => console.log(`[slack] Mention received in thread ${m.threadTs} (event ${m.eventId}); amending isn't built yet.`) });
+      console.log(`[slack] Events endpoint /api/slack/events is live; amending by @mention is ${slackConfig.schedulingAmend ? "on" : "off (SCHEDULING_AMEND)"}.`);
     }
     app.use("/api/ashby-connection", require("./scheduling/connection-routes").connectionRoutes({
       url: connectionConfig.ashbyWorkerUrl, secret: connectionConfig.ashbyWorkerSecret,

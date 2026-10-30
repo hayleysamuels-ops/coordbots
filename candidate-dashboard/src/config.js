@@ -122,6 +122,9 @@ const config = {
   // calendar-checked option when a candidate submits availability; only for
   // the applications listed in auto-post.js (TEST so far).
   schedulingAutoPost: process.env.SCHEDULING_AUTO_POST === "on",
+  // Amending a proposal by @mentioning the bot in its thread (slack-events.js,
+  // amend.js): exactly "on". Off, mentions are ignored and logged.
+  schedulingAmend: process.env.SCHEDULING_AMEND === "on",
   googleCalendarClientId: process.env.GOOGLE_CALENDAR_CLIENT_ID || "",
   googleCalendarClientSecret: process.env.GOOGLE_CALENDAR_CLIENT_SECRET || "",
   googleCalendarRedirectUri: process.env.GOOGLE_CALENDAR_REDIRECT_URI || "",

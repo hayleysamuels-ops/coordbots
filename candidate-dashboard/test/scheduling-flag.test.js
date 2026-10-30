@@ -93,12 +93,14 @@ test("flag off: shared dashboard files are still served unchanged", () => {
 // 531dacf) with the same fictional shared login, so these hold the flagged
 // code to exactly that behaviour.
 
-test("the Slack interactivity route is a 404 without interactivity configured, with or without the flag", () => {
-  // It's the one route outside Basic Auth, so it must not ask for credentials
+test("the Slack interactivity and events routes are 404s without interactivity configured, with or without the flag", () => {
+  // They're the routes outside Basic Auth, so they must not ask for credentials
   // or say anything else until the signing secret, workspace, app and approvers are set.
   for (const state of [off, on]) {
-    assert.equal(state["POST /api/slack/interactions"].status, 404);
-    assert.equal(state["NOAUTH POST /api/slack/interactions"].status, 404);
+    for (const route of ["/api/slack/interactions", "/api/slack/events"]) {
+      assert.equal(state["POST " + route].status, 404, route);
+      assert.equal(state["NOAUTH POST " + route].status, 404, route);
+    }
     // Every other route still demands a login.
     assert.equal(state["NOAUTH POST /api/scheduling-booking"].status, 401);
   }
@@ -135,8 +137,8 @@ test("nothing else is public: the exemption doesn't widen past /privacy.html and
     "POST /privacy.html", "GET /privacy.html/", "GET /PRIVACY.HTML", "GET /privacy%2Ehtml",
     "GET /privacy.htm", "GET /privacy", "GET /", "GET /index.html", "GET /style.css", "GET /app.js",
     "GET /booking.html", "GET /google-calendar.html", "GET /api/issues", "GET /api/google-calendar/status",
-    // Only POST is exempt on the Slack route.
-    "GET /api/slack/interactions",
+    // Only POST is exempt on the Slack routes.
+    "GET /api/slack/interactions", "GET /api/slack/events",
   ];
   for (const state of [off, on]) {
     for (const route of stillLocked) assert.equal(state["NOAUTH " + route].status, 401, route);

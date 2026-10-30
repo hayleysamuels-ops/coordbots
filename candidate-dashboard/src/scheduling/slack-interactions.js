@@ -10,13 +10,13 @@
 //      this client's channel, and the message is the one the draft was posted
 //      as. Nothing in the payload chooses a channel, a draft or an approver.
 // The clicking user is resolved to an email by Slack's own users.info, never
-// taken from the payload, and must be on SCHEDULING_SLACK_APPROVERS.
+// taken from the payload. Schedule needs them on SCHEDULING_SLACK_APPROVERS.
 // Recording an approval never books anything (service.approveInSlack). With
 // `ashbyCheck`, an approved schedule is then composed in Ashby as a draft and
 // left for a person to send (ashby-check.js); nothing is sent automatically.
 //
-// "Suggest another time" and the "Suggest different interviewer" menu (same
-// approvers, same bindings) rebuild the option server-side from the
+// "Suggest another time" and the "Suggest different interviewer" menu (anyone
+// in the channel, since October 30; same bindings) rebuild the option server-side from the
 // candidate's current submission and the calendars, steered away from what
 // was proposed (suggestion.js). The post stays open while that runs; only
 // once a replacement with no calendar flags is found is it withdrawn

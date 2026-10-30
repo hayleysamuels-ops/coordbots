@@ -20,6 +20,7 @@ const PROBES = [
   ["GET", "/api/scheduling-booking"],
   ["POST", "/api/scheduling-booking/post-full-schedule-option", {}],
   ["POST", "/api/slack/interactions", {}],
+  ["POST", "/api/slack/events", {}],
   ["POST", "/api/ashby-connection/status", {}],
   ["GET", "/api/google-calendar/status"],
   ["GET", "/booking.html"],
@@ -53,6 +54,7 @@ const NOAUTH_PAGE_PROBES = [
   ["GET", "/api/issues"],
   ["GET", "/api/google-calendar/status"],
   ["GET", "/api/slack/interactions"],
+  ["GET", "/api/slack/events"],
 ];
 
 const server = createServer().listen(0, "127.0.0.1", async () => {
@@ -71,6 +73,10 @@ const server = createServer().listen(0, "127.0.0.1", async () => {
   for (const path of ["/api/slack/interactions", "/api/scheduling-booking"]) {
     const response = await fetch(base + path, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "payload=%7B%7D" });
     out["NOAUTH POST " + path] = { status: response.status, body: await response.text() };
+  }
+  {
+    const response = await fetch(base + "/api/slack/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    out["NOAUTH POST /api/slack/events"] = { status: response.status, body: await response.text() };
   }
   // The privacy page is the one public GET. Everything else here, including
   // near-misses on its path and the stylesheet it deliberately doesn't link,
