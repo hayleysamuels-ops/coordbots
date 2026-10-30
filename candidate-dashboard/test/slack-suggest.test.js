@@ -179,11 +179,17 @@ test("approved while the search ran: never withdrawn, and the replacement never 
   assert.match(f.calls.replies.at(-1), /approved by Mary Petrino while another option was being found, so it wasn't replaced\. Nothing was changed\.$/);
 });
 
-test("only approvers can ask, and a post without the candidate's submission can't be rebuilt from Slack", async t => {
+test("anyone in the channel can ask, but Schedule on the replacement stays approvers-only; a post without the candidate's submission can't be rebuilt from Slack", async t => {
   let f = await fixture(t);
   await f.press(f.timeAction, "U0OTHER");
-  assert.match(f.calls.replies[0], /^Someone isn't an approver for this client's interview schedules, so nothing was changed\./);
-  assert.equal(f.calls.suggester.length, 0);
+  assert.equal(f.calls.suggester.length, 1);
+  assert.match(f.calls.replies.at(-1), /^Replaced: the new option \(another time\) is posted in the channel\./);
+  const replacement = (await f.store.list()).find(r => r.id !== f.row.id && r.state !== "replaced" && r.plan?.suggestion);
+  assert.equal(replacement.plan.suggestion.by, "someone@carrara.is");
+  const before = f.calls.replies.length;
+  await f.press({ action_id: "schedule_option", value: JSON.stringify({ d: replacement.id, g: replacement.digest }) }, "U0OTHER");
+  assert.match(f.calls.replies[before], /^Someone isn't an approver for this client's interview schedules, so nothing was recorded\./);
+  assert.equal((await f.store.get(replacement.id)).slackApproval ?? null, null);
   f = await fixture(t);
   const option = { start: bookingPlan.sessions[0].start, end: bookingPlan.sessions[1].end, events: bookingPlan.sessions.map(s => ({ title: s.title, start: s.start, end: s.end, interviewer: { name: s.interviewers[0].name } })) };
   const typed = await f.service.postScheduleOption({ applicationId: "app", candidateId: "candidate", timezone: "America/Los_Angeles", option, optionNumber: 1, sourceRef: "full-schedule:x:typed", availabilitySource: "manual",

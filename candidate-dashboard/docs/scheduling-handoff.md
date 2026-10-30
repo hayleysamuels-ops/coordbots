@@ -915,8 +915,15 @@ or `off`.
 Beside Schedule, a calendar-checked post built from the candidate's submitted
 availability (with an Ashby plan) has a **Suggest another time** button and a
 **Suggest different interviewer** menu listing each session with its
-interviewer. Same endpoint, same signature, workspace, app and channel checks,
-same approver list (`SCHEDULING_SLACK_APPROVERS`) as Schedule.
+interviewer. Same endpoint, same signature, workspace, app and channel checks
+as Schedule.
+
+**Who can press them** (since October 30, 2026): anyone in the client's
+channel. Anyone shapes a proposal; only approvers book one. Schedule still
+checks the approver list (`SCHEDULING_SLACK_APPROVERS`), including on a
+replacement someone else asked for. Slack must say who pressed (their email
+goes on the record as `suggestion.by`); if it doesn't, nothing changes. Until
+October 30 both were approvers-only.
 
 - **What a press does** (`slack-interactions.js`):
   1. The post must still be open, unchanged, and the very message it was

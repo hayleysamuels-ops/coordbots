@@ -55,6 +55,18 @@ function createSlackInteractions({ service, slackApi, signingSecret, teamId, app
     return null;
   }
 
+  // Anyone in the client's channel may shape a proposal (the suggestion
+  // buttons, and from Phase 1 an @mention reply); only approvers book one
+  // (Schedule). The click's channel is checked before this runs, so this only
+  // needs who it is, from Slack's users.info, for the record.
+  async function memberFor(payload, reply) {
+    const who = await slackApi.userInfo(payload.user.id).catch(() => null);
+    if (who?.email) return { ...who, email: who.email.toLowerCase() };
+    log.warn(`[slack] Suggestion refused: ${payload.user.id} couldn't be identified.`);
+    await reply("Slack didn't say who asked, so nothing was changed. Try again.");
+    return null;
+  }
+
   async function act(payload) {
     const action = payload.actions[0], message = payload.container || {};
     const reply = text => slackApi.threadReply({ channel: payload.channel.id, threadTs: message.message_ts, text });
@@ -88,7 +100,7 @@ function createSlackInteractions({ service, slackApi, signingSecret, teamId, app
     let value;
     try { value = JSON.parse(kind === "time" ? action.value : action.selected_option?.value); } catch (_) { return reply("This control couldn't be read. Nothing was changed."); }
     if (typeof value?.d !== "string" || typeof value.g !== "string" || (kind === "interviewer" && !Number.isInteger(value.i))) return reply("This control couldn't be read. Nothing was changed.");
-    const who = await approverFor(payload, reply, "Suggestion");
+    const who = await memberFor(payload, reply);
     if (!who) return;
     if (!suggester) return reply("Suggesting another option isn't connected on this dashboard. Nothing was changed.");
     // One search per post at a time; a second click while it runs is dropped.
@@ -109,6 +121,8 @@ function createSlackInteractions({ service, slackApi, signingSecret, teamId, app
       if (found.index < 0) return await reply(noneText(found.result, what));
       const withdrawn = await service.withdrawForSuggestion(row, { by: who.email, kind, session: kind === "interviewer" ? value.i : null });
       let posted;
+      // canApprove here only lets the replacement be posted: Schedule on it
+      // still checks the clicker against the approvers.
       try { posted = await found.post({ id: who.email, canApprove: true }, steer); }
       catch (e) {
         log.warn(`[slack] Replacement for ${row.id} couldn't be posted: ${e.message}`);
