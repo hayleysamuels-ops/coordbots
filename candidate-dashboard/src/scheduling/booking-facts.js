@@ -145,6 +145,12 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
       return {...rest,eligibleInterviewers:kept,excludedInterviewers:excluded};
     });
   }
+  // Every active Ashby account, as {userId, name, email}: what a Slack
+  // request can name (amend.js), searched by name there. Read-only.
+  async function activeUsers() {
+    return (await listUsers(false)).filter(u=>u.isEnabled===true&&uuid(u.id)&&/^\S+@\S+\.\S+$/.test(u.email||''))
+      .map(u=>({userId:u.id,name:[u.firstName,u.lastName].filter(Boolean).join(' ').replace(/\s+/g,' ').trim(),email:u.email.toLowerCase()}));
+  }
   async function resolveInterviewers(sessions) {
     if(!Array.isArray(sessions)||!sessions.length||sessions.some(s=>s.assignmentVerified!==true||!s.eligibleInterviewers?.length))fail(422,'Load the verified interviewer lists first.');
     const users=await listUsers(false);
@@ -198,6 +204,6 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
   }
   // A job's title, for the booking settings notice (booking-settings-watch.js); null when Ashby has none.
   async function jobTitle(jobId) { const job = await read('job.info', { id: jobId }); return job?.id === jobId && typeof job.title === 'string' ? job.title : null; }
-  return { load, application, scheduleState, resolveInterviewers, excludeDeactivated, interviewerLimits, debriefInterviewIds, candidateLinkedIn, jobTitle };
+  return { load, application, scheduleState, resolveInterviewers, activeUsers, excludeDeactivated, interviewerLimits, debriefInterviewIds, candidateLinkedIn, jobTitle };
 }
 module.exports = { createBookingFacts };

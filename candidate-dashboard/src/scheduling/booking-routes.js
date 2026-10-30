@@ -207,6 +207,9 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
       submittedAvailability:submission?require('./availability-gate').postedAvailability(submission):null,rulesRevision:clientRules.rulesRevision,
       calendarCheck:['calendar_checked','needs_attention'].includes(result.status)?{checkedAt:result.calendarCheckedAt,meetingHoursAssumed:result.meetingHoursAssumed===true,flags:chosen.events.map(e=>e.flags||[])}:null},user);
   }
+  // The current plan for a post's schedule (amend.js): the same read and
+  // checks as posting, nothing posted. Each session's eligible list comes with it.
+  router.readPlan=({applicationId,scheduleId})=>fullPlan({body:{applicationId,scheduleId}});
   // Slack's "Suggest another time" / "Suggest different interviewer"
   // (slack-interactions.js): the same server-side rebuild as posting, from the
   // candidate's submitted availability and calendar-checked, steered away from
