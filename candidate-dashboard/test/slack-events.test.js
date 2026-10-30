@@ -28,7 +28,7 @@ async function fixture(t, { on = true } = {}) {
   return { mentions, logs, send };
 }
 let n = 0;
-const mention = (event = {}, outer = {}) => ({ type: "event_callback", team_id: "T0CARRARA", api_app_id: "A0SCHED", event_id: `Ev${++n}`,
+const mention = (event = {}, outer = {}) => ({ type: "event_callback", team_id: "T0CARRARA", api_app_id: "A0SCHED", event_id: `Ev${++n}`, authorizations: [{ user_id: "U0BOT", is_bot: true }],
   event: { type: "app_mention", user: "U0HAYLEY", text: "<@U0BOT> have Vamsi do Onsite 2 instead of Joe", channel: "C0CONFIG", ts: "1700000100.000200", thread_ts: "1700000000.000100", ...event }, ...outer });
 
 test("Slack's URL check is answered, on or off, and only when signed", async t => {
@@ -49,7 +49,7 @@ test("a mention in a proposal's thread reaches the handler once, with who, what 
   // Slack resends an event it thinks went unanswered: new signature, same event_id.
   await new Promise(res => setTimeout(res, 1100));
   assert.equal((await f.send(payload)).status, 200);
-  assert.deepEqual(f.mentions, [{ eventId: payload.event_id, user: "U0HAYLEY", text: "<@U0BOT> have Vamsi do Onsite 2 instead of Joe", channel: "C0CONFIG", threadTs: "1700000000.000100", ts: "1700000100.000200" }]);
+  assert.deepEqual(f.mentions, [{ eventId: payload.event_id, user: "U0HAYLEY", text: "<@U0BOT> have Vamsi do Onsite 2 instead of Joe", channel: "C0CONFIG", threadTs: "1700000000.000100", ts: "1700000100.000200", botUserId: "U0BOT" }]);
 });
 
 test("wrong workspace or app, or a bad signature, is refused before anything is read", async t => {

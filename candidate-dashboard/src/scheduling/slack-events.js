@@ -53,7 +53,9 @@ function createSlackEvents({ signingSecret, teamId, appId, channelId, on = false
     if (typeof e.user !== "string" || !e.user || typeof e.text !== "string") return;
     // A reply in a thread: thread_ts is the post's ts, and differs from the reply's own.
     if (typeof e.thread_ts !== "string" || e.thread_ts === e.ts) { log.log(`[slack] Mention ignored: not in a thread (event ${body.event_id}).`); return; }
-    try { await onMention({ eventId: body.event_id, user: e.user, text: e.text, channel: e.channel, threadTs: e.thread_ts, ts: e.ts }); }
+    // The bot's own user ID, so its mention can be taken out of the text.
+    const botUserId = (body.authorizations || []).find(a => a?.is_bot)?.user_id || null;
+    try { await onMention({ eventId: body.event_id, user: e.user, text: e.text, channel: e.channel, threadTs: e.thread_ts, ts: e.ts, botUserId }); }
     catch (err) { log.warn(`[slack] Mention handling failed (event ${body.event_id}): ${err.message}`); }
   };
 }

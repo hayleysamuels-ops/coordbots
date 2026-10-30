@@ -125,6 +125,10 @@ const config = {
   // Amending a proposal by @mentioning the bot in its thread (slack-events.js,
   // amend.js): exactly "on". Off, mentions are ignored and logged.
   schedulingAmend: process.env.SCHEDULING_AMEND === "on",
+  // The model that reads those requests (amend-interpret.js), through
+  // Anthropic's API. Only needed with SCHEDULING_AMEND on.
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
+  schedulingAmendModel: process.env.SCHEDULING_AMEND_MODEL || "claude-sonnet-5-5",
   googleCalendarClientId: process.env.GOOGLE_CALENDAR_CLIENT_ID || "",
   googleCalendarClientSecret: process.env.GOOGLE_CALENDAR_CLIENT_SECRET || "",
   googleCalendarRedirectUri: process.env.GOOGLE_CALENDAR_REDIRECT_URI || "",
