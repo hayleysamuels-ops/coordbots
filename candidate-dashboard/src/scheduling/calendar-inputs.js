@@ -18,7 +18,11 @@ const fail = (status, message) => { throw Object.assign(new Error(message), { st
 // different interviewer"): that person is left out of that session only
 // (session is its 0-based place in the plan). A session left with no one says
 // so by name, before any calendar is read.
-async function buildCalendarInputs({ plan, windows, timezone, rules, facts, freeBusy, now = Date.now(), excludeInterviewers = [] }) {
+// requireInterviewers ([{ session, userId, name }], from a Slack amend): that
+// session is narrowed to that one person. Someone Ashby no longer lists for
+// it, or who can't be scheduled (zero limit, no meeting hours), blocks by
+// name; nobody else is put in their place.
+async function buildCalendarInputs({ plan, windows, timezone, rules, facts, freeBusy, now = Date.now(), excludeInterviewers = [], requireInterviewers = [] }) {
   if (rules.busy.source !== "google_freebusy" || rules.busy.calendars.length !== 1 || rules.busy.calendars[0] !== "primary") fail(503, "Calendar checks need busy.source google_freebusy with the primary calendar only.");
   if (rules.limitsPolicy === "enforce") fail(503, "Enforced interview limits need interview counts, which aren't built. Use zero_only.");
   if (!facts?.resolveInterviewers || !freeBusy) fail(503, "Calendar checks aren't connected.");
@@ -39,16 +43,25 @@ async function buildCalendarInputs({ plan, windows, timezone, rules, facts, free
     hoursUsed.push({ name: person.name, email: person.email, source, timezone: hours.timezone, days: hours.days, start: hours.start, end: hours.end });
   }
   const steered = (i, userId) => excludeInterviewers.some(x => x.session === i && x.userId === userId);
+  const required = i => requireInterviewers.find(r => r.session === i);
+  // A required session is checked below instead: the requirement wins.
   const noOneElse = resolved.sessions.map((s, i) => ({ s, i, left: s.eligibleInterviewers.filter(p => usable.has(p.userId)) }))
-    .find(({ i, left }) => left.length && left.every(p => steered(i, p.userId)));
+    .find(({ i, left }) => !required(i) && left.length && left.every(p => steered(i, p.userId)));
   if (noOneElse) {
     const names = excludeInterviewers.filter(x => x.session === noOneElse.i).map(x => x.name || "the interviewer asked about").join(" or ");
     return { excluded, meetingHours: hoursUsed, limitsPolicy: rules.limitsPolicy, rulesRevision: rules.rulesRevision, busySource: "Google free/busy, primary calendars",
       blocked: `No one other than ${names} is eligible for session ${noOneElse.i + 1} ("${noOneElse.s.title}").`, noOtherInterviewer: true };
   }
+  const exclusionOf = userId => excluded.find(x => x.email === people.find(p => p.userId === userId)?.email)?.reason || "excluded";
+  for (const r of requireInterviewers) {
+    const s = resolved.sessions[r.session];
+    const why = !s ? "isn't on the plan" : !s.eligibleInterviewers.some(p => p.userId === r.userId) ? "isn't eligible for it in Ashby any more" : !usable.has(r.userId) ? `can't be scheduled (${exclusionOf(r.userId)})` : null;
+    if (why) return { excluded, meetingHours: hoursUsed, limitsPolicy: rules.limitsPolicy, rulesRevision: rules.rulesRevision, busySource: "Google free/busy, primary calendars",
+      blocked: `${r.name} can't take session ${r.session + 1}${s ? ` ("${s.title}")` : ""}: ${r.name} ${why}.`, noOtherInterviewer: true };
+  }
   const sessions = resolved.sessions.map((s, i) => {
     const placementWindows = rules.placementFor(s.title);
-    const eligibleInterviewers = s.eligibleInterviewers.filter(p => usable.has(p.userId) && !steered(i, p.userId));
+    const eligibleInterviewers = s.eligibleInterviewers.filter(p => usable.has(p.userId) && (required(i) ? p.userId === required(i).userId : !steered(i, p.userId)));
     // Preferred hosts by email, in order, kept only if eligible and usable.
     const preferredUserIds = (rules.preferredFor ? rules.preferredFor(s.title) : []).map(email => eligibleInterviewers.find(p => p.email === email)?.userId).filter(Boolean);
     return { ...s, eligibleInterviewers, ...(placementWindows.length ? { placementWindows } : {}), ...(preferredUserIds.length ? { preferredUserIds } : {}) };

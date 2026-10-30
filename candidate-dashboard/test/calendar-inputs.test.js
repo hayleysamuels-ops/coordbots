@@ -226,3 +226,37 @@ test("Slack's different interviewer: left out of that session only; a session wi
   assert.equal(none.blocked, 'No one other than Tom Reyes is eligible for session 2 ("Fixed").');
   assert.equal(calls.freeBusy.length, 0);
 });
+
+test("a Slack amend: each required session narrowed to its one person; someone who can't take it blocks by name", async () => {
+  const { facts, freeBusy, calls } = sources({ limits: { [ANA.userId]: { dailyLimit: 0, weeklyLimit: null } } });
+  const tom = { session: 0, userId: TOM.userId, name: "Tom Reyes" };
+  // An amend outranks an earlier "different interviewer" for the same person.
+  const inputs = await buildCalendarInputs({ plan, windows, timezone, rules: rulesDoc(), facts, freeBusy, excludeInterviewers: [tom], requireInterviewers: [tom, { session: 1, userId: TOM.userId, name: "Tom Reyes" }] });
+  assert.deepEqual(inputs.sessions.map(s => s.eligibleInterviewers.map(p => p.name)), [["Tom Reyes"], ["Tom Reyes"]]);
+  calls.freeBusy.length = 0;
+  const zero = await buildCalendarInputs({ plan, windows, timezone, rules: rulesDoc(), facts, freeBusy, requireInterviewers: [{ session: 0, userId: ANA.userId, name: "Ana Silva" }] });
+  assert.equal(zero.blocked, 'Ana Silva can\'t take session 1 ("Flexible"): Ana Silva can\'t be scheduled (Ashby daily interview limit is 0).');
+  assert.equal(zero.noOtherInterviewer, true);
+  const gone = await buildCalendarInputs({ plan, windows, timezone, rules: rulesDoc(), facts, freeBusy, requireInterviewers: [{ session: 1, userId: ANA.userId, name: "Ana Silva" }] });
+  assert.equal(gone.blocked, 'Ana Silva can\'t take session 2 ("Fixed"): Ana Silva isn\'t eligible for it in Ashby any more.');
+  assert.equal(calls.freeBusy.length, 0);
+});
+
+test("fixed starts: that one agenda or none, with every other rule still applied", () => {
+  const now = Date.parse("2099-01-01T00:00Z"), day = { start: "2099-01-05T17:00:00Z", end: "2099-01-06T01:00:00Z" };
+  const a = { userId: "a", name: "A" }, b = { userId: "b", name: "B" };
+  const session = (id, eligible) => ({ sessionId: id, title: id, interviewId: id, durationMinutes: 30, assignmentVerified: true, requiredCount: 1, eligibleInterviewers: eligible });
+  const cal = (userId, busy = []) => ({ userId, verified: true, coverageVerified: true, workingHoursVerified: true, checkedAt: now, coverage: [day], busy, sessionWorkingWindows: { one: [day], two: [day] }, limits: { dailyLimit: null, weeklyLimit: null } });
+  const input = { sessions: [session("one", [a]), session("two", [b])], windows, timezone, now, calendars: [cal("a"), cal("b")], advisory: true, maxGapMinutes: 60, maxGapCount: 1 };
+  const at = ["2099-01-05T19:00:00.000Z", "2099-01-05T20:00:00.000Z"];
+  const fixed = proposeCalendarSchedule({ ...input, fixedStarts: at });
+  assert.deepEqual(fixed.proposals.map(p => p.events.map(e => e.start)), [at]);
+  assert.equal(fixed.proposals[0].flagCount, 0);
+  // A clash at the fixed time is flagged, never moved.
+  const clash = proposeCalendarSchedule({ ...input, calendars: [cal("a"), cal("b", [{ start: "2099-01-05T20:00:00Z", end: "2099-01-05T20:30:00Z" }])], fixedStarts: at });
+  assert.deepEqual(clash.proposals[0].events.map(e => e.start), at);
+  assert.equal(clash.proposals[0].flagCount, 1);
+  // A gap longer than the break budget allows isn't placed, fixed or not.
+  assert.equal(proposeCalendarSchedule({ ...input, fixedStarts: ["2099-01-05T19:00:00.000Z", "2099-01-05T21:00:00.000Z"] }).proposals.length, 0);
+  assert.throws(() => proposeCalendarSchedule({ ...input, fixedStarts: [at[0]] }), /one start per session/);
+});

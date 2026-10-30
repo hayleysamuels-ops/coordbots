@@ -963,6 +963,79 @@ October 30 both were approvers-only.
   nothing to rebuild from. A second press on the same post while a search
   runs is ignored.
 
+## Amend by @mention (October 30, 2026; off until SCHEDULING_AMEND is "on")
+
+Phase 1: someone @mentions the bot in a post's thread asking to swap one
+interviewer for another on one session ("@bot have Vamsi take Onsite 2 instead
+of Joe"). The bot restates the change; only the person who asked can confirm
+it; then the post is replaced the way the suggestion buttons replace one.
+Nothing is booked or sent: the replacement needs Schedule like any post.
+
+- **Slack app** (set up October 30): Event Subscriptions on, Request URL
+  `/api/slack/events`, bot event `app_mention`, scope `app_mentions:read`,
+  Token Rotation off, reinstalled. The bot never reads the rest of the
+  channel. Evidence it works: the first test mention reached the endpoint
+  (event Ev0CDKMXNMAS, 17:10:39 UTC), past the signature, workspace and app
+  checks, and was logged as ignored because the switch was off.
+- **Switch and key:** `SCHEDULING_AMEND=on`, `ANTHROPIC_API_KEY`, optionally
+  `SCHEDULING_AMEND_MODEL` (default `claude-sonnet-5-5`). Off, the URL check
+  is still answered and every mention is logged and ignored. The key is read
+  only when a request is read; a missing key is said in the thread as a setup
+  problem, not as a badly worded request.
+- **What a mention does** (`slack-events.js`, then `slack-amend.js`):
+  1. Only a person's mention, in a thread of this client's channel, once per
+     event. The thread must be a post that is still open (the buttons' checks,
+     `service.suggestionSource`); otherwise the thread says why.
+  2. The request is read by the model (`amend-interpret.js`) into one change
+     from a closed set: replace an interviewer, unclear (with a question), or
+     unsupported. **The request text is data, never instructions**: the prompt
+     says so, the answer must be one forced tool call, and every field is
+     checked here and again against the post and Ashby (`amend.js`). Sent to
+     the model: the request with mentions turned into names, and each
+     session's label, time and interviewer's name. Never the candidate.
+  3. Which session is settled from the post alone. Anything not clear is
+     asked ("Joe Penn is on 2 sessions. Which one do you mean…"), never
+     guessed. Sessions are called by title, numbered when titles repeat
+     ("Onsite 2" is the second Onsite).
+  4. The thread is told what's being checked and how long it takes ("Checking
+     Ashby for Onsite 2's eligible interviewers, about a minute."), then the
+     current plan is read (booking review's read, 30–80 seconds) and the
+     person matched against that session's eligible list. Two matches are
+     asked about; someone active in Ashby but not eligible is **declined**
+     ("off-plan interviewers aren't supported yet"), and logged.
+  5. The change is restated with **Confirm** and **Cancel**. Only the person
+     who asked can press either (their Slack user ID, from Slack's signed
+     event and click). It lapses after 30 minutes. One per post: someone
+     else's request waits; the asker's own newer one replaces theirs.
+  6. **Confirm** checks the post is unchanged since the restatement, then
+     searches with every session's own time and person fixed except the one
+     change (`calendar-inputs.js requireInterviewers`,
+     `full-calendar-schedule.js fixedStarts`). If that isn't clean (a clash,
+     or the availability or rules changed), it searches any time with the same
+     people and says the time moved. Only an option with no calendar flags is
+     posted, through the buttons' path (`slack-replace.js`): withdraw
+     (revision-checked), post, link, mark replaced. Otherwise the post stays
+     open and the thread says why.
+- **The record** (`suggestion.js`, kind `amend`): who asked, the change (who
+  came off, who went on, which session) and whether the times moved. The new
+  post's notes say "Amended in Slack by … : replace X with Y on Onsite 2, same
+  times". The person taken off stays out of that session for later button
+  presses; the person put on is let back in if an earlier press had left them
+  out. The requirement itself isn't carried: a later button press may pick
+  anyone eligible.
+- **Failures are worded apart:** "The request couldn't be read" only when the
+  model answered with something unusable; when the service failed (HTTP
+  error, timeout, wrong answer shape) the thread says so and that the wording
+  isn't the problem. Both are logged as `[amend] Request not read (kind): cause`.
+- **Held in memory:** pending restatements don't survive a restart; Confirm
+  on one afterwards says it's no longer waiting.
+- **Not yet:** off-plan interviewers (Phase 2: the dry run on TEST captures
+  the refused save's slot first), changing times, adding a second
+  interviewer, standing rules, panels.
+- **Before switching it on:** set the key, then mention the bot on a TEST
+  post and check the log for `[amend] Restated` and, after Confirm,
+  `[amend] Draft … replaced for an amend`.
+
 ## The Ashby check after a Slack approval (October 14, 2026)
 
 Approving a calendar-checked post with Slack's Schedule button now has the worker

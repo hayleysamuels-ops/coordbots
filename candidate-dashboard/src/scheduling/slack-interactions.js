@@ -21,10 +21,15 @@
 // was proposed (suggestion.js). The post stays open while that runs; only
 // once a replacement with no calendar flags is found is it withdrawn
 // (revision-checked: one approved meanwhile is left alone) and the new
-// option posted. No replacement found, nothing changes and the thread says why.
+// option posted (slack-replace.js). No replacement found, nothing changes and
+// the thread says why.
+//
+// "Confirm" and "Cancel" on an @mention amend's restatement are passed to
+// `amender` (slack-amend.js); only the person who asked may press them.
 const crypto = require("crypto");
 const { nextSuggestion } = require("./suggestion");
 const { availabilityChange } = require("./availability-gate");
+const { replacePost } = require("./slack-replace");
 
 const WINDOW_S = 300;
 
@@ -42,7 +47,7 @@ function verifySlackRequest({ rawBody, headers, secret, now = Date.now(), seen }
   return null;
 }
 
-function createSlackInteractions({ service, slackApi, signingSecret, teamId, appId, channelId, approvers, ashbyCheck = null, suggester = null, now = () => Date.now(), log = console }) {
+function createSlackInteractions({ service, slackApi, signingSecret, teamId, appId, channelId, approvers, ashbyCheck = null, suggester = null, amender = null, now = () => Date.now(), log = console }) {
   const seen = new Map(), allowed = new Set(approvers.map(e => e.toLowerCase())), suggesting = new Set();
   const when = ms => new Date(ms).toISOString();
   // The clicking user, from Slack's users.info, if they're an approver; else
@@ -119,20 +124,8 @@ function createSlackInteractions({ service, slackApi, signingSecret, teamId, app
         found = await find(steer);
       }
       if (found.index < 0) return await reply(noneText(found.result, what));
-      const withdrawn = await service.withdrawForSuggestion(row, { by: who.email, kind, session: kind === "interviewer" ? value.i : null });
-      let posted;
-      // canApprove here only lets the replacement be posted: Schedule on it
-      // still checks the clicker against the approvers.
-      try { posted = await found.post({ id: who.email, canApprove: true }, steer); }
-      catch (e) {
-        log.warn(`[slack] Replacement for ${row.id} couldn't be posted: ${e.message}`);
-        await slackApi.markReplaced({ channel: payload.channel.id, ts: message.message_ts, row: withdrawn }).catch(err => log.warn(`[slack] Couldn't mark ${row.id} replaced: ${err.message}`));
-        return await reply(`Another option was found, but it couldn't be posted (${e.message}). This post has been withdrawn: post an option from booking review on the dashboard.`);
-      }
-      const linked = (await service.recordReplacement(row.id, posted.id)) || withdrawn;
-      await slackApi.markReplaced({ channel: payload.channel.id, ts: message.message_ts, row: linked }).catch(e => log.warn(`[slack] Couldn't mark ${row.id} replaced: ${e.message}`));
-      if (posted.state !== "shared") return await reply(`Replaced, but Slack didn't confirm the new post (${posted.issue || "no answer"}). Check the channel, then reconcile it on the dashboard.`);
-      return await reply(`Replaced: the new option (${what}) is posted in the channel. Nothing from this post was booked or sent.`);
+      return await reply(await replacePost({ service, slackApi, log, row, found, record: steer, by: who.email, kind, session: kind === "interviewer" ? value.i : null,
+        channel: payload.channel.id, ts: message.message_ts, done: `Replaced: the new option (${what}) is posted in the channel. Nothing from this post was booked or sent.` }));
     } catch (e) {
       if (!e.status) log.warn(`[slack] Suggestion failed: ${e.message}`);
       return reply(e.status ? `${e.message} Nothing was changed.` : "Another option couldn't be found. Nothing was changed; try again.");
@@ -150,9 +143,12 @@ function createSlackInteractions({ service, slackApi, signingSecret, teamId, app
     // Slack wants an answer within three seconds; the work happens after it.
     res.status(200).end();
     const actionId = payload.type === "block_actions" ? payload.actions?.[0]?.action_id : null;
-    if (!["schedule_option", "suggest_time", "suggest_interviewer"].includes(actionId)) return;
+    if (!["schedule_option", "suggest_time", "suggest_interviewer", "amend_confirm", "amend_cancel"].includes(actionId)) return;
     if (payload.channel?.id !== channelId || !payload.container?.message_ts || !payload.user?.id) { log.warn("[slack] Click ignored: not this client's channel."); return; }
     if (actionId === "schedule_option") act(payload).catch(e => log.warn(`[slack] Schedule click handling failed: ${e.message}`));
+    // Confirm and Cancel on an amend's restatement (slack-amend.js), which
+    // checks that the person pressing is the one who asked.
+    else if (actionId.startsWith("amend_")) { if (amender) amender.press(payload, actionId === "amend_confirm").catch(e => log.warn(`[slack] Amend click handling failed: ${e.message}`)); }
     else suggest(payload, actionId === "suggest_time" ? "time" : "interviewer").catch(e => log.warn(`[slack] Suggestion handling failed: ${e.message}`));
   };
 }

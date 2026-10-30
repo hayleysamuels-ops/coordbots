@@ -32,7 +32,7 @@ function createServer() {
   // must instead carry a valid Slack signature over its raw body (checked in
   // slack-interactions.js before anything is parsed). It exists only with the
   // scheduling pilot on and interactivity configured; otherwise it's a 404.
-  let slackInteractions = null, suggestAgain = null;
+  let slackInteractions = null, suggestAgain = null, readPlan = null;
   app.post("/api/slack/interactions", express.raw({ type: "application/x-www-form-urlencoded", limit: "64kb" }),
     (req, res) => slackInteractions ? slackInteractions(req, res) : res.status(404).end());
   // Slack's Events API (an @mention asking to change a proposal), under the
@@ -78,18 +78,25 @@ function createServer() {
       ashbyCheck.startSweeping();
       // The review routes' release action (routes.js) uses it.
       scheduling.ashbyCheck = ashbyCheck;
+      // @mention amends (slack-amend.js): reached only with SCHEDULING_AMEND
+      // on, since slack-events.js drops every mention otherwise. The model's
+      // key is read only when a request is read.
+      const amender = require("./scheduling/slack-amend").createSlackAmend({ service: scheduling, slackApi: scheduling.slackApi, facts: bookingFacts,
+        timeZone: slackConfig.displayTimeZone, apiKey: slackConfig.anthropicApiKey, model: slackConfig.schedulingAmendModel,
+        // Booking review's plan read and rebuild, mounted below; resolved when used.
+        readPlan: input => { if (!readPlan) throw new Error("Booking review isn't mounted."); return readPlan(input); },
+        suggester: input => { if (!suggestAgain) throw new Error("Booking review isn't mounted."); return suggestAgain(input); } });
       slackInteractions = require("./scheduling/slack-interactions").createSlackInteractions({
         service: scheduling, slackApi: scheduling.slackApi, signingSecret: slackConfig.schedulingSlackSigningSecret,
         teamId: slackConfig.schedulingSlackTeamId, appId: slackConfig.schedulingSlackAppId,
         channelId: slackConfig.schedulingChannelId, approvers: slackConfig.schedulingSlackApprovers, ashbyCheck,
         // Booking review's rebuild, mounted below; resolved when a button is pressed.
-        suggester: input => { if (!suggestAgain) throw new Error("Booking review isn't mounted."); return suggestAgain(input); } });
+        suggester: input => { if (!suggestAgain) throw new Error("Booking review isn't mounted."); return suggestAgain(input); }, amender });
       console.log("[slack] Schedule button enabled: interactivity endpoint /api/slack/interactions is live.");
       slackEvents = require("./scheduling/slack-events").createSlackEvents({
         signingSecret: slackConfig.schedulingSlackSigningSecret, teamId: slackConfig.schedulingSlackTeamId,
         appId: slackConfig.schedulingSlackAppId, channelId: slackConfig.schedulingChannelId, on: slackConfig.schedulingAmend,
-        // Steps 3 to 7 (amend.js) replace this.
-        onMention: async m => console.log(`[slack] Mention received in thread ${m.threadTs} (event ${m.eventId}); amending isn't built yet.`) });
+        onMention: amender.onMention });
       console.log(`[slack] Events endpoint /api/slack/events is live; amending by @mention is ${slackConfig.schedulingAmend ? "on" : "off (SCHEDULING_AMEND)"}.`);
     }
     app.use("/api/ashby-connection", require("./scheduling/connection-routes").connectionRoutes({
@@ -123,7 +130,7 @@ function createServer() {
       facts: bookingFacts,
       capabilities: async () => { const worker = await bookingWorker.capabilities(); return {available: false, reason: worker.available ? "The booking executor is being connected to this dashboard. Sending remains disabled." : worker.reason}; },
     });
-    suggestAgain = bookingRouter.suggestAgain;
+    suggestAgain = bookingRouter.suggestAgain; readPlan = bookingRouter.readPlan;
     app.use("/api/scheduling-booking", bookingRouter);
     // Auto-post (auto-post.js): off unless SCHEDULING_AUTO_POST is exactly "on".
     if (scheduling.slackApi && slackConfig.schedulingChannelId) require("./scheduling/auto-post").createAutoPost({ on: slackConfig.schedulingAutoPost,

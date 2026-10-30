@@ -47,9 +47,14 @@ function dateIn(ms,timezone){
 // avoidStarts (ISO instants, from Slack's "Suggest another time"): no option
 // starts on the same candidate-local day within an hour of any of them. The
 // search goes on past them, so the limit still counts only options it keeps.
-function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.now(),limit=5,minBreakMinutes=0,maxGapMinutes=0,maxGapCount=0,variety=true,advisory=false,excludedWeekdays=null,avoidStarts=[]}){
+// fixedStarts (ISO instants, one per session, from a Slack amend): each
+// session may start only at its own; every other rule still applies, so the
+// result is that one agenda or none. Nothing else about the search changes.
+function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.now(),limit=5,minBreakMinutes=0,maxGapMinutes=0,maxGapCount=0,variety=true,advisory=false,excludedWeekdays=null,avoidStarts=[],fixedStarts=null}){
   if(!Array.isArray(sessions)||!sessions.length||sessions.length>30)fail('Load a complete interview plan first.');
   if(!Array.isArray(avoidStarts)||avoidStarts.length>50||avoidStarts.some(a=>typeof a!=='string'||!Number.isFinite(Date.parse(a))))fail('Invalid times to avoid.');
+  if(fixedStarts!==null&&(!Array.isArray(fixedStarts)||fixedStarts.length!==sessions.length||fixedStarts.some(a=>typeof a!=='string'||!Number.isFinite(Date.parse(a)))))fail('Fixed times must give one start per session.');
+  const fixed=fixedStarts&&fixedStarts.map(a=>Date.parse(a));
   if(!Number.isInteger(limit)||limit<1||limit>5)fail('Invalid proposal limit.');
   if(![minBreakMinutes,maxGapMinutes].every(m=>Number.isInteger(m)&&m>=0&&m%5===0)||maxGapMinutes<minBreakMinutes||maxGapMinutes>480)fail('Breaks must be whole 5-minute steps, with the maximum gap at least the minimum break.');
   if(!Number.isInteger(maxGapCount)||maxGapCount<0||maxGapCount>29||(maxGapCount>0&&maxGapMinutes<5))fail('The break count must be 0 to 29, and breaks need a maximum of at least 5 minutes.');
@@ -162,7 +167,7 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
       // Back to back first, then each allowed break length, shortest first.
       const starts=[cursor];
       if(index>0&&used<breaks.count)for(let g=breaks.min;g<=breaks.max;g+=5)starts.push(cursor+g*60000);
-      for(const start of starts){
+      for(const start of fixed?starts.filter(t=>t===fixed[index]):starts){
         const end=start+duration;
         if(end>window.end||dateIn(end-1,timezone)!==day)break;
         // Pruned here, not filtered afterwards: a session outside its start
@@ -185,6 +190,7 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
     for(const window of candidate){
       for(let start=Math.ceil(window.start/STEP)*STEP;start+minSpan<=window.end;start+=STEP){
         if(seen.has(start))continue;seen.add(start);
+        if(fixed&&start!==fixed[0])continue;
         // windowsToInstants permits <=24h windows; this solver intentionally
         // requires the complete agenda to stay on one candidate-local date.
         if(dateIn(start,timezone)!==dateIn(start+minSpan-1,timezone))continue;

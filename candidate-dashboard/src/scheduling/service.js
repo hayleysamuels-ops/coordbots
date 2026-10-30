@@ -259,10 +259,11 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
     // posted: revision-checked, so a post approved meanwhile is never
     // withdrawn (and its replacement is never posted). It becomes rejected,
     // with `replaced`, so its buttons are refused and it never blocks a repost.
-    async withdrawForSuggestion(row, { by, kind, session = null }) {
+    // `change` (amends only) is what was asked, as the replaced post shows it.
+    async withdrawForSuggestion(row, { by, kind, session = null, change = null }) {
       const at = new Date().toISOString();
       try {
-        return await transition(row, "rejected", { replaced: { by, kind, ...(session !== null ? { session } : {}), at },
+        return await transition(row, "rejected", { replaced: { by, kind, ...(session !== null ? { session } : {}), ...(change ? { change: String(change).slice(0, 300) } : {}), at },
           audit: [...row.audit, { action: "replaced_in_slack", by, kind, at }] });
       } catch (e) {
         const latest = await store.get(row.id);
@@ -270,6 +271,13 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
         if (latest?.replaced) fail(409, `It was already replaced (asked by ${latest.replaced.by}).`);
         throw e;
       }
+    },
+    // The post a Slack thread belongs to (an @mention amend arrives with only
+    // the channel and the thread's ts): this client's draft posted as that
+    // message, whatever its state, or null. suggestionSource then checks it.
+    async postInThread(clickedChannel, threadTs) {
+      if (typeof clickedChannel !== "string" || typeof threadTs !== "string") return null;
+      return (await store.list()).find(r => r.clientId === clientId && r.slack?.channel === clickedChannel && r.slack?.ts === threadTs) || null;
     },
     // The replacement's draft ID, on the withdrawn post, once it's posted.
     async recordReplacement(oldId, newId) {

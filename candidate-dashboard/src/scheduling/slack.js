@@ -288,7 +288,7 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     ];
     if (replaced) blocks.push({ type: "section", text: mrkdwn(replaced.kind === "resubmitted"
       ? `*Replaced* at ${escape(when(replaced.at))}: the candidate submitted new availability, so this option no longer applies${replaced.withDraft ? ", and a new option was posted below" : "; no new option was posted automatically"}. Nothing from this message was booked or sent.`
-      : `*Replaced* at ${escape(when(replaced.at))}: ${escape(replaced.by)} asked for ${replaced.kind === "time" ? "another time" : `a different interviewer for session ${replaced.session + 1}`}, and a new option was posted below. Nothing from this message was booked or sent.`) });
+      : `*Replaced* at ${escape(when(replaced.at))}: ${escape(replaced.by)} asked ${replaced.kind === "amend" ? `to ${escape(replaced.change || "change it")}` : `for ${replaced.kind === "time" ? "another time" : `a different interviewer for session ${replaced.session + 1}`}`}, and a new option was posted below. Nothing from this message was booked or sent.`) });
     else if (approval) blocks.push({ type: "section", text: mrkdwn(`${approvedLine(approval)}\n${checkText(plan, check)}`) });
     else if (interactive && draftDigest) blocks.push(scheduleButton(proposalId, draftDigest, plan));
     // The fallback shows in notifications and has no names or links.
@@ -376,6 +376,29 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
   send.threadReply = async ({ channel, threadTs, text }) => {
     const { ok, body } = await api("chat.postMessage", { channel, thread_ts: threadTs, text, mrkdwn: false, parse: "none", unfurl_links: false });
     if (!ok || body.ok !== true) throw new Error("The Slack reply couldn't be posted");
+  };
+  // An amend's restatement in the post's thread, with Confirm and Cancel
+  // (slack-amend.js). `value` names the pending amend; who may press is
+  // checked when pressed. Returns the reply's ts, so it can be settled.
+  send.amendPrompt = async ({ channel, threadTs, text, value }) => {
+    const blocks = [{ type: "section", text: mrkdwn(escape(text)) },
+      { type: "actions", elements: [
+        { type: "button", action_id: "amend_confirm", style: "primary", text: { type: "plain_text", text: "Confirm" }, value },
+        { type: "button", action_id: "amend_cancel", text: { type: "plain_text", text: "Cancel" }, value }] }];
+    const problems = blockProblems({ text, blocks });
+    if (problems.length) throw invalid(problems);
+    const { ok, body } = await api("chat.postMessage", { channel, thread_ts: threadTs, text, blocks, mrkdwn: false, parse: "none", unfurl_links: false, unfurl_media: false });
+    if (!ok || body.ok !== true || typeof body.ts !== "string") throw new Error(`The Slack reply couldn't be posted${body.error ? ` (${body.error})` : ""}`);
+    return body.ts;
+  };
+  // The restatement once it's confirmed, cancelled or expired: its buttons
+  // go, and it says which.
+  send.amendSettled = async ({ channel, ts, text }) => {
+    const blocks = [{ type: "section", text: mrkdwn(escape(text)) }];
+    const problems = blockProblems({ text, blocks });
+    if (problems.length) throw invalid(problems);
+    const { ok, body } = await api("chat.update", { channel, ts, blocks, text });
+    if (!ok || body.ok !== true) throw new Error(`The Slack message couldn't be updated${body.error ? ` (${body.error})` : ""}`);
   };
   // The clicking user's email comes from Slack, never from the payload. Needs
   // users:read and users:read.email. This works because approvers click from

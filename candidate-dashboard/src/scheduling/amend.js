@@ -52,8 +52,11 @@ function whenOf(s, timeZone) {
 
 const list = items => items.length < 3 ? items.join(" or ") : `${items.slice(0, -1).join(", ")} or ${items.at(-1)}`;
 
-async function resolveChange(interpreted, { sessions, eligible, findPeople, timeZone }) {
-  if (!Array.isArray(sessions) || !sessions.length || !Array.isArray(eligible) || eligible.length !== sessions.length) throw new Error("The post's sessions and their eligible lists don't line up.");
+// Which session a reading means, from the post alone (no Ashby read):
+// { i, label } (i 0-based), or { ask } / { decline } as resolveChange returns them.
+// The handler uses it to name the session in its "checking Ashby" reply
+// before the slow read of eligible lists; resolveChange runs it again.
+function whichSession(interpreted, { sessions, timeZone }) {
   if (interpreted.kind === "unclear") return { ask: interpreted.question };
   if (interpreted.kind === "unsupported") return { decline: `I can only swap one interviewer for another on a session, so I can't do that (${interpreted.reason}) from here. Nothing was changed: use the buttons on the post, or booking review on the dashboard.` };
   if (interpreted.kind !== "replace_interviewer") throw new Error(`Unknown request kind ${interpreted.kind}.`);
@@ -61,26 +64,33 @@ async function resolveChange(interpreted, { sessions, eligible, findPeople, time
   const describe = i => `${labels[i]} (${whenOf(sessions[i], timeZone)}, ${on(i)?.name || "nobody"})`;
   if (sessions.some(s => s.interviewers?.length !== 1 || !s.interviewers[0]?.userId)) return { decline: "Every session on this post needs exactly one identified interviewer before I can swap one. Nothing was changed." };
 
-  // Which session: only from what was said, checked against the post.
-  let i = null;
+  // Only from what was said, checked against the post.
   if (interpreted.session !== null) {
-    i = interpreted.session - 1;
+    const i = interpreted.session - 1;
     if (!sessions[i]) return { ask: `This post has ${sessions.length} sessions. Which one do you mean: ${list(sessions.map((_, k) => describe(k)))}?` };
     if (interpreted.replace && !names(interpreted.replace, on(i).name)) {
       const theirs = sessions.map((_, k) => k).filter(k => names(interpreted.replace, on(k).name));
       return { ask: `${labels[i]} has ${on(i).name}, not ${interpreted.replace}. Which session do you mean: ${list((theirs.length ? theirs : sessions.map((_, k) => k)).map(describe))}?` };
     }
-  } else if (interpreted.replace) {
+    return { i, label: labels[i] };
+  }
+  if (interpreted.replace) {
     const theirs = sessions.map((_, k) => k).filter(k => names(interpreted.replace, on(k).name));
     if (!theirs.length) return { ask: `${interpreted.replace} isn't an interviewer on this post. Which session do you mean: ${list(sessions.map((_, k) => describe(k)))}?` };
     if (theirs.length > 1) {
       const people = [...new Set(theirs.map(k => on(k).name))];
       return { ask: people.length > 1 ? `"${interpreted.replace}" could be ${list(people)}. Which session do you mean: ${list(theirs.map(describe))}?` : `${people[0]} is on ${theirs.length} sessions. Which one do you mean: ${list(theirs.map(describe))}?` };
     }
-    i = theirs[0];
-  } else {
-    return { ask: `Which session should ${interpreted.with} take: ${list(sessions.map((_, k) => describe(k)))}?` };
+    return { i: theirs[0], label: labels[theirs[0]] };
   }
+  return { ask: `Which session should ${interpreted.with} take: ${list(sessions.map((_, k) => describe(k)))}?` };
+}
+
+async function resolveChange(interpreted, { sessions, eligible, findPeople, timeZone }) {
+  if (!Array.isArray(sessions) || !sessions.length || !Array.isArray(eligible) || eligible.length !== sessions.length) throw new Error("The post's sessions and their eligible lists don't line up.");
+  const which = whichSession(interpreted, { sessions, timeZone });
+  if (which.i === undefined) return which;
+  const i = which.i, labels = sessionLabels(sessions), on = k => sessions[k].interviewers[0];
   const out = on(i);
 
   // Who goes on: exactly one of the people Ashby lists as eligible for it.
@@ -113,9 +123,9 @@ async function resolveChange(interpreted, { sessions, eligible, findPeople, time
 async function eligibleFor(postSessions, plan, resolveInterviewers) {
   const agenda = (plan.sessions || []).filter(s => !s.isDebrief);
   if (agenda.length !== postSessions.length || agenda.some((s, k) => s.interviewId !== postSessions[k].interviewId))
-    throw Object.assign(new Error("The interview plan in Ashby has changed since this was posted, so I can't change it from here. Nothing was changed: post a fresh option from booking review."), { status: 409 });
+    throw Object.assign(new Error("The interview plan in Ashby has changed since this was posted, so I can't change it from here: post a fresh option from booking review."), { status: 409 });
   const { sessions } = await resolveInterviewers(agenda);
   return sessions.map(s => s.eligibleInterviewers.map(p => ({ userId: p.userId, name: p.name, email: p.email })));
 }
 
-module.exports = { resolveChange, eligibleFor, names, sessionLabels, whenOf };
+module.exports = { resolveChange, whichSession, eligibleFor, names, sessionLabels, whenOf };

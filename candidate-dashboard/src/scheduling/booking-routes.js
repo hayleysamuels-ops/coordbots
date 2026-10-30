@@ -118,8 +118,9 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
   // A deferred debrief is never proposed with the onsite agenda: it's left out
   // here and listed with the result, to be scheduled once the onsite is confirmed.
   const agendaSessions=plan=>({plan:{...plan,sessions:plan.sessions.filter(s=>!s.isDebrief)},deferred:plan.sessions.filter(s=>s.isDebrief).map(s=>s.title)});
-  // `steer` (Slack's suggestion buttons only): avoidStarts and
-  // excludeInterviewers for the calendar-checked solver.
+  // `steer` (Slack's suggestion buttons and amends only): avoidStarts and
+  // excludeInterviewers for the calendar-checked solver; an amend adds
+  // requireInterviewers and, for its first search, fixedStarts.
   async function suggestFull(req,steer={}){
     const loaded=await fullPlan(req),{plan,deferred}=agendaSessions(loaded);
     if(!plan.sessions.length)throw Object.assign(Error('Every session in this plan is a debrief, which is scheduled only once the onsite is confirmed.'),{status:409});
@@ -144,10 +145,10 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
   // Calendar-constrained options: interviewers' primary Google calendars as a
   // hard constraint, meeting hours assumed from client rules, zero limits
   // excluded (calendar-inputs.js). Anyone excluded is listed with the result.
-  async function calendarChecked(plan,windows,timezone,{avoidStarts=[],excludeInterviewers=[]}={}){
+  async function calendarChecked(plan,windows,timezone,{avoidStarts=[],excludeInterviewers=[],requireInterviewers=[],fixedStarts=null}={}){
     if(!googleCalendar?.status().connected||!googleFreeBusy)throw Object.assign(Error('Connect read-only Google Calendar availability first.'),{status:409});
     if(!rules)throw Object.assign(Error('Scheduling rules are not loaded.'),{status:503});
-    const inputs=await require('./calendar-inputs').buildCalendarInputs({plan,windows,timezone,rules:rules.get(),facts,freeBusy:googleFreeBusy,excludeInterviewers});
+    const inputs=await require('./calendar-inputs').buildCalendarInputs({plan,windows,timezone,rules:rules.get(),facts,freeBusy:googleFreeBusy,excludeInterviewers,requireInterviewers});
     const startWindowsApplied=(inputs.sessions||[]).flatMap(s=>(s.placementWindows||[]).map(w=>({title:s.title,earliestStart:w.earliestStart,latestStart:w.latestStart,timezone:w.timezone})));
     const context={calendarCheck:{excluded:inputs.excluded,meetingHours:inputs.meetingHours,limitsPolicy:inputs.limitsPolicy,busySource:inputs.busySource,rulesRevision:inputs.rulesRevision,startWindowsApplied}};
     if(inputs.blocked){const totalMinutes=plan.sessions.reduce((n,s)=>n+s.durationMinutes,0);return {status:inputs.noOtherInterviewer?'no_other_interviewer':'no_calendar_fit',bookingEnabled:false,availabilityVerified:false,meetingHoursAssumed:true,totalMinutes,timezone,proposals:[],reason:inputs.blocked,...context};}
@@ -157,7 +158,7 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     if(welcome>0)throw Object.assign(Error(`The template has "${plan.sessions[welcome].title}" as session ${welcome+1}, but Welcome must come first. Move it to the start of the template in Ashby, then load the plan again.`),{status:409});
     // Advisory: busy time and meeting hours are flagged, not enforced; the
     // candidate's availability, start windows and breaks stay hard.
-    const result=require('./full-calendar-schedule').proposeCalendarSchedule({sessions:inputs.sessions,windows,timezone,calendars:inputs.calendars,...inputs.agenda,advisory:true,avoidStarts});
+    const result=require('./full-calendar-schedule').proposeCalendarSchedule({sessions:inputs.sessions,windows,timezone,calendars:inputs.calendars,...inputs.agenda,advisory:true,avoidStarts,fixedStarts});
     // One line per no-fit, reason counts only (no names): the running evidence
     // for how often busy time, rather than hours or limits, is what binds.
     if(result.diagnosis){const d=result.diagnosis,c=d.conflicts;console.log(`[calendar-check] no fit: placed ${d.furthest.placed}/${d.furthest.of}; unblock=${d.unblock.map(u=>u.kind==='combination'?u.changes.map(x=>x.kind).join('+'):u.kind==='hours'?`hours-${u.changes[0].hoursSource}`:u.kind==='placement'?`placement-breaks${u.changes[0].currentBreaks.count}x${u.changes[0].currentBreaks.maxMinutes}-fits${u.changes[0].fitsWithBreaks?`${u.changes[0].fitsWithBreaks.count}x${u.changes[0].fitsWithBreaks.maxMinutes}`:'none'}`:u.kind).join(',')||'none'}; rejected busy=${c.busy} hours-default=${c.hours.default} hours-override=${c.hours.override} hours-verified=${c.hours.verified} limits=${c.limits} placement=${c.placement}`);}
