@@ -1,11 +1,19 @@
 "use strict";
 // Auto-post: when a candidate submits availability, post the best
 // calendar-checked option to the client channel without anyone pressing Post.
-// On only where SCHEDULING_AUTO_POST is exactly "on", and only for the
-// applications in AUTO_POST_APPLICATIONS (TEST for now).
+// On only where SCHEDULING_AUTO_POST is exactly "on". Then, by default, only
+// for TEST's application (TEST_APPLICATION), as since October 26. With
+// SCHEDULING_AUTO_POST_COMPOSE_JOBS also exactly "on" (`wide`), for every job
+// and stage on the worker's BOOKING_COMPOSE_JOBS instead: it only proposes,
+// so it follows the propose list, not the send one. The second switch is off
+// by default so that deploying never starts proposals for real candidates.
 //
-// Every five minutes, for each allowed application, the pending submissions
-// in its current stage are listed from Ashby's API (cheap). A schedule whose
+// Every five minutes (wide): the dashboard's own "Ready to schedule" list (every
+// open submission, hidden rows included) is taken, and kept to applications
+// whose job and current stage the worker's compose list allows, read fresh
+// from the worker each round. Then, for each, the pending submissions in its
+// current stage are listed from Ashby's API (cheap). At most ROUND_CAP
+// submissions are worked on per round; the rest wait for the next. A schedule whose
 // updatedAt hasn't moved since it was last handled is skipped. Otherwise its
 // submission is read through the worker and compared with the one last
 // handled (availability-gate.js availabilityChange: same zone and windows,
@@ -30,19 +38,38 @@
 // tried again on later rounds; after three failed rounds for the same
 // updatedAt, one notice says so and that submission isn't tried again.
 //
-// What was handled is kept in <DATA_DIR>/auto-post.json, per schedule.
+// A round that fails, wholly or for some candidates (the worker's settings
+// unreadable, its compose list invalid, Ashby unreadable), is said in the
+// channel, once until it changes, and once more when rounds work again:
+// someone may be waiting on a post that isn't coming.
+//
+// What was handled is kept in <DATA_DIR>/auto-post.json, per schedule (and
+// the round's own failure state under "_round").
 const fs = require("fs");
 const path = require("path");
 const { availabilityChange, postedAvailability } = require("./availability-gate");
 const { blocksRepost } = require("./store");
 
-// TEST's application on the TEST job (Luminai): the only one auto-posted so far.
-const AUTO_POST_APPLICATIONS = ["8dfd8f14-83c4-41f8-aaf1-416b75cb0892"];
+// TEST's application on the TEST job (Luminai): the only one auto-posted
+// unless SCHEDULING_AUTO_POST_COMPOSE_JOBS is on.
+const TEST_APPLICATION = "8dfd8f14-83c4-41f8-aaf1-416b75cb0892";
 const ACTOR = { id: "Scheduling auto-post", canApprove: true };
 const MAX_FAILED_ROUNDS = 3;
+// Submissions worked on per round (each a plan read and a calendar search,
+// about a minute). More wait five minutes for the next round.
+const ROUND_CAP = 3;
 
-function createAutoPost({ on = false, dataDir, clientId, channelId, availability, suggester, service, store, slackApi,
-  applications = AUTO_POST_APPLICATIONS, now = () => Date.now(), log = console, intervalMs = 300000 }) {
+// A failure as people should read it: short, no stack, and Ashby's HTML
+// error pages named for what they are.
+const plainError = e => /Unexpected token '<'|<!DOCTYPE/i.test(String(e?.message)) ? "Ashby answered with a web page instead of data"
+  : String(e?.message || e || "unknown error").replace(/\s+/g, " ").slice(0, 200).replace(/[.\s]+$/, "");
+
+// `candidates()`: the ready-to-schedule rows ({applicationId, jobId,
+// candidateName, jobTitle}). `settings()`: the worker's booking settings
+// (worker "booking-settings"). `stageTitle(applicationId)`: the application's
+// current stage title, read only for jobs listed by stage.
+function createAutoPost({ on = false, wide = false, dataDir, clientId, channelId, availability, suggester, service, store, slackApi,
+  candidates, settings, stageTitle, cap = ROUND_CAP, now = () => Date.now(), log = console, intervalMs = 300000 }) {
   const file = path.join(dataDir, "auto-post.json");
   const load = () => { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { return {}; } };
   const save = state => { fs.writeFileSync(file + ".tmp", JSON.stringify(state, null, 2)); fs.renameSync(file + ".tmp", file); };
@@ -52,7 +79,7 @@ function createAutoPost({ on = false, dataDir, clientId, channelId, availability
 
   async function handle(applicationId, request, state) {
     const { scheduleId, updatedAt } = request, seen = state[scheduleId] || {};
-    if (seen.updatedAt === updatedAt && (seen.done || seen.failedRounds >= MAX_FAILED_ROUNDS)) return;
+    if (seen.updatedAt === updatedAt && (seen.done || seen.failedRounds >= MAX_FAILED_ROUNDS)) return "skipped";
     const record = changes => { state[scheduleId] = { ...seen, ...changes, updatedAt, at: iso() }; save(state); };
     let current;
     try { current = await availability.load({ applicationId, scheduleId }); }
@@ -114,27 +141,73 @@ function createAutoPost({ on = false, dataDir, clientId, channelId, availability
     return record({ done: true, failedRounds: 0, availability: postedAvailability(current), outcome: posted ? "posted" : "no_clean_option", ...(posted ? { posted: posted.id } : {}) });
   }
 
+  // Which ready applications the compose list allows; throws when the list
+  // can't be read or is invalid, which fails the whole round.
+  async function allowed() {
+    // Off: TEST alone, nothing else read, as before the compose list was used.
+    if (!wide) return { rows: [{ applicationId: TEST_APPLICATION, candidateName: "TEST" }], problems: [] };
+    const current = await settings();
+    if (current?.composeJobs?.problem) throw new Error(`the worker's compose list is invalid (${current.composeJobs.problem})`);
+    const jobs = current?.composeJobs?.jobs;
+    if (!jobs || typeof jobs !== "object") throw new Error("the worker didn't say which jobs it may compose for");
+    const rows = [...new Map((await candidates()).filter(r => r?.applicationId && r.jobId).map(r => [r.applicationId, r])).values()];
+    const out = [], problems = [];
+    for (const r of rows) {
+      const stages = jobs[String(r.jobId).toLowerCase()];
+      if (!stages) continue;
+      if (stages === "all") { out.push(r); continue; }
+      let title;
+      try { title = await stageTitle(r.applicationId); }
+      catch (e) { problems.push({ row: r, error: e }); continue; }
+      if (stages.includes(String(title || "").trim().toLowerCase())) out.push(r);
+    }
+    return { rows: out, problems };
+  }
+
+  // The round's failures, said once until they change, and once when they clear.
+  async function roundOutcome(state, problems) {
+    const was = state._round?.failing || null;
+    const key = problems.length ? problems.map(p => `${p.who}: ${p.why}`).sort().join("; ") : null;
+    if (key === was) return;
+    state._round = { failing: key, at: iso() };
+    save(state);
+    if (key) await notice(problems.length === 1 && problems[0].who === "round"
+      ? `Auto-post couldn't run this round: ${problems[0].why}. Nothing was posted automatically. It tries again every five minutes; until then, post from booking review on the dashboard.`
+      : `Auto-post couldn't check ${problems.length === 1 ? problems[0].who : `${problems.length} candidates`} this round (${[...new Set(problems.map(p => p.why))].join("; ")}). Nothing was posted for ${problems.length === 1 ? "them" : "those"}. It tries again every five minutes; until then, post from booking review on the dashboard.`);
+    else await notice("Auto-post is running normally again.");
+  }
+
   let running = null;
   async function round() {
     if (!on) return;
     if (running) return running;
     running = (async () => {
-      const state = load();
-      for (const applicationId of applications) {
+      const state = load(), problems = [];
+      let ready;
+      try { ready = await allowed(); }
+      catch (e) { log.warn(`[auto-post] Round failed: ${e.message}`); return roundOutcome(state, [{ who: "round", why: plainError(e) }]); }
+      for (const p of ready.problems) { log.warn(`[auto-post] Couldn't read ${p.row.applicationId}'s stage: ${p.error.message}`); problems.push({ who: p.row.candidateName || "a candidate", why: plainError(p.error) }); }
+      let worked = 0;
+      for (const row of ready.rows) {
+        if (worked >= cap) { log.warn(`[auto-post] Round cap (${cap}) reached; the rest wait for the next round.`); break; }
+        const applicationId = row.applicationId;
         let pending;
         try { pending = await availability.requests(applicationId); }
-        catch (e) { log.warn(`[auto-post] Couldn't list ${applicationId}'s submissions: ${e.message}`); continue; }
+        catch (e) { log.warn(`[auto-post] Couldn't list ${applicationId}'s submissions: ${e.message}`); problems.push({ who: row.candidateName || "a candidate", why: plainError(e) }); continue; }
         for (const request of pending.requests || []) {
-          try { await handle(applicationId, { ...request, candidateName: pending.candidateName }, state); }
-          catch (e) { log.warn(`[auto-post] ${request.scheduleId}: ${e.message}`); }
+          if (worked >= cap) break;
+          try { if (await handle(applicationId, { ...request, candidateName: pending.candidateName }, state) !== "skipped") worked++; }
+          catch (e) { log.warn(`[auto-post] ${request.scheduleId}: ${e.message}`); problems.push({ who: pending.candidateName || row.candidateName || "a candidate", why: plainError(e) }); }
         }
       }
+      return roundOutcome(load(), problems);
     })().finally(() => { running = null; });
     return running;
   }
 
   function start() {
-    log.warn?.(`[auto-post] ${on ? `on for ${applications.length} application(s)` : "off (SCHEDULING_AUTO_POST isn't \"on\")"}`);
+    log.warn?.(`[auto-post] ${!on ? "off (SCHEDULING_AUTO_POST isn't \"on\")" : wide ? `on for the jobs and stages on the worker's BOOKING_COMPOSE_JOBS, at most ${cap} submissions a round`
+      : "on for TEST only (SCHEDULING_AUTO_POST_COMPOSE_JOBS isn't \"on\")"}`);
     if (!on) return () => {};
     const first = setTimeout(() => round().catch(e => log.warn(`[auto-post] Round failed: ${e.message}`)), 60000);
     const timer = setInterval(() => round().catch(e => log.warn(`[auto-post] Round failed: ${e.message}`)), intervalMs);
@@ -145,4 +218,4 @@ function createAutoPost({ on = false, dataDir, clientId, channelId, availability
   return { on, round, start };
 }
 
-module.exports = { createAutoPost, AUTO_POST_APPLICATIONS };
+module.exports = { createAutoPost, ROUND_CAP, TEST_APPLICATION };

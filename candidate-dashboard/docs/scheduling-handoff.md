@@ -872,13 +872,39 @@ even if clicked.
     it when nobody is. (The Slack-approved check below takes turns with the
     dashboard's inspections; the SSH command doesn't.)
 
-## Auto-post (October 26, 2026; TEST only, off by default)
+## Auto-post (October 26, 2026; opened to BOOKING_COMPOSE_JOBS October 30)
 
 `src/scheduling/auto-post.js`. On only where `SCHEDULING_AUTO_POST` is exactly
-`on` on the web service, and only for `AUTO_POST_APPLICATIONS` (TEST's
-application `8dfd8f14…`). Startup logs `[auto-post] on for 1 application(s)`
-or `off`.
+`on` on the web service (it is, for TEST). Then it covers TEST's application
+alone, unless **`SCHEDULING_AUTO_POST_COMPOSE_JOBS`** is also exactly `on`:
+then every job and stage on the worker's `BOOKING_COMPOSE_JOBS`, since it only
+proposes (the propose list, not the send one). That second switch is off by
+default, so deploying never starts proposals for real candidates; turn it on
+when someone will be watching the channel (not before a weekend). Startup
+logs which: `on for TEST only (…)`, `on for the jobs and stages on the
+worker's BOOKING_COMPOSE_JOBS, at most 3 submissions a round`, or `off`.
+Expected volume when on (from Oct 2–29): up to ~9 proposals or notices a
+business day (Mon ~13, Fri ~4, max 21), fewer in practice since some requests
+are booked directly; posts follow candidates' submissions, so some arrive
+after hours.
 
+- **Who (switch on):** each round takes the dashboard's own "Ready to schedule" list
+  (every open submission, rows hidden on the dashboard included) and keeps
+  applications whose job, and for stage-listed jobs current stage title, the
+  compose list allows. The list is read from the worker every round
+  (`booking-settings`); unreadable or invalid, the round posts nothing and
+  says so. A post appears roughly 1–11 minutes after a submission: the ready
+  list refreshes every 5 minutes (`REFRESH_INTERVAL_MINUTES`, default), the
+  round runs every 5, and the build takes about a minute.
+- **Round cap:** at most 3 submissions worked on per round (`ROUND_CAP`); the
+  rest wait for the next round, five minutes later.
+- **A failed round is said in the channel:** the worker's settings unreadable
+  or invalid ("Auto-post couldn't run this round: …"), or some candidates'
+  submissions unreadable ("Auto-post couldn't check TEST this round (Ashby
+  answered with a web page instead of data)…"). Once until the failure
+  changes, and "Auto-post is running normally again." when it clears. The
+  October 30 HTML-instead-of-JSON failure listing TEST's submissions had
+  posted nothing and told no one.
 - **Every five minutes** (first round a minute after startup): the allowed
   applications' pending submissions in their current stage, from Ashby's API.
   A schedule whose `updatedAt` hasn't moved since it was handled is skipped.

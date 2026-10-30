@@ -1,5 +1,6 @@
 "use strict";
-// Auto-post (src/scheduling/auto-post.js): the switch and allowlist, posting
+// Auto-post (src/scheduling/auto-post.js): the switch, the compose list and
+// the round cap, failed rounds said in the channel, posting
 // once per submission, replacing posts made from earlier availability, never
 // over an approval, and saying why when nothing is posted. Ashby, the worker,
 // the solver and Slack are stand-ins; the service and store are real.
@@ -8,24 +9,26 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { createAutoPost, AUTO_POST_APPLICATIONS } = require("../src/scheduling/auto-post");
+const { createAutoPost, TEST_APPLICATION } = require("../src/scheduling/auto-post");
 const { createService } = require("../src/scheduling/service");
 const { createStore } = require("../src/scheduling/store");
 
-const APP = "8dfd8f14-83c4-41f8-aaf1-416b75cb0892", SCHED = "c95bfecf-9e5c-4d61-8f32-2586d26fa96f";
+const JOB = "837cc1e9-15ed-4f07-8755-51ee29f4ea39", APP = "8dfd8f14-83c4-41f8-aaf1-416b75cb0892", SCHED = "c95bfecf-9e5c-4d61-8f32-2586d26fa96f";
 const hayley = { userId: "u-hayley", name: "Hayley Samuels", email: "hayley@luminai.com" };
 const W = (start, end) => ({ start, end });
 const first = [W("2099-10-30T17:00:00.000Z", "2099-10-31T00:00:00.000Z")], second = [W("2099-11-02T17:00:00.000Z", "2099-11-03T00:00:00.000Z")];
 
-function fixture(t, { on = true, found: initial } = {}) {
+function fixture(t, { on = true, wide = true, found: initial, ready = [{ applicationId: APP, jobId: JOB, candidateName: "TEST" }], jobs = { [JOB]: "all" }, stage = "Onsite", cap, extraRequests = {} } = {}) {
   let found = initial;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "coord-auto-")); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const store = createStore(dir), posts = [];
   const service = createService({ store, candidates: async () => [{ applicationId: APP, candidateId: "candidate", candidateName: "TEST", jobTitle: "TEST", status: "Active" }],
     clientId: "luminai", routing: "client", channelId: "C0CONFIG", channelName: "luminai-rc-team", slack: async (plan, meta) => { posts.push({ plan, meta }); return { ts: `2.${posts.length}`, channel: "C0CONFIG" }; } });
-  const ashby = { updatedAt: "2099-10-26T19:47:16.037Z", windows: first, loads: 0, fail: null };
+  const ashby = { updatedAt: "2099-10-26T19:47:16.037Z", windows: first, loads: 0, fail: null, listed: [], listFail: null, settingsFail: null };
   const availability = {
-    requests: async applicationId => ({ candidateName: "TEST", requests: applicationId === APP ? [{ scheduleId: SCHED, updatedAt: ashby.updatedAt }] : [] }),
+    requests: async applicationId => { ashby.listed.push(applicationId); if (ashby.listFail) throw ashby.listFail;
+      if (extraRequests[applicationId]) return extraRequests[applicationId];
+      return { candidateName: "TEST", requests: applicationId === APP ? [{ scheduleId: SCHED, updatedAt: ashby.updatedAt }] : [] }; },
     load: async () => { ashby.loads++; if (ashby.fail) throw ashby.fail; return { scheduleId: SCHED, timezone: "America/Los_Angeles", windows: ashby.windows, requestUpdatedAt: ashby.updatedAt }; } };
   let n = 0;
   const optionOn = windows => {
@@ -45,16 +48,67 @@ function fixture(t, { on = true, found: initial } = {}) {
         bookingPlan: { applicationId: APP, interviewScheduleId: SCHED, sessions: [{ title: "First Round", start: option.start, end: option.end, interviewers: [hayley] }] }, submittedAvailability: submission, origin }, user) };
   };
   const slackApi = { notice: async x => calls.notices.push(x), threadReply: async x => calls.replies.push(x), markReplaced: async x => calls.replaced.push(x.row) };
-  const auto = createAutoPost({ on, dataDir: dir, clientId: "luminai", channelId: "C0CONFIG", availability, suggester, service, store, slackApi, now: () => Date.parse("2099-10-26T20:00:00Z"), log: { warn() {} } });
+  const auto = createAutoPost({ on, wide, dataDir: dir, clientId: "luminai", channelId: "C0CONFIG", availability, suggester, service, store, slackApi, now: () => Date.parse("2099-10-26T20:00:00Z"), log: { warn() {} },
+    candidates: async () => ready, settings: async () => { if (ashby.settingsFail) throw ashby.settingsFail; return { composeJobs: { jobs } }; }, stageTitle: async () => stage, ...(cap ? { cap } : {}) });
   return { auto, store, service, posts, calls, ashby, dir, setFound: fn => { found = fn; } };
 }
 const rows = async store => (await store.list()).sort((a, b) => a.audit[0].at.localeCompare(b.audit[0].at));
 
-test("only TEST is allowlisted, and off means nothing is read or posted", async t => {
-  assert.deepEqual(AUTO_POST_APPLICATIONS, [APP]);
+test("off means nothing is read or posted", async t => {
   const f = fixture(t, { on: false });
   await f.auto.round();
   assert.equal(f.ashby.loads, 0);assert.equal(f.posts.length, 0);assert.equal(f.auto.on, false);
+  assert.deepEqual(f.ashby.listed, []);
+});
+
+test("the compose-jobs switch off (the default): TEST alone, and the worker's lists and the ready list aren't read", async t => {
+  assert.equal(TEST_APPLICATION, APP);
+  const f = fixture(t, { wide: false, ready: [{ applicationId: "a-real", jobId: JOB, candidateName: "Real" }] });
+  // Read, this would fail the round and post a notice.
+  f.ashby.settingsFail = new Error("must not be read");
+  await f.auto.round();
+  assert.deepEqual(f.ashby.listed, [APP]);
+  assert.equal(f.posts.length, 1);
+  assert.equal(f.calls.notices.length, 0);
+  const g = createAutoPost({ on: true, dataDir: "/nonexistent", log: { warn: m => (g.started = m) } });
+  g.start()();
+  assert.equal(g.started, '[auto-post] on for TEST only (SCHEDULING_AUTO_POST_COMPOSE_JOBS isn\'t "on")');
+});
+
+test("only ready candidates whose job and current stage are on the compose list are checked", async t => {
+  const OTHER = "11111111-1111-4111-8111-111111111111", STAGED = "22222222-2222-4222-8222-222222222222";
+  const ready = [{ applicationId: APP, jobId: JOB, candidateName: "TEST" }, { applicationId: "a-other", jobId: OTHER, candidateName: "Off list" },
+    { applicationId: "a-hm", jobId: STAGED, candidateName: "Calvin" }, { applicationId: APP, jobId: JOB, candidateName: "TEST (hidden row)" }];
+  let f = fixture(t, { ready, jobs: { [JOB]: "all", [STAGED]: ["hiring manager screen"] }, stage: " Hiring Manager Screen " });
+  await f.auto.round();
+  assert.deepEqual(f.ashby.listed, [APP, "a-hm"]);
+  f = fixture(t, { ready, jobs: { [JOB]: "all", [STAGED]: ["onsite interview"] }, stage: "Hiring Manager Screen" });
+  await f.auto.round();
+  assert.deepEqual(f.ashby.listed, [APP]);
+});
+
+test("at most the round cap of submissions is worked on; the rest wait for the next round", async t => {
+  const ready = ["a1", "a2", "a3"].map(id => ({ applicationId: id, jobId: JOB, candidateName: id }));
+  const extraRequests = Object.fromEntries(ready.map(r => [r.applicationId, { candidateName: r.applicationId, requests: [{ scheduleId: `s-${r.applicationId}`, updatedAt: "2099-10-26T19:00:00Z" }] }]));
+  const f = fixture(t, { ready, extraRequests, cap: 2 });
+  f.ashby.fail = new Error("busy");
+  await f.auto.round();
+  assert.equal(f.ashby.loads, 2);
+  assert.deepEqual(f.ashby.listed, ["a1", "a2"]);
+});
+
+test("a failed round is said in the channel once, and once more when rounds work again", async t => {
+  const f = fixture(t);
+  f.ashby.listFail = new SyntaxError(`Unexpected token '<', "<!DOCTYPE "... is not valid JSON`);
+  await f.auto.round(); await f.auto.round();
+  assert.deepEqual(f.calls.notices.map(n => n.text), ["Auto-post couldn't check TEST this round (Ashby answered with a web page instead of data). Nothing was posted for them. It tries again every five minutes; until then, post from booking review on the dashboard."]);
+  f.ashby.listFail = null;
+  await f.auto.round();
+  assert.equal(f.calls.notices.at(-1).text, "Auto-post is running normally again.");
+  assert.equal(f.posts.length, 1);
+  f.ashby.settingsFail = new Error("The scheduling worker is unreachable.");
+  await f.auto.round();
+  assert.equal(f.calls.notices.at(-1).text, "Auto-post couldn't run this round: The scheduling worker is unreachable. Nothing was posted automatically. It tries again every five minutes; until then, post from booking review on the dashboard.");
 });
 
 test("a new submission is posted once, as auto-post, with what it was built from", async t => {

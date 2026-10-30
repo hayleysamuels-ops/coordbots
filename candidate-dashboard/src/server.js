@@ -133,9 +133,13 @@ function createServer() {
     suggestAgain = bookingRouter.suggestAgain; readPlan = bookingRouter.readPlan;
     app.use("/api/scheduling-booking", bookingRouter);
     // Auto-post (auto-post.js): off unless SCHEDULING_AUTO_POST is exactly "on".
-    if (scheduling.slackApi && slackConfig.schedulingChannelId) require("./scheduling/auto-post").createAutoPost({ on: slackConfig.schedulingAutoPost,
+    if (scheduling.slackApi && slackConfig.schedulingChannelId) require("./scheduling/auto-post").createAutoPost({ on: slackConfig.schedulingAutoPost, wide: slackConfig.schedulingAutoPostComposeJobs,
       dataDir: connectionConfig.dataDir, clientId: connectionConfig.schedulingClientId, channelId: slackConfig.schedulingChannelId,
-      availability: availabilitySource, suggester: bookingRouter.suggestAgain, service: scheduling, store: scheduling.store, slackApi: scheduling.slackApi }).start();
+      availability: availabilitySource, suggester: bookingRouter.suggestAgain, service: scheduling, store: scheduling.store, slackApi: scheduling.slackApi,
+      // Every open submission on the dashboard's "Ready to schedule" list, hidden rows included, kept to the worker's compose list.
+      candidates: async () => { const snap = issues.getSnapshot(); return [...(snap.readyToSchedule || []), ...(snap.readyToScheduleHidden || [])]; },
+      settings: () => bookingWorker.call("booking-settings"),
+      stageTitle: async applicationId => (await bookingFacts.application(applicationId)).stageTitle }).start();
     // The worker's booking settings (job lists, domains, cap), posted in the channel when they change.
     if (scheduling.slackApi && slackConfig.schedulingChannelId) require("./scheduling/booking-settings-watch").createBookingSettingsWatch({ worker: bookingWorker,
       dataDir: connectionConfig.dataDir, channelId: slackConfig.schedulingChannelId, slackApi: scheduling.slackApi, jobTitle: bookingFacts.jobTitle }).start();

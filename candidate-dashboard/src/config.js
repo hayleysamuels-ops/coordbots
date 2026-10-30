@@ -124,6 +124,9 @@ const config = {
   schedulingAutoPost: process.env.SCHEDULING_AUTO_POST === "on",
   // Amending a proposal by @mentioning the bot in its thread (slack-events.js,
   // amend.js): exactly "on". Off, mentions are ignored and logged.
+  // Auto-post beyond TEST: every job and stage on the worker's
+  // BOOKING_COMPOSE_JOBS. Off unless exactly "on" (auto-post.js).
+  schedulingAutoPostComposeJobs: process.env.SCHEDULING_AUTO_POST_COMPOSE_JOBS === "on",
   schedulingAmend: process.env.SCHEDULING_AMEND === "on",
   // The model that reads those requests (amend-interpret.js), through
   // Anthropic's API. Only needed with SCHEDULING_AMEND on.
