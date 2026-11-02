@@ -898,13 +898,43 @@ after hours.
   round runs every 5, and the build takes about a minute.
 - **Round cap:** at most 3 submissions worked on per round (`ROUND_CAP`); the
   rest wait for the next round, five minutes later.
-- **A failed round is said in the channel:** the worker's settings unreadable
-  or invalid ("Auto-post couldn't run this round: …"), or some candidates'
-  submissions unreadable ("Auto-post couldn't check TEST this round (Ashby
-  answered with a web page instead of data)…"). Once until the failure
-  changes, and "Auto-post is running normally again." when it clears. The
-  October 30 HTML-instead-of-JSON failure listing TEST's submissions had
-  posted nothing and told no one.
+- **Who is checked, cheapest first** (since November 1): a submission
+  already handled (posted, or given up on loudly) is skipped with no read at
+  all; then the job; then, for jobs listed by stage, the current stage's
+  title, read once per stage and remembered. So nobody whose outcome is
+  settled, or who isn't on the list, is ever read again, or named when a read
+  fails. (October 31 to November 2: Qiqi Liang and Rachel Lo, posted on
+  Friday, were named in failure notices on re-checks; Emma Smith, whose
+  Marketing Lead onsite isn't on the list, was named when her stage read
+  failed.)
+- **Read failures are retried every round and never dropped:** a candidate
+  whose stage or submissions can't be read stays outstanding, retried each
+  round, until it works or, after 6 rounds (30 minutes), auto-post gives up
+  on them loudly, by name ("Auto-post gave up on … Their availability hasn't
+  been posted: post an option from booking review"). A failed read of the
+  submission itself keeps its three tries and its own give-up notice.
+- **The channel hears who is outstanding, by name**, whenever that set
+  changes: "Auto-post is still waiting on 2 candidates whose availability
+  hasn't been posted: …". "Auto-post is running normally again" appears only
+  once nobody is outstanding (posted, or handed back loudly). A round that
+  can't run at all (the worker's settings unreadable or invalid) says so.
+- **Refusals only a person can fix** (both or neither alternative in the
+  template, Welcome not first, a panel, a template that no longer matches the
+  plan) are said at once as "⚠️ Needs someone in Ashby: auto-post can't
+  propose …'s schedule until this is fixed. … This won't fix itself.", and
+  checked again hourly, or as soon as the schedule changes, rather than three
+  quick retries that read like the self-healing failures. Dashboard refusals
+  carry `needsPerson`; the worker's are recognised by their words
+  (`NEEDS_PERSON` in auto-post.js).
+- **Ashby reads retry within seconds** (`ashby-read.js`, used by the
+  availability and booking-facts reads): a gateway error page, a 5xx or 429,
+  or no answer is retried after 3 s and 15 s (Retry-After when given), and
+  logged with its HTTP status and page title. Until November 1 the body was
+  parsed before the status was looked at, so the four failures of October 31
+  to November 2 were logged only as "Unexpected token '<'": most likely a
+  gateway error page in front of Ashby's API (each was fine five minutes
+  later, while the dashboard's own refresh with the same key succeeded), but
+  the status was lost. The next one will say.
 - **Every five minutes** (first round a minute after startup): the allowed
   applications' pending submissions in their current stage, from Ashby's API.
   A schedule whose `updatedAt` hasn't moved since it was handled is skipped.
@@ -1136,6 +1166,20 @@ file permits it or the composer clicks Schedule.
   bookings across the changeover are right. `composerZone` now checks the
   abbreviation against the zone's abbreviation today; exactly one IANA zone
   name is still required.
+  - **Unconfirmed: this rests on that one observation (October 27).** That
+    Ashby labels by today's date was seen once, on one screen. The next
+    chance to confirm or disprove it is the spring changeover (March 14, 2027
+    in the US): a composer run in early March for a session after the change
+    should show today's abbreviation (PST, MST…), not the session's. If Ashby
+    labels by the session's date instead, the composer refuses across the
+    changeover ("isn't America/… (…)"); it never enters a wrong time, since
+    times are typed per session date from the IANA name and every Start and
+    End is read back against the approved instant to the millisecond. Left as
+    is on November 1, because the failure is a refusal.
+  - The composer tests' stand-in Ashby page shows Denver's abbreviation as it
+    is today (`DENVER` in `test/booking-composer.test.js`). Two tests had it
+    hard-coded as MDT and failed from November 1, when Denver moved to MST:
+    the tests, not the composer.
 - **Where candidates see their times: their own zone, not the composer's**
   (October 19). This is different from what was assumed above. On TEST's Onsite
   the composer showed MDT (sessions typed as 11:00am MDT), but the candidate's

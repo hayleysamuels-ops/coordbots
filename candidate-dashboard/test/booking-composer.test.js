@@ -125,17 +125,21 @@ test('a write the booking doesn\'t permit is blocked and stops the run',async t=
   assert.deepEqual(r.report.cleanup,{deleted:true,draftId:'draft-1'});
 });
 
+// Ashby labels the zone with today's abbreviation (composerZone), so the
+// stand-in shows Denver's as it is today: MDT until November 1, MST after.
+const DENVER=require('../worker/booking-check').formats(new Date().toISOString(),'America/Denver').zone;
+
 test('the composer\'s zone is read, not required to match: the approved times are entered in it',async t=>{
   // Ashby shows Denver; the candidate's availability (the plan's zone) is Pacific.
   const pacific={...plan,timeZone:'America/Los_Angeles'};
-  for(const zone of [['America/Denver','MDT'],['MDT','America/Denver'],'America/Denver']){
+  for(const zone of [['America/Denver',DENVER],[DENVER,'America/Denver'],'America/Denver']){
     const r=await run(t,{appOptions:{zone},runOptions:{plan:pacific}});if(!r)return;
     assert.ok(r.report.checks.some(c=>c.name==='composer shows times in America/Denver; the approved times are entered in it (the candidate\'s availability is in America/Los_Angeles)'),JSON.stringify(r.report.checks));
     assert.equal(r.report.displayZone,'America/Denver');
     // Past the zone, the bare stand-in stops at the session editor.
     assert.match(r.report.reason,/Couldn't find the editor for session 1/);
   }
-  const same=await run(t,{appOptions:{zone:['America/Denver','MDT']}});if(!same)return;
+  const same=await run(t,{appOptions:{zone:['America/Denver',DENVER]}});if(!same)return;
   assert.ok(same.report.checks.some(c=>c.name==='composer shows times in America/Denver'));
 });
 
@@ -143,7 +147,7 @@ test('a zone that can\'t be read unambiguously is refused, naming what Ashby sho
   for(const [zone,why] of [
     ['EDT','"EDT"; exactly one IANA time zone name is needed to read it by'],
     ['',"no time zone \\(there's no \"Select a timezone\" button\\); exactly one IANA"],
-    [['America/Denver','EDT'],'"America/Denver", "EDT"; "EDT" isn\'t America/Denver \\(MDT\\)'],
+    [['America/Denver','EDT'],`"America/Denver", "EDT"; "EDT" isn't America/Denver \\(${DENVER}\\)`],
     [['America/Denver','America/New_York'],'"America/Denver", "America/New_York"; exactly one IANA'],
     [['Mars/Olympus','MDT'],'"Mars/Olympus", "MDT"; exactly one IANA']]){
     const r=await run(t,{appOptions:{zone}});if(!r)return;
