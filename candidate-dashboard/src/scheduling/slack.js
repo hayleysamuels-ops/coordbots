@@ -152,6 +152,7 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       text: { type: "mrkdwn", text: sends(plan) ? sendText(plan) : "With the Ashby check on, this schedule is then composed in Ashby, stopping before Send; otherwise, book it by hand. *Nothing is sent automatically:* no invitations or candidate email go out until someone clicks Send in Ashby.\n\nOnly approve a schedule you mean to book." },
       confirm: { type: "plain_text", text: "Approve" }, deny: { type: "plain_text", text: "Cancel" } } }, ...(suggestable(plan) ? suggestControls(proposalId, draftDigest, plan) : [])] });
 
+  const expiredText = e => `Expired at ${when(e.at)}: the first session (${when(e.firstStart)}) passed without approval, so this option can no longer be scheduled or replaced from here. Nothing from this message was booked or sent by the bot. ${e.presses || "Whether anyone pressed anything wasn't recorded."} Whether it was booked in Ashby some other way isn't known to the bot.`;
   const when = at => new Intl.DateTimeFormat("en-US", { timeZone: displayTimeZone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(at));
   // Where a left draft is, and how to delete one by hand: never "Delete
   // Activity", which cancels the whole scheduling activity.
@@ -286,7 +287,8 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       checklist,
       { type: "context", elements: [mrkdwn(smallPrint(plan, { proposalId, approver }, approval))] },
     ];
-    if (replaced) blocks.push({ type: "section", text: mrkdwn(replaced.kind === "resubmitted"
+    if (replaced?.kind === "expired") blocks.push({ type: "section", text: mrkdwn(escape(expiredText(replaced))) });
+    else if (replaced) blocks.push({ type: "section", text: mrkdwn(replaced.kind === "resubmitted"
       ? `*Replaced* at ${escape(when(replaced.at))}: the candidate submitted new availability, so this option no longer applies${replaced.withDraft ? ", and a new option was posted below" : "; no new option was posted automatically"}. Nothing from this message was booked or sent.`
       : `*Replaced* at ${escape(when(replaced.at))}: ${escape(replaced.by)} asked ${replaced.kind === "amend" ? `to ${escape(replaced.change || "change it")}` : `for ${replaced.kind === "time" ? "another time" : `a different interviewer for session ${replaced.session + 1}`}`}, and a new option was posted below. Nothing from this message was booked or sent.`) });
     else if (approval) blocks.push({ type: "section", text: mrkdwn(`${approvedLine(approval)}\n${checkText(plan, check)}`) });
@@ -329,6 +331,21 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
   // A plain message to the channel (auto-post's notices): no names beyond
   // the candidate's, no buttons.
   send.notice = async ({ channel, text }) => post(channel, { text: String(text).slice(0, 3000), mrkdwn: false, parse: "none" });
+  // A post whose first session passed unapproved (row.expired, post-expiry.js):
+  // its buttons gone, saying it expired, that the bot booked nothing, and
+  // whether anyone pressed anything (the record can't say whether it was
+  // booked in Ashby another way, so the message doesn't guess).
+  send.markExpired = async ({ channel, ts, row }) => {
+    const expired = { kind: "expired", ...row.expired };
+    const text = `Interview schedule for ${row.plan.candidateName} · ${row.plan.jobTitle}: expired; the first session passed without approval, nothing booked by the bot.`;
+    const payload = row.plan.format === "calendar_checked"
+      ? { text, blocks: (await calendarChecked(row.plan, { proposalId: row.id, approver: row.discussionApproval?.by || "a coordinator" }, null, null, expired)).blocks }
+      : { text: `${plainText(row.plan, { proposalId: row.id, approver: row.discussionApproval?.by || "a coordinator" })}\n\n${expiredText(expired)}`.slice(0, 3000), mrkdwn: false, parse: "none" };
+    const problems = blockProblems(payload);
+    if (problems.length) throw invalid(problems);
+    const { ok, body } = await api("chat.update", { channel, ts, ...payload });
+    if (!ok || body.ok !== true) throw new Error(`The Slack message couldn't be updated${body.error ? ` (${body.error})` : ""}`);
+  };
   // A post withdrawn for a Slack suggestion (row.replaced): shown as replaced,
   // with its buttons gone. The new option is a separate post.
   send.markReplaced = async ({ channel, ts, row }) => {

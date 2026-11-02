@@ -129,6 +129,8 @@ const config = {
   schedulingAutoPostComposeJobs: process.env.SCHEDULING_AUTO_POST_COMPOSE_JOBS === "on",
   // The weekday 8am digest in the scheduling channel (scheduling/digest.js):
   // "on" posts it, "log" writes it to the log only; anything else is off.
+  // Closing open Slack posts whose first session has passed (scheduling/post-expiry.js): exactly "on".
+  schedulingPostExpiry: process.env.SCHEDULING_POST_EXPIRY === "on",
   schedulingDigest: ["on", "log"].includes(process.env.SCHEDULING_DIGEST) ? process.env.SCHEDULING_DIGEST : "off",
   schedulingAmend: process.env.SCHEDULING_AMEND === "on",
   // The model that reads those requests (amend-interpret.js), through

@@ -17,7 +17,11 @@
 //   2. Waiting for approval: open posts, soonest first session first; and
 //      approved posts whose draft is composed in Ashby but not sent. Either is
 //      flagged when its first session is within FLAG_DAYS working days
-//      (Monday to Friday; no holiday calendar).
+//      (Monday to Friday; no holiday calendar). Open posts whose first
+//      session has passed are listed apart, as expired: those the expiry sweep
+//      closed since the last digest (post-expiry.js), with whether anything
+//      was pressed on them, and any still open. Our records can't say whether
+//      one was booked in Ashby another way, so it isn't guessed.
 //   3. Eligible, not posted: Ready rows on the worker's compose list (job,
 //      then current stage) with no post in play for their schedule, each with
 //      what auto-post last did. Submissions for a stage the candidate has
@@ -89,6 +93,15 @@ function ago(ms) {
   const d = Math.round(h / 24);
   return `${d} day${d === 1 ? "" : "s"}`;
 }
+// Ashby titles can carry stray spaces and tabs ("Marketing Lead\t").
+const tidy = v => String(v ?? "").replace(/\s+/g, " ").trim();
+// A stored error cut at a length limit, kept to its last whole sentence.
+const wholeSentences = text => {
+  const t = tidy(text);
+  if (/[.!?)]$/.test(t)) return t.replace(/[.\s]+$/, "");
+  const end = Math.max(t.lastIndexOf(". "), t.lastIndexOf("? "), t.lastIndexOf("! "));
+  return end > 0 ? t.slice(0, end) : t;
+};
 const firstStart = row => Math.min(...(row.plan?.sessions || []).map(s => Date.parse(s.start)).filter(Number.isFinite));
 const inPlay = r => ["sharing", "shared", "discussion_uncertain"].includes(r.state) || (r.state === "discussion_approved" && blocksRepost(r));
 
@@ -115,8 +128,10 @@ async function buildDigest({ now, zone = ZONE, since, sinceDigest, clientId, row
     const legacy = !seen.needsPerson && seen.failedRounds >= MAX_FAILED_ROUNDS && needsPerson({ message: seen.lastError });
     if (!seen.needsPerson && !legacy) continue;
     const r = readyBySchedule.get(scheduleId);
-    person.push({ scheduleId, name: r.candidateName || seen.candidateName || "a candidate", job: r.jobTitle || null,
-      since: Date.parse(seen.needsPerson?.since || seen.needsPerson?.at || seen.at), why: plainError({ message: seen.needsPerson?.why || seen.lastError }), legacy });
+    // A give-up from before needs-a-person existed records only when it gave
+    // up (`at`), not when the wait began: said as "given up on", not as a wait.
+    person.push({ scheduleId, name: tidy(r.candidateName || seen.candidateName) || "a candidate", job: tidy(r.jobTitle) || null,
+      since: Date.parse(seen.needsPerson?.since || seen.needsPerson?.at || seen.at), why: wholeSentences(seen.needsPerson?.why || seen.lastError), legacy });
   }
   person.sort((a, b) => a.since - b.since);
   const personIds = new Set(person.map(p => p.scheduleId));
@@ -124,10 +139,22 @@ async function buildDigest({ now, zone = ZONE, since, sinceDigest, clientId, row
   // 2. Waiting for approval, and approved but not sent.
   const waitingItem = (r, at) => {
     const start = firstStart(r), days = workingDaysUntil(now, start, zone);
-    return { id: r.id, name: r.plan.candidateName, job: r.plan.jobTitle, start, at, days, passed: !(start > now), flag: !(start > now) || days <= FLAG_DAYS,
+    return { id: r.id, name: tidy(r.plan.candidateName), job: tidy(r.plan.jobTitle), start, at, days, passed: !(start > now), flag: !(start > now) || days <= FLAG_DAYS,
       draftUrl: r.ashbyCheck?.draftUrl || null };
   };
-  const open = rows.filter(r => r.state === "shared" && Number.isFinite(firstStart(r))).map(r => waitingItem(r, Number(r.slack?.ts) * 1000 || null)).sort((a, b) => a.start - b.start);
+  // An open post whose first session has passed can no longer be approved
+  // (service.js refuses it): listed apart, as expired, so it can't bury one
+  // that's still due. Whether it was booked some other way isn't in our
+  // records, so it isn't guessed.
+  const shared = rows.filter(r => r.state === "shared" && Number.isFinite(firstStart(r))).map(r => waitingItem(r, Number(r.slack?.ts) * 1000 || null)).sort((a, b) => a.start - b.start);
+  // Closed by the expiry sweep (post-expiry.js) since the last digest, with
+  // what was pressed; and any passed post still open (the sweep off, or not
+  // yet run), until it's closed.
+  const pressed = sentence => !sentence ? null : /^Nobody pressed/.test(sentence) ? "nothing pressed" : /^Pressed/.test(sentence) ? "pressed, not approved" : "presses not recorded";
+  const swept = rows.filter(r => r.state === "rejected" && r.expired && Date.parse(r.expired.at) >= since && Date.parse(r.expired.at) <= now && Number.isFinite(firstStart(r)))
+    .map(r => ({ ...waitingItem(r, Number(r.slack?.ts) * 1000 || null), pressed: pressed(r.expired.presses), presses: r.expired.presses || null }));
+  const open = shared.filter(i => !i.passed);
+  const expired = [...shared.filter(i => i.passed).map(i => ({ ...i, pressed: "still open" })), ...swept].sort((a, b) => a.start - b.start);
   const composed = rows.filter(r => r.state === "discussion_approved" && r.ashbyCheck?.state === "composed" && Number.isFinite(firstStart(r)))
     .map(r => waitingItem(r, Date.parse(r.ashbyCheck.at) || null)).sort((a, b) => a.start - b.start);
 
@@ -153,7 +180,7 @@ async function buildDigest({ now, zone = ZONE, since, sinceDigest, clientId, row
         catch (e) { unreadable.push(`${r.candidateName || "a candidate"}'s stage (${plainError(e)})`); continue; }
       }
       const stages = jobs[String(r.jobId || "").toLowerCase()];
-      const base = { scheduleId: r.scheduleId, name: r.candidateName || "a candidate", job: r.jobTitle || "an unnamed job", stage: title || "an unnamed stage", hidden: r.hidden, submittedAt: Date.parse(r.submittedAt) };
+      const base = { scheduleId: r.scheduleId, name: tidy(r.candidateName) || "a candidate", job: tidy(r.jobTitle) || "an unnamed job", stage: tidy(title) || "an unnamed stage", hidden: r.hidden, submittedAt: Date.parse(r.submittedAt) };
       if (!stages) { offList.push({ ...base, off: "job" }); continue; }
       if (stages !== "all" && !stages.includes(title.toLowerCase())) { offList.push({ ...base, off: "stage" }); continue; }
       if (personIds.has(r.scheduleId) || rows.some(p => p.plan?.bookingPlan?.interviewScheduleId === r.scheduleId && inPlay(p))) continue;
@@ -170,7 +197,7 @@ async function buildDigest({ now, zone = ZONE, since, sinceDigest, clientId, row
   const failures = failureSummary(events.filter(e => e.kind !== "needs_person"), state);
 
   return { now, zone, since, sinceDigest, problems, readyAsOf, autoPost,
-    person, open, composed, unposted, old, offList, jobsKnown: !!jobs,
+    person, open, expired, composed, unposted, old, offList, jobsKnown: !!jobs,
     numbers: { posted, booked, drafted, failures } };
 }
 
@@ -220,12 +247,16 @@ const names = (items, label) => {
 // The post (`text`) and its thread reply (`thread`, null when there's no detail).
 function renderDigest(d) {
   const { zone, now } = d;
-  const due = i => i.passed ? "first session has passed" : i.days === 0 ? "today" : `${i.days} working day${i.days === 1 ? "" : "s"}`;
+  const due = i => i.passed ? "first session passed" : i.days === 0 ? "today" : `${i.days} working day${i.days === 1 ? "" : "s"}`;
   const outstanding = d.person.length + d.open.length + d.composed.length + d.unposted.length + d.offList.length;
-  const head = `Scheduling digest, ${dayOf(now, zone)}: ${d.problems.length ? "some checks couldn't be made, see below" : outstanding ? `${outstanding} waiting on someone` : "all clear"}`;
+  const expiredText = d.expired.length ? `${d.expired.length} expired post${d.expired.length === 1 ? "" : "s"}` : "";
+  const head = `Scheduling digest, ${dayOf(now, zone)}: ${d.problems.length ? "some checks couldn't be made, see below"
+    : outstanding ? `${outstanding} waiting on someone${expiredText ? `, and ${expiredText}` : ""}` : expiredText || "all clear"}`;
+  const gaveUpOn = p => `given up on ${new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "short" }).format(p.since)}`;
   const lines = [head];
-  lines.push(`• Needs a person: ${d.person.length ? `${d.person.length}: ${names(d.person, p => `${p.name} (${ago(now - p.since)})`)}` : "none"}`);
+  lines.push(`• Needs a person: ${d.person.length ? `${d.person.length}: ${names(d.person, p => `${p.name} (${p.legacy ? gaveUpOn(p) : ago(now - p.since)})`)}` : "none"}`);
   lines.push(`• Waiting for approval: ${d.open.length ? `${d.open.length}: ${names(d.open, i => `${i.flag ? "⚠️ " : ""}${i.name} (${dayOf(i.start, zone)}, ${due(i)})`)}` : "none"}`);
+  lines.push(`• Expired, never approved: ${d.expired.length ? `${d.expired.length}: ${names(d.expired, i => `${i.name} (${dayOf(i.start, zone)}${i.pressed ? `; ${i.pressed}` : ""})`)}` : "none"}`);
   lines.push(`• Approved, draft not sent in Ashby: ${d.composed.length ? `${d.composed.length}: ${names(d.composed, i => `${i.flag ? "⚠️ " : ""}${i.name} (${dayOf(i.start, zone)}, ${due(i)})`)}` : "none"}`);
   const oldNote = d.old ? ` (${d.old} older submission${d.old === 1 ? "" : "s"} for a stage the candidate has left not counted)` : "";
   lines.push(`• Eligible, not posted: ${!d.jobsKnown ? "couldn't check" : d.unposted.length ? `${d.unposted.length}: ${names(d.unposted, u => u.name)}` : "none"}${d.jobsKnown ? oldNote : ""}`);
@@ -242,13 +273,23 @@ function renderDigest(d) {
   const detail = [];
   if (d.person.length) {
     detail.push("Needs a person");
-    for (const p of d.person) detail.push(`• ${p.name}${p.job ? ` (${p.job})` : ""}, waiting ${ago(now - p.since)}: ${p.why}. ${p.legacy
-      ? "Fix it in Ashby (the schedule's template or the job's interview plan). Auto-post won't try this one again until the schedule changes in Ashby; once it's fixed, post from booking review."
-      : "Fix it in Ashby (the schedule's template or the job's interview plan); auto-post checks again within the hour, or post from booking review once it's fixed."}`);
+    for (const p of d.person) {
+      // The refusal's own words say what to change when they name Ashby.
+      const fix = /\bin Ashby\b/.test(p.why) ? "" : "Fix it in Ashby (the schedule's template or the job's interview plan). ";
+      detail.push(`• ${p.name}${p.job ? ` (${p.job})` : ""}, ${p.legacy ? `${gaveUpOn(p)}, ${dayOf(p.since, zone).replace(/^\w+, /, "")}` : `waiting ${ago(now - p.since)}`}: ${p.why}. ${fix}${p.legacy
+        ? "Auto-post won't try this one again until the schedule changes in Ashby; once it's fixed, post from booking review."
+        : "Auto-post checks again within the hour, or post from booking review once it's fixed."}`);
+    }
   }
   if (d.open.length) {
     detail.push("Waiting for approval, soonest first");
     for (const i of d.open) detail.push(`• ${i.flag ? "⚠️ " : ""}${i.name} · ${i.job}: first session ${when(i.start, zone)} (${due(i)}); posted ${i.at ? `${ago(now - i.at)} ago` : "at an unknown time"}.`);
+  }
+  if (d.expired.length) {
+    // Nothing clears these yet: Schedule and the Suggest buttons refuse a post
+    // whose first session has passed, and Reject takes only unposted drafts.
+    detail.push("Expired, never approved (first session passed; whether it was booked in Ashby another way isn't in these records)");
+    for (const i of d.expired) detail.push(`• ${i.name} · ${i.job}: first session ${when(i.start, zone)} passed; posted ${i.at ? `${ago(now - i.at)} ago` : "at an unknown time"}${i.pressed === "still open" ? "; the post is still open" : ""}.${i.presses ? ` ${i.presses}` : ""}`);
   }
   if (d.composed.length) {
     detail.push("Approved, draft composed in Ashby but not sent");

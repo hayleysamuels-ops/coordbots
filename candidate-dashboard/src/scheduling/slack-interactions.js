@@ -48,8 +48,11 @@ function verifySlackRequest({ rawBody, headers, secret, now = Date.now(), seen }
   return null;
 }
 
-function createSlackInteractions({ service, slackApi, signingSecret, teamId, appId, channelId, approvers, ashbyCheck = null, suggester = null, amender = null, now = () => Date.now(), log = console }) {
+function createSlackInteractions({ service, slackApi, signingSecret, teamId, appId, channelId, approvers, ashbyCheck = null, suggester = null, amender = null, presses = null, now = () => Date.now(), log = console }) {
   const seen = new Map(), allowed = new Set(approvers.map(e => e.toLowerCase())), suggesting = new Set();
+  // A press that left the post open (post-presses.js), for its expiry to say.
+  const pressed = (draftId, action, by, outcome) => { if (presses && typeof draftId === "string") presses.record({ draftId, action, by, outcome }); };
+  const firstSentence = text => String(text || "").split(/(?<=[.!?])\s/)[0].replace(/[.\s]+$/, "");
   const when = ms => new Date(ms).toISOString();
   // The clicking user, from Slack's users.info, if they're an approver; else
   // the thread is told and null returned.
@@ -79,7 +82,7 @@ function createSlackInteractions({ service, slackApi, signingSecret, teamId, app
     let value;
     try { value = JSON.parse(action.value); } catch (_) { return reply("This button couldn't be read. Nothing was recorded."); }
     const who = await approverFor(payload, reply, "Schedule click");
-    if (!who) return;
+    if (!who) return pressed(value?.d, "schedule", payload.user.name || payload.user.username || payload.user.id, "refused: not an approver");
     try {
       const row = await service.approveInSlack({ draftId: value.d, digest: value.g, channelId: payload.channel.id, messageTs: message.message_ts,
         approver: { email: who.email, slackUserId: payload.user.id, name: who.name } });
@@ -89,6 +92,7 @@ function createSlackInteractions({ service, slackApi, signingSecret, teamId, app
       await slackApi.markApproved({ channel: payload.channel.id, ts: message.message_ts, row: queued || row });
     } catch (e) {
       if (!e.status) log.warn(`[slack] Schedule click failed: ${e.message}`);
+      pressed(value.d, "schedule", who.name || who.email, e.status ? `refused: ${firstSentence(e.message)}` : "the approval couldn't be recorded");
       return reply(e.status ? `${e.message} Nothing was recorded.` : "The approval couldn't be recorded. Nothing was recorded; try again.");
     }
   }
@@ -132,11 +136,17 @@ function createSlackInteractions({ service, slackApi, signingSecret, teamId, app
         steer = nextSuggestion(row, { kind, session: kind === "interviewer" ? value.i : null, by: who.email, carry: false });
         found = await find(steer);
       }
-      if (found.index < 0) return await reply(noneText(found.result, what, requested));
+      if (found.index < 0) {
+        const r = found.result;
+        pressed(value.d, `suggest_${kind}`, who.name || who.email, r.status === "request_unavailable" ? "a standing request couldn't be kept" : r.status === "no_other_interviewer" ? "no other interviewer"
+          : !r.proposals?.length ? "no other option fit" : "every other option had calendar clashes");
+        return await reply(noneText(found.result, what, requested));
+      }
       return await reply(await replacePost({ service, slackApi, log, row, found, record: steer, by: who.email, kind, session: kind === "interviewer" ? value.i : null,
         channel: payload.channel.id, ts: message.message_ts, done: `Replaced: the new option (${what}) is posted in the channel. Nothing from this post was booked or sent.` }));
     } catch (e) {
       if (!e.status) log.warn(`[slack] Suggestion failed: ${e.message}`);
+      pressed(value.d, `suggest_${kind}`, who.name || who.email, e.status ? `refused: ${firstSentence(e.message)}` : "no option could be found");
       return reply(e.status ? `${e.message} Nothing was changed.` : "Another option couldn't be found. Nothing was changed; try again.");
     } finally { suggesting.delete(value.d); }
   }

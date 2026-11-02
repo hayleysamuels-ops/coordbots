@@ -972,6 +972,32 @@ after hours.
   A needs-a-person record keeps `since` (when it was first said) across the
   hourly rechecks; `at` is the last check.
 
+## Expiry (November 2, 2026; off until SCHEDULING_POST_EXPIRY is "on")
+
+An open Slack post whose first session has passed can't be approved or
+replaced (`postedRow` refuses it), and nothing else closed it: the Slack post
+has no Reject, and the dashboard's Reject takes only unposted drafts. Seven
+such posts were found on November 2, five from before go-live (October 30).
+
+- **The sweep** (`src/scheduling/post-expiry.js`), every five minutes: each
+  shared post whose first session (`sessions[0]`, the one Schedule checks) has
+  passed becomes `rejected` with `expired: { at, firstStart, presses }`
+  (`service.expirePassed`, revision-checked, so one approved meanwhile is left
+  alone). It never blocks a repost. Its message loses its buttons and reads
+  "Expired at …: the first session (…) passed without approval … Nothing from
+  this message was booked or sent by the bot. <presses> Whether it was booked
+  in Ashby some other way isn't known to the bot."
+- **Presses** (`src/scheduling/post-presses.js`, `<DATA_DIR>/post-presses.jsonl`):
+  a Schedule press refused or failed (not an approver, the start passed, the
+  post changed) and a Suggest press that found nothing or failed. A press that
+  changed the post is on its own record already. Kept out of the post's record
+  because writing there bumps its revision, which would make a replacement or
+  approval already under way fail. The file's first line records when
+  recording began, so the expiry can say "Nobody pressed Schedule or Suggest on
+  it" or, for an older post, "Presses on this post weren't recorded…". Thread
+  replies can't be read (the bot has no history scope), and amend @mentions
+  aren't recorded.
+
 ## Daily digest (November 2, 2026; off until SCHEDULING_DIGEST is "on" or "log")
 
 `src/scheduling/digest.js`. Every weekday at 8am Pacific, one post in the
@@ -980,10 +1006,17 @@ silence is never the signal. Its sections, in order:
 
 1. **Needs a person:** auto-post's needs-a-person refusals, plus give-ups from
    before that kind existed whose error is one of them (Kshitiz Parashar's),
-   while the schedule is on the Ready list, with how long they've waited.
+   while the schedule is on the Ready list, with how long they've waited (an
+   old give-up says "given up on <day>": it records nothing earlier).
 2. **Waiting for approval:** open posts, soonest first session first, and
    approved posts whose draft is composed in Ashby but not sent. ⚠️ when the
    first session is within two working days (Monday to Friday; no holidays).
+   Open posts whose first session has passed are listed apart as **expired,
+   never approved**, outside the header's count: those the expiry closed since
+   the last digest, with whether anything was pressed on them, and any still
+   open. Whether one was booked some other way isn't in our records, so the
+   digest doesn't guess. Over time this count is the signal for people booking
+   around the post (the user's call, November 2: no per-post Ashby read).
 3. **Eligible, not posted:** Ready rows on the compose list (job, then current
    stage) with no post in play, each with what auto-post last did. Submissions
    for a stage the candidate has left are a count only.

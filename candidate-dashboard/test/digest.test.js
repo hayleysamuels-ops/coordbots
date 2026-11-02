@@ -38,6 +38,7 @@ test("nothing waiting and every check made: all clear, every section named, and 
     "Scheduling digest, Mon, Nov 2: all clear",
     "• Needs a person: none",
     "• Waiting for approval: none",
+    "• Expired, never approved: none",
     "• Approved, draft not sent in Ashby: none",
     "• Eligible, not posted: none",
     "• Not on the compose list: none",
@@ -63,11 +64,16 @@ test("Monday's digest: this weekend's cases, each in its section", async () => {
   const state = {
     // Kshitiz: given up on before needs-a-person existed; his refusal is one.
     "s-k": { updatedAt: "2026-10-31T17:00:00.000Z", failedRounds: 3, candidateName: "Kshitiz Parashar", at: "2026-10-30T16:01:00.000Z",
-      lastError: "Both coding interviews are in the template (\"Coding - Roomba\" and \"Coding - URL Shortner\"), and only one should run." },
+      lastError: "Both coding interviews are in the template (\"Coding - Roomba\" and \"Coding - URL Shortner\"), and only one should run. Remove the one this candidate isn't taking from the schedule's template in Ashby, t" },
     "s-sam": { updatedAt: "2026-10-31T17:00:00.000Z", failedRounds: 3, lastError: "Ashby didn't answer properly (HTTP 502, a web page titled \"502 Bad Gateway\") after 3 tries." },
   };
   const rows = [
     post("rachel", "Rachel Lo", "2026-11-03T18:00:00Z"),
+    // Closed by the expiry sweep this morning; one closed before the last digest isn't listed again.
+    post("amara", "Amara Jordan", "2026-11-02T15:30:00Z", { state: "rejected", expired: { at: "2026-11-02T15:35:00Z", firstStart: "2026-11-02T15:30:00Z", presses: "Nobody pressed Schedule or Suggest on it." }, slack: { channel: "C1", ts: ts("2026-10-29T18:00:00Z") } }),
+    post("earlier", "Earlier Expiry", "2026-10-28T16:30:00Z", { state: "rejected", expired: { at: "2026-10-28T16:35:00Z", firstStart: "2026-10-28T16:30:00Z", presses: "Nobody pressed Schedule or Suggest on it." }, slack: { channel: "C1", ts: ts("2026-10-20T18:00:00Z") } }),
+    // Expired: its first session passed, never approved. Its job title ends in a tab, as some of Ashby's do.
+    post("samuel", "Samuel Zhao", "2026-10-05T16:15:00Z", { slack: { channel: "C1", ts: ts("2026-09-29T18:00:00Z") }, plan: { candidateName: "Samuel Zhao", jobTitle: "Applied AI Engineer\t", sessions: [{ start: "2026-10-05T16:15:00Z" }] } }),
     post("qiqi", "Qiqi Liang", "2026-11-05T18:00:00Z"),
     post("dana", "Dana Ng", "2026-11-04T18:00:00Z", { state: "discussion_approved", ashbyCheck: { state: "composed", at: "2026-11-02T00:00:00Z", draftUrl: "https://app.ashbyhq.com/schedules/x/drafts" },
       audit: [{ action: "ashby_check_composed", at: "2026-11-02T00:00:00Z" }] }),
@@ -91,14 +97,20 @@ test("Monday's digest: this weekend's cases, each in its section", async () => {
     stageTitle: async id => titles[id] });
   const { text, thread } = renderDigest(d);
   assert.equal(text, [
-    "Scheduling digest, Mon, Nov 2: 7 waiting on someone",
-    "• Needs a person: 1: Kshitiz Parashar (3 days)",
+    "Scheduling digest, Mon, Nov 2: 7 waiting on someone, and 2 expired posts",
+    "• Needs a person: 1: Kshitiz Parashar (given up on Fri)",
     "• Waiting for approval: 2: ⚠️ Rachel Lo (Tue, Nov 3, 1 working day), Qiqi Liang (Thu, Nov 5, 3 working days)",
+    "• Expired, never approved: 2: Samuel Zhao (Mon, Oct 5; still open), Amara Jordan (Mon, Nov 2; nothing pressed)",
     "• Approved, draft not sent in Ashby: 1: ⚠️ Dana Ng (Wed, Nov 4, 2 working days)",
     "• Eligible, not posted: 1: Sam Wu (1 older submission for a stage the candidate has left not counted)",
     "• Not on the compose list: 2: Emma Smith (Marketing Lead / Onsite Interview), Pat Doe (Recruiter / Recruiter Screen)",
     "• Since Friday's digest: 4 posted, 1 booked through the bot, 2 drafts composed; auto-post failures: 3 for 1 candidate (HTTP 502); 1 whole round"].join("\n"));
-  assert.match(thread, /^• Kshitiz Parashar \(Forward Deployed Engineer\), waiting 3 days: Both coding interviews are in the template .*only one should run\. Fix it in Ashby .* Auto-post won't try this one again until the schedule changes in Ashby/m);
+  // Cut back to the last whole sentence; no generic fix line, since the refusal names Ashby... once it's whole.
+  assert.match(thread, /^• Kshitiz Parashar \(Forward Deployed Engineer\), given up on Fri, Oct 30: Both coding interviews are in the template \("Coding - Roomba" and "Coding - URL Shortner"\), and only one should run\. Fix it in Ashby \(the schedule's template or the job's interview plan\)\. Auto-post won't try this one again until the schedule changes in Ashby; once it's fixed, post from booking review\.$/m);
+  assert.match(thread, /^• Samuel Zhao · Applied AI Engineer: first session Mon, Oct 5, 9:15 AM PDT passed; posted 34 days ago; the post is still open\.$/m);
+  assert.match(thread, /^• Amara Jordan · Forward Deployed Engineer: first session Mon, Nov 2, 7:30 AM PST passed; posted 4 days ago\. Nobody pressed Schedule or Suggest on it\.$/m);
+  assert.doesNotMatch(text, /Earlier Expiry/);
+  assert.doesNotMatch(thread, /reject/i, "nothing in Slack can clear an expired post, so the digest doesn't say to");
   assert.match(thread, /^• ⚠️ Rachel Lo · Forward Deployed Engineer: first session Tue, Nov 3, 10:00 AM PST \(1 working day\); posted 3 days ago\.$/m);
   assert.match(thread, /^• ⚠️ Dana Ng · .*composed 16 hours ago\. Send it from Drafts in the left sidebar under SCHEDULES: https:\/\/app\.ashbyhq\.com\/schedules\/x\/drafts\.$/m);
   assert.match(thread, /^• Sam Wu · Forward Deployed Engineer \/ Onsite: auto-post gave up \(Ashby didn't answer properly \(HTTP 502, a web page titled "502 Bad Gateway"\) after 3 tries\)\.$/m);
@@ -112,7 +124,7 @@ test("a needs-a-person wait counts from `since`, and leaves the digest once the 
   const state = { "s-k": { updatedAt: "x", failedRounds: 0, needsPerson: { at: "2026-11-02T15:00:00Z", since: "2026-10-31T16:00:00Z", why: "Onsite Interview is a panel: two interviewers." } } };
   let d = renderDigest(await buildDigest({ ...quiet, autoPostState: state, snapshot: snapshot([], [ready("s-k", "Kshitiz Parashar", FDE)]) }));
   assert.match(d.text, /^• Needs a person: 1: Kshitiz Parashar \(2 days\)$/m);
-  assert.match(d.thread, /auto-post checks again within the hour/);
+  assert.match(d.thread, /two interviewers\. Fix it in Ashby \(the schedule's template or the job's interview plan\)\. Auto-post checks again within the hour/);
   d = renderDigest(await buildDigest({ ...quiet, autoPostState: state }));
   assert.match(d.text, /^• Needs a person: none$/m);
 });
@@ -213,4 +225,11 @@ test("the startup line says which mode", () => {
   for (const mode of ["off", "log", "on"]) createDigest({ mode, dataDir: "/nonexistent", log: { warn: m => lines.push(m) } }).start()();
   assert.deepEqual(lines, ['[digest] off (SCHEDULING_DIGEST isn\'t "on" or "log")',
     "[digest] log only: built at 8:00 Pacific every weekday and once after startup, never posted", "[digest] on: posts at 8:00 Pacific every weekday"]);
+});
+
+test("a refusal that already says what to change in Ashby gets no generic fix line", async () => {
+  const state = { "s-k": { updatedAt: "x", needsPerson: { at: "2026-11-02T15:00:00Z", since: "2026-11-02T15:00:00Z", why: "Welcome must come first. Move it to the top of the schedule's template in Ashby." } } };
+  const d = renderDigest(await buildDigest({ ...quiet, autoPostState: state, snapshot: snapshot([ready("s-k", "Kshitiz Parashar", FDE)]) }));
+  assert.match(d.thread, /: Welcome must come first\. Move it to the top of the schedule's template in Ashby\. Auto-post checks again within the hour/);
+  assert.doesNotMatch(d.thread, /Fix it in Ashby/);
 });

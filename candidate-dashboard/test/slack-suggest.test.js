@@ -94,7 +94,7 @@ test("a replaced post shows who asked and what for, with no buttons", async () =
 const SECRET = "8f742231b10e8888abcd99yyyzzz85a5";
 const sign = body => { const ts = Math.floor(Date.now() / 1000); return { "x-slack-request-timestamp": String(ts), "x-slack-signature": "v0=" + crypto.createHmac("sha256", SECRET).update(`v0:${ts}:${body}`).digest("hex") }; };
 
-async function fixture(t, { found } = {}) {
+async function fixture(t, { found, presses } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "coord-suggest-")); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const store = createStore(dir), posts = [];
   const service = createService({ store, candidates: async () => [{ applicationId: "app", candidateId: "candidate", candidateName: "TEST", jobTitle: "TEST", status: "Active" }],
@@ -113,7 +113,7 @@ async function fixture(t, { found } = {}) {
   };
   const slackApi = { userInfo: async id => ({ U0ANNA: { email: "Anna@carrara.is", name: "Anna Jones" } })[id] || { email: "someone@carrara.is", name: "Someone" },
     threadReply: async x => calls.replies.push(x.text), markReplaced: async x => calls.replaced.push(x.row), markApproved: async () => {} };
-  const handler = createSlackInteractions({ service, slackApi, signingSecret: SECRET, teamId: "T0CARRARA", appId: "A0SCHED", channelId: "C0CONFIG", approvers: ["anna@carrara.is"], suggester, log: { warn() {} } });
+  const handler = createSlackInteractions({ service, slackApi, signingSecret: SECRET, teamId: "T0CARRARA", appId: "A0SCHED", channelId: "C0CONFIG", approvers: ["anna@carrara.is"], suggester, presses, log: { warn() {} } });
   const app = express(); app.post("/i", express.raw({ type: "application/x-www-form-urlencoded" }), handler);
   const server = await new Promise(resolve => { const s = app.listen(0, "127.0.0.1", () => resolve(s)); });
   t.after(() => new Promise(resolve => server.close(resolve)));
@@ -196,4 +196,20 @@ test("anyone in the channel can ask, but Schedule on the replacement stays appro
     attendance: ["in_person", "in_person"], rulesRevision: 1, calendarCheck: { checkedAt: Date.now(), flags: [[], []] }, bookingPlan, submittedAvailability: submitted }, { id: "coordinator", canApprove: true });
   const row = await f.store.get(typed.id);
   await assert.rejects(f.service.suggestionSource({ draftId: row.id, digest: row.digest, channelId: "C0CONFIG", messageTs: row.slack.ts }), /wasn't built from the candidate's submitted availability/);
+});
+
+test("presses that leave the post open are recorded for its expiry; one that replaces it isn't", async t => {
+  const recorded = [], presses = { record: p => recorded.push(p) };
+  let f = await fixture(t, { presses, found: { index: -1, result: { status: "no_calendar_fit", reason: "No agenda fits.", proposals: [] } } });
+  await f.press(f.timeAction);
+  // A Schedule press by someone who isn't an approver.
+  await f.press({ action_id: "schedule_option", value: JSON.stringify({ d: f.row.id, g: f.row.digest }) }, "U0SOMEONE");
+  assert.deepEqual(recorded, [
+    { draftId: f.row.id, action: "suggest_time", by: "Anna Jones", outcome: "no other option fit" },
+    { draftId: f.row.id, action: "schedule", by: "U0SOMEONE", outcome: "refused: not an approver" }]);
+  recorded.length = 0;
+  f = await fixture(t, { presses });
+  await f.press(f.timeAction);
+  assert.equal((await f.store.get(f.row.id)).state, "rejected");
+  assert.deepEqual(recorded, []);
 });

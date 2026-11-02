@@ -57,6 +57,8 @@ function createServer() {
     });
     app.use("/api/scheduling-review", require("./scheduling/routes").routes(scheduling));
     const connectionConfig = require("./config");
+    // Presses that left a Slack post open (post-presses.js), for its expiry to say.
+    const presses = require("./scheduling/post-presses").createPressLog(connectionConfig.dataDir);
     const bookingWorker = require("./scheduling/booking-worker-client").createBookingWorkerClient({
       url: connectionConfig.ashbyWorkerUrl, secret: connectionConfig.ashbyWorkerSecret,
       clientId: connectionConfig.schedulingClientId, expectedIdentity: connectionConfig.ashbyExpectedIdentity,
@@ -91,7 +93,7 @@ function createServer() {
         teamId: slackConfig.schedulingSlackTeamId, appId: slackConfig.schedulingSlackAppId,
         channelId: slackConfig.schedulingChannelId, approvers: slackConfig.schedulingSlackApprovers, ashbyCheck,
         // Booking review's rebuild, mounted below; resolved when a button is pressed.
-        suggester: input => { if (!suggestAgain) throw new Error("Booking review isn't mounted."); return suggestAgain(input); }, amender });
+        suggester: input => { if (!suggestAgain) throw new Error("Booking review isn't mounted."); return suggestAgain(input); }, amender, presses });
       console.log("[slack] Schedule button enabled: interactivity endpoint /api/slack/interactions is live.");
       slackEvents = require("./scheduling/slack-events").createSlackEvents({
         signingSecret: slackConfig.schedulingSlackSigningSecret, teamId: slackConfig.schedulingSlackTeamId,
@@ -140,6 +142,10 @@ function createServer() {
       candidates: async () => { const snap = issues.getSnapshot(); return [...(snap.readyToSchedule || []), ...(snap.readyToScheduleHidden || [])]; },
       settings: () => bookingWorker.call("booking-settings"),
       stageTitle: async applicationId => (await bookingFacts.application(applicationId)).stageTitle }).start();
+    // Expiry (post-expiry.js): off unless SCHEDULING_POST_EXPIRY is exactly "on".
+    if (scheduling.slackApi && slackConfig.schedulingPostExpiry) require("./scheduling/post-expiry").createPostExpiry({ service: scheduling, store: scheduling.store,
+      slackApi: scheduling.slackApi, presses, clientId: connectionConfig.schedulingClientId }).start();
+    else console.log("[expiry] off (SCHEDULING_POST_EXPIRY isn't \"on\")");
     // The weekday digest (digest.js): off unless SCHEDULING_DIGEST is "on" or "log".
     if (scheduling.slackApi && slackConfig.schedulingChannelId) require("./scheduling/digest").createDigest({ mode: slackConfig.schedulingDigest,
       dataDir: connectionConfig.dataDir, clientId: connectionConfig.schedulingClientId, channelId: slackConfig.schedulingChannelId,

@@ -304,6 +304,16 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
       return (await store.list()).some(r => r.clientId === clientId && r.state === "shared" && r.plan.format === "calendar_checked" && r.plan.applicationId === applicationId
         && r.plan.bookingPlan?.interviewScheduleId === scheduleId && rebuildable(r) && Date.parse(r.plan.sessions[0].start) > Date.now());
     },
+    // A shared post whose first session has passed (post-expiry.js): Schedule
+    // and both Suggest buttons already refuse it (postedRow), so it's closed,
+    // as rejected with `expired` (which never blocks a repost), keeping what
+    // was pressed on it. Revision-checked: a post approved or replaced
+    // meanwhile is left alone, and null returned.
+    async expirePassed(row, { at = new Date().toISOString(), presses = null } = {}) {
+      if (row?.clientId !== clientId || row.state !== "shared" || !(Date.parse(row.plan.sessions[0].start) <= Date.parse(at))) return null;
+      return transition(row, "rejected", { expired: { at, firstStart: row.plan.sessions[0].start, ...(presses ? { presses: String(presses).slice(0, 1500) } : {}) },
+        audit: [...row.audit, { action: "expired", at }] }).catch(() => null);
+    },
     // The replacement's draft ID, on the withdrawn post, once it's posted.
     async recordReplacement(oldId, newId) {
       const row = await store.get(oldId);
