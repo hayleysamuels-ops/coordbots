@@ -89,6 +89,24 @@ async function interpretRequest({ text, sessions, apiKey, model = "claude-sonnet
 
 const SERVICE = "The bot couldn't reach the service that reads requests, so nothing was changed. This isn't about how the request was worded: try the same request again later, or tell whoever looks after the dashboard.";
 
+// A failed answer, for the log: the status, the API's own error type and
+// message, and its request-id, so a 400 tells "credit balance is too low"
+// from a malformed request without a look at billing. The error body never
+// holds the key or the request, and only these fields of it are logged.
+async function apiError(response) {
+  const id = response.headers?.get?.("request-id") || null;
+  let detail = null;
+  try {
+    const raw = typeof response.text === "function" ? await response.text() : JSON.stringify(await response.json());
+    try {
+      const error = JSON.parse(raw)?.error;
+      if (error?.type || error?.message) detail = [error.type, String(error.message || "").replace(/\s+/g, " ").trim().slice(0, 300)].filter(Boolean).join(": ");
+      else detail = "no error in the answer";
+    } catch (_) { detail = /^\s*</.test(raw || "") ? "a web page instead of an error" : raw ? "an answer that isn't JSON" : "an empty answer"; }
+  } catch (_) { detail = "the answer couldn't be read"; }
+  return `HTTP ${response.status} (${detail}${id ? `; request-id ${String(id).slice(0, 100)}` : ""})`;
+}
+
 async function interpret({ text, sessions, apiKey, model, request, timeoutMs }) {
   if (!apiKey) serviceFailed("Reading requests isn't set up on the dashboard, so nothing was changed. This isn't about how the request was worded: tell whoever looks after the dashboard.", "ANTHROPIC_API_KEY is missing");
   if (typeof text !== "string" || !text.trim()) notUnderstood("There's no request in that message.", "empty text");
@@ -103,7 +121,7 @@ async function interpret({ text, sessions, apiKey, model, request, timeoutMs }) 
     response = await request("https://api.anthropic.com/v1/messages", { method: "POST", signal: AbortSignal.timeout(timeoutMs),
       headers: { "content-type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" }, body: JSON.stringify(body) });
   } catch (e) { serviceFailed(SERVICE, e?.name === "TimeoutError" ? `timed out after ${timeoutMs} ms` : `network error: ${e?.message}`); }
-  if (!response.ok) serviceFailed(SERVICE, `HTTP ${response.status}`);
+  if (!response.ok) serviceFailed(SERVICE, await apiError(response));
   let json;
   try { json = await response.json(); } catch (_) { serviceFailed(SERVICE, "the answer wasn't JSON"); }
   const use = (json?.content || []).filter(c => c?.type === "tool_use" && c.name === TOOL.name);

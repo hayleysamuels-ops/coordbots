@@ -49,7 +49,15 @@ test("an answer that doesn't fit is 'couldn't be read', and says so in the log",
 
 test("a failure on our side says so, never 'couldn't be read', and the log says which", async () => {
   const cases = [
-    [{ ok: false, status: 529, json: async () => ({}) }, /HTTP 529/],
+    [{ ok: false, status: 529, json: async () => ({}) }, /HTTP 529 \(no error in the answer\)$/],
+    // An unfunded organisation and a malformed request are both 400s: the log tells them apart.
+    [{ ok: false, status: 400, headers: new Headers({ "request-id": "req_011CUnfunded" }),
+      text: async () => JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits." } }) },
+      /: HTTP 400 \(invalid_request_error: Your credit balance is too low to access the Anthropic API\. Please go to Plans & Billing to upgrade or purchase credits\.; request-id req_011CUnfunded\)$/],
+    [{ ok: false, status: 400, headers: new Headers({ "request-id": "req_011CMalformed" }),
+      text: async () => JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "tool_choice.name: Field required" } }) },
+      /: HTTP 400 \(invalid_request_error: tool_choice\.name: Field required; request-id req_011CMalformed\)$/],
+    [{ ok: false, status: 502, text: async () => "<html><title>502</title></html>" }, /HTTP 502 \(a web page instead of an error\)$/],
     [() => { throw Object.assign(new Error("t"), { name: "TimeoutError" }); }, /timed out after 20000 ms/],
     [() => { throw new Error("ECONNRESET"); }, /network error: ECONNRESET/],
     [{ ok: true, status: 200, json: async () => { throw new SyntaxError("x"); } }, /wasn't JSON/],
