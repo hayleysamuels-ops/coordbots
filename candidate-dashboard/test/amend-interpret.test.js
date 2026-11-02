@@ -11,19 +11,23 @@ const sessions = [
   { title: "Onsite", when: "Tue Nov 3, 10:00–10:30 AM PST", interviewer: "Joe Penn" },
   { title: "Onsite", when: "Tue Nov 3, 12:30–1:00 PM PST", interviewer: "Joe Penn" },
 ];
+const answerBlock = (input = { kind: "unclear", session: null, replace: null, with: null, question: "Which one?", reason: null }) => ({ type: "tool_use", name: "record_request", input });
 const answer = (input, extra = {}) => ({ ok: true, status: 200, json: async () => ({ content: [{ type: "tool_use", name: "record_request", input }], ...extra }) });
 const stub = reply => { const calls = []; return { calls, request: async (url, init) => { calls.push({ url, init, body: JSON.parse(init.body) }); return typeof reply === "function" ? reply() : reply; } }; };
 const read = (s, text = "have Vamsi do the 10am instead of Joe") => interpretRequest({ text, sessions, apiKey: "k", request: s.request, log: { warn() {} } });
 const full = o => ({ kind: "replace_interviewer", session: null, replace: null, with: null, question: null, reason: null, ...o });
 
-test("it sends the request and the sessions, forces the one tool, and never sends the candidate", async () => {
+test("it sends the request and the sessions, offers the one tool, and never sends the candidate", async () => {
   const s = stub(answer(full({ session: 2, replace: "Joe", with: "Vamsi" })));
   assert.deepEqual(await read(s), { kind: "replace_interviewer", session: 2, replace: "Joe", with: "Vamsi" });
   const [{ url, init, body }] = s.calls;
   assert.equal(url, "https://api.anthropic.com/v1/messages");
   assert.equal(init.headers["x-api-key"], "k");
   assert.equal(body.model, "claude-sonnet-5-5");
-  assert.deepEqual(body.tool_choice, { type: "tool", name: "record_request" });
+  // Not forced: the model refuses tool_choice "tool" and "any" (HTTP 400, November 2). The prompt says to always call it.
+  assert.deepEqual(body.tool_choice, { type: "auto" });
+  assert.deepEqual(body.tools.map(t => t.name), ["record_request"]);
+  assert.match(body.system, /Always answer by calling record_request exactly once/);
   assert.match(body.messages[0].content, /^The proposal's sessions:\n1\. Welcome — Tue Nov 3, 9:30–9:45 AM PST — Gabrielle Struckell\n2\. Onsite — Tue Nov 3, 10:00–10:30 AM PST — Joe Penn\n3\. Onsite/);
   assert.match(body.messages[0].content, /The request:\nhave Vamsi do the 10am instead of Joe$/);
   assert.doesNotMatch(init.body, /@carrara|@luminai|candidate@/);
@@ -61,7 +65,6 @@ test("a failure on our side says so, never 'couldn't be read', and the log says 
     [() => { throw Object.assign(new Error("t"), { name: "TimeoutError" }); }, /timed out after 20000 ms/],
     [() => { throw new Error("ECONNRESET"); }, /network error: ECONNRESET/],
     [{ ok: true, status: 200, json: async () => { throw new SyntaxError("x"); } }, /wasn't JSON/],
-    [{ ok: true, status: 200, json: async () => ({ content: [{ type: "text", text: "Sure, I've swapped them." }] }) }, /0 tool calls/],
   ];
   for (const [reply, cause] of cases) {
     const logs = [];
@@ -85,4 +88,16 @@ test("Slack markup is made plain: the bot's mention removed, people named, links
   const nameOf = async id => ({ U0VAMSI: "Vamsi Chitters" })[id] || null;
   assert.equal(await plainRequest("<@U0BOT> swap <@U0JOE> for <@U0VAMSI|vamsi> on <#C1|luminai-rc-team> see <https://x.example/a|this>", { botUserId: "U0BOT", nameOf }),
     "swap @someone for @Vamsi Chitters on #luminai-rc-team see this");
+});
+
+test("an answer without the tool call is the model not complying: logged as its own kind, worded as a service failure", async () => {
+  for (const [reply, cause] of [
+    [{ content: [{ type: "text", text: "Sure, I've swapped them." }], stop_reason: "end_turn" }, "0 tool calls; stop_reason end_turn; 24 characters of text"],
+    [{ content: [answerBlock(), answerBlock()], stop_reason: "tool_use" }, "2 tool calls; stop_reason tool_use; 0 characters of text"]]) {
+    const logs = [];
+    await assert.rejects(interpretRequest({ text: "x", sessions, apiKey: "k", request: stub({ ok: true, status: 200, json: async () => reply }).request, log: { warn: m => logs.push(m) } }),
+      e => e.kind === "noncompliant" && /couldn't reach the service that reads requests/.test(e.message) && !/couldn't be read/.test(e.message));
+    assert.deepEqual(logs, [`[amend] Request not read (model didn't call the tool): ${cause}`]);
+    assert.doesNotMatch(logs[0], /swapped/, "the model's text is never logged");
+  }
 });

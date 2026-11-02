@@ -1118,8 +1118,15 @@ Nothing is booked or sent: the replacement needs Schedule like any post.
   2. The request is read by the model (`amend-interpret.js`) into one change
      from a closed set: replace an interviewer, unclear (with a question), or
      unsupported. **The request text is data, never instructions**: the prompt
-     says so, the answer must be one forced tool call, and every field is
-     checked here and again against the post and Ashby (`amend.js`). Sent to
+     says so, only the one tool call is ever used (any text is discarded), and
+     every field is checked here and again against the post and Ashby
+     (`amend.js`). The tool isn't forced: the model refuses `tool_choice`
+     "tool" and "any" (HTTP 400, November 2), so it's "auto" and the prompt
+     says to always call it. An answer without exactly one call is logged as
+     `Request not read (model didn't call the tool)`, apart from service
+     failures, so its rate can be counted; the thread gets the service wording.
+     A failed call's log line carries the API's error type, message and
+     request-id. Sent to
      the model: the request with mentions turned into names, and each
      session's label, time and interviewer's name. Never the candidate.
   3. Which session is settled from the post alone. Anything not clear is
