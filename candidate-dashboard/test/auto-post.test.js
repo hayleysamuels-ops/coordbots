@@ -166,6 +166,27 @@ test("a refusal only a person can fix is said at once, marked, and checked again
   assert.equal(f.calls.notices.length, 1, "no 'running normally' for a person-fixed refusal");
 });
 
+test("a needs-a-person refusal keeps when it started across the hourly rechecks, and every failure is recorded for the digest", async t => {
+  const f = fixture(t);
+  const events = () => fs.readFileSync(path.join(f.dir, "auto-post-events.jsonl"), "utf8").trim().split("\n").map(l => JSON.parse(l));
+  f.setFound(() => { throw new Error("Both coding interviews are in the template, and only one should run."); });
+  await f.auto.round();
+  const first = JSON.parse(fs.readFileSync(path.join(f.dir, "auto-post.json"), "utf8"))[SCHED].needsPerson;
+  f.clock.t += 61 * 60 * 1000;
+  await f.auto.round();
+  const again = JSON.parse(fs.readFileSync(path.join(f.dir, "auto-post.json"), "utf8"))[SCHED].needsPerson;
+  assert.equal(again.since, first.at);
+  assert.notEqual(again.at, first.at);
+  assert.deepEqual(events().map(e => e.kind), ["needs_person"], "recorded once, when first said");
+  // An Ashby read that failed after its retries carries Ashby's HTTP status.
+  f.setFound(null);
+  f.ashby.updatedAt = "2099-10-27T19:00:00.000Z";
+  f.ashby.fail = Object.assign(new Error('Ashby didn\'t answer properly (HTTP 502, a web page titled "502 Bad Gateway") after 3 tries'), { status: 503, ashby: { endpoint: "interviewSchedule.info", status: 502 } });
+  await f.auto.round();
+  assert.deepEqual(events().at(-1), { at: events().at(-1).at, kind: "retry", scheduleId: SCHED, name: "TEST", status: 502,
+    why: 'couldn\'t read the candidate\'s availability: Ashby didn\'t answer properly (HTTP 502, a web page titled "502 Bad Gateway") after 3 tries' });
+});
+
 test("a new submission is posted once, as auto-post, with what it was built from", async t => {
   const f = fixture(t);
   await f.auto.round();

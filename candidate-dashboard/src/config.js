@@ -127,6 +127,9 @@ const config = {
   // Auto-post beyond TEST: every job and stage on the worker's
   // BOOKING_COMPOSE_JOBS. Off unless exactly "on" (auto-post.js).
   schedulingAutoPostComposeJobs: process.env.SCHEDULING_AUTO_POST_COMPOSE_JOBS === "on",
+  // The weekday 8am digest in the scheduling channel (scheduling/digest.js):
+  // "on" posts it, "log" writes it to the log only; anything else is off.
+  schedulingDigest: ["on", "log"].includes(process.env.SCHEDULING_DIGEST) ? process.env.SCHEDULING_DIGEST : "off",
   schedulingAmend: process.env.SCHEDULING_AMEND === "on",
   // The model that reads those requests (amend-interpret.js), through
   // Anthropic's API. Only needed with SCHEDULING_AMEND on.

@@ -965,6 +965,46 @@ after hours.
   same submission still stops a second post).
 - **Approving an auto-post** is the same as any post, including Send where it's
   on; the availability check runs again at the check's turn.
+- **Failures for the digest:** every failure is also appended to
+  `<DATA_DIR>/auto-post-events.jsonl` (kind `retry`, `gave_up`,
+  `needs_person` or `round`; Ashby's HTTP status when the failure was an Ashby
+  read; kept 14 days), because `auto-post.json` keeps only the latest state.
+  A needs-a-person record keeps `since` (when it was first said) across the
+  hourly rechecks; `at` is the last check.
+
+## Daily digest (November 2, 2026; off until SCHEDULING_DIGEST is "on" or "log")
+
+`src/scheduling/digest.js`. Every weekday at 8am Pacific, one post in the
+scheduling channel, posted even when nothing is wrong ("all clear"), so
+silence is never the signal. Its sections, in order:
+
+1. **Needs a person:** auto-post's needs-a-person refusals, plus give-ups from
+   before that kind existed whose error is one of them (Kshitiz Parashar's),
+   while the schedule is on the Ready list, with how long they've waited.
+2. **Waiting for approval:** open posts, soonest first session first, and
+   approved posts whose draft is composed in Ashby but not sent. ⚠️ when the
+   first session is within two working days (Monday to Friday; no holidays).
+3. **Eligible, not posted:** Ready rows on the compose list (job, then current
+   stage) with no post in play, each with what auto-post last did. Submissions
+   for a stage the candidate has left are a count only.
+4. **Not on the compose list:** with the job and stage, and which is off.
+5. **Since the last digest:** posts, schedules **booked through the bot**
+   (hand-booked schedules aren't counted: that needs a full pass over Ashby's
+   schedules, declined on November 2), drafts composed, and auto-post failures
+   with their HTTP statuses. The first digest reaches back to the previous
+   weekday's 8am.
+
+- Counts and names in the post; the detail (the refusal and what to do, session
+  times, why each is unposted) in one thread reply when there is any.
+- A check it couldn't make (the Ready list never read, the worker's settings,
+  a stage title) is said, and the header can't read all clear.
+- **Modes:** `on` posts; `log` writes the same digest to the log only, once
+  after startup (as soon as the dashboard's first refresh has read Ashby) and
+  at 8am each weekday; anything else is off. Startup logs
+  `[digest] off|log only|on: …`.
+- **State:** `<DATA_DIR>/digest.json`: the day claimed (before posting, so a
+  restart can't post twice; given back if the post fails, retried each minute
+  until noon, then skipped with a log line), and when the last digest posted.
 
 ## Suggest another time / Suggest different interviewer (October 26, 2026)
 

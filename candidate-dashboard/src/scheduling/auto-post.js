@@ -49,6 +49,7 @@ const fs = require("fs");
 const path = require("path");
 const { availabilityChange, postedAvailability } = require("./availability-gate");
 const { blocksRepost } = require("./store");
+const { createEventLog, statusOf } = require("./auto-post-events");
 
 // TEST's application on the TEST job (Luminai): the only one auto-posted
 // unless SCHEDULING_AUTO_POST_COMPOSE_JOBS is on.
@@ -82,8 +83,10 @@ const plainError = e => /Unexpected token '<'|<!DOCTYPE/i.test(String(e?.message
 // (worker "booking-settings"). `stageTitle(applicationId)`: the application's
 // current stage title, read only for jobs listed by stage.
 function createAutoPost({ on = false, wide = false, dataDir, clientId, channelId, availability, suggester, service, store, slackApi,
-  candidates, settings, stageTitle, cap = ROUND_CAP, now = () => Date.now(), log = console, intervalMs = 300000 }) {
+  candidates, settings, stageTitle, cap = ROUND_CAP, now = () => Date.now(), log = console, intervalMs = 300000, events }) {
   const file = path.join(dataDir, "auto-post.json");
+  // Every failure, for the daily digest (auto-post-events.js).
+  events ||= createEventLog(dataDir, { now, log });
   const load = () => { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch (_) { return {}; } };
   const save = state => { fs.writeFileSync(file + ".tmp", JSON.stringify(state, null, 2)); fs.renameSync(file + ".tmp", file); };
   const iso = () => new Date(now()).toISOString();
@@ -106,13 +109,19 @@ function createAutoPost({ on = false, wide = false, dataDir, clientId, channelId
       if (needsPerson(e)) {
         log.warn(`[auto-post] ${scheduleId}: needs a person: couldn't ${doing}: ${e.message}`);
         const told = seen.updatedAt === updatedAt && seen.needsPerson;
-        record({ done: false, failedRounds: 0, lastError: String(e.message).slice(0, 300), needsPerson: { at: iso(), why: String(e.message).slice(0, 500) } });
+        // `at` is the last check; `since` the first, kept across the hourly
+        // rechecks (and a changed schedule that still needs the same person),
+        // so the digest can say how long it has waited.
+        const since = seen.needsPerson?.since || seen.needsPerson?.at || iso();
+        record({ done: false, failedRounds: 0, lastError: String(e.message).slice(0, 300), needsPerson: { at: iso(), since, why: String(e.message).slice(0, 500) } });
+        if (!told) events.record({ kind: "needs_person", scheduleId, name: who, why: `couldn't ${doing}: ${plainError(e)}`, status: statusOf(e) });
         if (!told) await notice(`⚠️ Needs someone in Ashby: auto-post can't propose ${who}'s schedule until this is fixed. ${e.message} This won't fix itself. Auto-post checks again every hour and as soon as the schedule changes; or post from booking review once it's fixed.`);
         return "needs_person";
       }
       const rounds = (seen.updatedAt === updatedAt ? seen.failedRounds || 0 : 0) + 1;
       log.warn(`[auto-post] ${scheduleId}: couldn't ${doing} (round ${rounds}): ${e.message}`);
       record({ done: false, failedRounds: rounds, lastError: String(e.message).slice(0, 300), needsPerson: null });
+      events.record({ kind: rounds >= MAX_FAILED_ROUNDS ? "gave_up" : "retry", scheduleId, name: who, why: `couldn't ${doing}: ${plainError(e)}`, status: statusOf(e) });
       if (rounds >= MAX_FAILED_ROUNDS) await notice(`Auto-post gave up on ${who} after ${rounds} tries (couldn't ${doing}: ${plainError(e)}). Their availability hasn't been posted: post an option from booking review on the dashboard.`);
       else pendingNow.set(scheduleId, { name: who, why: `couldn't ${doing}: ${plainError(e)}` });
       return "failed";
@@ -216,6 +225,7 @@ function createAutoPost({ on = false, wide = false, dataDir, clientId, channelId
     const fresh = !was || was.submittedAt !== (row.submittedAt || null);
     const entry = { name: row.candidateName || "a candidate", submittedAt: row.submittedAt || null, rounds: (fresh ? 0 : was.rounds) + 1, why: `couldn't ${doing}: ${plainError(error)}`, gaveUp: false };
     log.warn(`[auto-post] ${row.applicationId}: couldn't ${doing} (round ${entry.rounds}): ${error.message}`);
+    events.record({ kind: entry.rounds >= READ_GIVE_UP ? "gave_up" : "retry", scheduleId: row.scheduleId || null, name: entry.name, why: entry.why, status: statusOf(error) });
     if (entry.rounds >= READ_GIVE_UP) {
       entry.gaveUp = true;
       await notice(`Auto-post gave up on ${entry.name} after ${entry.rounds} rounds (${Math.round(entry.rounds * intervalMs / 60000)} minutes; ${entry.why}). Their availability hasn't been posted: post an option from booking review on the dashboard.`);
@@ -234,6 +244,7 @@ function createAutoPost({ on = false, wide = false, dataDir, clientId, channelId
     if (key === was) return;
     state._round = { failing: key, at: iso() };
     save(state);
+    if (roundError) events.record({ kind: "round", scheduleId: null, name: null, why: roundError, status: null });
     if (roundError) await notice(`Auto-post couldn't run this round: ${roundError}. Nothing was posted automatically. It tries again every five minutes; until then, post from booking review on the dashboard.`);
     else if (names.length) await notice(`Auto-post is still waiting on ${names.length === 1 ? "one candidate whose availability hasn't" : `${names.length} candidates whose availability hasn't`} been posted: ${names.join("; ")}. It tries again every five minutes, and says so here if it gives up.`);
     else await notice("Auto-post is running normally again: everyone it was waiting on has been posted or handed back.");
@@ -262,7 +273,10 @@ function createAutoPost({ on = false, wide = false, dataDir, clientId, channelId
           if (worked >= cap) break;
           const name = pending.candidateName || row.candidateName;
           try { if (await handle(applicationId, { ...request, candidateName: name }, state) !== "skipped") worked++; }
-          catch (e) { log.warn(`[auto-post] ${request.scheduleId}: ${e.message}`); pendingNow.set(request.scheduleId, { name: name || "a candidate", why: plainError(e) }); }
+          catch (e) {
+            log.warn(`[auto-post] ${request.scheduleId}: ${e.message}`); pendingNow.set(request.scheduleId, { name: name || "a candidate", why: plainError(e) });
+            events.record({ kind: "retry", scheduleId: request.scheduleId, name: name || "a candidate", why: plainError(e), status: statusOf(e) });
+          }
         }
       }
       // Still retrying from an earlier round, though not reached this one (the
@@ -292,4 +306,4 @@ function createAutoPost({ on = false, wide = false, dataDir, clientId, channelId
   return { on, round, start };
 }
 
-module.exports = { createAutoPost, ROUND_CAP, TEST_APPLICATION };
+module.exports = { createAutoPost, ROUND_CAP, TEST_APPLICATION, MAX_FAILED_ROUNDS, needsPerson, plainError };

@@ -140,6 +140,13 @@ function createServer() {
       candidates: async () => { const snap = issues.getSnapshot(); return [...(snap.readyToSchedule || []), ...(snap.readyToScheduleHidden || [])]; },
       settings: () => bookingWorker.call("booking-settings"),
       stageTitle: async applicationId => (await bookingFacts.application(applicationId)).stageTitle }).start();
+    // The weekday digest (digest.js): off unless SCHEDULING_DIGEST is "on" or "log".
+    if (scheduling.slackApi && slackConfig.schedulingChannelId) require("./scheduling/digest").createDigest({ mode: slackConfig.schedulingDigest,
+      dataDir: connectionConfig.dataDir, clientId: connectionConfig.schedulingClientId, channelId: slackConfig.schedulingChannelId,
+      slackApi: scheduling.slackApi, store: scheduling.store, snapshot: () => issues.getSnapshot(),
+      settings: () => bookingWorker.call("booking-settings"),
+      stageTitle: async applicationId => (await bookingFacts.application(applicationId)).stageTitle,
+      autoPost: { on: slackConfig.schedulingAutoPost, wide: slackConfig.schedulingAutoPostComposeJobs } }).start();
     // The worker's booking settings (job lists, domains, cap), posted in the channel when they change.
     if (scheduling.slackApi && slackConfig.schedulingChannelId) require("./scheduling/booking-settings-watch").createBookingSettingsWatch({ worker: bookingWorker,
       dataDir: connectionConfig.dataDir, channelId: slackConfig.schedulingChannelId, slackApi: scheduling.slackApi, jobTitle: bookingFacts.jobTitle }).start();
