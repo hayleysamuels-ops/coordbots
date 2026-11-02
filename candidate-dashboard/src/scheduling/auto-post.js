@@ -55,6 +55,19 @@ const { blocksRepost } = require("./store");
 const TEST_APPLICATION = "8dfd8f14-83c4-41f8-aaf1-416b75cb0892";
 const ACTOR = { id: "Scheduling auto-post", canApprove: true };
 const MAX_FAILED_ROUNDS = 3;
+// A read that fails before a candidate's submission is even reached (their
+// stage, their pending submissions) is retried every round, and given up on,
+// loudly and by name, after READ_GIVE_UP rounds (30 minutes).
+const READ_GIVE_UP = 6;
+// A refusal waiting on a person in Ashby is checked again this often.
+const PERSON_RECHECK_MS = 60 * 60 * 1000;
+// Refusals only a person can clear, by editing the template or plan in Ashby.
+// Errors raised on the dashboard carry needsPerson; the worker's are known
+// by their words (worker/plan-reader.js, booking-routes.js).
+const NEEDS_PERSON = [/ is a panel: /, /\bBoth .+ are in the template\b/, /\bNone of the .+ is in the template\b/, /must come first/, /isn't supported\. /,
+  /The template's activity isn't in the published plan/, /The template interviews no longer match the published plan/];
+const needsPerson = e => e?.needsPerson === true || NEEDS_PERSON.some(re => re.test(String(e?.message || "")));
+
 // Submissions worked on per round (each a plan read and a calendar search,
 // about a minute). More wait five minutes for the next round.
 const ROUND_CAP = 3;
@@ -80,15 +93,29 @@ function createAutoPost({ on = false, wide = false, dataDir, clientId, channelId
   async function handle(applicationId, request, state) {
     const { scheduleId, updatedAt } = request, seen = state[scheduleId] || {};
     if (seen.updatedAt === updatedAt && (seen.done || seen.failedRounds >= MAX_FAILED_ROUNDS)) return "skipped";
-    const record = changes => { state[scheduleId] = { ...seen, ...changes, updatedAt, at: iso() }; save(state); };
+    // Waiting on a person in Ashby: checked again hourly, or at once when the schedule changes.
+    if (seen.updatedAt === updatedAt && seen.needsPerson && now() - Date.parse(seen.needsPerson.at) < PERSON_RECHECK_MS) return "skipped";
+    const record = changes => { state[scheduleId] = { ...seen, ...changes, updatedAt, candidateName: request.candidateName || seen.candidateName || null, at: iso() }; save(state); };
     let current;
     try { current = await availability.load({ applicationId, scheduleId }); }
     catch (e) { return failed(e, "read the candidate's availability"); }
     async function failed(e, doing) {
+      const who = request.candidateName || "a candidate";
+      // A refusal only a person can clear (the template or plan in Ashby):
+      // said at once, marked as such, and not retried every round.
+      if (needsPerson(e)) {
+        log.warn(`[auto-post] ${scheduleId}: needs a person: couldn't ${doing}: ${e.message}`);
+        const told = seen.updatedAt === updatedAt && seen.needsPerson;
+        record({ done: false, failedRounds: 0, lastError: String(e.message).slice(0, 300), needsPerson: { at: iso(), why: String(e.message).slice(0, 500) } });
+        if (!told) await notice(`⚠️ Needs someone in Ashby: auto-post can't propose ${who}'s schedule until this is fixed. ${e.message} This won't fix itself. Auto-post checks again every hour and as soon as the schedule changes; or post from booking review once it's fixed.`);
+        return "needs_person";
+      }
       const rounds = (seen.updatedAt === updatedAt ? seen.failedRounds || 0 : 0) + 1;
       log.warn(`[auto-post] ${scheduleId}: couldn't ${doing} (round ${rounds}): ${e.message}`);
-      record({ done: false, failedRounds: rounds, lastError: String(e.message).slice(0, 300) });
-      if (rounds >= MAX_FAILED_ROUNDS) await notice(`Auto-post: the candidate's availability for ${request.candidateName || "a candidate"} couldn't be handled after ${rounds} tries (couldn't ${doing}: ${e.message}). Nothing was posted. Post an option from booking review on the dashboard.`);
+      record({ done: false, failedRounds: rounds, lastError: String(e.message).slice(0, 300), needsPerson: null });
+      if (rounds >= MAX_FAILED_ROUNDS) await notice(`Auto-post gave up on ${who} after ${rounds} tries (couldn't ${doing}: ${plainError(e)}). Their availability hasn't been posted: post an option from booking review on the dashboard.`);
+      else pendingNow.set(scheduleId, { name: who, why: `couldn't ${doing}: ${plainError(e)}` });
+      return "failed";
     }
     // The same submission as last time (our own drafts move updatedAt too).
     if (seen.availability && !availabilityChange(seen.availability, current, now())) return record({ done: true, failedRounds: 0 });
@@ -141,66 +168,113 @@ function createAutoPost({ on = false, wide = false, dataDir, clientId, channelId
     return record({ done: true, failedRounds: 0, availability: postedAvailability(current), outcome: posted ? "posted" : "no_clean_option", ...(posted ? { posted: posted.id } : {}) });
   }
 
-  // Which ready applications the compose list allows; throws when the list
-  // can't be read or is invalid, which fails the whole round.
-  async function allowed() {
+  // The ready rows to work on this round, cheapest checks first, so nobody
+  // is read (or named in a failure) whose outcome is already settled:
+  //   - a submission already handled (posted, or given up on loudly) is
+  //     skipped without any read;
+  //   - the compose list by job, then by current stage, whose title is read
+  //     once per stage and kept (stage titles don't change between rounds).
+  // Throws when the worker's list can't be read or is invalid, which fails
+  // the whole round. A stage read that fails leaves that candidate's
+  // eligibility unknown: they're retried, and named, like any read failure.
+  const stageTitles = new Map(), readKey = r => r.scheduleId || r.applicationId;
+  async function allowed(state) {
     // Off: TEST alone, nothing else read, as before the compose list was used.
-    if (!wide) return { rows: [{ applicationId: TEST_APPLICATION, candidateName: "TEST" }], problems: [] };
+    if (!wide) return { rows: [{ applicationId: TEST_APPLICATION, candidateName: "TEST" }], problems: [], ready: null };
     const current = await settings();
     if (current?.composeJobs?.problem) throw new Error(`the worker's compose list is invalid (${current.composeJobs.problem})`);
     const jobs = current?.composeJobs?.jobs;
     if (!jobs || typeof jobs !== "object") throw new Error("the worker didn't say which jobs it may compose for");
-    const rows = [...new Map((await candidates()).filter(r => r?.applicationId && r.jobId).map(r => [r.applicationId, r])).values()];
-    const out = [], problems = [];
-    for (const r of rows) {
+    const settled = r => {
+      const seen = r.scheduleId && state[r.scheduleId], read = state._reads?.[readKey(r)];
+      return (seen && seen.updatedAt === r.submittedAt && (seen.done || seen.failedRounds >= MAX_FAILED_ROUNDS)) || (read?.gaveUp && read.submittedAt === (r.submittedAt || null));
+    };
+    const out = new Map(), problems = [], all = await candidates();
+    for (const r of all) {
+      if (!r?.applicationId || !r.jobId || out.has(r.applicationId) || settled(r)) continue;
       const stages = jobs[String(r.jobId).toLowerCase()];
       if (!stages) continue;
-      if (stages === "all") { out.push(r); continue; }
-      let title;
-      try { title = await stageTitle(r.applicationId); }
-      catch (e) { problems.push({ row: r, error: e }); continue; }
-      if (stages.includes(String(title || "").trim().toLowerCase())) out.push(r);
+      if (stages !== "all") {
+        let title = r.currentStageId ? stageTitles.get(r.currentStageId) : undefined;
+        if (title === undefined) {
+          try { title = await stageTitle(r.applicationId); if (r.currentStageId) stageTitles.set(r.currentStageId, title); }
+          catch (e) { problems.push({ row: r, error: e, doing: "read their stage" }); continue; }
+        }
+        if (!stages.includes(String(title || "").trim().toLowerCase())) continue;
+      }
+      out.set(r.applicationId, r);
     }
-    return { rows: out, problems };
+    // Every submission still open, for what carries over between rounds.
+    return { rows: [...out.values()], problems, ready: new Set(all.filter(Boolean).map(readKey)) };
   }
 
-  // The round's failures, said once until they change, and once when they clear.
-  async function roundOutcome(state, problems) {
+  // Read failures before a submission is reached, per ready schedule (its
+  // submission's updatedAt): rounds failed, and whether given up on (loudly).
+  // A later successful read clears it; a new submission starts afresh.
+  async function readFailed(state, row, error, doing) {
+    const reads = state._reads ||= {}, key = readKey(row), was = reads[key];
+    const fresh = !was || was.submittedAt !== (row.submittedAt || null);
+    const entry = { name: row.candidateName || "a candidate", submittedAt: row.submittedAt || null, rounds: (fresh ? 0 : was.rounds) + 1, why: `couldn't ${doing}: ${plainError(error)}`, gaveUp: false };
+    log.warn(`[auto-post] ${row.applicationId}: couldn't ${doing} (round ${entry.rounds}): ${error.message}`);
+    if (entry.rounds >= READ_GIVE_UP) {
+      entry.gaveUp = true;
+      await notice(`Auto-post gave up on ${entry.name} after ${entry.rounds} rounds (${Math.round(entry.rounds * intervalMs / 60000)} minutes; ${entry.why}). Their availability hasn't been posted: post an option from booking review on the dashboard.`);
+    } else pendingNow.set(key, { name: entry.name, why: entry.why });
+    reads[key] = entry;
+  }
+  const readCleared = (state, row) => { if (state._reads) delete state._reads[readKey(row)]; };
+
+  // The channel is told when the set of candidates auto-post is stuck on
+  // changes, by name, and never that all is well while anyone is: "running
+  // normally again" only once nobody is outstanding.
+  async function roundOutcome(state, roundError, pending) {
     const was = state._round?.failing || null;
-    const key = problems.length ? problems.map(p => `${p.who}: ${p.why}`).sort().join("; ") : null;
+    const names = [...pending.values()].map(p => `${p.name} (${p.why})`).sort();
+    const key = roundError ? `round: ${roundError}` : names.length ? names.join("; ") : null;
     if (key === was) return;
     state._round = { failing: key, at: iso() };
     save(state);
-    if (key) await notice(problems.length === 1 && problems[0].who === "round"
-      ? `Auto-post couldn't run this round: ${problems[0].why}. Nothing was posted automatically. It tries again every five minutes; until then, post from booking review on the dashboard.`
-      : `Auto-post couldn't check ${problems.length === 1 ? problems[0].who : `${problems.length} candidates`} this round (${[...new Set(problems.map(p => p.why))].join("; ")}). Nothing was posted for ${problems.length === 1 ? "them" : "those"}. It tries again every five minutes; until then, post from booking review on the dashboard.`);
-    else await notice("Auto-post is running normally again.");
+    if (roundError) await notice(`Auto-post couldn't run this round: ${roundError}. Nothing was posted automatically. It tries again every five minutes; until then, post from booking review on the dashboard.`);
+    else if (names.length) await notice(`Auto-post is still waiting on ${names.length === 1 ? "one candidate whose availability hasn't" : `${names.length} candidates whose availability hasn't`} been posted: ${names.join("; ")}. It tries again every five minutes, and says so here if it gives up.`);
+    else await notice("Auto-post is running normally again: everyone it was waiting on has been posted or handed back.");
   }
 
-  let running = null;
+  let running = null, pendingNow = new Map();
   async function round() {
     if (!on) return;
     if (running) return running;
     running = (async () => {
-      const state = load(), problems = [];
+      const state = load();
+      pendingNow = new Map();
       let ready;
-      try { ready = await allowed(); }
-      catch (e) { log.warn(`[auto-post] Round failed: ${e.message}`); return roundOutcome(state, [{ who: "round", why: plainError(e) }]); }
-      for (const p of ready.problems) { log.warn(`[auto-post] Couldn't read ${p.row.applicationId}'s stage: ${p.error.message}`); problems.push({ who: p.row.candidateName || "a candidate", why: plainError(p.error) }); }
+      try { ready = await allowed(state); }
+      catch (e) { log.warn(`[auto-post] Round failed: ${e.message}`); return roundOutcome(state, plainError(e), pendingNow); }
+      for (const p of ready.problems) await readFailed(state, p.row, p.error, p.doing);
       let worked = 0;
       for (const row of ready.rows) {
         if (worked >= cap) { log.warn(`[auto-post] Round cap (${cap}) reached; the rest wait for the next round.`); break; }
         const applicationId = row.applicationId;
         let pending;
         try { pending = await availability.requests(applicationId); }
-        catch (e) { log.warn(`[auto-post] Couldn't list ${applicationId}'s submissions: ${e.message}`); problems.push({ who: row.candidateName || "a candidate", why: plainError(e) }); continue; }
+        catch (e) { await readFailed(state, row, e, "list their submissions"); continue; }
+        readCleared(state, row);
         for (const request of pending.requests || []) {
           if (worked >= cap) break;
-          try { if (await handle(applicationId, { ...request, candidateName: pending.candidateName }, state) !== "skipped") worked++; }
-          catch (e) { log.warn(`[auto-post] ${request.scheduleId}: ${e.message}`); problems.push({ who: pending.candidateName || row.candidateName || "a candidate", why: plainError(e) }); }
+          const name = pending.candidateName || row.candidateName;
+          try { if (await handle(applicationId, { ...request, candidateName: name }, state) !== "skipped") worked++; }
+          catch (e) { log.warn(`[auto-post] ${request.scheduleId}: ${e.message}`); pendingNow.set(request.scheduleId, { name: name || "a candidate", why: plainError(e) }); }
         }
       }
-      return roundOutcome(load(), problems);
+      // Still retrying from an earlier round, though not reached this one (the
+      // cap), while its submission is still open; read failures for
+      // submissions no longer open are forgotten.
+      if (ready.ready) {
+        for (const [id, seen] of Object.entries(state)) if (!id.startsWith("_") && ready.ready.has(id) && !seen.done && seen.failedRounds > 0 && seen.failedRounds < MAX_FAILED_ROUNDS && !pendingNow.has(id))
+          pendingNow.set(id, { name: seen.candidateName || "a candidate", why: String(seen.lastError || "retrying").slice(0, 200) });
+        for (const id of Object.keys(state._reads || {})) if (!ready.ready.has(id)) delete state._reads[id];
+      }
+      save(state);
+      return roundOutcome(state, null, pendingNow);
     })().finally(() => { running = null; });
     return running;
   }

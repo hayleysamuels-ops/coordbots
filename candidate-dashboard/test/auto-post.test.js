@@ -24,7 +24,7 @@ function fixture(t, { on = true, wide = true, found: initial, ready = [{ applica
   const store = createStore(dir), posts = [];
   const service = createService({ store, candidates: async () => [{ applicationId: APP, candidateId: "candidate", candidateName: "TEST", jobTitle: "TEST", status: "Active" }],
     clientId: "luminai", routing: "client", channelId: "C0CONFIG", channelName: "luminai-rc-team", slack: async (plan, meta) => { posts.push({ plan, meta }); return { ts: `2.${posts.length}`, channel: "C0CONFIG" }; } });
-  const ashby = { updatedAt: "2099-10-26T19:47:16.037Z", windows: first, loads: 0, fail: null, listed: [], listFail: null, settingsFail: null };
+  const ashby = { updatedAt: "2099-10-26T19:47:16.037Z", windows: first, loads: 0, fail: null, listed: [], listFail: null, settingsFail: null, stageReads: 0, stageFail: null };
   const availability = {
     requests: async applicationId => { ashby.listed.push(applicationId); if (ashby.listFail) throw ashby.listFail;
       if (extraRequests[applicationId]) return extraRequests[applicationId];
@@ -48,9 +48,11 @@ function fixture(t, { on = true, wide = true, found: initial, ready = [{ applica
         bookingPlan: { applicationId: APP, interviewScheduleId: SCHED, sessions: [{ title: "First Round", start: option.start, end: option.end, interviewers: [hayley] }] }, submittedAvailability: submission, origin }, user) };
   };
   const slackApi = { notice: async x => calls.notices.push(x), threadReply: async x => calls.replies.push(x), markReplaced: async x => calls.replaced.push(x.row) };
-  const auto = createAutoPost({ on, wide, dataDir: dir, clientId: "luminai", channelId: "C0CONFIG", availability, suggester, service, store, slackApi, now: () => Date.parse("2099-10-26T20:00:00Z"), log: { warn() {} },
-    candidates: async () => ready, settings: async () => { if (ashby.settingsFail) throw ashby.settingsFail; return { composeJobs: { jobs } }; }, stageTitle: async () => stage, ...(cap ? { cap } : {}) });
-  return { auto, store, service, posts, calls, ashby, dir, setFound: fn => { found = fn; } };
+  const clock = { t: Date.parse("2099-10-26T20:00:00Z") };
+  const auto = createAutoPost({ on, wide, dataDir: dir, clientId: "luminai", channelId: "C0CONFIG", availability, suggester, service, store, slackApi, now: () => clock.t, log: { warn() {} },
+    candidates: async () => ready, settings: async () => { if (ashby.settingsFail) throw ashby.settingsFail; return { composeJobs: { jobs } }; },
+    stageTitle: async () => { ashby.stageReads++; if (ashby.stageFail) throw ashby.stageFail; return stage; }, ...(cap ? { cap } : {}) });
+  return { auto, store, service, posts, calls, ashby, dir, clock, setFound: fn => { found = fn; } };
 }
 const rows = async store => (await store.list()).sort((a, b) => a.audit[0].at.localeCompare(b.audit[0].at));
 
@@ -97,18 +99,71 @@ test("at most the round cap of submissions is worked on; the rest wait for the n
   assert.deepEqual(f.ashby.listed, ["a1", "a2"]);
 });
 
-test("a failed round is said in the channel once, and once more when rounds work again", async t => {
+test("a failed read names the candidate once, and 'running normally' comes only once nobody is outstanding", async t => {
   const f = fixture(t);
   f.ashby.listFail = new SyntaxError(`Unexpected token '<', "<!DOCTYPE "... is not valid JSON`);
   await f.auto.round(); await f.auto.round();
-  assert.deepEqual(f.calls.notices.map(n => n.text), ["Auto-post couldn't check TEST this round (Ashby answered with a web page instead of data). Nothing was posted for them. It tries again every five minutes; until then, post from booking review on the dashboard."]);
+  assert.deepEqual(f.calls.notices.map(n => n.text), ["Auto-post is still waiting on one candidate whose availability hasn't been posted: TEST (couldn't list their submissions: Ashby answered with a web page instead of data). It tries again every five minutes, and says so here if it gives up."]);
   f.ashby.listFail = null;
   await f.auto.round();
-  assert.equal(f.calls.notices.at(-1).text, "Auto-post is running normally again.");
   assert.equal(f.posts.length, 1);
+  assert.equal(f.calls.notices.at(-1).text, "Auto-post is running normally again: everyone it was waiting on has been posted or handed back.");
   f.ashby.settingsFail = new Error("The scheduling worker is unreachable.");
   await f.auto.round();
   assert.equal(f.calls.notices.at(-1).text, "Auto-post couldn't run this round: The scheduling worker is unreachable. Nothing was posted automatically. It tries again every five minutes; until then, post from booking review on the dashboard.");
+});
+
+test("someone already posted is neither re-read nor named when a later read would fail", async t => {
+  const f = fixture(t);
+  await f.auto.round();
+  assert.equal(f.posts.length, 1);
+  const g = fixture(t, { ready: [{ applicationId: APP, jobId: JOB, candidateName: "TEST", scheduleId: SCHED, submittedAt: "2099-10-26T19:47:16.037Z" }] });
+  await g.auto.round();
+  assert.equal(g.posts.length, 1);
+  g.ashby.listFail = new SyntaxError("Unexpected token '<'");
+  g.ashby.listed.length = 0;
+  await g.auto.round(); await g.auto.round();
+  assert.deepEqual(g.ashby.listed, []);
+  assert.deepEqual(g.calls.notices, []);
+});
+
+test("a stage off the list is read once and remembered: a later failed read can't name them", async t => {
+  const STAGED = "22222222-2222-4222-8222-222222222222";
+  const f = fixture(t, { ready: [{ applicationId: "a-emma", jobId: STAGED, candidateName: "Emma", scheduleId: "s-emma", submittedAt: "x", currentStageId: "st-onsite" }],
+    jobs: { [STAGED]: ["initial chat", "team interview"] }, stage: "Onsite Interview" });
+  await f.auto.round();
+  f.ashby.stageFail = new SyntaxError("Unexpected token '<'");
+  await f.auto.round(); await f.auto.round();
+  assert.equal(f.ashby.stageReads, 1);
+  assert.deepEqual(f.ashby.listed, []);
+  assert.deepEqual(f.calls.notices, []);
+});
+
+test("a read that keeps failing is retried every round, then given up on loudly by name after six", async t => {
+  const f = fixture(t);
+  f.ashby.listFail = new SyntaxError("Unexpected token '<'");
+  for (let i = 0; i < 8; i++) await f.auto.round();
+  assert.equal(f.ashby.listed.length, 6);
+  const texts = f.calls.notices.map(n => n.text);
+  assert.match(texts[0], /^Auto-post is still waiting on one candidate whose availability hasn't been posted: TEST/);
+  assert.equal(texts[1], "Auto-post gave up on TEST after 6 rounds (30 minutes; couldn't list their submissions: Ashby answered with a web page instead of data). Their availability hasn't been posted: post an option from booking review on the dashboard.");
+  assert.equal(texts.length, 3);
+  assert.match(texts[2], /^Auto-post is running normally again: everyone it was waiting on has been posted or handed back\.$/);
+});
+
+test("a refusal only a person can fix is said at once, marked, and checked again hourly, not every round", async t => {
+  const f = fixture(t);
+  f.setFound(() => { throw Object.assign(new Error('Both coding interviews are in the template ("Coding - Roomba" and "Coding - URL Shortner"), and only one should run. Remove the one this candidate isn\'t taking from the schedule\'s template in Ashby, then load the plan again. Nothing was booked.'), { status: 409 }); });
+  await f.auto.round(); await f.auto.round(); await f.auto.round();
+  assert.equal(f.calls.suggester, 1);
+  assert.equal(f.calls.notices.length, 1);
+  assert.match(f.calls.notices[0].text, /^⚠️ Needs someone in Ashby: auto-post can't propose TEST's schedule until this is fixed\. Both coding interviews are in the template .* This won't fix itself\. Auto-post checks again every hour/);
+  f.setFound(null);
+  f.clock.t += 61 * 60 * 1000;
+  await f.auto.round();
+  assert.equal(f.calls.suggester, 2);
+  assert.equal(f.posts.length, 1);
+  assert.equal(f.calls.notices.length, 1, "no 'running normally' for a person-fixed refusal");
 });
 
 test("a new submission is posted once, as auto-post, with what it was built from", async t => {
@@ -181,13 +236,14 @@ test("an approved post still in play: nothing is posted; its thread is told once
   assert.equal(f.calls.replies.length, 1, "told once");
 });
 
-test("a read that keeps failing is tried three rounds, then said once and left", async t => {
+test("a submission whose own read keeps failing is tried three rounds, then given up on by name", async t => {
   const f = fixture(t);
   f.ashby.fail = Object.assign(new Error("Ashby is busy."), { status: 409 });
   for (let i = 0; i < 5; i++) await f.auto.round();
   assert.equal(f.ashby.loads, 3);
-  assert.equal(f.calls.notices.length, 1);
-  assert.match(f.calls.notices[0].text, /couldn't be handled after 3 tries \(couldn't read the candidate's availability: Ashby is busy\.\)\. Nothing was posted\./);
+  const texts = f.calls.notices.map(n => n.text);
+  assert.match(texts[0], /^Auto-post is still waiting on one candidate whose availability hasn't been posted: TEST \(couldn't read the candidate's availability: Ashby is busy\)/);
+  assert.equal(texts[1], "Auto-post gave up on TEST after 3 tries (couldn't read the candidate's availability: Ashby is busy). Their availability hasn't been posted: post an option from booking review on the dashboard.");
   // A new submission is tried afresh.
   f.ashby.fail = null;f.ashby.updatedAt = "2099-10-27T09:00:00.000Z";
   await f.auto.round();

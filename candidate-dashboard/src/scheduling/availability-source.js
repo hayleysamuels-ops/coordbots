@@ -1,5 +1,6 @@
 'use strict';
 const {digest}=require('./service');
+const {ashbyRead}=require('./ashby-read');
 const fail=(status,message)=>{throw Object.assign(Error(message),{status});};
 const uuid=v=>typeof v==='string'&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(v);
 function normalizeSubmission(data,now=Date.now()){
@@ -20,8 +21,9 @@ function normalizeSubmission(data,now=Date.now()){
   const unreadWeeks=Array.isArray(data.unreadWeeks)?data.unreadWeeks.filter(w=>Number.isInteger(w?.week)).map(w=>({week:w.week,shown:typeof w.shown==='string'?w.shown.slice(0,40):''})):[];
   return {timezone:data.timezone,scope:data.scope||null,windows,localWindows:windows.map(w=>({start:local(Date.parse(w.start)),end:local(Date.parse(w.end))})),expiredCount,unreadWeeks,notes:typeof data.notes==='string'?data.notes:'',complete:true};
 }
-function createAvailabilitySource({key,clientId,inspect,request=fetch,now=()=>Date.now()}){
-  async function read(endpoint,body){if(!key||!clientId)fail(503,'The client Ashby connection is not configured.');const r=await request('https://api.ashbyhq.com/'+endpoint,{method:'POST',redirect:'error',signal:AbortSignal.timeout(20000),headers:{Authorization:'Basic '+Buffer.from(key+':').toString('base64'),'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await r.json();if(!r.ok||d.success!==true)fail(503,'Could not refresh submitted availability from Ashby.');return d;}
+// Reads go through ashby-read.js: status kept, transient failures retried within seconds.
+function createAvailabilitySource({key,clientId,inspect,request=fetch,now=()=>Date.now(),sleep,log=console}){
+  async function read(endpoint,body){if(!key||!clientId)fail(503,'The client Ashby connection is not configured.');const {ok,data:d}=await ashbyRead({key,endpoint,body,request,...(sleep?{sleep}:{}),log});if(!ok||d?.success!==true)fail(503,'Could not refresh submitted availability from Ashby.');return d;}
   async function requests(applicationId){
     if(!uuid(applicationId))fail(422,'Choose a candidate application.');
     const app=(await read('application.info',{applicationId})).results;

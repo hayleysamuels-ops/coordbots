@@ -83,8 +83,8 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
       if(members.length<2)continue;
       members.forEach(s=>grouped.add(s.sessionId));
       const kept=members.filter(s=>!outIds.has(s.sessionId));
-      if(kept.length>1)throw Object.assign(Error(`Both ${g.label} are in the template (${kept.map(s=>`"${s.title.trim()}"`).join(' and ')}), and only one should run. Remove the one this candidate isn't taking from the schedule's template in Ashby, then load the plan again. Nothing was booked.`),{status:409});
-      if(!kept.length)throw Object.assign(Error(`None of the ${g.label} (${members.map(s=>`"${s.title.trim()}"`).join(', ')}) is in the template, and one should run. Add the one this candidate is taking to the schedule's template in Ashby, then load the plan again.`),{status:409});
+      if(kept.length>1)throw Object.assign(Error(`Both ${g.label} are in the template (${kept.map(s=>`"${s.title.trim()}"`).join(' and ')}), and only one should run. Remove the one this candidate isn't taking from the schedule's template in Ashby, then load the plan again. Nothing was booked.`),{status:409,needsPerson:true});
+      if(!kept.length)throw Object.assign(Error(`None of the ${g.label} (${members.map(s=>`"${s.title.trim()}"`).join(', ')}) is in the template, and one should run. Add the one this candidate is taking to the schedule's template in Ashby, then load the plan again.`),{status:409,needsPerson:true});
     }
     if(out.some(s=>!grouped.has(s.sessionId)))throw Object.assign(Error('The scheduling worker left an interview out of the plan that no alternatives rule covers. Reload the plan.'),{status:409});
     return activity.sessions.filter(s=>!outIds.has(s.sessionId));
@@ -187,7 +187,7 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     // Hard rule: Welcome opens the day. Sessions are never reordered, so a
     // template with Welcome elsewhere is refused rather than rearranged.
     const welcome=plan.sessions.findIndex(s=>/^welcome\b/i.test(String(s.title||'').trim()));
-    if(welcome>0)throw Object.assign(Error(`The template has "${plan.sessions[welcome].title}" as session ${welcome+1}, but Welcome must come first. Move it to the start of the template in Ashby, then load the plan again.`),{status:409});
+    if(welcome>0)throw Object.assign(Error(`The template has "${plan.sessions[welcome].title}" as session ${welcome+1}, but Welcome must come first. Move it to the start of the template in Ashby, then load the plan again.`),{status:409,needsPerson:true});
     // Advisory: busy time and meeting hours are flagged, not enforced; the
     // candidate's availability, start windows and breaks stay hard.
     const result=require('./full-calendar-schedule').proposeCalendarSchedule({sessions:inputs.sessions,windows,timezone,calendars:inputs.calendars,...inputs.agenda,advisory:true,avoidStarts,fixedStarts});

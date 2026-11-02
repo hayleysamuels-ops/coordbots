@@ -1,5 +1,6 @@
 "use strict";
 const { digest } = require('./service');
+const { ashbyRead } = require('./ashby-read');
 const { windowsToInstants } = require('./booking-planner');
 const fail = (status, message) => { throw Object.assign(new Error(message), { status }); };
 const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);
@@ -8,16 +9,12 @@ const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4})
 // the requested interview; they never imply calendar availability or delivery.
 // `identityFor(name)` gives the client rules' interviewer identity override
 // for a name (rules.js), or null.
-function createBookingFacts({ key, clientId, request = fetch, now = () => Date.now(), identityFor = () => null }) {
+// Reads go through ashby-read.js: status kept, transient failures retried within seconds.
+function createBookingFacts({ key, clientId, request = fetch, now = () => Date.now(), identityFor = () => null, sleep, log = console }) {
   async function read(endpoint, body, envelope = false) {
     if (!key || !clientId) fail(503, 'The client Ashby read connection is not configured.');
-    const response = await request('https://api.ashbyhq.com/' + endpoint, {
-      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(20000),
-      headers: { Authorization: 'Basic ' + Buffer.from(key + ':').toString('base64'), 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const data = await response.json();
-    if (!response.ok || data.success !== true) fail(503, 'Could not verify the current Ashby scheduling details.');
+    const { ok, data } = await ashbyRead({ key, endpoint, body, request, ...(sleep ? { sleep } : {}), log });
+    if (!ok || data?.success !== true) fail(503, 'Could not verify the current Ashby scheduling details.');
     return envelope ? data : data.results;
   }
   async function load(input) {
