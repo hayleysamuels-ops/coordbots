@@ -70,6 +70,15 @@ const saveSummary=events=>events.map((e,i)=>`${i+1} ${hm(e.start)}–${hm(e.end)
 // what the slot held before that save wasn't logged). Never page text.
 const who=(id,names)=>id==null?'-':names.has(id)?`${id} (${names.get(id)})`:id;
 const slotSummary=(events,names)=>events.map((e,i)=>e.slots.map((s,j)=>`event ${i+1} slot ${j+1}: selected ${who(s.selected,names)}; alternates ${s.alternates===null?'(none sent)':`[${s.alternates.map(a=>who(a,names)).join(', ')}]`}`).join('; ')).join('; ');
+// A draft's slots in full for the dry run's --observe-off-plan log: user IDs
+// and slot settings only. Any field whose key mentions a name, email or phone,
+// and any string holding an "@", is left out, so no person's details are logged.
+const scrub=v=>Array.isArray(v)?v.map(scrub):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).map(([k,x])=>[k,/name|email|phone/i.test(k)?'[omitted]':scrub(x)])):typeof v==='string'&&v.includes('@')?'[omitted]':v;
+const fullSlots=events=>events.map((e,i)=>({event:i+1,eventId:e.id,slots:e.slots.map((s,j)=>({slot:j+1,selected:s.selected,alternates:s.alternates,settings:scrub(s.rest)}))}));
+// A save that selects someone the slot didn't list when the draft was created
+// (off the interview's eligible list), and who wasn't already selected.
+const offPlanPick=(created,prev,next)=>next.flatMap((e,i)=>e.slots.map((s,j)=>({i,j,s})).filter(({i,j,s})=>s.selected&&s.selected!==prev[i]?.slots[j]?.selected
+  &&!(created?.[i]?.slots?.[j]?.alternates||[]).includes(s.selected)&&created?.[i]?.slots?.[j]?.selected!==s.selected));
 const planNames=plan=>new Map((plan.sessions||[]).flatMap(s=>(s.interviewers||[]).map(x=>[x.userId,x.name||x.email||x.userId])));
 
 // The draft saves a booking may make, from the plan alone, as an upper bound
@@ -97,7 +106,12 @@ function saveBudget(plan){
 //   last        the last accepted draft contents
 //   refusals    every save refused on content, with the reason
 //   cleanup     true only while the draft is being deleted
-async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxSaves=saveBudget(plan).limit,maxRefreshes=10,observeAlternates=false}){
+// `observeOffPlan` (booking-dry-run.js --observe-off-plan only): a save that
+// picks someone off the slot's eligible list is logged in full (fullSlots:
+// before, after, and what checkSave makes of it) and then refused whatever
+// checkSave says, so nothing off-plan is ever written; state.offPlanObserved
+// tells the composer to stop.
+async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxSaves=saveBudget(plan).limit,maxRefreshes=10,observeAlternates=false,observeOffPlan=false}){
   Object.assign(state,{draftId:null,created:null,last:null,saves:0,lastSaveAt:0,lastRefreshAt:0,refusals:[],baselineError:null,cleanup:false,sent:0,lastSeq:0,zone:null,attempts:0});
   const forDraft=v=>!!state.draftId&&v.draftInterviewScheduleId===state.draftId;
   const names=planNames(plan);
@@ -123,7 +137,18 @@ async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxS
       let next=null;
       // Slots before and after, logged whenever a save changes them or is refused.
       const slots=()=>{const before=slotSummary(state.last,names),after=next?slotSummary(next,names):null;return {before,after};};
-      try{next=normalizeDraft(v.draftSchedule);checkSave(state.last,next,plan,{compareRest:state.saves>0,timeZone:state.zone,observeAlternates});
+      try{next=normalizeDraft(v.draftSchedule);
+        const picks=observeOffPlan?offPlanPick(state.created,state.last,next):[];
+        if(picks.length){
+          let verdict='would pass the save check';
+          try{checkSave(state.last,next,plan,{compareRest:state.saves>0,timeZone:state.zone,observeAlternates});}catch(e){verdict=`refused by the save check: ${e.message}`;}
+          state.offPlanObserved=true;
+          log({type:'observe',what:'off-plan save, refused before it reached Ashby',seq:attempt,picked:picks.map(({i,j,s})=>({event:i+1,slot:j+1,userId:s.selected})),
+            comparedSettings:state.saves>0,checkSave:verdict,created:fullSlots(state.created),before:fullSlots(state.last),after:fullSlots(next)});
+          state.refusals.push('off-plan save observed and refused (--observe-off-plan)');
+          return false;
+        }
+        checkSave(state.last,next,plan,{compareRest:state.saves>0,timeZone:state.zone,observeAlternates});
         const s=slots(),seq=++state.sent;log({type:'save-checked',seq:attempt,ok:true,events:saveSummary(next),...(s.before!==s.after?{slots:s}:{})});return {next,seq,attempt};}
       catch(e){state.refusals.push(e.message);log({type:'refused-save',seq:attempt,reason:e.message,slots:slots()});return false;}
     },
@@ -139,4 +164,4 @@ async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxS
   return permits;
 }
 
-module.exports={installPermit,installBookingPermits,saveBudget,SAVE_CEILING,parsedOps,isMutation,OP,ORIGIN,slotSummary};
+module.exports={installPermit,installBookingPermits,saveBudget,SAVE_CEILING,parsedOps,isMutation,OP,ORIGIN,slotSummary,fullSlots,scrub,offPlanPick};

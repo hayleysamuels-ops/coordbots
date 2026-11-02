@@ -1596,6 +1596,20 @@ file permits it or the composer clicks Schedule.
   would refuse. The October 13 observation (choosing Hayley left [Hayley])
   came from a run that ended on Ashby's network-error page and no longer
   passes.
+- **Observing an off-plan pick** (`booking-dry-run.js --observe-off-plan`, dry
+  run only, behind `BOOKING_DRY_RUN=on`; November 2, for Phase 2): a planned
+  interviewer missing from the slot's eligible list is picked through Ashby's
+  "Search for a user..." box (the only place the composer ever touches it),
+  and the save Ashby's page then attempts is logged as an `observe` line, in
+  full: the slot as created, before and after, as user IDs and slot settings
+  (any name, email or phone field omitted), with what the save check makes
+  of it. That save is refused whatever the check says, so nothing off-plan is
+  written, and the run stops and deletes the draft. `dryRun` throws if asked
+  to observe with a kept draft or Send, and the Slack-approved check never
+  passes it (tests enforce both). Found while testing it: a save naming an
+  approved off-plan person passes the save check if Ashby leaves the slot's
+  alternates and settings alone, so today the eligible-list-only pick is what
+  keeps anyone off-plan out.
 - **Observing alternates** (`booking-dry-run.js --observe-alternates`, dry run
   only, behind `BOOKING_DRY_RUN=on`): a slot's alternates may narrow to any
   subset of what they were (never gain anyone), unapproved alternates left at

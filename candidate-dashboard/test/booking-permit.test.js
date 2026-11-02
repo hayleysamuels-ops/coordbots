@@ -20,7 +20,7 @@ const plan={candidate:{name:'TEST',email:'t@example.com'},job:{title:'TEST'},sta
   sessions:[{title:'Initial',interviewId:'int-1',start:'2099-10-20T19:05:00.000Z',end:'2099-10-20T19:35:00.000Z',interviewers:[HAYLEY]}]};
 const event=(o={})=>({id:'ev-1',title:'Initial',startTimeISO:'2099-10-12T17:00:00.000Z',endTimeISO:'2099-10-12T17:30:00.000Z',interviewId:'int-1',interviewSlots:[{selected:'u-mary',alternates:[]}],...o});
 
-async function setup(t,{baseline=event()}={}){
+async function setup(t,{baseline=event(),permitPlan=plan,observeOffPlan=false}={}){
   const browser=await launch();
   if(!browser){t.skip('no Chromium available');return null;}
   t.after(()=>browser.close());
@@ -33,7 +33,7 @@ async function setup(t,{baseline=event()}={}){
   const respond=async route=>{const b=JSON.parse(route.request().postData());received.push(b.operationName);
     if(b.operationName===OP.create)return {status:200,json:{data:{draftInterviewSchedule:{id:'draft-1',draftSchedule:{events:[baseline]}}}}};
     return {status:200,json:{data:{ok:true}}};};
-  await installBookingPermits(context,{plan,state,respond,log:e=>log.push(e)});
+  await installBookingPermits(context,{plan:permitPlan,state,respond,log:e=>log.push(e),observeOffPlan});
   const page=await context.newPage();await page.goto('https://app.ashbyhq.com/');
   const send=(name,variables)=>page.evaluate(b=>fetch('/api/graphql',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.status,()=>'blocked'),
     {operationName:name,query:`mutation ${name} { x }`,variables});
@@ -114,4 +114,27 @@ test('the save permit stops at the plan\'s limit, and the save over it falls to 
   for(let n=1;n<=saveBudget(plan).limit;n++)assert.equal(await s.send(OP.save,ok),200,`save ${n}`);
   assert.equal(await s.send(OP.save,ok),'blocked','one over the limit');
   assert.equal(s.state.saves,saveBudget(plan).limit);
+});
+
+test('observing an off-plan pick: the save is logged in full and refused even where the check would pass, so nothing off-plan reaches Ashby',async t=>{
+  const VAMSI={userId:'u-vamsi',name:'Vamsi Chitters',email:'vamsi@luminai.com'};
+  const offPlan={...plan,sessions:[{...plan.sessions[0],interviewers:[VAMSI]}]};
+  const created=event({interviewSlots:[{selected:null,alternates:['u-eligible','u-hayley'],feedbackRequired:true}]});
+  const s=await setup(t,{baseline:created,permitPlan:offPlan,observeOffPlan:true});if(!s)return;
+  assert.equal(await s.send(OP.create,{interviewScheduleId:'sched-1'}),200);
+  // Ashby's page keeps the alternates and settings exactly: the save check alone would let this through.
+  assert.equal(await s.send(OP.save,save({interviewSlots:[{selected:'u-vamsi',alternates:['u-eligible','u-hayley'],feedbackRequired:true}]})),'blocked');
+  assert.equal(s.state.offPlanObserved,true);
+  assert.deepEqual(s.received,[OP.create],'the off-plan save never reached the stand-in');
+  const seen=s.log.find(e=>e.type==='observe');
+  assert.equal(seen.what,'off-plan save, refused before it reached Ashby');
+  assert.deepEqual(seen.picked,[{event:1,slot:1,userId:'u-vamsi'}]);
+  assert.equal(seen.checkSave,'would pass the save check');
+  assert.deepEqual(seen.after,[{event:1,eventId:'ev-1',slots:[{slot:1,selected:'u-vamsi',alternates:['u-eligible','u-hayley'],settings:{feedbackRequired:true}}]}]);
+  assert.deepEqual(seen.created[0].slots[0].alternates,['u-eligible','u-hayley']);
+  assert.doesNotMatch(JSON.stringify(seen),/Vamsi|@/,'user IDs and settings only');
+  // Without the flag, the same save is checked as always (and passes, being approved and harmless).
+  const plain=await setup(t,{baseline:created,permitPlan:offPlan});
+  await plain.send(OP.create,{interviewScheduleId:'sched-1'});
+  assert.equal(await plain.send(OP.save,save({interviewSlots:[{selected:'u-vamsi',alternates:['u-eligible','u-hayley'],feedbackRequired:true}]})),200);
 });

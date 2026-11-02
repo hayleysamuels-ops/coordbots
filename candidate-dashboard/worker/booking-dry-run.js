@@ -9,7 +9,7 @@
 // dashboard nor Slack can reach it. It runs only from a shell in the worker
 // container:
 //
-//   railway ssh -s scheduling-worker -- node worker/booking-dry-run.js --plan-base64 <plan> [--observe-alternates]
+//   railway ssh -s scheduling-worker -- node worker/booking-dry-run.js --plan-base64 <plan> [--observe-alternates] [--observe-off-plan]
 //
 // <plan> is the approved agenda as base64 JSON (worker/booking-check.js has
 // its shape; src/scheduling/booking-plan.js builds it from a preview option).
@@ -41,6 +41,11 @@ function readPlanArg(argv){
 // --observe-alternates: let a slot's alternates narrow, and log what Ashby does
 // with them (booking-composer.js). Dry run only; the draft is still deleted.
 const observeAlternatesArg=argv=>argv.includes('--observe-alternates');
+// --observe-off-plan: pick a planned interviewer who isn't on the slot's
+// eligible list through Ashby's user search, log the save Ashby's page then
+// attempts in full (user IDs and slot settings only), refuse it, and stop
+// (booking-composer.js, booking-permit.js). Dry run only; the draft is deleted.
+const observeOffPlanArg=argv=>argv.includes('--observe-off-plan');
 
 // Everything the run depends on is passed in, so the locks can be tested
 // without a session or a browser. Returns the composer's report.
@@ -68,7 +73,7 @@ async function run({env,argv,chromium,loadSession,now=Date.now,log=()=>{},compos
       return route.continue();
     });
     const page=await context.newPage();
-    return await composer.dryRun({context,page,plan,log,expectedIdentity,observeAlternates:observeAlternatesArg(argv)});
+    return await composer.dryRun({context,page,plan,log,expectedIdentity,observeAlternates:observeAlternatesArg(argv),observeOffPlan:observeOffPlanArg(argv)});
   }finally{await browser.close().catch(()=>{});}
 }
 
@@ -95,4 +100,4 @@ if(require.main===module){
   })().catch(e=>{console.error('[booking-dry-run]',e instanceof Stop?e.message:'failed: '+e.message);process.exit(e instanceof Stop?e.code:1);});
 }
 
-module.exports={run,checkFlag,checkPlan,readPlanArg,observeAlternatesArg,Stop};
+module.exports={run,checkFlag,checkPlan,readPlanArg,observeAlternatesArg,observeOffPlanArg,Stop};

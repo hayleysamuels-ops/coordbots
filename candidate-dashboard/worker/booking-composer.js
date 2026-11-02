@@ -234,14 +234,20 @@ const draftUrl=id=>id?`${ORIGIN}/schedules/drafts/${id}`:null;
 // end instead of refusing (checkFinal), and logs each eligible interviewer's
 // row on Ashby's interviewer page and every invite preview's recipients
 // (`observe` events). Never with a kept draft or Send.
-async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,expectedIdentity,checkExistingDrafts=false,supersedeDraftId=null,keepOnSuccess=false,send=false,beforeSend=null,observeAlternates=false}){
+// `observeOffPlan` (booking-dry-run.js --observe-off-plan only): a planned
+// interviewer missing from the slot's eligible list is picked through Ashby's
+// "Search for a user..." box instead of refusing, so the save Ashby's page
+// then attempts can be logged in full and refused (booking-permit.js); the run
+// stops there and the draft is deleted. Never with a kept draft or Send.
+async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,expectedIdentity,checkExistingDrafts=false,supersedeDraftId=null,keepOnSuccess=false,send=false,beforeSend=null,observeAlternates=false,observeOffPlan=false}){
   if(observeAlternates&&(keepOnSuccess||send))throw new Error('Observing alternates is for the dry run only: never with a kept draft or Send.');
+  if(observeOffPlan&&(keepOnSuccess||send))throw new Error('Observing an off-plan pick is for the dry run only: never with a kept draft or Send.');
   const T={settle:700,short:1500,wait:15000,...timing};
   const events=[];const note=e=>{events.push(e);log(e);};
   const guard=await guardWrites(context,{warn:m=>note({type:'blocked',ashby:!!guard.blocked[guard.blocked.length-1]?.ashby,detail:m.replace('[write-guard] ','')})});
   const state={};
   const budget=saveBudget(plan);
-  const permits=await installBookingPermits(context,{plan,state,log:note,observeAlternates,maxSaves:budget.limit,...(respond?{respond}:{})});
+  const permits=await installBookingPermits(context,{plan,state,log:note,observeAlternates,observeOffPlan,maxSaves:budget.limit,...(respond?{respond}:{})});
   // The earlier draft's delete: that draft only, once, and only while armed.
   const superseding={armed:false,discarded:undefined};
   if(supersedeDraftId)await installPermit(context,{op:OP.discard,max:1,log:note,capture:true,...(respond?{respond}:{}),
@@ -511,6 +517,25 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
             return (row?.innerText||'').replace(/\s+/g,' ').trim().slice(0,200);})),
           page:(await page.locator('body').innerText().catch(()=>'')).split('\n').map(l=>l.trim()).filter(l=>/current interviewer|conflict|busy|consider alternate/i.test(l)).slice(0,12)});
         const matches=rows.map((m,k)=>m?k:-1).filter(k=>k>=0);
+        if(observeOffPlan&&!matches.length){
+          // Off the eligible list: Ashby's own search, the one place it lets
+          // anyone be picked. Only while observing; the save it causes is
+          // logged and refused by the permit, never written.
+          step=`observe an off-plan pick of ${p.name} for "${s.title}"`;
+          const search=page.getByPlaceholder('Search for a user...');
+          const boxes=await search.count();
+          if(boxes!==1)refuse(`Expected one "Search for a user..." box on the interviewer page; found ${boxes}.`);
+          await after(()=>search.fill(p.email));
+          const hits=page.getByText(p.email,{exact:false});
+          await until(async()=>await hits.count()>0,`a search result for ${p.name}`);
+          const shown=await hits.count();
+          note({type:'observe',what:`off-plan search for slot ${j+1} of "${s.title}"`,results:shown,selectButtons:await buttons.count()});
+          if(shown!==1)refuse(`The search for ${p.name} showed ${shown} matching results; expected one.`);
+          await after(()=>hits.first().click());
+          await until(()=>state.offPlanObserved||state.last[i].slots[j].selected===p.userId,`Ashby to try saving ${p.name} into the slot`);
+          if(state.offPlanObserved)refuse('Observed the off-plan save and refused it, as --observe-off-plan does (see the observe line): stopping here, before anything off-plan is written.');
+          refuse(`${p.name} was saved into the slot without the off-plan check seeing it: stopping.`);
+        }
         if(matches.length!==1)refuse(matches.length?`${p.name} (${p.email}) appears ${matches.length} times in the eligible list for "${s.title}".`:`${p.name} (${p.email}) isn't an eligible interviewer for "${s.title}" in Ashby. Only people the interview's template allows can be booked.`);
         await after(()=>buttons.nth(matches[0]).click());
         await until(()=>state.last[i].slots[j].selected===p.userId,`Ashby to save ${p.name} into the slot`);

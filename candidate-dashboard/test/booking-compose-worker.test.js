@@ -403,3 +403,29 @@ test('the drafts check says which way it went',()=>{
   assert.equal(detailLine({type:'drafts-check',how:'tab',count:1}),'drafts check: the Drafts page listed 1 draft');
   assert.equal(detailLine({type:'drafts-check',how:'tab',count:0,after:'deleting the earlier draft'}),'drafts check (after deleting the earlier draft): the Drafts page listed 0 drafts');
 });
+
+test('observing an off-plan pick is reachable only from the dry run, never with a kept draft or Send',async()=>{
+  const {observeOffPlanArg}=require('../worker/booking-dry-run');
+  assert.equal(observeOffPlanArg(['node','x','--plan-base64','e30=']),false);
+  assert.equal(observeOffPlanArg(['node','x','--plan-base64','e30=','--observe-off-plan']),true);
+  const {dryRun}=require('../worker/booking-composer');
+  await assert.rejects(dryRun({observeOffPlan:true,keepOnSuccess:true}),/dry run only/);
+  await assert.rejects(dryRun({observeOffPlan:true,send:true}),/dry run only/);
+  const src=require('fs').readFileSync(require('path').join(__dirname,'../worker/booking-compose.js'),'utf8');
+  assert.doesNotMatch(src,/observeOffPlan|Search for a user/,'the Slack-approved check never picks off the eligible list');
+});
+
+test('an off-plan pick is found against the slot as created, and logged as user IDs and settings only',()=>{
+  const {offPlanPick,fullSlots,scrub}=require('../worker/booking-permit');
+  const ev=(selected,alternates,rest={})=>[{id:'ev-1',slots:[{selected,alternates,rest}]}];
+  const created=ev(null,['u-eligible','u-hayley']);
+  // Picking someone the slot listed isn't off-plan; picking Vamsi is.
+  assert.deepEqual(offPlanPick(created,created,ev('u-hayley',['u-eligible'])),[]);
+  assert.deepEqual(offPlanPick(created,created,ev('u-vamsi',['u-eligible','u-hayley'])).map(({i,j,s})=>[i,j,s.selected]),[[0,0,'u-vamsi']]);
+  // Already selected before this save: not a new pick.
+  assert.deepEqual(offPlanPick(created,ev('u-vamsi',[]),ev('u-vamsi',[])),[]);
+  const rest={feedbackRequired:true,interviewerPoolId:'pool-1',role:'Interviewer',user:{id:'u-vamsi',firstName:'Vamsi',email:'vamsi@luminai.com'},note:'ask a@b.c'};
+  assert.deepEqual(scrub(rest),{feedbackRequired:true,interviewerPoolId:'pool-1',role:'Interviewer',user:{id:'u-vamsi',firstName:'[omitted]',email:'[omitted]'},note:'[omitted]'});
+  assert.deepEqual(fullSlots(ev('u-vamsi',['u-eligible'],rest)),[{event:1,eventId:'ev-1',slots:[{slot:1,selected:'u-vamsi',alternates:['u-eligible'],settings:scrub(rest)}]}]);
+  assert.doesNotMatch(JSON.stringify(fullSlots(ev('u-vamsi',['u-eligible'],rest))),/Vamsi|@/);
+});
