@@ -307,6 +307,39 @@ configured client — she works on one of the four — and without her, her
 work there will be counted as the client's own activity rather than
 ours.
 
+## Where the roster comes from
+
+Each client's `CARRARA_COORDINATORS_<ID>` is set from the **Coordinator
+Client Allocations** tracker in Notion (Coordinator Corner → Hayley
+Only), using its **Owners** column — not the Support column, and not
+the shared default list.
+
+It is Owners **plus anyone with real historical work at that client**,
+and the second half is load-bearing. The tracker records who owns an
+engagement *now*; the dashboard covers twelve months. Taking Owners
+alone would have moved 4,180 events of genuine Carrara work into the
+"client's own" scope and reported it as never having been ours:
+
+| Client | Dropped by Owners-only | Events |
+|---|---|---|
+| Profound | Meredith Faria | 2,557 |
+| January | Maggie Stout | 1,091 |
+| Forus | Anna Jones | 307 |
+| Luminai | Hayley Samuels | 225 |
+
+Profound is the clearest case — Meredith booked more of it than either
+listed Owner — and it is not an exception to carve out, it is what a
+current-allocation list does to a historical window at every client.
+
+Support coordinators (Aizel, Cath, Ria, Shayne) are deliberately not
+included. None of them appears as a scheduler in any client's data, so
+adding them would only produce standing "no matching work" warnings.
+Add one the first time their name shows up on a schedule.
+
+**Keep these in step with the tracker as allocations change**, and when
+removing someone, check they have no historical work at that client
+first — the rule is Owners ∪ past workers, never Owners alone.
+
 ## Time zones
 
 Each client tab buckets days, weeks and the heatmap in that client's own

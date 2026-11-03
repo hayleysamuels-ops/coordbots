@@ -456,6 +456,33 @@ is the short list of things that look wrong and are not.
   people do hold client-domain accounts at some clients, so an email
   domain is not a reliable test of whose work it is either.
 
+- **Every client sets its OWN roster, from the Notion allocations
+  tracker, and it is Owners UNION past workers — never Owners alone.**
+  The tracker says who owns an engagement today; the dashboard covers
+  twelve months. Setting the rosters to its Owners column alone would
+  have moved 4,180 events of real Carrara work into the "client's own"
+  scope: Meredith Faria's 2,557 at Profound (more than either listed
+  Owner booked), Maggie Stout's 1,091 at January, Anna Jones's 307 at
+  Forus, Hayley Samuels's 225 at Luminai. That is not a Profound quirk
+  to special-case; it is what a current-allocation list does to a
+  historical window. Before dropping a name, check they have no
+  historical work at that client.
+
+  The tracker's **Support** column is deliberately excluded. None of
+  those four has ever appeared as a scheduler, so including them would
+  only raise standing "no matching work" warnings.
+
+  Per-client lists also switch `hasOwnRoster` on everywhere, which is
+  what makes the "no events here for X" warning meaningful again — at
+  Pace and LiteLLM it correctly reports that the named owners have not
+  started booking yet.
+
+- **No tab is labelled with its engagement type.** Client-scheduled
+  accounts carried a "client-scheduled" note beside the tab name;
+  removed on request 3 November 2026. The distinction still drives
+  every roll-up (see the two-flags note above) and is still stated in
+  the Overview's engagement grouping — it is just not on the tab.
+
 - **The roster panel is a MATCH CHECK, collapsed and alphabetical.** It
   confirms each rostered name resolves to real scheduled work — that is
   how a misspelled name, a renamed account or a coordinator assigned to

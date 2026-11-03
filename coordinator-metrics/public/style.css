@@ -1269,15 +1269,6 @@ details.data-quality .notice { margin-top: 12px; border-left-color: var(--border
 
 /* --- Ended-engagement dropdown in the tab bar --- */
 
-.tab-note {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  text-transform: lowercase;
-  letter-spacing: 0.02em;
-  color: var(--text-muted);
-  margin-left: 6px;
-}
-
 .tab-menu-wrap { position: relative; display: inline-flex; }
 
 .tab-menu { display: inline-flex; align-items: center; gap: 6px; }

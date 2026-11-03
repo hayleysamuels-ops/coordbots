@@ -1750,11 +1750,6 @@ function renderTabs() {
       [
         el("span", { class: "tab-dot" }),
         client.name,
-        // Said on the tab, because the share figures on a
-        // client-scheduled account answer a different question.
-        client.engagement === "client-scheduled"
-          ? el("span", { class: "tab-note", text: "client-scheduled" })
-          : null,
       ]
     );
 
