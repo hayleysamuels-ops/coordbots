@@ -1266,3 +1266,66 @@ details.data-quality .notice { margin-top: 12px; border-left-color: var(--border
    other's data — marked, not greyed, since the figure is usable with
    the caveat attached. */
 .esc-lopsided .esc-sample { color: var(--warning); }
+
+/* --- Ended-engagement dropdown in the tab bar --- */
+
+.tab-note {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  margin-left: 6px;
+}
+
+.tab-menu-wrap { position: relative; display: inline-flex; }
+
+.tab-menu { display: inline-flex; align-items: center; gap: 6px; }
+
+.tab-caret { font-size: 9px; color: var(--text-muted); margin-left: 2px; }
+
+/* When one of the ended clients is the open tab, the trigger carries
+   the selected underline itself — otherwise the active tab would be
+   hidden inside a closed menu with nothing on screen to say so. */
+.tab-menu.is-selected-group { border-bottom-color: var(--tab-accent, var(--ember)); }
+
+.tab-menu-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 20;
+  min-width: 220px;
+  margin-top: 2px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-md, 0 6px 20px rgba(0, 0, 0, 0.12));
+}
+
+.menu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-item:hover { background: var(--surface-sunken); }
+.menu-item.on { background: var(--surface-sunken); font-weight: 600; }
+
+.menu-item-note {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-top: 1px;
+}

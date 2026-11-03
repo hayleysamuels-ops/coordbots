@@ -265,17 +265,41 @@ colour. Railway variables are not parsed by dotenv, so no quotes there.
    `EXCLUDED_TITLE_KEYWORDS_<ID>`.
 3. Redeploy, then `POST /api/sync?kind=full` to backfill the new tab.
 
-Configured today: January, Forus, Luminai, Poetic, Runlayer and
-Profound (ended). Polymarket, OpenAI Foundation, Source Foundry and
-Modal have no key provisioned yet.
+Configured today: January, Forus, Luminai, Poetic, Runlayer, Profound
+(ended), Pace and LiteLLM. Polymarket, OpenAI Foundation, Source Foundry
+and Modal have no key provisioned yet.
 
 Profound's engagement has finished, so it carries `status=ended`: its
 figures cover its own fixed date range, it is excluded from
 current-period numbers and the weekly trend, and it is included in
-12-month volume totals, which is the point of keeping it. When
-pre/post-Carrara is built, Profound must be excluded from it — we built
-their Ashby instance, so there is no pre-Carrara history to compare
-against and a baseline of nearly zero would read as a transformation.
+12-month volume totals, which is the point of keeping it. Ended clients
+are collapsed behind a dropdown in the tab bar rather than sitting
+alongside live ones. When pre/post-Carrara is built, Profound must be
+excluded from it — we built their Ashby instance, so there is no
+pre-Carrara history to compare against and a baseline of nearly zero
+would read as a transformation.
+
+**Pace and LiteLLM are `client-scheduled` TODAY, and both will need
+flipping to `carrara-scheduled` as the handover completes.** Added 3
+November 2026. Neither had a single Carrara-created booking in the
+12-month window when they were onboarded:
+
+| | Pace | LiteLLM |
+|---|---|---|
+| Their own scheduler | Kitty Qu, 667 of 687 | Joanna Samuels, 506 of 532 |
+| Carrara bookings | 0, ever | 2, both November 2026 |
+
+Pace's handover had not begun; LiteLLM's started in November, with
+Joanna's volume falling from 113/month in June to 2. Classifying them
+`carrara-scheduled` before the work is actually ours puts ~1,170
+interviews we never touched into the headline denominator and cost six
+points off the Overview share, which is the same distortion the flag
+exists to prevent at Forus. Flip each one when its Carrara share is
+material, not when the contract says so.
+
+`Prep` is excluded at Pace: 7 events, each attached to a candidate but
+averaging 0.1 interviewers, against Coffee Intro's 2. A block, not an
+interview. Coffee and Coffee Intro stay counted, as Forus's meals do.
 
 **When one of those four is onboarded, add Sadiqeh Agah back to the
 roster.** She was removed because she matched no scheduled work at any

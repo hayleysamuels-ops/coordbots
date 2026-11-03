@@ -63,6 +63,13 @@ function createServer() {
         timeZone: c.timeZone,
         accentColor: c.accentColor || null,
         configured: Boolean(c.apiKey),
+        // The tab bar needs both: ended engagements are collapsed
+        // behind a dropdown so a finished client does not take the
+        // same visual weight as a live one, and client-scheduled
+        // accounts are labelled because their share figures mean
+        // something different.
+        status: c.status,
+        engagement: c.engagement,
       })),
     });
   });

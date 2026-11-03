@@ -421,6 +421,41 @@ is the short list of things that look wrong and are not.
   weight beside one on 959. Don't move these back into the comparison
   panel and don't drop the sample labels.
 
+- **Ended engagements live in a tab-bar dropdown, keyed off `status`.**
+  An ended client belongs on the dashboard — Profound is a year of
+  volume in the 12-month totals — but at the same visual weight as a
+  live tab it invites someone to read its numbers as current, which
+  they are not. The dropdown is built from `status`, never a list of
+  names, so the next engagement to end moves itself in. When one of its
+  clients is the open tab the trigger shows that client's name and
+  carries the selected underline, otherwise the active tab would be
+  invisible inside a closed menu. With no ended clients there is no
+  dropdown at all.
+
+- **A client is classified by WHO ACTUALLY BOOKS, not by what the
+  contract says.** Pace and LiteLLM were onboarded 3 November 2026 as
+  `carrara-scheduled` on the understanding that we coordinate there.
+  The data said otherwise: zero Carrara-created bookings ever at Pace,
+  two at LiteLLM, both that month. Every booking came from a
+  client-domain account — `kitty@withpace.com` (667 of 687),
+  `joanna@berri.ai` (506 of 532). Both are client employees mid-
+  handover to us.
+
+  Left as `carrara-scheduled` this put ~1,170 interviews we never
+  touched into the headline denominator and took the Overview share
+  from 79% to 72%. Both are `client-scheduled` until their Carrara
+  share is material. **Check the scheduler breakdown before setting
+  this flag on any new client**, and expect to flip these two as the
+  handovers complete.
+
+- **A name can resolve to two Ashby accounts at the same client.**
+  LiteLLM has `Hayley Samuels` under both `hayley@berri.ai` and
+  `hayley.samuels@carrara.is`. Roster matching is on name, so both
+  count as ours — two events today, so harmless, but the collision
+  report exists precisely because the next one may not be. Carrara
+  people do hold client-domain accounts at some clients, so an email
+  domain is not a reliable test of whose work it is either.
+
 - **The roster panel is a MATCH CHECK, collapsed and alphabetical.** It
   confirms each rostered name resolves to real scheduled work — that is
   how a misspelled name, a renamed account or a coordinator assigned to
@@ -487,6 +522,20 @@ is the short list of things that look wrong and are not.
   README was run end to end from a laptop, which is the point: the
   recovery path must not depend on the platform that just lost the
   volume.
+
+- **KNOWN ISSUE: `metrics.rebuild()` is synchronous and blocks the
+  server for ~4 minutes.** It runs inside the `app.listen()` callback
+  and again after EVERY sync, including the hourly top-up, so the port
+  is bound while the event loop is blocked and the dashboard is
+  unreachable. Measured at 238-248s with eight clients, and it scales
+  with client count — it was shorter before Pace and LiteLLM.
+
+  This very likely explains two things previously filed as mysteries: a
+  FAILED Railway deploy with empty build logs (health check timing out
+  against a blocked loop) and intermittent "no response" from the API
+  during sync windows. The fix is to let the rebuild yield between
+  clients rather than holding the loop for the whole pass. Not done —
+  it is a hot path and was out of scope when found.
 
 ## Conventions
 

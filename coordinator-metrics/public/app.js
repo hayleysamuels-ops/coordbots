@@ -1717,8 +1717,48 @@ function rangeRow(label, value, unit) {
 
 // --- Shell -----------------------------------------------------------------
 
+/**
+ * The tab bar: Overview, every active client, then one dropdown holding
+ * the ended engagements.
+ *
+ * An ended client still belongs on the dashboard — Profound is a year
+ * of volume that counts in the 12-month totals — but it is finished,
+ * and a finished client sitting at the same visual weight as a live one
+ * invites someone to read its numbers as current. They are not: an
+ * ended engagement reads its own fixed date range and is excluded from
+ * every current-period figure and the weekly trend.
+ *
+ * The dropdown is built from `status`, not from a list of names, so the
+ * next engagement to end moves itself in here.
+ */
 function renderTabs() {
-  tabsEl.replaceChildren(
+  const clients = state.config.clients || [];
+  const active = clients.filter((c) => c.status !== "ended");
+  const ended = clients.filter((c) => c.status === "ended");
+
+  const clientTab = (client) =>
+    el(
+      "button",
+      {
+        class: "tab",
+        role: "tab",
+        type: "button",
+        style: client.accentColor ? `--tab-accent:${client.accentColor}` : null,
+        "aria-selected": String(state.active === client.id),
+        onclick: () => selectTab(client.id),
+      },
+      [
+        el("span", { class: "tab-dot" }),
+        client.name,
+        // Said on the tab, because the share figures on a
+        // client-scheduled account answer a different question.
+        client.engagement === "client-scheduled"
+          ? el("span", { class: "tab-note", text: "client-scheduled" })
+          : null,
+      ]
+    );
+
+  const children = [
     el("button", {
       class: "tab",
       role: "tab",
@@ -1727,21 +1767,88 @@ function renderTabs() {
       "aria-selected": String(state.active === "overview"),
       onclick: () => selectTab("overview"),
     }),
-    ...state.config.clients.map((client) =>
-      el(
-        "button",
-        {
-          class: "tab",
-          role: "tab",
-          type: "button",
-          style: client.accentColor ? `--tab-accent:${client.accentColor}` : null,
-          "aria-selected": String(state.active === client.id),
-          onclick: () => selectTab(client.id),
+    ...active.map(clientTab),
+  ];
+
+  if (ended.length) children.push(endedMenu(ended));
+
+  tabsEl.replaceChildren(...children);
+}
+
+/**
+ * The ended-engagements dropdown.
+ *
+ * Closes on outside click and on Escape. When one of its clients is the
+ * open tab the trigger shows that client's name rather than the generic
+ * label, so the selected tab is never invisible.
+ */
+function endedMenu(ended) {
+  const selected = ended.find((c) => c.id === state.active) || null;
+  const open = Boolean(state.endedMenuOpen);
+
+  const trigger = el("button", {
+    class: `tab tab-menu${selected ? " is-selected-group" : ""}`,
+    type: "button",
+    "aria-haspopup": "true",
+    "aria-expanded": String(open),
+    "aria-selected": String(Boolean(selected)),
+    onclick: (e) => {
+      e.stopPropagation();
+      state.endedMenuOpen = !state.endedMenuOpen;
+      renderTabs();
+    },
+  }, [
+    selected ? el("span", { class: "tab-dot" }) : null,
+    selected ? selected.name : `Ended (${ended.length})`,
+    el("span", { class: "tab-caret", text: open ? "\u25B4" : "\u25BE" }),
+  ]);
+
+  const items = ended.map((client) =>
+    el(
+      "button",
+      {
+        class: `menu-item${state.active === client.id ? " on" : ""}`,
+        type: "button",
+        role: "menuitem",
+        onclick: () => {
+          state.endedMenuOpen = false;
+          selectTab(client.id);
         },
-        [el("span", { class: "tab-dot" }), client.name]
-      )
+      },
+      [
+        el("span", { class: "tab-dot", style: client.accentColor ? `--tab-accent:${client.accentColor}` : null }),
+        el("span", {}, [
+          client.name,
+          el("span", { class: "menu-item-note", text: "engagement ended" }),
+        ]),
+      ]
     )
   );
+
+  const wrap = el("div", { class: "tab-menu-wrap" }, [
+    trigger,
+    open ? el("div", { class: "tab-menu-list", role: "menu" }, items) : null,
+  ]);
+
+  if (open && !state.endedMenuBound) {
+    // Bound once per open, and removed by the handler itself, so
+    // repeated renders cannot stack listeners.
+    const close = () => {
+      state.endedMenuOpen = false;
+      state.endedMenuBound = false;
+      document.removeEventListener("click", close);
+      document.removeEventListener("keydown", onKey);
+      renderTabs();
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") close();
+    };
+    state.endedMenuBound = true;
+    document.addEventListener("click", close);
+    document.addEventListener("keydown", onKey);
+  }
+
+  return wrap;
 }
 
 function applyAccent() {
