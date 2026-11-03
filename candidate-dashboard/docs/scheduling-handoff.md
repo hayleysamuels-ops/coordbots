@@ -544,6 +544,55 @@ done and verified, in this order:
     - **Estimate:** template reader plus calendar search, a few days with
       tests; then one guarded TEST run with a two-slot event before any role
       goes on a list.
+  - **Two-person panels: built November 3, 2026 (Tier A), not yet run on
+    TEST.** Kshitiz Parashar's FDE onsite was refused for a two-slot Welcome;
+    FDE's onsites are on compose and send, so this blocked a live role.
+    Larger panels are held (Tier B): Senior PM's onsite is blocked by its
+    duplicate activity name regardless.
+    - **Evidence, read-only (Ashby schedules since March).** Since September,
+      16 of 18 Welcome events had Gabrielle Struckell and Grace Buckingham,
+      both feedback-required except on Senior PM; neither is on the hiring
+      teams checked. Before that, FDE's Welcome was Gabrielle alone. **Two
+      people on an event isn't proof of a two-slot template:** a Welcome read
+      in early October had one slot listing "Gabrielle or Grace" while events
+      from then had both. Other two-person events by history: Exec Dir
+      Roleplay, Deployment Strategist Enterprise Expansion, Strategy Lead
+      Collaboration. Senior PM Case Study ran at 2–4, Marketing Lead's at 3.
+    - **Reader** (`plan-reader.js` `parseAssignment`): every slot is read
+      under the same rules, refusals naming the slot ("Slot #2 is filled by
+      the candidate's hiring team role"). A panel session carries `slots` (one
+      eligible list each, Ashby's order), `requiredCount` = slots, and
+      `eligibleInterviewers` = their union.
+    - **Behind `SCHEDULING_PANELS`** (dashboard): off (default) refuses a
+      two-person panel as needing a person, as before; "test" allows TEST's
+      application only; "on" every job. The worker composing a two-slot event
+      has never run, so nothing real goes out with a panel until the TEST run
+      has shown it.
+    - **Larger than two** refuses in `fullPlan`, by name and as needing a
+      person: "… is a panel: it has 4 interviewer slots … Two-person panels
+      are supported; larger ones aren't yet …" (`panel.js` `MAX_PANEL`).
+    - **Identities and deactivated accounts** (`booking-facts.js`) settle slot
+      by slot, each against its own count.
+    - **Calendar inputs:** a left-out person (Suggest) leaves every slot of
+      that session; a required person (amend) is held by the solver
+      (`requiredUserIds`); a slot left empty blocks by number.
+    - **Search** (both previews): one distinct person per slot, all free at
+      the session's time, each slot in the one-person preference order
+      (Gabrielle first, fewest sessions). Advisory flags are per person. A
+      panel event carries `interviewers` (slot order) and no `interviewer`;
+      `panel.js` `peopleOf` reads either. Option variety counts either slot.
+    - **Booking plan → worker:** `interviewers[k]` goes in slot k+1. The
+      worker's save and final checks now hold each slot to its own approved
+      person (they compared the panel as a set before).
+    - **Post:** "Welcome  Gabrielle Struckell and Grace Buckingham";
+      attendance is video if anyone on it is. "Suggest different interviewer"
+      lists each person on a panel ("instead of Grace Buckingham"). An amend
+      must say who comes off a panel, or is asked, and keeps the rest of it
+      ("…, keeping Gabrielle Struckell on it?").
+    - **Not yet known, settled by the TEST run:** alternates across two slots
+      when someone is eligible for both, how the agenda line reads, and
+      whether invites go per event or per person. The run is combined with
+      the paused off-plan dry run, in one window.
 - **Interviewer identity overrides** (October 14, 2026, rules revision 7).
   Ashby's slots list interviewers by name, and the dashboard matches names to
   active Ashby accounts. A name with more than one active account refuses,

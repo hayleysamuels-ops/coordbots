@@ -81,7 +81,7 @@ function createSlackAmend({ service, slackApi, facts, readPlan, suggester, timeZ
       // session's label, time and interviewer's name. Never the candidate.
       const text = await plainRequest(m.text, { botUserId: m.botUserId, nameOf: async id => (await slackApi.userInfo(id))?.name || null });
       let interpreted;
-      try { interpreted = await read({ text, sessions: sessions.map((s, i) => ({ title: labels[i], when: whenOf(s, timeZone), interviewer: s.interviewers?.[0]?.name || "nobody" })) }); }
+      try { interpreted = await read({ text, sessions: sessions.map((s, i) => ({ title: labels[i], when: whenOf(s, timeZone), interviewer: (s.interviewers || []).map(p => p.name).join(" and ") || "nobody" })) }); }
       catch (e) {
         if (e.kind === "understanding") return await reply(`${e.message} Nothing was changed. Say who should come off, who should go on and which session, for example "have Vamsi take ${labels.at(-1)} instead of ${sessions.at(-1).interviewers?.[0]?.name?.split(" ")[0] || "Joe"}".`);
         return await reply(e.message);
@@ -153,7 +153,10 @@ function createSlackAmend({ service, slackApi, facts, readPlan, suggester, timeZ
       const sessions = row.plan.bookingPlan.sessions;
       // Everyone stays where they are but the one change; the first search
       // also keeps every session's time.
-      const requireInterviewers = sessions.map((s, i) => i === change.session ? { session: i, userId: change.in.userId, name: change.in.name } : { session: i, userId: s.interviewers[0].userId, name: s.interviewers[0].name });
+      // A panel keeps its other people too: only `out` comes off it.
+      const requireInterviewers = sessions.flatMap((s, i) => i === change.session
+        ? [{ session: i, userId: change.in.userId, name: change.in.name }, ...s.interviewers.filter(x => x.userId !== change.out.userId).map(x => ({ session: i, userId: x.userId, name: x.name }))]
+        : s.interviewers.map(x => ({ session: i, userId: x.userId, name: x.name })));
       const fixedStarts = sessions.map(s => s.start);
       // The change becomes a standing request (requests.js), replacing any
       // earlier one for that session; later rebuilds keep it.

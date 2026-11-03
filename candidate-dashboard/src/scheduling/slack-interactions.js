@@ -114,17 +114,22 @@ function createSlackInteractions({ service, slackApi, signingSecret, teamId, app
     const reply = text => slackApi.threadReply({ channel: payload.channel.id, threadTs: message.message_ts, text });
     let value;
     try { value = JSON.parse(kind === "time" ? action.value : action.selected_option?.value); } catch (_) { return reply("This control couldn't be read. Nothing was changed."); }
-    if (typeof value?.d !== "string" || typeof value.g !== "string" || (kind === "interviewer" && !Number.isInteger(value.i))) return reply("This control couldn't be read. Nothing was changed.");
+    if (typeof value?.d !== "string" || typeof value.g !== "string" || (kind === "interviewer" && (!Number.isInteger(value.i) || (value.p !== undefined && !Number.isInteger(value.p))))) return reply("This control couldn't be read. Nothing was changed.");
+    // A panel session's menu entry names which of its people (value.p).
+    const person = kind === "interviewer" && Number.isInteger(value.p) ? value.p : null;
     const who = await memberFor(payload, reply);
     if (!who) return;
     if (!suggester) return reply("Suggesting another option isn't connected on this dashboard. Nothing was changed.");
     // One search per post at a time; a second click while it runs is dropped.
     if (suggesting.has(value.d)) return;
     suggesting.add(value.d);
-    const what = kind === "time" ? "another time" : `a different interviewer for session ${value.i + 1}`;
+    let what = kind === "time" ? "another time" : `a different interviewer for session ${value.i + 1}`;
     try {
       const row = await service.suggestionSource({ draftId: value.d, digest: value.g, channelId: payload.channel.id, messageTs: message.message_ts });
-      let steer = nextSuggestion(row, { kind, session: kind === "interviewer" ? value.i : null, by: who.email });
+      // On a panel, who is being swapped, by name, from the post itself.
+      const swapped = person === null ? null : row.plan.bookingPlan?.sessions?.[value.i]?.interviewers?.[person]?.name;
+      if (swapped) what = `a different interviewer in place of ${swapped} for session ${value.i + 1}`;
+      let steer = nextSuggestion(row, { kind, session: kind === "interviewer" ? value.i : null, person, by: who.email });
       // Standing requests are kept, except that a different interviewer for a
       // requested session is an explicit new choice, so it releases that one.
       const { requested, released } = kind === "interviewer" ? releaseSession(row.plan.requested, value.i) : { requested: releaseSession(row.plan.requested, -1).requested, released: null };
@@ -133,7 +138,7 @@ function createSlackInteractions({ service, slackApi, signingSecret, teamId, app
       let found = await find(steer);
       // The candidate resubmitted since this post: earlier steers don't carry over.
       if (row.plan.suggestion && found.submission && availabilityChange(row.plan.submittedAvailability, found.submission, now())) {
-        steer = nextSuggestion(row, { kind, session: kind === "interviewer" ? value.i : null, by: who.email, carry: false });
+        steer = nextSuggestion(row, { kind, session: kind === "interviewer" ? value.i : null, person, by: who.email, carry: false });
         found = await find(steer);
       }
       if (found.index < 0) {

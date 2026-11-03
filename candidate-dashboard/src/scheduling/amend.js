@@ -1,4 +1,5 @@
 "use strict";
+const { MAX_PANEL } = require("./panel");
 // Amending a proposal from Slack (Phase 1: swapping one interviewer for
 // another on one session). This file settles what a request means, in code:
 // amend-interpret.js only proposes, and nothing here trusts it.
@@ -56,29 +57,35 @@ const list = items => items.length < 3 ? items.join(" or ") : `${items.slice(0, 
 // { i, label } (i 0-based), or { ask } / { decline } as resolveChange returns them.
 // The handler uses it to name the session in its "checking Ashby" reply
 // before the slow read of eligible lists; resolveChange runs it again.
+// A panel session (two people, panel.js) is changed one person at a time: the
+// request must say who comes off it, or is asked. The person going on must be
+// eligible for the session and not already on it.
 function whichSession(interpreted, { sessions, timeZone }) {
   if (interpreted.kind === "unclear") return { ask: interpreted.question };
   if (interpreted.kind === "unsupported") return { decline: `I can only swap one interviewer for another on a session, so I can't do that (${interpreted.reason}) from here. Nothing was changed: use the buttons on the post, or booking review on the dashboard.` };
   if (interpreted.kind !== "replace_interviewer") throw new Error(`Unknown request kind ${interpreted.kind}.`);
-  const labels = sessionLabels(sessions), on = i => sessions[i].interviewers?.[0];
-  const describe = i => `${labels[i]} (${whenOf(sessions[i], timeZone)}, ${on(i)?.name || "nobody"})`;
-  if (sessions.some(s => s.interviewers?.length !== 1 || !s.interviewers[0]?.userId)) return { decline: "Every session on this post needs exactly one identified interviewer before I can swap one. Nothing was changed." };
+  const labels = sessionLabels(sessions), on = i => sessions[i].interviewers || [];
+  const who = i => on(i).map(p => p.name).join(" and ") || "nobody";
+  const describe = i => `${labels[i]} (${whenOf(sessions[i], timeZone)}, ${who(i)})`;
+  const has = (i, name) => on(i).some(p => names(name, p.name));
+  if (sessions.some(s => !Array.isArray(s.interviewers) || !s.interviewers.length || s.interviewers.length > MAX_PANEL || s.interviewers.some(p => !p?.userId))) return { decline: "Every session on this post needs its interviewers identified before I can swap one. Nothing was changed." };
 
   // Only from what was said, checked against the post.
   if (interpreted.session !== null) {
     const i = interpreted.session - 1;
     if (!sessions[i]) return { ask: `This post has ${sessions.length} sessions. Which one do you mean: ${list(sessions.map((_, k) => describe(k)))}?` };
-    if (interpreted.replace && !names(interpreted.replace, on(i).name)) {
-      const theirs = sessions.map((_, k) => k).filter(k => names(interpreted.replace, on(k).name));
-      return { ask: `${labels[i]} has ${on(i).name}, not ${interpreted.replace}. Which session do you mean: ${list((theirs.length ? theirs : sessions.map((_, k) => k)).map(describe))}?` };
+    if (interpreted.replace && !has(i, interpreted.replace)) {
+      const theirs = sessions.map((_, k) => k).filter(k => has(k, interpreted.replace));
+      return { ask: `${labels[i]} has ${who(i)}, not ${interpreted.replace}. Which session do you mean: ${list((theirs.length ? theirs : sessions.map((_, k) => k)).map(describe))}?` };
     }
+    if (!interpreted.replace && on(i).length > 1) return { ask: `${labels[i]} has ${who(i)}. Which of them should ${interpreted.with} replace?` };
     return { i, label: labels[i] };
   }
   if (interpreted.replace) {
-    const theirs = sessions.map((_, k) => k).filter(k => names(interpreted.replace, on(k).name));
+    const theirs = sessions.map((_, k) => k).filter(k => has(k, interpreted.replace));
     if (!theirs.length) return { ask: `${interpreted.replace} isn't an interviewer on this post. Which session do you mean: ${list(sessions.map((_, k) => describe(k)))}?` };
     if (theirs.length > 1) {
-      const people = [...new Set(theirs.map(k => on(k).name))];
+      const people = [...new Set(theirs.flatMap(k => on(k).filter(p => names(interpreted.replace, p.name)).map(p => p.name)))];
       return { ask: people.length > 1 ? `"${interpreted.replace}" could be ${list(people)}. Which session do you mean: ${list(theirs.map(describe))}?` : `${people[0]} is on ${theirs.length} sessions. Which one do you mean: ${list(theirs.map(describe))}?` };
     }
     return { i: theirs[0], label: labels[theirs[0]] };
@@ -90,8 +97,11 @@ async function resolveChange(interpreted, { sessions, eligible, findPeople, time
   if (!Array.isArray(sessions) || !sessions.length || !Array.isArray(eligible) || eligible.length !== sessions.length) throw new Error("The post's sessions and their eligible lists don't line up.");
   const which = whichSession(interpreted, { sessions, timeZone });
   if (which.i === undefined) return which;
-  const i = which.i, labels = sessionLabels(sessions), on = k => sessions[k].interviewers[0];
-  const out = on(i);
+  const i = which.i, labels = sessionLabels(sessions), on = sessions[i].interviewers;
+  // Who comes off: the one named, or the session's only interviewer.
+  const named = interpreted.replace ? on.filter(p => names(interpreted.replace, p.name)) : on;
+  if (named.length !== 1) return { ask: `"${interpreted.replace || "Who"}" could be ${list(named.map(p => p.name))} on ${labels[i]}. Which of them should ${interpreted.with} replace?` };
+  const out = named[0], panel = on.length > 1, onIt = p => on.some(x => x.userId === p.userId);
 
   // Who goes on: exactly one of the people Ashby lists as eligible for it.
   const matches = eligible[i].filter(p => names(interpreted.with, p.name));
@@ -102,16 +112,17 @@ async function resolveChange(interpreted, { sessions, eligible, findPeople, time
     if (!people.length) return { ask: `I couldn't find anyone active in Ashby called ${interpreted.with}. Who do you mean?` };
     if (people.length > 1) return { ask: `"${interpreted.with}" could be ${list(people.slice(0, 5).map(p => p.name))}. Which one do you mean?` };
     const person = people[0];
-    if (person.userId === out.userId) return { decline: `${person.name} is already on ${labels[i]}. Nothing was changed.` };
+    if (onIt(person)) return { decline: `${person.name} is already on ${labels[i]}. Nothing was changed.` };
     return { decline: `You asked to replace ${out.name} with ${person.name} on ${labels[i]} (${whenOf(sessions[i], timeZone)}). ${person.name} isn't eligible for ${labels[i]} in Ashby; off-plan interviewers aren't supported yet. Nothing was changed.`, offPlan: { session: i, person } };
   }
   const person = matches[0];
-  if (person.userId === out.userId) return { decline: `${person.name} is already on ${labels[i]}. Nothing was changed.` };
+  if (onIt(person)) return { decline: `${person.name} is already on ${labels[i]}. Nothing was changed.` };
   const when = whenOf(sessions[i], timeZone);
   return {
     change: { kind: "replace_interviewer", session: i, label: labels[i], when, start: sessions[i].start, end: sessions[i].end,
       out: { userId: out.userId, name: out.name }, in: { userId: person.userId, name: person.name, email: person.email } },
-    restatement: `Replace ${out.name} with ${person.name} on ${labels[i]} (${when})?`,
+    // On a panel the rest of it stays (slack-amend.js holds them).
+    restatement: `Replace ${out.name} with ${person.name} on ${labels[i]} (${when})${panel ? `, keeping ${on.filter(p => p.userId !== out.userId).map(p => p.name).join(" and ")} on it` : ""}?`,
   };
 }
 

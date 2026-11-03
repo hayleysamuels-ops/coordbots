@@ -124,6 +124,7 @@ function createServer() {
       discussion: scheduling,
       rules: schedulingRules,
       alternativesLog: require("./scheduling/alternatives-log").createAlternativesLog(connectionConfig.dataDir),
+      panels: slackConfig.schedulingPanels,
       availability: availabilitySource,
       inspectFullCalendar: payload => bookingWorker.call("inspect-full-calendar",payload),
       inspectPlan: payload => bookingWorker.call("inspect-plan",payload),
@@ -134,6 +135,7 @@ function createServer() {
       capabilities: async () => { const worker = await bookingWorker.capabilities(); return {available: false, reason: worker.available ? "The booking executor is being connected to this dashboard. Sending remains disabled." : worker.reason}; },
     });
     suggestAgain = bookingRouter.suggestAgain; readPlan = bookingRouter.readPlan;
+    console.log(`[booking] Two-person panels: ${{ on: "on for every job", test: "on for TEST only" }[slackConfig.schedulingPanels] || "off (SCHEDULING_PANELS isn't \"on\" or \"test\"); a plan with one refuses as needing a person"}.`);
     app.use("/api/scheduling-booking", bookingRouter);
     // Auto-post (auto-post.js): off unless SCHEDULING_AUTO_POST is exactly "on".
     if (scheduling.slackApi && slackConfig.schedulingChannelId) require("./scheduling/auto-post").createAutoPost({ on: slackConfig.schedulingAutoPost, wide: slackConfig.schedulingAutoPostComposeJobs,

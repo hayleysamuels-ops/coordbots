@@ -1,4 +1,5 @@
 "use strict";
+const { peopleOf } = require("./panel");
 // Loads scheduling-rules/<clientId>.json (see schema.json there) for the
 // dashboard's SCHEDULING_CLIENT_ID. Only the fields the dashboard reads are
 // checked here, plus the cross-field rules JSON Schema can't express. A
@@ -150,13 +151,17 @@ function loadRules({ clientId, dir = RULES_DIR, log = console }) {
 // are resolved to Ashby emails (the rules' key) only when an override exists;
 // otherwise everyone takes the default and no lookup is needed. Only the
 // chosen interviewers are resolved, not every eligible one.
+// A panel (panel.js) is one session: video when anyone on it joins by video,
+// since the room then needs a link, else in person.
 async function attendanceForEvents(rules, events, resolveInterviewers) {
   if (!rules.hasAttendanceOverrides) return events.map(() => rules.attendanceFor(null));
+  const session = list => list.some(a => a === "video") ? "video" : list[0];
   // Calendar-checked options already carry each interviewer's resolved email.
-  if (events.every(e => e.interviewer?.email)) return events.map(e => rules.attendanceFor(e.interviewer.email));
+  if (events.every(e => peopleOf(e).length && peopleOf(e).every(p => p?.email))) return events.map(e => session(peopleOf(e).map(p => rules.attendanceFor(p.email))));
   if (!resolveInterviewers) invalid("Interviewer identities can't be resolved, so attendance can't be confirmed.");
-  const { sessions } = await resolveInterviewers(events.map(e => ({ assignmentVerified: true, title: e.title, eligibleInterviewers: [{ name: e.interviewer.name }] })));
-  return sessions.map(s => rules.attendanceFor(s.eligibleInterviewers[0].email));
+  const flat = events.flatMap((e, i) => peopleOf(e).map(p => ({ i, name: p.name })));
+  const { sessions } = await resolveInterviewers(flat.map(x => ({ assignmentVerified: true, title: events[x.i].title, eligibleInterviewers: [{ name: x.name }] })));
+  return events.map((e, i) => session(sessions.filter((_, k) => flat[k].i === i).map(s => rules.attendanceFor(s.eligibleInterviewers[0].email))));
 }
 
 module.exports = { loadRules, parseRules, attendanceForEvents, RULES_DIR };

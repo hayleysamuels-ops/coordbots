@@ -5,7 +5,8 @@
 // the same panel aren't five choices.
 const HOUR = 3600000;
 const dayIn = (ms, timezone) => new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(ms);
-const panel = option => option.events.map(e => e.interviewer.userId || e.interviewer.name).join("|");
+const { peopleOf } = require("./panel");
+const panel = option => option.events.map(e => peopleOf(e).map(p => p.userId || p.name).join("+")).join("|");
 
 function different(a, b, timezone) {
   const sa = Date.parse(a.start), sb = Date.parse(b.start);

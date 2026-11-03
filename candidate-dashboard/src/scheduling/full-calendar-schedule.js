@@ -1,6 +1,7 @@
 'use strict';
 const {windowsToInstants}=require('./booking-planner');
 const {distinctFrom,awayFromStarts}=require('./option-variety');
+const {peopleOf,validAssignment}=require('./panel');
 const fail=message=>{throw Object.assign(Error(message),{status:422});};
 const MAX_AGE=60000,STEP=5*60000,SEARCH_LIMIT=100000,RELAX_LIMIT=20000;
 function intervals(rows){
@@ -62,7 +63,7 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
   const candidate=windowsToInstants(windows,timezone,now);
   const ids=new Set();
   for(const s of sessions){
-    if(!s.sessionId||ids.has(s.sessionId)||!Number.isInteger(s.durationMinutes)||s.durationMinutes<5||s.durationMinutes>480||s.assignmentVerified!==true||s.requiredCount!==1||!Array.isArray(s.eligibleInterviewers)||!s.eligibleInterviewers.length||s.eligibleInterviewers.some(i=>!i.userId||!i.name))fail('Every interview needs a verified duration and resolved eligible interviewer identities.');
+    if(!s.sessionId||ids.has(s.sessionId)||!Number.isInteger(s.durationMinutes)||s.durationMinutes<5||s.durationMinutes>480||s.assignmentVerified!==true||!Array.isArray(s.eligibleInterviewers)||!s.eligibleInterviewers.length||s.eligibleInterviewers.some(i=>!i.userId||!i.name)||!validAssignment(s)||(s.requiredUserIds!==undefined&&(!s.slots||!Array.isArray(s.requiredUserIds)||s.requiredUserIds.some(id=>!s.eligibleInterviewers.some(p=>p.userId===id)))))fail('Every interview needs a verified duration and resolved eligible interviewer identities.');
     ids.add(s.sessionId);
     // Optional start windows from scheduling-rules sessions.placementWindows.
     if(s.placementWindows!==undefined&&(!Array.isArray(s.placementWindows)||s.placementWindows.some(w=>!/^([01]\d|2[0-3]):[0-5]\d$/.test(w?.earliestStart||'')||!/^([01]\d|2[0-3]):[0-5]\d$/.test(w?.latestStart||'')||w.latestStart<w.earliestStart||(()=>{try{timeIn(0,w.timezone);return false;}catch(_){return true;}})())))fail(`The start window for ${s.title} is invalid.`);
@@ -120,7 +121,7 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
     if(!relax.hours.has(person.userId)&&!contains(p.hours.get(session.sessionId),start,end))return 'hours';
     if(!relax.busy.has(person.userId)&&p.busy.some(b=>b.start<end&&b.end>start))return 'busy';
     if(!p.limited||relax.limits.has(person.userId))return null;
-    const assigned=events.filter(e=>e.interviewer.userId===person.userId);
+    const assigned=events.filter(e=>peopleOf(e).some(x=>x.userId===person.userId));
     const day=dateIn(start,p.load.timezone);
     if(day!==dateIn(end-1,p.load.timezone))return 'limits';
     if(p.limits.dailyLimit!==null){
@@ -158,12 +159,14 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
       if(++examined>cap){if(cap===SEARCH_LIMIT)fail('Calendar search exceeded its limit. Narrow the availability range.');throw Object.assign(Error('relaxation search limit'),{relaxLimit:true});}
       if(index>reach.placed){reach.placed=index;reach.events=events;}
       if(index===sessions.length)return events;
-      const key=`${index}|${cursor}|${window.end}|${day}|${used}|${limitedIds.map(id=>events.filter(e=>e.interviewer.userId===id).length).join(',')}`;
+      const sessionsOf=id=>events.filter(e=>peopleOf(e).some(x=>x.userId===id)).length;
+      const key=`${index}|${cursor}|${window.end}|${day}|${used}|${limitedIds.map(sessionsOf).join(',')}`;
       if(dead.has(key))return null;
       const s=sessions[index],duration=s.durationMinutes*60000;
       // Preferred hosts first, in their order; then fewest sessions in this agenda.
       const pref=s.preferredUserIds||[],rank=p=>{const i=pref.indexOf(p.userId);return i<0?pref.length:i;};
-      const eligible=s.eligibleInterviewers.slice().sort((a,b)=>rank(a)-rank(b)||events.filter(e=>e.interviewer.userId===a.userId).length-events.filter(e=>e.interviewer.userId===b.userId).length);
+      const sorted=list=>list.slice().sort((a,b)=>rank(a)-rank(b)||sessionsOf(a.userId)-sessionsOf(b.userId));
+      const eligible=sorted(s.eligibleInterviewers);
       // Back to back first, then each allowed break length, shortest first.
       const starts=[cursor];
       if(index>0&&used<breaks.count)for(let g=breaks.min;g<=breaks.max;g+=5)starts.push(cursor+g*60000);
@@ -177,11 +180,31 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
         // and among each, the preferred host first (eligible is already in
         // preference order). So a preferred host who clashes yields to a free
         // colleague, and is only used, flagged, when nobody is free.
-        const order=advisory?eligible.map((p,i)=>({p,i,c:unavailable(p,s,start,end,events,NONE)?1:0})).sort((a,b)=>a.c-b.c||a.i-b.i).map(x=>x.p):eligible;
-        for(const person of order){
-          const why=unavailable(person,s,start,end,events,relax);
-          if(why){if(tally)tally(s,person,why);continue;}
-          const found=assign(index+1,end,[...events,{sessionId:s.sessionId,interviewId:s.interviewId,title:s.title,durationMinutes:s.durationMinutes,start:new Date(start).toISOString(),end:new Date(end).toISOString(),interviewer:person,eligibleInterviewers:s.eligibleInterviewers}],window,day,used+(start>cursor?1:0));
+        const ordered=list=>advisory?list.map((p,i)=>({p,i,c:unavailable(p,s,start,end,events,NONE)?1:0})).sort((a,b)=>a.c-b.c||a.i-b.i).map(x=>x.p):list;
+        const at={sessionId:s.sessionId,interviewId:s.interviewId,title:s.title,durationMinutes:s.durationMinutes,start:new Date(start).toISOString(),end:new Date(end).toISOString()};
+        if(!s.slots){
+          for(const person of ordered(eligible)){
+            const why=unavailable(person,s,start,end,events,relax);
+            if(why){if(tally)tally(s,person,why);continue;}
+            const found=assign(index+1,end,[...events,{...at,interviewer:person,eligibleInterviewers:s.eligibleInterviewers}],window,day,used+(start>cursor?1:0));
+            if(found)return found;
+          }
+          continue;
+        }
+        // A panel: one distinct person per slot, every one free at this time
+        // (under `relax`), each slot in the same preference order as a
+        // one-person session, and any required person (a Slack amend) on it.
+        // Each person is checked, and tallied, once per start.
+        const free=new Map();
+        for(const person of eligible){const why=unavailable(person,s,start,end,events,relax);if(why&&tally)tally(s,person,why);free.set(person.userId,!why);}
+        const lists=s.slots.map(x=>ordered(sorted(x.eligibleInterviewers)).filter(p=>free.get(p.userId)));
+        const need=s.requiredUserIds||[];
+        const teams=function*(k,team){
+          if(k===lists.length){if(need.every(id=>team.some(p=>p.userId===id)))yield team;return;}
+          for(const p of lists[k])if(!team.some(x=>x.userId===p.userId))yield* teams(k+1,[...team,p]);
+        };
+        for(const team of teams(0,[])){
+          const found=assign(index+1,end,[...events,{...at,interviewers:team,eligibleInterviewers:s.eligibleInterviewers,slots:s.slots}],window,day,used+(start>cursor?1:0));
           if(found)return found;
         }
       }
@@ -241,18 +264,20 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
   const diagnosis=diagnose(reach);
   return {...base,status:'no_calendar_fit',diagnosis,reason:advisory?'No agenda in template order fits the candidate\'s availability and the start windows, even with every interviewer treated as free.'+assumedNote:'No agenda in template order fits the calendars, meeting hours and interview limits.'+assumedNote};
 
-  // A session's clashes for its assigned interviewer: each busy period that
-  // overlaps it, and each part of it outside their meeting hours, clipped to
-  // the session, with minutes. Times are ISO; the page and Slack format them.
-  function flagsFor(e){
-    const p=people.get(e.interviewer.userId),start=Date.parse(e.start),end=Date.parse(e.end),out=[];
+  // A session's clashes for its assigned interviewers (each person on a
+  // panel): each busy period that overlaps it, and each part of it outside
+  // their meeting hours, clipped to the session, with minutes. Times are ISO;
+  // the page and Slack format them.
+  function flagsFor(e){return peopleOf(e).flatMap(x=>flagsForPerson(e,x));}
+  function flagsForPerson(e,who){
+    const p=people.get(who.userId),start=Date.parse(e.start),end=Date.parse(e.end),out=[];
     const merged=[];for(const b of p.busy.filter(b=>b.start<end&&b.end>start).map(b=>({start:Math.max(b.start,start),end:Math.min(b.end,end)})).sort((a,b)=>a.start-b.start)){const last=merged.at(-1);if(last&&b.start<=last.end)last.end=Math.max(last.end,b.end);else merged.push({...b});}
-    for(const b of merged)out.push({kind:'busy',name:p.name,userId:e.interviewer.userId,start:new Date(b.start).toISOString(),end:new Date(b.end).toISOString(),minutes:Math.round((b.end-b.start)/60000)});
+    for(const b of merged)out.push({kind:'busy',name:p.name,userId:who.userId,start:new Date(b.start).toISOString(),end:new Date(b.end).toISOString(),minutes:Math.round((b.end-b.start)/60000)});
     // Parts of [start,end) no meeting-hours interval covers.
     let cursor=start;const hours=p.hours.get(e.sessionId).filter(h=>h.end>start&&h.start<end).sort((a,b)=>a.start-b.start);
     const gaps=[];for(const h of hours){if(h.start>cursor)gaps.push({start:cursor,end:Math.min(h.start,end)});cursor=Math.max(cursor,h.end);if(cursor>=end)break;}
     if(cursor<end)gaps.push({start:cursor,end});
-    for(const g of gaps)out.push({kind:'hours',name:p.name,userId:e.interviewer.userId,start:new Date(g.start).toISOString(),end:new Date(g.end).toISOString(),minutes:Math.round((g.end-g.start)/60000),hoursSource:p.hoursSource,hoursLabel:p.hoursLabel});
+    for(const g of gaps)out.push({kind:'hours',name:p.name,userId:who.userId,start:new Date(g.start).toISOString(),end:new Date(g.end).toISOString(),minutes:Math.round((g.end-g.start)/60000),hoursSource:p.hoursSource,hoursLabel:p.hoursLabel});
     return out;
   }
 

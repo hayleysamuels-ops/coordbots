@@ -125,12 +125,24 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
   // Ashby's eligible count exactly. Anything else (a name with no account, two
   // active accounts and no identity override, a count still off) refuses,
   // naming who was read.
+  // A panel (plan-reader.js: `slots`) is settled slot by slot, each against
+  // its own count, and its union rebuilt from what each slot kept.
   async function excludeDeactivated(sessions) {
-    if(!sessions.some(s=>Number.isInteger(s.eligibleCount)))return sessions;
+    const counted=s=>Number.isInteger(s.eligibleCount)||(s.slots||[]).some(x=>Number.isInteger(x.eligibleCount));
+    if(!sessions.some(counted))return sessions;
     const users=await listUsers(true);
     return sessions.map((session,i)=>{
-      if(!Number.isInteger(session.eligibleCount))return session;
-      const kept=[],excluded=[],label=sessionLabel(session,i);
+      if(!counted(session))return session;
+      if(session.slots){
+        const label=sessionLabel(session,i),excluded=[];
+        const slots=session.slots.map((slot,k)=>{if(!Number.isInteger(slot.eligibleCount))return slot;const r=settle(slot,`${label}, slot ${k+1}`);excluded.push(...r.excludedInterviewers);return {eligibleInterviewers:r.eligibleInterviewers};});
+        return {...session,slots,eligibleInterviewers:union(slots),excludedInterviewers:excluded.filter((p,j)=>excluded.findIndex(x=>x.name===p.name)===j)};
+      }
+      const {eligibleCount,...rest}=session,r=settle(session,sessionLabel(session,i));
+      return {...rest,eligibleInterviewers:r.eligibleInterviewers,excludedInterviewers:r.excludedInterviewers};
+    });
+    function settle(session,label){
+      const kept=[],excluded=[];
       for(const person of session.eligibleInterviewers){
         if(activeAccount(users,person,label)){kept.push(person);continue;}
         const named=users.filter(u=>normalizeName([u.firstName,u.lastName].filter(Boolean).join(' '))===normalizeName(person.name));
@@ -138,10 +150,11 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
         else fail(409,`${label}: ${person.name} is listed in the interviewer slot but has no Ashby account. Check the slot in Ashby.`);
       }
       if(kept.length!==session.eligibleCount)fail(409,`${label}: Ashby shows ${session.eligibleCount} eligible but ${kept.length} of the listed interviewers are active (${kept.map(p=>p.name).join(', ')||'none'}${excluded.length?`; ${excluded.map(p=>`${p.name} is ${p.reason}`).join('; ')}`:''}). Check the slot in Ashby, then load the plan again.`);
-      const {eligibleCount,...rest}=session;
-      return {...rest,eligibleInterviewers:kept,excludedInterviewers:excluded};
-    });
+      return {eligibleInterviewers:kept,excludedInterviewers:excluded};
+    }
   }
+  // Everyone in a panel's slots, once each, in slot order.
+  const union=slots=>{const seen=new Map();for(const x of slots)for(const p of x.eligibleInterviewers){const k=p.userId||p.name;if(!seen.has(k))seen.set(k,p);}return [...seen.values()];};
   // Every active Ashby account, as {userId, name, email}: what a Slack
   // request can name (amend.js), searched by name there. Read-only.
   async function activeUsers() {
@@ -153,15 +166,18 @@ function createBookingFacts({ key, clientId, request = fetch, now = () => Date.n
     const users=await listUsers(false);
     const people=new Map(),resolved=[];
     for(const [i,session] of sessions.entries()){
-      const eligible=[],label=sessionLabel(session,i);
-      for(const person of session.eligibleInterviewers){
+      const label=sessionLabel(session,i);
+      const resolve=list=>list.map(person=>{
         const user=activeAccount(users,person,label);
         if(!user)fail(409,`${label}: ${person.name} is an eligible interviewer but has no active Ashby account by that name. Check their account and name in Ashby.`);
         if(!uuid(user.id)||!/^\S+@\S+\.\S+$/.test(user.email||''))fail(409,`${label}: ${person.name}'s active Ashby account has no usable ID or email.`);
         if(!people.has(user.id))people.set(user.id,{userId:user.id,name:person.name,email:user.email.toLowerCase()});
-        eligible.push(people.get(user.id));
-      }
-      resolved.push({...session,eligibleInterviewers:eligible});
+        return people.get(user.id);
+      });
+      // A panel's slots resolve through the same people, so one person in two
+      // slots is one account.
+      if(session.slots){const slots=session.slots.map(x=>({...x,eligibleInterviewers:resolve(x.eligibleInterviewers)}));resolved.push({...session,slots,eligibleInterviewers:union(slots)});}
+      else resolved.push({...session,eligibleInterviewers:resolve(session.eligibleInterviewers)});
     }
     return {sessions:resolved,interviewers:[...people.values()]};
   }

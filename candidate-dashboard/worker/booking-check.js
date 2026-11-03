@@ -104,9 +104,9 @@ function checkSave(prev,next,plan,{compareRest=true,timeZone=null,observeAlterna
       if(!Number.isFinite(e[field])||bad.length)why.push(`${label}: the ${field} ${bad.join(' and ')||'time'} moved to ${Number.isFinite(e[field])?new Date(e[field]).toISOString():'an unreadable time'}, which is neither the previous nor the approved ${bad.join(' or ')||'time'}`);
     }
     if(e.slots.length!==p.slots.length)why.push(`${label}: the number of interviewer slots changed`);
-    const approvedIds=s.interviewers.map(x=>x.userId);
+    // A panel's people go slot by slot, in the approval's order (booking-plan.js).
     e.slots.forEach((slot,j)=>{
-      if(slot.selected!==p.slots[j]?.selected&&slot.selected!==null&&!approvedIds.includes(slot.selected))why.push(`${label}, slot ${j+1}: an interviewer who wasn't approved was selected`);
+      if(slot.selected!==p.slots[j]?.selected&&slot.selected!==null&&slot.selected!==s.interviewers[j]?.userId)why.push(`${label}, slot ${j+1}: an interviewer who wasn't approved was selected${s.interviewers.length>1?' (not the one approved for this slot)':''}`);
       // Alternates may only stay as they were, or lose exactly the person this
       // save chooses (and nobody else). Nobody is ever added.
       const was=p.slots[j]?.alternates,chose=slot.selected!==p.slots[j]?.selected?slot.selected:null;
@@ -215,8 +215,8 @@ function checkFinal(state,plan,{observeAlternates=false,created=null}={}){
     const s=plan.sessions[i],label=`"${s.title}"`;
     if(e.start!==instant(s.start)||e.end!==instant(s.end))why.push(`${label} is at ${new Date(e.start).toISOString()}–${new Date(e.end).toISOString()}, not the approved ${s.start}–${s.end}`);
     if(e.interviewId!==s.interviewId)why.push(`${label} isn't the approved interview`);
-    const chosen=e.slots.map(x=>x.selected).sort(),approved=s.interviewers.map(x=>x.userId).sort();
-    if(!same(chosen,approved))why.push(`${label} doesn't have exactly the approved interviewers`);
+    const approved=s.interviewers.map(x=>x.userId);
+    if(e.slots.length!==approved.length||e.slots.some((x,j)=>x.selected!==approved[j]))why.push(`${label} doesn't have exactly the approved interviewers${approved.length>1?', each in their approved slot':''}`);
     const eligible=j=>created?.[i]?.slots?.[j]?.alternates;
     const stray=[...new Set(e.slots.flatMap((x,j)=>(x.alternates||[]).filter(a=>!approved.includes(a)&&!(Array.isArray(eligible(j))&&eligible(j).includes(a)))))];
     if(stray.length&&observeAlternates)strayAlternates.push({session:i+1,alternates:stray});

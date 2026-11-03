@@ -13,6 +13,7 @@
 // derived from the account (Anna's is America/Los_Angeles) or the candidate,
 // and the composer reads it and converts the approved instants into it
 // (composerZone in worker/booking-check.js).
+const {peopleOf}=require('./panel');
 const fail=message=>{throw Object.assign(Error(message),{status:422});};
 const isUuid=v=>typeof v==='string'&&/^[0-9a-f-]{36}$/i.test(v);
 const isInstant=v=>typeof v==='string'&&/T.*(?:Z|[+-]\d\d:\d\d)$/.test(v)&&Number.isFinite(Date.parse(v));
@@ -27,12 +28,14 @@ function bookingPlanFromOption({option,application,accountTimeZone}){
   const events=option?.events;
   if(!Array.isArray(events)||!events.length)fail('The option has no sessions.');
   const sessions=events.map((e,i)=>{
-    const p=e.interviewer,label=`Session ${i+1}`;
+    const people=peopleOf(e),label=`Session ${i+1}`;
     if(!isUuid(e.interviewId)||typeof e.title!=='string'||!e.title)fail(`${label} has no interview.`);
     if(!isInstant(e.start)||!isInstant(e.end)||Date.parse(e.end)<=Date.parse(e.start))fail(`${label} ("${e.title}") doesn't have exact start and end times.`);
-    if(!p||!isUuid(p.userId)||typeof p.name!=='string'||!/^\S+@\S+\.\S+$/.test(p.email||''))fail(`${label} ("${e.title}") has no fully identified interviewer.`);
+    if(!people.length||people.some(p=>!p||!isUuid(p.userId)||typeof p.name!=='string'||!/^\S+@\S+\.\S+$/.test(p.email||'')))fail(`${label} ("${e.title}") has no fully identified interviewer${people.length>1?'s':''}.`);
+    if(new Set(people.map(p=>p.userId)).size!==people.length)fail(`${label} ("${e.title}") names one person twice on its panel.`);
+    // A panel's people in slot order: the worker puts interviewers[k] in slot k+1.
     return {title:e.title,interviewId:e.interviewId,start:new Date(e.start).toISOString(),end:new Date(e.end).toISOString(),
-      interviewers:[{userId:p.userId,name:p.name,email:p.email.toLowerCase()}]};
+      interviewers:people.map(p=>({userId:p.userId,name:p.name,email:p.email.toLowerCase()}))};
   });
   for(let i=1;i<sessions.length;i++)if(Date.parse(sessions[i].start)<Date.parse(sessions[i-1].end))fail(`Sessions ${i} and ${i+1} overlap.`);
   return {jobId:a.jobId,candidateId:a.candidateId,applicationId:a.applicationId,interviewScheduleId:a.interviewScheduleId,timeZone:accountTimeZone,

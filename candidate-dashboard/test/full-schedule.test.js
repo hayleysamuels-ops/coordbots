@@ -13,24 +13,36 @@ test('advanced explicit identity rule checks resolved eligible count',()=>{asser
 test('rendered line breaks do not drop eligible employees',()=>{const r=parseAssignment('Coding\nSlot #1 —\n2\nEligible\nMatches\nSpecific\nEmployees:\n2\nEmployees\nPerson One\nOR Person Two\nAdd\nInterviewer\nSlot');assert.equal(r.eligibleInterviewers.length,2);});
 test('employee names ending in is are not mistaken for matcher syntax',()=>{const r=parseAssignment('Welcome\nSlot #1 —\n2 Eligible Matches\nSpecific Employees:\n2 Employees\nChris\nOR Person Two\nAdd Interviewer Slot');assert.equal(r.eligibleInterviewers[0].name,'Chris');});
 
-// Each unsupported slot rule is named, with what to change instead.
-test('a panel is refused as a panel, naming how many people it expects, never suggesting one slot',()=>{
-  const slots=n=>Array.from({length:n},(_,k)=>`Slot #${k+1} —\n1 Eligible Match\nSpecific Employees:\n1 Employees\nPerson ${k+1}`).join('\nAND\n')+'\nAdd Interviewer Slot';
-  assert.throws(()=>parseAssignment(`Case Study Presentation\nInterviewers 4\n${slots(4)}`,'Case Study Presentation'),e=>{
-    assert.equal(e.status,409);
-    assert.equal(e.message,'"Case Study Presentation" is a panel: it has 4 interviewer slots, so it expects 4 people. Panel events aren\'t supported yet, so this can\'t be proposed or booked here; schedule it by hand in Ashby.');
-    assert.doesNotMatch(e.message,/one slot|every eligible/i);return true;});
+// A panel is read slot by slot, never merged into one slot; each slot is held
+// to the same rules as a one-person interview, and named by number.
+test('a panel is read as one eligible list per slot, with everyone in them, never merged into one slot',()=>{
+  const slots=n=>Array.from({length:n},(_,k)=>`Slot #${k+1} —\n1 Eligible Match\nSpecific Employees:\n1 Employees\nPerson ${['One','Two','Three','Four'][k]}`).join('\nAND\n')+'\nAdd Interviewer Slot';
+  const r=parseAssignment(`Case Study Presentation\nInterviewers 4\n${slots(4)}`,'Case Study Presentation');
+  assert.equal(r.requiredCount,4);
+  assert.deepEqual(r.slots.map(x=>x.eligibleInterviewers.map(p=>p.name)),[['Person One'],['Person Two'],['Person Three'],['Person Four']]);
+  assert.deepEqual(r.eligibleInterviewers.map(p=>p.name),['Person One','Person Two','Person Three','Person Four']);
+  // The live Welcome shape: one host, and a second slot either of two can take.
+  const welcome=parseAssignment('Welcome\nInterviewers\n2\nSlot #1\n—\n1 Eligible Match\nSpecific Employees:\n1 Employees\nGabrielle Struckell\nAND\nSlot #2\n—\n2 Eligible Matches\nSpecific Employees:\n2 Employees\nGrace Buckingham\nOR Ali Feldman\nAdd Interviewer Slot','Welcome');
+  assert.equal(welcome.requiredCount,2);
+  assert.deepEqual(welcome.slots.map(x=>x.eligibleInterviewers.map(p=>p.name)),[['Gabrielle Struckell'],['Grace Buckingham','Ali Feldman']]);
+  // Someone in both slots is one person in the union.
+  const both=parseAssignment('Welcome\nSlot #1 —\n2 Eligible Matches\nSpecific Employees:\n2 Employees\nGabrielle Struckell\nOR Grace Buckingham\nAND\nSlot #2 —\n2 Eligible Matches\nSpecific Employees:\n2 Employees\nGabrielle Struckell\nOR Grace Buckingham\nAdd Interviewer Slot','Welcome');
+  assert.deepEqual(both.eligibleInterviewers.map(p=>p.name),['Gabrielle Struckell','Grace Buckingham']);
+  // Out-of-order numbering, or a heading count that doesn't match, refuses.
+  assert.throws(()=>parseAssignment('Welcome\nSlot #2 —\n1 Eligible Match\nSpecific Employees:\n1 Employees\nPerson One\nAdd Interviewer Slot','Welcome'),/numbered #2, not in order from #1/);
+  assert.throws(()=>parseAssignment(`Welcome\nInterviewers 3\n${slots(2)}`,'Welcome'),/Ashby shows "Interviewers 3" but 2 slots were read/);
 });
 
-test('unsupported slot rules say what was found and what is supported',()=>{
+test('unsupported slot rules say what was found and what is supported, naming the slot',()=>{
   const refused=(text,pattern)=>assert.throws(()=>parseAssignment(text,'Recruiter Screen'),e=>{assert.equal(e.status,409);assert.match(e.message,pattern);assert.doesNotMatch(e.message,/Review it in Ashby/);return true;});
-  refused('Recruiter Screen\nSlot #1 —\n1 Eligible Match\nSpecific Employees:\n1 Employees\nPerson One\nAND\nSlot #2 —\n1 Eligible Match\nSpecific Employees:\n1 Employees\nPerson Two\nAdd Interviewer Slot',
-    /^"Recruiter Screen" is a panel: it has 2 interviewer slots, so it expects 2 people\. Panel events aren't supported yet, so this can't be proposed or booked here; schedule it by hand in Ashby\.$/);
   refused('Recruiter Screen\nSlot #1 —\n4 Eligible Matches\nEmployees from Pool:\nSupport Interviewers Pool\nQualified only\nAdd Interviewer Slot',/^"Recruiter Screen": Slot #1 draws from an interviewer pool \(Ashby shows "Employees from Pool:"\), which isn't supported\. Only named interviewers are supported: use Specific Employees in the template\.$/);
   refused('Recruiter Screen\nSlot #1 —\n1 Eligible Match\nHiring Team Role:\nRecruiter\nAdd Interviewer Slot',/Slot #1 is filled by the candidate's hiring team role \("Hiring Team Role:"\)/);
   refused("Recruiter Screen\nSlot #1 —\n6 Eligible Matches\nEmployee's Department\nAll are true:\nis Support\nSelect matcher...\nAdd Interviewer Slot",/Slot #1 uses an Advanced matcher on the employee's department/);
   refused('Recruiter Screen\nSlot #1 —\nSomething new\nAdd Interviewer Slot',/Slot #1 shows no eligible-match count \(Ashby shows "Something new"\)/);
   refused('Recruiter Screen\nSlot #1 —\n3 Eligible Matches\nSpecific Employees:\n3 Employees\nPerson One\nAdd Interviewer Slot',/Slot #1 lists 3 employees but 1 name was read from it \("Person One"\)/);
+  // A panel's second slot is held to the same rules, by its own number.
+  refused('Recruiter Screen\nSlot #1 —\n1 Eligible Match\nSpecific Employees:\n1 Employees\nPerson One\nAND\nSlot #2 —\n1 Eligible Match\nHiring Team Role:\nRecruiter\nAdd Interviewer Slot',/Slot #2 is filled by the candidate's hiring team role/);
+  refused('Recruiter Screen\nSlot #1 —\n1 Eligible Match\nSpecific Employees:\n1 Employees\nPerson One\nAND\nSlot #2 —\n2 Eligible Matches\nSpecific Employees:\n2 Employees\nPerson Two\nAdd Interviewer Slot',/Slot #2 lists 2 employees but 1 name was read from it \("Person Two"\)/);
 });
 
 test('Advanced matcher text split across lines, as Ashby renders it, is read and checked',()=>{

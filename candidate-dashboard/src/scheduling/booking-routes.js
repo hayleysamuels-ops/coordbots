@@ -1,6 +1,6 @@
 "use strict";
 const express = require("express");
-function bookingRoutes({ engine, store, clientId, discussion = null, rules = null, alternativesLog = null, facts, sendStatus = null, inspectDraft, inspectCalendar, inspectPlan, inspectFullCalendar, availability, googleCalendar, googleFreeBusy, capabilities = async () => ({ available: false, reason: "Ashby calendar and booking automation are not connected yet." }) }) {
+function bookingRoutes({ engine, store, clientId, discussion = null, rules = null, alternativesLog = null, panels = "off", facts, sendStatus = null, inspectDraft, inspectCalendar, inspectPlan, inspectFullCalendar, availability, googleCalendar, googleFreeBusy, capabilities = async () => ({ available: false, reason: "Ashby calendar and booking automation are not connected yet." }) }) {
   const router = express.Router();
   router.use((req, res, next) => {
     res.set("Cache-Control", "no-store");
@@ -59,6 +59,16 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     if(after.templateRevision!==plan.templateRevision)throw Object.assign(Error('The interview plan changed. Reload it.'),{status:409});
     // Before anything uses the plan: drop listed interviewers Ashby no longer
     // counts as eligible (deactivated accounts), holding the exact count.
+    // Two-person panels are supported (panel.js); a larger one refuses by
+    // name, as needing a person, before anything is searched.
+    const {MAX_PANEL,tooLarge}=require('./panel');
+    const large=(observed.sessions||[]).find(s=>Array.isArray(s.slots)&&s.slots.length>MAX_PANEL);
+    if(large)throw Object.assign(Error(tooLarge(large)),{status:409,needsPerson:true});
+    // Two-person panels only where SCHEDULING_PANELS allows them (config.js):
+    // never sent anywhere until a TEST run has shown the worker composing one.
+    const panel=(observed.sessions||[]).find(s=>Array.isArray(s.slots));
+    if(panel&&!(panels==='on'||(panels==='test'&&plan.applicationId===require('./auto-post').TEST_APPLICATION)))
+      throw Object.assign(Error(`"${String(panel.title||'This interview').trim()}" is a panel: it has ${panel.slots.length} interviewer slots, so it expects ${panel.slots.length} people. Two-person panels are built but not switched on${panels==='test'?' beyond TEST':''} yet, so this can't be proposed or booked here; schedule it by hand in Ashby.`),{status:409,needsPerson:true});
     let sessions=facts.excludeDeactivated?await facts.excludeDeactivated(observed.sessions):observed.sessions;
     // Debriefs (Ashby isDebrief) are marked when the rules defer them until
     // the onsite is confirmed; agendas then leave them out (agendaSessions).

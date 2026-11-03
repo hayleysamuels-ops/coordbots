@@ -1,4 +1,5 @@
 'use strict';
+const {validAssignment}=require('./panel');
 const {windowsToInstants}=require('./booking-planner');
 const {distinctFrom,withinStartWindows}=require('./option-variety');
 const fail=message=>{throw Object.assign(Error(message),{status:422});};
@@ -11,7 +12,7 @@ function proposeFullSchedule({sessions,windows,timezone,now=Date.now(),excludedW
   const weekdayOf=ms=>new Intl.DateTimeFormat('en-US',{timeZone:excludedWeekdays.timezone,weekday:'short'}).format(ms).toLowerCase();
   let skippedWeekday=0;
   if(!Array.isArray(sessions)||!sessions.length||sessions.length>30)fail('Load a complete interview plan first.');
-  for(const s of sessions)if(!Number.isInteger(s.durationMinutes)||s.durationMinutes<5||s.durationMinutes>480||s.assignmentVerified!==true||s.requiredCount!==1||!s.eligibleInterviewers?.length)fail('Every interview needs a verified duration and eligible interviewer list.');
+  for(const s of sessions)if(!Number.isInteger(s.durationMinutes)||s.durationMinutes<5||s.durationMinutes>480||s.assignmentVerified!==true||!s.eligibleInterviewers?.length||!validAssignment(s,p=>p.name))fail('Every interview needs a verified duration and eligible interviewer list.');
   const totalMinutes=sessions.reduce((n,s)=>n+s.durationMinutes,0),proposals=[];
   // Every 5-minute start in each window, back-to-back in template order. Start
   // windows from client rules are applied; an agenda where any session misses
@@ -22,10 +23,21 @@ function proposeFullSchedule({sessions,windows,timezone,now=Date.now(),excludedW
       let cursor=start;const used=new Map(),events=[];let fits=true;
       for(const s of sessions){
         if(!withinStartWindows(s,cursor)){fits=false;break;}
-        const eligible=s.eligibleInterviewers;
-        const interviewer=eligible.slice().sort((a,b)=>(used.get(a.name)||0)-(used.get(b.name)||0))[0];
-        used.set(interviewer.name,(used.get(interviewer.name)||0)+1);
-        events.push({sessionId:s.sessionId,interviewId:s.interviewId,title:s.title,durationMinutes:s.durationMinutes,start:new Date(cursor).toISOString(),end:new Date(cursor+s.durationMinutes*60000).toISOString(),interviewer,eligibleInterviewers:eligible});cursor+=s.durationMinutes*60000;
+        const eligible=s.eligibleInterviewers,least=list=>list.slice().sort((a,b)=>(used.get(a.name)||0)-(used.get(b.name)||0));
+        const at={sessionId:s.sessionId,interviewId:s.interviewId,title:s.title,durationMinutes:s.durationMinutes,start:new Date(cursor).toISOString(),end:new Date(cursor+s.durationMinutes*60000).toISOString()};
+        if(s.slots){
+          // A panel: one distinct person per slot, least used first.
+          const team=[];
+          for(const x of s.slots){const p=least(x.eligibleInterviewers).find(p=>!team.some(t=>t.name===p.name));if(!p){fits=false;break;}team.push(p);}
+          if(!fits)break;
+          for(const p of team)used.set(p.name,(used.get(p.name)||0)+1);
+          events.push({...at,interviewers:team,eligibleInterviewers:eligible,slots:s.slots});
+        }else{
+          const interviewer=least(eligible)[0];
+          used.set(interviewer.name,(used.get(interviewer.name)||0)+1);
+          events.push({...at,interviewer,eligibleInterviewers:eligible});
+        }
+        cursor+=s.durationMinutes*60000;
       }
       if(!fits)continue;
       const option={start:new Date(start).toISOString(),end:new Date(cursor).toISOString(),events};

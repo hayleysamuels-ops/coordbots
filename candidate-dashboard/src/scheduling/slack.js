@@ -140,9 +140,10 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
   const suggestControls = (proposalId, draftDigest, plan) => [
     { type: "button", action_id: "suggest_time", text: { type: "plain_text", text: "Suggest another time" }, value: JSON.stringify({ d: proposalId, g: draftDigest }) },
     { type: "static_select", action_id: "suggest_interviewer", placeholder: { type: "plain_text", text: "Suggest different interviewer" },
-      options: plan.sessions.slice(0, 100).map((s, i) => ({
-        text: { type: "plain_text", text: `${i + 1}. ${clock(displayTimeZone, s)} ${s.title} – ${(s.people || []).map(p => p.name).join(", ") || "interviewer"}`.slice(0, 75) },
-        value: JSON.stringify({ d: proposalId, g: draftDigest, i }) })) },
+      // A panel session has one entry per person (p: which, in slot order).
+      options: plan.sessions.flatMap((s, i) => (s.people || []).length > 1
+        ? s.people.map((p, k) => ({ text: { type: "plain_text", text: `${i + 1}. ${clock(displayTimeZone, s)} ${s.title} – instead of ${p.name}`.slice(0, 75) }, value: JSON.stringify({ d: proposalId, g: draftDigest, i, p: k }) }))
+        : [{ text: { type: "plain_text", text: `${i + 1}. ${clock(displayTimeZone, s)} ${s.title} – ${(s.people || []).map(p => p.name).join(", ") || "interviewer"}`.slice(0, 75) }, value: JSON.stringify({ d: proposalId, g: draftDigest, i }) }]).slice(0, 100) },
   ];
   const scheduleButton = (proposalId, draftDigest, plan) => ({ type: "actions", block_id: "schedule", elements: [{
     type: "button", action_id: "schedule_option", style: "primary", text: { type: "plain_text", text: "Schedule" },
@@ -257,7 +258,8 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       if (gap > 0) lines.push(`---- ${Math.floor(gap / 60)}:${String(gap % 60).padStart(2, "0")} Break -----`);
       previous = s;
       const video = s.location === "Video link required" ? " (video link required)" : "";
-      lines.push(`• ${clock(displayTimeZone, s)} – ${escape(s.title)}${video}  ${(s.people || []).map(name).join(" ")}`);
+      // A panel's people, in slot order: "Gabrielle Struckell and Grace Buckingham".
+      lines.push(`• ${clock(displayTimeZone, s)} – ${escape(s.title)}${video}  ${(s.people || []).map(name).join(" and ")}`);
       if (plan.timezone !== displayTimeZone) lines.push(`      ${secondLabel}: ${clock(plan.timezone, s)}`);
       // Advisory clashes from the calendar check, under the session they
       // affect. A confirmed post moves them to its thread (movedDetails).

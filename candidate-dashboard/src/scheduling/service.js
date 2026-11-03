@@ -1,5 +1,6 @@
 "use strict";
 const { validFlags } = require("./flags");
+const { peopleOf, MAX_PANEL } = require("./panel");
 const { blocksRepost } = require("./store");
 // Server-supplied only (from the candidate's Ashby profile); https LinkedIn URLs.
 // A declared alternatives pair the template holds in full: a label and two or
@@ -99,7 +100,8 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
       // one interviewer the calendar-checked solver assigned. Exactly one: an
       // eligible alternative from the Ashby plan was never calendar-checked and
       // must not appear in the post beside a checked name.
-      if (meta.people && (!Array.isArray(meta.people) || meta.people.length !== input.sessions.length || meta.people.some(list => !Array.isArray(list) || list.length !== 1 || typeof list[0]?.name !== "string" || !list[0].name.trim()))) fail(500, "Each calendar-checked session needs exactly one assigned interviewer.");
+      // A two-person panel (panel.js) lists both, in slot order.
+      if (meta.people && (!Array.isArray(meta.people) || meta.people.length !== input.sessions.length || meta.people.some(list => !Array.isArray(list) || list.length < 1 || list.length > MAX_PANEL || list.some(p => typeof p?.name !== "string" || !p.name.trim())))) fail(500, "Each calendar-checked session needs its assigned interviewers.");
       // meta.flags (server code only): per session, the advisory clashes the
       // calendar check found for its assigned interviewer. Stored with the plan,
       // so the digest covers them and the Slack post shows exactly these.
@@ -163,13 +165,13 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
       const row = await this.draft({ applicationId, timezone,
         notes: `${origin === "auto" ? "Posted automatically when the candidate submitted availability. " : ""}${suggestion ? `${require("./suggestion").suggestionNote(suggestion)} ` : ""}${requestNote}Full schedule option ${optionNumber} from booking review, built from ${source}. ${checked} Nothing has been booked and no invitations have been sent.`,
         sessions: option.events.map((e, i) => ({ title: e.title, start: e.start, end: e.end,
-          interviewers: `${e.interviewer.name} (${!calendarCheck ? "suggested, not calendar-checked" : flags[i].length ? "calendar clash flagged" : "free on primary calendar"})`.slice(0, 500),
+          interviewers: `${peopleOf(e).map(p => p.name).join(" and ")} (${!calendarCheck ? "suggested, not calendar-checked" : flags[i].length ? "calendar clash flagged" : peopleOf(e).length > 1 ? "both free on primary calendars" : "free on primary calendar"})`.slice(0, 500),
           location: attendance[i] === "video" ? "Video link required" : "Room / location to confirm" })) },
         user, { source: "full_schedule_option", sourceRef, rulesRevision, timezoneSource: availabilitySource === "ashby" ? "candidate_submitted" : "coordinator_entered",
           // Calendar-checked options use the Slack format with the Ashby link and
           // the solver's assigned interviewer per session, by name (see
           // slack.js for why plain). Never the eligible alternatives.
-          ...(calendarCheck ? { format: "calendar_checked", people: option.events.map(e => [{ name: e.interviewer.name }]), ...(flagged ? { flags } : {}), ...(linkedinUrl ? { linkedinUrl } : {}), ...(bookingPlan ? { bookingPlan } : {}) } : {}),
+          ...(calendarCheck ? { format: "calendar_checked", people: option.events.map(e => peopleOf(e).map(p => ({ name: p.name }))), ...(flagged ? { flags } : {}), ...(linkedinUrl ? { linkedinUrl } : {}), ...(bookingPlan ? { bookingPlan } : {}) } : {}),
           ...(alternativesBoth?.length ? { alternativesBoth } : {}),
           ...(availabilitySource === "ashby" && submittedAvailability ? { submittedAvailability } : {}),
           ...(suggestion ? { suggestion } : {}), ...(requested?.length ? { requested } : {}) });

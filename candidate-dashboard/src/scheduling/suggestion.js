@@ -44,7 +44,9 @@ function checkSuggestion(s) {
 // this request applies. Throws (409) when the request can't be made.
 // For "amend", `change` is amend.js's ({ label, out, in }), and the post's
 // session must still have `out` on it.
-function nextSuggestion(row, { kind, session = null, by, change = null, carry = true }) {
+// For "interviewer" on a panel session, `person` is which of its people (0-based,
+// slot order) to leave out; a one-person session has none.
+function nextSuggestion(row, { kind, session = null, person: which = null, by, change = null, carry = true }) {
   const plan = row.plan, sessions = plan.bookingPlan?.sessions || [];
   const earlier = carry && plan.suggestion ? plan.suggestion : { avoidStarts: [], excludeInterviewers: [] };
   const base = { replaces: row.id, kind, by, avoidStarts: [...earlier.avoidStarts], excludeInterviewers: [...earlier.excludeInterviewers] };
@@ -53,7 +55,7 @@ function nextSuggestion(row, { kind, session = null, by, change = null, carry = 
   } else if (kind === "amend") {
     const s = sessions[session];
     if (!Number.isInteger(session) || !s) throw Object.assign(new Error("That session isn't on this post."), { status: 409 });
-    if (s.interviewers?.length !== 1 || s.interviewers[0]?.userId !== change?.out?.userId) throw Object.assign(new Error(`${change?.out?.name || "That interviewer"} isn't on ${change?.label || "that session"} any more.`), { status: 409 });
+    if (!s.interviewers?.some(p => p?.userId === change?.out?.userId)) throw Object.assign(new Error(`${change?.out?.name || "That interviewer"} isn't on ${change?.label || "that session"} any more.`), { status: 409 });
     base.session = session;
     base.change = { label: change.label, out: { userId: change.out.userId, name: change.out.name }, in: { userId: change.in.userId, name: change.in.name } };
     base.excludeInterviewers = base.excludeInterviewers.filter(x => !(x.session === session && x.userId === change.in.userId));
@@ -62,8 +64,8 @@ function nextSuggestion(row, { kind, session = null, by, change = null, carry = 
   } else {
     const s = sessions[session];
     if (!Number.isInteger(session) || !s) throw Object.assign(new Error("That session isn't on this post."), { status: 409 });
-    const person = s.interviewers?.[0];
-    if (s.interviewers?.length !== 1 || !person?.userId) throw Object.assign(new Error("That session's interviewer can't be identified, so they can't be left out."), { status: 409 });
+    const panel = s.interviewers?.length > 1, person = s.interviewers?.[panel ? which : 0];
+    if (!s.interviewers?.length || (panel ? !Number.isInteger(which) : which !== null) || !person?.userId) throw Object.assign(new Error("That session's interviewer can't be identified, so they can't be left out."), { status: 409 });
     base.session = session;
     if (!base.excludeInterviewers.some(x => x.session === session && x.userId === person.userId))
       base.excludeInterviewers.push({ session, userId: person.userId, name: String(person.name || person.email || "the interviewer") });

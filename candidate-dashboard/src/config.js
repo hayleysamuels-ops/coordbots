@@ -131,6 +131,10 @@ const config = {
   // "on" posts it, "log" writes it to the log only; anything else is off.
   // Closing open Slack posts whose first session has passed (scheduling/post-expiry.js): exactly "on".
   schedulingPostExpiry: process.env.SCHEDULING_POST_EXPIRY === "on",
+  // Two-person panels (scheduling/panel.js): "on" proposes them for every
+  // job, "test" for TEST's application only; anything else refuses them as
+  // needing a person, as before they were built.
+  schedulingPanels: ["on", "test"].includes(process.env.SCHEDULING_PANELS) ? process.env.SCHEDULING_PANELS : "off",
   schedulingDigest: ["on", "log"].includes(process.env.SCHEDULING_DIGEST) ? process.env.SCHEDULING_DIGEST : "off",
   schedulingAmend: process.env.SCHEDULING_AMEND === "on",
   // The model that reads those requests (amend-interpret.js), through

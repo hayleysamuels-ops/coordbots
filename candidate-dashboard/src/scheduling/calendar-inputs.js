@@ -22,6 +22,10 @@ const fail = (status, message) => { throw Object.assign(new Error(message), { st
 // session is narrowed to that one person. Someone Ashby no longer lists for
 // it, or who can't be scheduled (zero limit, no meeting hours), blocks by
 // name; nobody else is put in their place.
+// A panel session (plan-reader.js `slots`) is filtered slot by slot: an
+// excluded person leaves every slot of that session, and a required person
+// must take one of its slots (requiredUserIds, which the solver holds), with
+// the other slots filled as usual. A slot left with no one blocks by number.
 async function buildCalendarInputs({ plan, windows, timezone, rules, facts, freeBusy, now = Date.now(), excludeInterviewers = [], requireInterviewers = [] }) {
   if (rules.busy.source !== "google_freebusy" || rules.busy.calendars.length !== 1 || rules.busy.calendars[0] !== "primary") fail(503, "Calendar checks need busy.source google_freebusy with the primary calendar only.");
   if (rules.limitsPolicy === "enforce") fail(503, "Enforced interview limits need interview counts, which aren't built. Use zero_only.");
@@ -44,6 +48,8 @@ async function buildCalendarInputs({ plan, windows, timezone, rules, facts, free
   }
   const steered = (i, userId) => excludeInterviewers.some(x => x.session === i && x.userId === userId);
   const required = i => requireInterviewers.find(r => r.session === i);
+  // A panel can have one required person per slot (a Slack amend keeps the rest of it).
+  const requiredAll = i => requireInterviewers.filter(r => r.session === i);
   // A required session is checked below instead: the requirement wins.
   const noOneElse = resolved.sessions.map((s, i) => ({ s, i, left: s.eligibleInterviewers.filter(p => usable.has(p.userId)) }))
     .find(({ i, left }) => !required(i) && left.length && left.every(p => steered(i, p.userId)));
@@ -63,14 +69,26 @@ async function buildCalendarInputs({ plan, windows, timezone, rules, facts, free
   }
   const sessions = resolved.sessions.map((s, i) => {
     const placementWindows = rules.placementFor(s.title);
-    const eligibleInterviewers = s.eligibleInterviewers.filter(p => usable.has(p.userId) && (required(i) ? p.userId === required(i).userId : !steered(i, p.userId)));
+    let eligibleInterviewers, panel = {};
+    if (s.slots) {
+      const slots = s.slots.map(x => ({ eligibleInterviewers: x.eligibleInterviewers.filter(p => usable.has(p.userId) && !steered(i, p.userId)) }));
+      const seen = new Map(); for (const x of slots) for (const p of x.eligibleInterviewers) if (!seen.has(p.userId)) seen.set(p.userId, p);
+      eligibleInterviewers = [...seen.values()];
+      panel = { slots, ...(required(i) ? { requiredUserIds: [...new Set(requiredAll(i).map(r => r.userId))] } : {}) };
+    } else eligibleInterviewers = s.eligibleInterviewers.filter(p => usable.has(p.userId) && (required(i) ? p.userId === required(i).userId : !steered(i, p.userId)));
     // Preferred hosts by email, in order, kept only if eligible and usable.
     const preferredUserIds = (rules.preferredFor ? rules.preferredFor(s.title) : []).map(email => eligibleInterviewers.find(p => p.email === email)?.userId).filter(Boolean);
-    return { ...s, eligibleInterviewers, ...(placementWindows.length ? { placementWindows } : {}), ...(preferredUserIds.length ? { preferredUserIds } : {}) };
+    return { ...s, eligibleInterviewers, ...panel, ...(placementWindows.length ? { placementWindows } : {}), ...(preferredUserIds.length ? { preferredUserIds } : {}) };
   });
   const context = { excluded, meetingHours: hoursUsed, limitsPolicy: rules.limitsPolicy, rulesRevision: rules.rulesRevision, busySource: "Google free/busy, primary calendars" };
   const empty = sessions.find(s => !s.eligibleInterviewers.length);
   if (empty) return { ...context, blocked: `No eligible interviewer can take ${empty.title}: every one is excluded (see below).` };
+  for (const [i, s] of sessions.entries()) {
+    const k = (s.slots || []).findIndex(x => !x.eligibleInterviewers.length);
+    if (k < 0) continue;
+    const asked = excludeInterviewers.some(x => x.session === i);
+    return { ...context, blocked: `No eligible interviewer can take slot ${k + 1} of ${s.title} (a panel of ${s.slots.length}): ${asked ? "everyone left for it was asked to be left out, or is excluded (see below)" : "every one is excluded (see below)"}.`, ...(asked ? { noOtherInterviewer: true } : {}) };
+  }
 
   // An unreadable calendar refuses the whole check. It's never counted as free
   // or busy, and its interviewer isn't dropped. The refusal names every one,

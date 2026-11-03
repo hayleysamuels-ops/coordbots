@@ -5,34 +5,25 @@ const fail=message=>{throw Object.assign(Error(message),{status:409});};
 // optionally only qualified people or only trainees), a Hiring Team Role (the
 // candidate's Recruiter, Hiring Manager, ..., or whoever moved them to this
 // stage), or an Advanced matcher (conditions on employee attributes). Slots are
-// ANDed: two slots means two interviewers. Supported: one slot, filled by
-// Specific Employees or by an Advanced matcher that only names employees
-// ("Employee's Employee is ..."). Everything else is refused by name, saying
-// what was found and what to change.
+// ANDed: two slots means two interviewers, one from each slot's list (a panel).
+// Supported, for every slot: Specific Employees, or an Advanced matcher that
+// only names employees ("Employee's Employee is ..."). Everything else is
+// refused by name, saying which slot, what was found and what to change.
 const HIRING_ROLES=['Hiring Manager','Recruiter','Recruiting Coordinator','Sourcer'];
 const quote=v=>`"${String(v).replace(/\s+/g,' ').trim().slice(0,80)}"`;
-function parseAssignment(text,title='This interview'){
-  text=text.replace(/Specific\s+Employees\s*:/g,'Specific Employees:').replace(/(\d+)\s+Employees?/g,'$1 Employees').replace(/Add\s+Interviewer\s+Slot/g,'Add Interviewer Slot').replace(/Search\s+for\s+user\s*\.\.\./g,'Search for user...').replace(/Select\s+matcher\s*\.\.\./g,'Select matcher...').replace(/(\d+)\s*Eligible\s*Match(es)?/g,'$1 Eligible Match$2').replace(/\bis\s*\n\s*/g,'is ').replace(/^Interviewers\s*\n\s*(\d+)$/m,'Interviewers $1').replace(/\b(All|Any)\s*\n\s*are\s+true\s*:/g,'$1 are true:');
-  const lines=text.split('\n').map(s=>s.trim()).filter(Boolean);
-  const name=quote(title).slice(1,-1);
+// One slot's lines (after its "Slot #k" heading, before the next slot or "Add
+// Interviewer Slot") to its eligible names and Ashby's eligible count.
+function parseSlot(slot,name,k){
+  const label=`Slot #${k}`;
   const refuse=(found,fix)=>fail(`"${name}": ${found}, which isn't supported. ${fix}`);
   const namedFix='Only named interviewers are supported: use Specific Employees in the template.';
-  const slotStarts=lines.map((s,i)=>/^Slot\s*#\d+\b/.test(s)?i:-1).filter(i=>i>=0);
-  if(!slotStarts.length)refuse(`no interviewer slot could be found (Ashby shows ${quote(lines.slice(1,4).join(' · ')||'nothing')})`,namedFix);
-  // Slots are ANDed: each is one more person on the panel. Never suggest
-  // merging them into one slot: that turns a panel into a one-person interview.
-  if(slotStarts.length>1)fail(`"${name}" is a panel: it has ${slotStarts.length} interviewer slots, so it expects ${slotStarts.length} people. Panel events aren't supported yet, so this can't be proposed or booked here; schedule it by hand in Ashby.`);
-  // Ashby heads the section "Interviewers N", N being its slot count.
-  const heading=lines.map(l=>l.match(/^Interviewers (\d+)$/)).find(Boolean);
-  if(heading&&Number(heading[1])!==slotStarts.length)fail(`"${name}": Ashby shows "Interviewers ${heading[1]}" but ${slotStarts.length} slot${slotStarts.length===1?' was':'s were'} read. Load the plan again; if it persists, check the event in Ashby.`);
-  const slot=lines.slice(slotStarts[0]+1,lines.includes('Add Interviewer Slot')?lines.lastIndexOf('Add Interviewer Slot'):undefined);
   const slotText=slot.join('\n');
   const pool=slot.find(s=>/\bpools?\b/i.test(s));
-  if(pool)refuse(`Slot #1 draws from an interviewer pool (Ashby shows ${quote(pool)})`,namedFix);
+  if(pool)refuse(`${label} draws from an interviewer pool (Ashby shows ${quote(pool)})`,namedFix);
   const role=slot.find(s=>HIRING_ROLES.includes(s.replace(/[:.]$/,''))||/hiring\s+team/i.test(s)||/moved the candidate/i.test(s));
-  if(role)refuse(/moved the candidate/i.test(role)?'Slot #1 goes to whoever moved the candidate to this stage':`Slot #1 is filled by the candidate's hiring team role (${quote(role)})`,namedFix);
+  if(role)refuse(/moved the candidate/i.test(role)?`${label} goes to whoever moved the candidate to this stage`:`${label} is filled by the candidate's hiring team role (${quote(role)})`,namedFix);
   const matches=[...slotText.matchAll(/(\d+) Eligible Match(?:es)?/g)];
-  if(matches.length!==1)refuse(`Slot #1 shows ${matches.length?`${matches.length} eligible-match counts`:'no eligible-match count'} (Ashby shows ${quote(slot.slice(0,3).join(' · '))})`,namedFix);
+  if(matches.length!==1)refuse(`${label} shows ${matches.length?`${matches.length} eligible-match counts`:'no eligible-match count'} (Ashby shows ${quote(slot.slice(0,3).join(' · '))})`,namedFix);
   const count=Number(matches[0][1]);
   let names;
   const employees=slot.findIndex(s=>/^\d+ Employees?$/.test(s));
@@ -40,18 +31,18 @@ function parseAssignment(text,title='This interview'){
   else {
     // Advanced matcher: only conditions naming employees are supported.
     const attributes=[...new Set(slot.map(s=>s.match(/^Employee's\s+(.+)$/)?.[1]).filter(Boolean))];
-    if(!attributes.length)refuse(`Slot #1 uses a rule the reader doesn't recognise (Ashby shows ${quote(slot.slice(1,4).join(' · '))})`,namedFix);
+    if(!attributes.length)refuse(`${label} uses a rule the reader doesn't recognise (Ashby shows ${quote(slot.slice(1,4).join(' · '))})`,namedFix);
     const other=attributes.filter(a=>a!=='Employee');
-    if(other.length)refuse(`Slot #1 uses an Advanced matcher on ${other.map(a=>`the employee's ${a.toLowerCase()}`).join(' and ')}`,'Only named interviewers are supported: use Specific Employees, or an Advanced matcher that only names employees ("Employee\'s Employee is ...").');
-    if(slot.some(s=>/^Any are true:?$/i.test(s)))refuse('Slot #1 uses an Advanced matcher where any condition can match','Only conditions that all hold are supported: use Specific Employees, or "All are true" with "Employee\'s Employee is ...".');
-    if(slot.some(s=>/^is not\b/i.test(s)))refuse('Slot #1 uses an Advanced matcher that excludes employees ("is not")','Only conditions naming who can take it are supported: use Specific Employees, or "Employee\'s Employee is ...".');
+    if(other.length)refuse(`${label} uses an Advanced matcher on ${other.map(a=>`the employee's ${a.toLowerCase()}`).join(' and ')}`,'Only named interviewers are supported: use Specific Employees, or an Advanced matcher that only names employees ("Employee\'s Employee is ...").');
+    if(slot.some(s=>/^Any are true:?$/i.test(s)))refuse(`${label} uses an Advanced matcher where any condition can match`,'Only conditions that all hold are supported: use Specific Employees, or "All are true" with "Employee\'s Employee is ...".');
+    if(slot.some(s=>/^is not\b/i.test(s)))refuse(`${label} uses an Advanced matcher that excludes employees ("is not")`,'Only conditions naming who can take it are supported: use Specific Employees, or "Employee\'s Employee is ...".');
     const start=slot.findIndex(s=>/^is\s+/.test(s)),end=slot.indexOf('Search for user...');
-    if(start<0||end<=start)refuse('Slot #1 uses an Advanced matcher whose employee list could not be read',namedFix);
+    if(start<0||end<=start)refuse(`${label} uses an Advanced matcher whose employee list could not be read`,namedFix);
     names=slot.slice(start,end).filter(s=>!['Search for user...','is'].includes(s)).map(s=>s.replace(/^is\s+/,''));
   }
   names=[...new Set(names.filter(s=>s&&!/^OR$/.test(s)&&s!=='Select matcher...'))];
   const bad=names.find(n=>!/^\p{L}[\p{L} .’'\-]+$/u.test(n));
-  if(bad)fail(`"${name}": Slot #1 lists ${quote(bad)}, which doesn't read as an employee's name. Check the slot in Ashby.`);
+  if(bad)fail(`"${name}": ${label} lists ${quote(bad)}, which doesn't read as an employee's name. Check the slot in Ashby.`);
   // Never loosened: a name that isn't a real eligible interviewer would go to
   // the solver and could be proposed for a real interview. The names read are
   // listed (and logged) so the stray one can be identified.
@@ -61,14 +52,42 @@ function parseAssignment(text,title='This interview'){
   // so every name goes on with Ashby's count, and the dashboard settles it
   // against Ashby's directory, holding the count exactly (excludeDeactivated).
   const listed=employees>=0&&slot.includes('Specific Employees:')?Number(slot[employees].match(/^(\d+)/)[1]):null;
-  if(listed!==null&&names.length!==listed)fail(`"${name}": Slot #1 lists ${listed} employee${listed===1?'':'s'} but ${names.length} name${names.length===1?' was':'s were'} read from it (${names.map(quote).join(', ')||'none'}). Check the slot in Ashby, then load the plan again.`);
-  if(count&&names.length>count)return {requiredCount:1,eligibleInterviewers:names.map(name=>({name})),eligibleCount:count,assignmentVerified:true};
+  if(listed!==null&&names.length!==listed)fail(`"${name}": ${label} lists ${listed} employee${listed===1?'':'s'} but ${names.length} name${names.length===1?' was':'s were'} read from it (${names.map(quote).join(', ')||'none'}). Check the slot in Ashby, then load the plan again.`);
+  if(count&&names.length>count)return {eligibleInterviewers:names.map(name=>({name})),eligibleCount:count};
   if(!count||names.length!==count){
     const read=names.map(quote).join(', ')||'none';
-    console.warn(`[plan-reader] "${name}" Slot #1: ${count} eligible, read ${names.length}: ${read}. Slot lines: ${slot.map(quote).join(' | ')}`);
-    fail(`"${name}": Slot #1 says ${count} eligible match${count===1?'':'es'} but ${names.length} name${names.length===1?' was':'s were'} read from it (${read}). Check the slot in Ashby, then load the plan again.`);
+    console.warn(`[plan-reader] "${name}" ${label}: ${count} eligible, read ${names.length}: ${read}. Slot lines: ${slot.map(quote).join(' | ')}`);
+    fail(`"${name}": ${label} says ${count} eligible match${count===1?'':'es'} but ${names.length} name${names.length===1?' was':'s were'} read from it (${read}). Check the slot in Ashby, then load the plan again.`);
   }
-  return {requiredCount:1,eligibleInterviewers:names.map(name=>({name})),assignmentVerified:true};
+  return {eligibleInterviewers:names.map(name=>({name}))};
+}
+// An event's slots. One slot reads as before: requiredCount 1 and its list as
+// eligibleInterviewers. A panel (two or more slots) also carries `slots`, one
+// list per slot in Ashby's order, with eligibleInterviewers the union of them
+// (everyone whose calendar and hours the dashboard must load). Never merge a
+// panel's slots into one: that turns a panel into a one-person interview.
+function parseAssignment(text,title='This interview'){
+  text=text.replace(/Specific\s+Employees\s*:/g,'Specific Employees:').replace(/(\d+)\s+Employees?/g,'$1 Employees').replace(/Add\s+Interviewer\s+Slot/g,'Add Interviewer Slot').replace(/Search\s+for\s+user\s*\.\.\./g,'Search for user...').replace(/Select\s+matcher\s*\.\.\./g,'Select matcher...').replace(/(\d+)\s*Eligible\s*Match(es)?/g,'$1 Eligible Match$2').replace(/\bis\s*\n\s*/g,'is ').replace(/^Interviewers\s*\n\s*(\d+)$/m,'Interviewers $1').replace(/\b(All|Any)\s*\n\s*are\s+true\s*:/g,'$1 are true:');
+  const lines=text.split('\n').map(s=>s.trim()).filter(Boolean);
+  const name=quote(title).slice(1,-1);
+  const slotStarts=lines.map((s,i)=>/^Slot\s*#\d+\b/.test(s)?i:-1).filter(i=>i>=0);
+  if(!slotStarts.length)fail(`"${name}": no interviewer slot could be found (Ashby shows ${quote(lines.slice(1,4).join(' · ')||'nothing')}), which isn't supported. Only named interviewers are supported: use Specific Employees in the template.`);
+  // Ashby heads the section "Interviewers N", N being its slot count.
+  const heading=lines.map(l=>l.match(/^Interviewers (\d+)$/)).find(Boolean);
+  if(heading&&Number(heading[1])!==slotStarts.length)fail(`"${name}": Ashby shows "Interviewers ${heading[1]}" but ${slotStarts.length} slot${slotStarts.length===1?' was':'s were'} read. Load the plan again; if it persists, check the event in Ashby.`);
+  // Slots in page order, numbered as Ashby numbers them.
+  const numbers=slotStarts.map(i=>Number(lines[i].match(/^Slot\s*#(\d+)/)[1]));
+  if(numbers.some((n,k)=>n!==k+1))fail(`"${name}": the slots read are numbered ${numbers.map(n=>`#${n}`).join(', ')}, not in order from #1. Load the plan again; if it persists, check the event in Ashby.`);
+  const tail=lines.includes('Add Interviewer Slot')?lines.lastIndexOf('Add Interviewer Slot'):lines.length;
+  const slots=slotStarts.map((at,k)=>{
+    const body=lines.slice(at+1,k+1<slotStarts.length?slotStarts[k+1]:tail);
+    // Ashby joins slots with "AND"; it belongs to neither.
+    while(body.length&&body[body.length-1]==='AND')body.pop();
+    return parseSlot(body,name,k+1);
+  });
+  if(slots.length===1)return {requiredCount:1,...slots[0],assignmentVerified:true};
+  const union=[...new Set(slots.flatMap(s=>s.eligibleInterviewers.map(p=>p.name)))].map(name=>({name}));
+  return {requiredCount:slots.length,eligibleInterviewers:union,slots,assignmentVerified:true};
 }
 // A read failure (Ashby didn't load what we need) is a different thing from a
 // mismatch (Ashby loaded, and the template differs from the published plan).
