@@ -412,14 +412,41 @@ done and verified, in this order:
     `worker/plan-reader.js`:
     - **one in the template:** accepted; the others are left out and named
       (`alternativesLeftOut`);
-    - **both:** refused, `Both coding interviews are in the template ("…" and
-      "…"), and only one should run.`;
+    - **both:** kept as the template has them and reported
+      (`alternativesBoth`); see the November 3 change below;
     - **neither:** the ordinary mismatch, naming both as missing.
   - `fullPlan` (`booking-routes.js`) checks the worker's answer rather than
-    trusting it: only a declared group's interviews may be left out, each group
-    keeps exactly one, and more than one kept refuses with the same words (so a
-    worker without the rule can't pass the dangerous case either). The left-out
-    interview is removed from the plan's activity too.
+    trusting it: only a declared group's interviews may be left out, and each
+    group keeps at least one. The left-out interview is removed from the plan's
+    activity too.
+  - **Both is a flag, not a refusal** (November 3, 2026, rules revision 10).
+    Kshitiz Parashar (FDE) genuinely takes both coding interviews, so refusing
+    blocked a correct schedule. Now:
+    - `fullPlan` works out the pair from what was kept (not from the worker's
+      report, so any worker is covered) and returns `alternativesBoth`;
+    - the plan is suggested with both, and the post carries the pair inside its
+      plan (so the approval's digest covers it). The post itself, under the
+      candidate's name and above the schedule, says: "⚠️ *This template includes
+      both Coding - Roomba and Coding - URL Shortner*, which are usually
+      alternatives (one per candidate). If both are intended, approve as usual.
+      If not, remove one from the schedule's template in Ashby, then press
+      *Suggest another time*. The new option will be planned without it."
+      Suggest re-reads the template (`suggestAgain` → `fullPlan`). Approval
+      keeps the flag (without the instructions) and adds "Approved with both …";
+      a cleanly sent post's thread names it too;
+    - pressing Schedule on the old post after removing one in Ashby refuses
+      before any save (the composer has one event fewer than approved);
+    - **counted:** every read with a pair in full is a line in
+      `<DATA_DIR>/alternatives-both.jsonl` and a log line `[alternatives] Both
+      … in the template …: first time for this schedule; N schedules so far
+      with this pair in full on this job.` (`alternatives-log.js`; re-reads of
+      one schedule aren't new candidates). If pairs in full keep happening, the
+      declaration is the wrong model and should be dropped, not flagged on
+      every post (Hayley, 2026-11-03);
+    - "Both … are in the template" is no longer a needs-a-person refusal in
+      auto-post. A schedule auto-post already gave up on for it (Kshitiz, Oct
+      30, before needs-a-person existed) isn't retried until the schedule
+      changes in Ashby: post it from booking review.
   - **Not shown yet:** the dashboard and the Slack post don't say which coding
     interview was left out; the agenda simply lists the one that runs.
   - **Unverified on a real onsite.** The first FDE onsite post is the check.
@@ -918,7 +945,7 @@ after hours.
   hasn't been posted: …". "Auto-post is running normally again" appears only
   once nobody is outstanding (posted, or handed back loudly). A round that
   can't run at all (the worker's settings unreadable or invalid) says so.
-- **Refusals only a person can fix** (both or neither alternative in the
+- **Refusals only a person can fix** (neither alternative in the
   template, Welcome not first, a panel, a template that no longer matches the
   plan) are said at once as "⚠️ Needs someone in Ashby: auto-post can't
   propose …'s schedule until this is fixed. … This won't fix itself.", and

@@ -65,7 +65,7 @@ const PERSON_RECHECK_MS = 60 * 60 * 1000;
 // Refusals only a person can clear, by editing the template or plan in Ashby.
 // Errors raised on the dashboard carry needsPerson; the worker's are known
 // by their words (worker/plan-reader.js, booking-routes.js).
-const NEEDS_PERSON = [/ is a panel: /, /\bBoth .+ are in the template\b/, /\bNone of the .+ is in the template\b/, /must come first/, /isn't supported\. /,
+const NEEDS_PERSON = [/ is a panel: /, /\bNone of the .+ is in the template\b/, /must come first/, /isn't supported\. /,
   /The template's activity isn't in the published plan/, /The template interviews no longer match the published plan/];
 const needsPerson = e => e?.needsPerson === true || NEEDS_PERSON.some(re => re.test(String(e?.message || "")));
 

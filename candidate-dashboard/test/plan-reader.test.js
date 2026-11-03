@@ -138,10 +138,15 @@ test('alternatives: a template with either one alone is read, and the other is n
   }
 });
 
-test('alternatives: both in the template refuses, saying only one should run',async()=>{
-  const e=await readPlan(onsitePage('Coding - Roomba','URL Shortner'),{...fde,alternatives:[coding]}).then(()=>null,x=>x);
-  assert.equal(e.status,409);assert.equal(e.kind,'alternatives_both');
-  assert.equal(e.message,'Both coding interviews are in the template ("Coding - Roomba" and "URL Shortner"), and only one should run. Remove the one this candidate isn\'t taking from the schedule\'s template in Ashby, then load the plan again. Nothing was booked.');
+test('alternatives: both in the template are kept as the template says, and reported for the post to flag',async()=>{
+  const r=await readPlan(onsitePage('Coding - Roomba','URL Shortner'),{...fde,alternatives:[coding]});
+  assert.equal(r.activityId,'a0');
+  assert.deepEqual(r.sessions.map(s=>s.title),['Welcome','Coding - Roomba','URL Shortner','Solution Decomp']);
+  assert.deepEqual(r.alternativesLeftOut,[]);
+  // The template's own spellings, not the rule's.
+  assert.deepEqual(r.alternativesBoth,[{label:'coding interviews',titles:['Coding - Roomba','URL Shortner']}]);
+  // One alone reports no pair.
+  assert.deepEqual((await readPlan(onsitePage('URL Shortner'),{...fde,alternatives:[coding]})).alternativesBoth,[]);
 });
 
 test('alternatives: neither in the template refuses as a mismatch naming both',async()=>{

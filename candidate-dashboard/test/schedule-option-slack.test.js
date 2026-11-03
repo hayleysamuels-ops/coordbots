@@ -344,6 +344,68 @@ test("a flagged calendar-checked option posts as needing attention, with each cl
   assert.match(posts[0].text, /needs attention \(1 calendar clash\)/);
 });
 
+// A declared alternatives pair the template holds in full is planned as the
+// template has it and named in the post itself, with what to do if it's wrong.
+test("both of a declared pair are flagged in the post itself, then on the approval and the sent thread", async t => {
+  const { service, sent } = setup(t);
+  const both = [{ label: "coding interviews", titles: ["Coding - Roomba", "Coding - URL Shortner"] }];
+  await service.postScheduleOption(post({ calendarCheck: { checkedAt: Date.parse("2098-12-31T09:00:00Z"), meetingHoursAssumed: true, flags: [[]] }, alternativesBoth: both }), user);
+  const plan = sent[0].plan;
+  assert.deepEqual(plan.alternativesBoth, both, "inside the plan, so the approval's digest covers it");
+  const posts = [];
+  const send = require("../src/scheduling/slack").createSlack("xoxb-test", async (url, init) => { posts.push(JSON.parse(init.body)); return { ok: true, json: async () => ({ ok: true, ts: "1.2", channel: "C1" }) }; }, { displayTimeZone: "UTC", interactive: true, clientName: "Luminai" });
+  const textOf = blocks => blocks.flatMap(b => b.text ? [b.text.text] : b.elements ? b.elements.map(e => e.text?.text ?? e.text) : []).join("\n");
+  await send(plan, { channelId: "C1", proposalId: "draft-1", approver: "Coordinator", digest: "d".repeat(64) });
+  // In the post, straight under the candidate, before any time.
+  assert.equal(posts[0].blocks[0].text.text, "This is the proposed interview schedule for Luminai. Please review all flags, then post to the client channel for discussion or press Schedule.");
+  assert.equal(posts[0].blocks[2].text.text, "⚠️ *This template includes both Coding - Roomba and Coding - URL Shortner*, which are usually alternatives (one per candidate). If both are intended, approve as usual. If not, remove one from the schedule's template in Ashby, then press *Suggest another time*. The new option will be planned without it.");
+  assert.match(posts[0].text, /includes both coding interviews, for discussion, nothing booked\.$/);
+  assert.ok(posts[0].blocks.some(b => b.type === "actions"), "still approvable");
+  // Approved: the flag stays, without the instructions, and the approval says it was approved with both.
+  posts.length = 0;
+  const row = { id: "draft-1", plan, slackApproval: { name: "Anna Jones", email: "anna@luminai.com", at: "2098-12-31T10:00:00Z" }, ashbyCheck: { state: "queued" } };
+  await send.markApproved({ channel: "C1", ts: "1.2", row });
+  const approved = textOf(posts[0].blocks);
+  assert.match(approved, /^⚠️ \*This template included both Coding - Roomba and Coding - URL Shortner\*, which are usually alternatives \(one per candidate\)\.$/m);
+  assert.doesNotMatch(approved, /Suggest another time/);
+  assert.match(approved, /^Approved with both Coding - Roomba and Coding - URL Shortner, as flagged when it was posted\.$/m);
+  // Sent cleanly: the SOP format leaves flags to the thread, which names the pair.
+  posts.length = 0;
+  await send.movedDetails({ channel: "C1", ts: "1.2", row: { ...row, ashbyCheck: { state: "sent", sentSeenAt: "2098-12-31T11:00:00Z" } } });
+  const thread = textOf(posts[0].blocks);
+  assert.match(thread, /^\*Flagged when it was posted:\* the template included both Coding - Roomba and Coding - URL Shortner, which are usually alternatives \(one per candidate\)\.$/m);
+  assert.match(thread, /^Approved with both Coding - Roomba and Coding - URL Shortner/m);
+  // A post with no pair says nothing about alternatives.
+  const { service: s2, sent: sent2 } = setup(t);
+  await s2.postScheduleOption(post({ sourceRef: "full-schedule:request:other", calendarCheck: { checkedAt: Date.parse("2098-12-31T09:00:00Z"), meetingHoursAssumed: true, flags: [[]] } }), user);
+  assert.equal(sent2[0].plan.alternativesBoth, undefined);
+  posts.length = 0;
+  await send(sent2[0].plan, { channelId: "C1", proposalId: "draft-2", approver: "Coordinator", digest: "d".repeat(64) });
+  assert.doesNotMatch(textOf(posts[0].blocks), /alternatives|includes both/);
+  assert.match(posts[0].blocks[0].text.text, /Please review it,/);
+});
+
+test("the pair-in-full log counts distinct schedules per job and pair, and never throws", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "coord-alt-"));
+  try {
+    const lines = [];
+    const log = require("../src/scheduling/alternatives-log").createAlternativesLog(dir, { log: { log: m => lines.push(m), warn: m => lines.push(m) } });
+    const e = { jobId: "j1", jobTitle: "Forward Deployed Engineer", applicationId: "a1", scheduleId: "s1", label: "coding interviews", titles: ["Coding - Roomba", "Coding - URL Shortner"] };
+    assert.deepEqual(log.record(e), { first: true, schedules: 1 });
+    assert.deepEqual(log.record(e), { first: false, schedules: 1 }, "a re-read of the same schedule isn't another candidate");
+    assert.deepEqual(log.record({ ...e, applicationId: "a2", scheduleId: "s2" }), { first: true, schedules: 2 });
+    assert.deepEqual(log.record({ ...e, jobId: "j2", scheduleId: "s3" }), { first: true, schedules: 1 }, "counted per job");
+    assert.equal(lines[0], '[alternatives] Both coding interviews in the template ("Coding - Roomba" and "Coding - URL Shortner") on Forward Deployed Engineer, schedule s1: first time for this schedule; 1 schedule so far with this pair in full on this job.');
+    assert.match(lines[2], /schedule s2: first time for this schedule; 2 schedules so far/);
+    assert.deepEqual(log.counts().map(c => [c.jobId, c.schedules]), [["j1", 2], ["j2", 1]]);
+    assert.equal(fs.readFileSync(path.join(dir, "alternatives-both.jsonl"), "utf8").trim().split("\n").length, 4);
+    // A file it can't write is a warning, not a failed plan read.
+    const broken = require("../src/scheduling/alternatives-log").createAlternativesLog(path.join(dir, "alternatives-both.jsonl", "x"), { log: { log: () => {}, warn: m => lines.push(m) } });
+    assert.equal(broken.record(e), null);
+    assert.match(lines.at(-1), /^\[alternatives\] Couldn't record a pair in full: /);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("a clear calendar-checked option still posts as free, with no attention banner", async t => {
   const { service, sent } = setup(t);
   await service.postScheduleOption(post({ calendarCheck: { checkedAt: Date.parse("2098-12-31T09:00:00Z"), meetingHoursAssumed: true, flags: [[]] } }), user);
@@ -472,6 +534,39 @@ test("a post is marked to send only when the worker says every Send lock is open
     assert.ok(off.bookingPlan, "still checked in Ashby");
     assert.equal(off.bookingPlan.send, undefined);assert.equal(off.bookingPlan.sendAs, undefined);
   }
+});
+
+test("a template holding a declared pair in full is suggested and posted with both, the pair passed to the post and counted", async t => {
+  const U = n => `0000000${n}-0000-4000-8000-000000000000`;
+  const sessions = [{ sessionId: "s1", interviewId: U(5), title: "Coding - Roomba", durationMinutes: 30 }, { sessionId: "s2", interviewId: U(7), title: "Coding - URL Shortner", durationMinutes: 30 }];
+  const plan = { applicationId: U(1), candidateId: U(2), jobId: U(3), scheduleId: U(4), stageId: "stage", templateRevision: "v1", candidateName: "TEST", candidateEmail: "t@example.com",
+    jobTitle: "TEST", stageTitle: "Onsite", activities: [{ id: "a0", title: "Onsite Interview Schedule", sessions }] };
+  const { titleKey } = require("../worker/plan-reader");
+  const posted = [], recorded = [];
+  const app = express(); app.use(express.json());
+  app.use((req, res, next) => { req.schedulingUser = user; next(); });
+  app.use("/booking", bookingRoutes({
+    facts: { application: async () => plan },
+    alternativesLog: { record: e => recorded.push(e) },
+    availability: { requests: async () => ({ stageId: "stage", requests: [{ scheduleId: U(4), updatedAt: "version" }] }),
+      load: async ({ scheduleId }) => ({ scheduleId, stageId: "stage", timezone: "America/Denver", windows: [{ start: "2099-01-01T17:00:00.000Z", end: "2099-01-01T18:00:00.000Z" }], localWindows: [{ start: "2099-01-01T10:00", end: "2099-01-01T11:00" }] }) },
+    inspectPlan: async input => ({ ...input, activityId: "a0", alternativesLeftOut: [], sessions: sessions.map(s => ({ ...s, assignmentVerified: true, requiredCount: 1, eligibleInterviewers: [{ name: "Hayley Samuels", userId: U(6), email: "hayley@example.com" }] })) }),
+    discussion: { postScheduleOption: async input => { posted.push(input); return { state: "shared", channelName: "c" }; } },
+    rules: { get: () => ({ rulesRevision: 2, hasAttendanceOverrides: false, attendanceFor: () => "in_person", placementFor: () => [],
+      alternativesFor: () => [{ label: "coding interviews", titles: ["Coding - Roomba", "Coding - URL Shortner"] }], alternativeKey: titleKey }) },
+  }));
+  const server = await new Promise(resolve => { const s = app.listen(0, "127.0.0.1", () => resolve(s)); });
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}/booking`;
+  const body = { applicationId: U(1), scheduleId: U(4), availabilitySource: "ashby" };
+  const suggested = await (await fetch(base + "/suggest-full-schedule", { method: "POST", headers, body: JSON.stringify(body) })).json();
+  assert.ok(suggested.proposals?.length, JSON.stringify(suggested));
+  assert.deepEqual(suggested.proposals[0].events.map(e => e.title), ["Coding - Roomba", "Coding - URL Shortner"]);
+  const r = await fetch(base + "/post-full-schedule-option", { method: "POST", headers, body: JSON.stringify({ ...body, optionIndex: 0, optionDigest: suggested.proposals[0].optionDigest }) });
+  assert.equal(r.status, 200, await r.text());
+  assert.deepEqual(posted[0].alternativesBoth, [{ label: "coding interviews", titles: ["Coding - Roomba", "Coding - URL Shortner"] }]);
+  assert.deepEqual(posted[0].bookingPlan.sessions.map(s => s.title), ["Coding - Roomba", "Coding - URL Shortner"]);
+  assert.ok(recorded.length >= 1 && recorded.every(e => e.scheduleId === U(4) && e.jobId === U(3)), JSON.stringify(recorded));
 });
 
 test("a post built from the candidate's submission keeps it in the plan, under the digest; typed-in times don't", async t => {

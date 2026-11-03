@@ -123,6 +123,7 @@ function createServer() {
       engine: bookingEngine, store: bookingStore, clientId: connectionConfig.schedulingClientId, googleCalendar, googleFreeBusy,
       discussion: scheduling,
       rules: schedulingRules,
+      alternativesLog: require("./scheduling/alternatives-log").createAlternativesLog(connectionConfig.dataDir),
       availability: availabilitySource,
       inspectFullCalendar: payload => bookingWorker.call("inspect-full-calendar",payload),
       inspectPlan: payload => bookingWorker.call("inspect-plan",payload),

@@ -64,7 +64,7 @@ test("Monday's digest: this weekend's cases, each in its section", async () => {
   const state = {
     // Kshitiz: given up on before needs-a-person existed; his refusal is one.
     "s-k": { updatedAt: "2026-10-31T17:00:00.000Z", failedRounds: 3, candidateName: "Kshitiz Parashar", at: "2026-10-30T16:01:00.000Z",
-      lastError: "Both coding interviews are in the template (\"Coding - Roomba\" and \"Coding - URL Shortner\"), and only one should run. Remove the one this candidate isn't taking from the schedule's template in Ashby, t" },
+      lastError: "None of the coding interviews (\"Coding - Roomba\", \"Coding - URL Shortner\") is in the template, and one should run. Add the one this candidate is taking to the schedule's template in Ashby, then load the plan again." },
     "s-sam": { updatedAt: "2026-10-31T17:00:00.000Z", failedRounds: 3, lastError: "Ashby didn't answer properly (HTTP 502, a web page titled \"502 Bad Gateway\") after 3 tries." },
   };
   const rows = [
@@ -106,7 +106,7 @@ test("Monday's digest: this weekend's cases, each in its section", async () => {
     "• Not on the compose list: 2: Emma Smith (Marketing Lead / Onsite Interview), Pat Doe (Recruiter / Recruiter Screen)",
     "• Since Friday's digest: 4 posted, 1 booked through the bot, 2 drafts composed; auto-post failures: 3 for 1 candidate (HTTP 502); 1 whole round"].join("\n"));
   // Cut back to the last whole sentence; no generic fix line, since the refusal names Ashby... once it's whole.
-  assert.match(thread, /^• Kshitiz Parashar \(Forward Deployed Engineer\), given up on Fri, Oct 30: Both coding interviews are in the template \("Coding - Roomba" and "Coding - URL Shortner"\), and only one should run\. Fix it in Ashby \(the schedule's template or the job's interview plan\)\. Auto-post won't try this one again until the schedule changes in Ashby; once it's fixed, post from booking review\.$/m);
+  assert.match(thread, /^• Kshitiz Parashar \(Forward Deployed Engineer\), given up on Fri, Oct 30: None of the coding interviews \("Coding - Roomba", "Coding - URL Shortner"\) is in the template, and one should run\. Add the one this candidate is taking to the schedule's template in Ashby, then load the plan again\. Auto-post won't try this one again until the schedule changes in Ashby; once it's fixed, post from booking review\.$/m);
   assert.match(thread, /^• Samuel Zhao · Applied AI Engineer: first session Mon, Oct 5, 9:15 AM PDT passed; posted 34 days ago; the post is still open\.$/m);
   assert.match(thread, /^• Amara Jordan · Forward Deployed Engineer: first session Mon, Nov 2, 7:30 AM PST passed; posted 4 days ago\. Nobody pressed Schedule or Suggest on it\.$/m);
   assert.doesNotMatch(text, /Earlier Expiry/);

@@ -230,6 +230,12 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
   // approved, the status line says what happened, so "nothing was booked" goes.
   const smallPrint = (plan, { proposalId, approver }, approval) => `${escape(approval ? String(plan.notes || "").replace(/\s*Nothing has been booked and no invitations have been sent\.\s*/, " ").trim() : plan.notes)} Posted for discussion by ${escape(approver)}. Draft reference: ${escape(proposalId)}`;
 
+  // Declared alternatives the template holds in full (booking-routes.js
+  // keptAlternatives): "Coding - Roomba and Coding - URL Shortner".
+  const bothNames = g => { const t = g.titles.map(escape); return t.length > 2 ? `${t.slice(0, -1).join(", ")} and ${t[t.length - 1]}` : t.join(" and "); };
+  const bothPairs = plan => (plan.alternativesBoth || []).filter(g => Array.isArray(g?.titles) && g.titles.length > 1);
+  const approvedWithBoth = plan => bothPairs(plan).map(g => `Approved with both ${bothNames(g)}, as flagged when it was posted.`).join("\n");
+
   // `confirmed`: the SOP's confirmed format, for a clean send (confirmedSend):
   // candidate and role, links, the schedule and the checklist, nothing else.
   async function calendarChecked(plan, { proposalId, approver, digest: draftDigest }, approval = null, check = null, replaced = null, { confirmed = false } = {}) {
@@ -275,12 +281,19 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     // before reading any time. "Schedule" is only mentioned when the button is
     // on the post, and "flags" only when there are any.
     const forClient = clientName ? ` for ${escape(clientName)}` : "", button = interactive && draftDigest && !approval && !replaced;
-    const instruction = `This is the proposed interview schedule${forClient}. Please review ${clashes ? "all flags" : "it"}, then post to the client channel for discussion${button ? (sends(plan) ? ` or press Schedule, which *sends it from ${sendsAs(plan)}'s account*` : " or press Schedule") : ""}.`;
+    const pairs = bothPairs(plan), open = !approval && !replaced;
+    const instruction = `This is the proposed interview schedule${forClient}. Please review ${clashes || pairs.length ? "all flags" : "it"}, then post to the client channel for discussion${button ? (sends(plan) ? ` or press Schedule, which *sends it from ${sendsAs(plan)}'s account*` : " or press Schedule") : ""}.`;
     const blocks = [
       { type: "section", text: mrkdwn(instruction) },
       header[0],
       // A flagged agenda says so before any time is read as settled.
       ...(clashes ? [{ type: "section", text: mrkdwn(`⚠️ *Needs attention: ${clashes} calendar clash${clashes === 1 ? "" : "es"}.* This schedule is not ready to send. Each flagged session needs the interviewer to move the clash, or to accept booking over it.`) }] : []),
+      // A declared pair in full is planned as the template has it and named
+      // here, in the post, so two exercises are never booked unnoticed. What to
+      // do about it only while the post can still be approved or replaced.
+      ...pairs.map(g => ({ type: "section", text: mrkdwn(open
+        ? `⚠️ *This template includes both ${bothNames(g)}*, which are usually alternatives (one per candidate). If both are intended, approve as usual. If not, remove one from the schedule's template in Ashby, then press *Suggest another time*. The new option will be planned without it.`
+        : `⚠️ *This template included both ${bothNames(g)}*, which are usually alternatives (one per candidate).`) })),
       header[1],
       { type: "section", text: mrkdwn(`*Interview Schedule${clashes ? " — needs attention" : ""}*`) },
       ...sections.map(t => ({ type: "section", text: mrkdwn(t) })),
@@ -291,10 +304,10 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     else if (replaced) blocks.push({ type: "section", text: mrkdwn(replaced.kind === "resubmitted"
       ? `*Replaced* at ${escape(when(replaced.at))}: the candidate submitted new availability, so this option no longer applies${replaced.withDraft ? ", and a new option was posted below" : "; no new option was posted automatically"}. Nothing from this message was booked or sent.`
       : `*Replaced* at ${escape(when(replaced.at))}: ${escape(replaced.by)} asked ${replaced.kind === "amend" ? `to ${escape(replaced.change || "change it")}` : `for ${replaced.kind === "time" ? "another time" : `a different interviewer for session ${replaced.session + 1}`}`}, and a new option was posted below. Nothing from this message was booked or sent.`) });
-    else if (approval) blocks.push({ type: "section", text: mrkdwn(`${approvedLine(approval)}\n${checkText(plan, check)}`) });
+    else if (approval) blocks.push({ type: "section", text: mrkdwn(`${approvedLine(approval)}${pairs.length ? `\n${approvedWithBoth(plan)}` : ""}\n${checkText(plan, check)}`) });
     else if (interactive && draftDigest) blocks.push(scheduleButton(proposalId, draftDigest, plan));
     // The fallback shows in notifications and has no names or links.
-    const text = `Interview schedule draft for ${plan.candidateName} · ${plan.jobTitle}: ${clashes ? `needs attention (${clashes} calendar clash${clashes === 1 ? "" : "es"}), ` : ""}for discussion, nothing booked.`;
+    const text = `Interview schedule draft for ${plan.candidateName} · ${plan.jobTitle}: ${clashes ? `needs attention (${clashes} calendar clash${clashes === 1 ? "" : "es"}), ` : ""}${pairs.map(g => `includes both ${g.label}, `).join("")}for discussion, nothing booked.`;
     return { text, blocks, mrkdwn: false, parse: "none" };
   }
 
@@ -381,7 +394,8 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       { type: "section", text: mrkdwn("Moved here from the post when the schedule was sent:") },
       { type: "section", text: mrkdwn(smallPrint(plan, meta, row.slackApproval)) },
       ...(flagged.length ? chunked(`*Calendar clashes flagged when it was posted:*\n${flagged.join("\n")}`).map(t => ({ type: "section", text: mrkdwn(t) })) : []),
-      { type: "section", text: mrkdwn(`${approvedLine(row.slackApproval)}\n${checkText(plan, row.ashbyCheck)}`) },
+      ...(bothPairs(plan).length ? [{ type: "section", text: mrkdwn(bothPairs(plan).map(g => `*Flagged when it was posted:* the template included both ${bothNames(g)}, which are usually alternatives (one per candidate).`).join("\n")) }] : []),
+      { type: "section", text: mrkdwn(`${approvedLine(row.slackApproval)}${bothPairs(plan).length ? `\n${approvedWithBoth(plan)}` : ""}\n${checkText(plan, row.ashbyCheck)}`) },
     ];
     const text = `Details for ${plan.candidateName}'s interview schedule: approval, calendar check and send result.`;
     const problems = blockProblems({ text, blocks });

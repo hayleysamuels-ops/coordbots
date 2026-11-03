@@ -2,6 +2,9 @@
 const { validFlags } = require("./flags");
 const { blocksRepost } = require("./store");
 // Server-supplied only (from the candidate's Ashby profile); https LinkedIn URLs.
+// A declared alternatives pair the template holds in full: a label and two or
+// more interview titles (booking-routes.js keptAlternatives).
+const validAlternativesBoth = v => Array.isArray(v) && v.length > 0 && v.length <= 10 && v.every(g => typeof g?.label === "string" && g.label.trim() && Array.isArray(g.titles) && g.titles.length >= 2 && g.titles.length <= 10 && g.titles.every(t => typeof t === "string" && t.trim() && t.length <= 200));
 const linkedIn = v => { try { const u = new URL(v); return u.protocol === "https:" && /(^|\.)linkedin\.com$/i.test(u.hostname) ? u.href : null; } catch (_) { return null; } };
 const crypto = require("crypto");
 // Immutable content digests and revision checks use the existing work-trial
@@ -111,6 +114,10 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
         // The Ashby check's plan (booking-plan.js), inside the plan so the
         // approval's digest covers exactly what the check composes.
         ...(meta.bookingPlan && typeof meta.bookingPlan === "object" ? { bookingPlan: meta.bookingPlan } : {}),
+        // Declared alternatives the template holds in full (booking-routes.js
+        // keptAlternatives), inside the plan so the approval's digest covers
+        // the flag the post shows.
+        ...(validAlternativesBoth(meta.alternativesBoth) ? { alternativesBoth: meta.alternativesBoth.map(g => ({ label: g.label.trim(), titles: g.titles.map(t => t.trim()) })) } : {}),
         // The candidate's submitted availability the option was built from
         // (availability-gate.js), checked again before the Ashby check composes.
         ...(meta.submittedAvailability ? { submittedAvailability: require("./availability-gate").postedAvailability(meta.submittedAvailability) } : {}),
@@ -135,7 +142,7 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
     // the posting path.
     // `requested` (standing interviewer requests, requests.js) is kept on the
     // new post; `requestsReleased` and `requestsDropped` are said in its notes.
-    async postScheduleOption({ applicationId, candidateId, timezone, option, optionNumber, sourceRef, availabilitySource, attendance, rulesRevision, calendarCheck = null, linkedinUrl = null, bookingPlan = null, submittedAvailability = null, suggestion = null, origin = null, requested = [], requestsReleased = null, requestsDropped = [] }, user) {
+    async postScheduleOption({ applicationId, candidateId, timezone, option, optionNumber, sourceRef, availabilitySource, attendance, rulesRevision, calendarCheck = null, linkedinUrl = null, bookingPlan = null, submittedAvailability = null, suggestion = null, origin = null, requested = [], requestsReleased = null, requestsDropped = [], alternativesBoth = [] }, user) {
       actor(user);
       const c = await candidate(applicationId);
       if (c.candidateId !== candidateId) fail(409, "Candidate changed in Ashby. Suggest the full schedule again.");
@@ -163,6 +170,7 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
           // the solver's assigned interviewer per session, by name (see
           // slack.js for why plain). Never the eligible alternatives.
           ...(calendarCheck ? { format: "calendar_checked", people: option.events.map(e => [{ name: e.interviewer.name }]), ...(flagged ? { flags } : {}), ...(linkedinUrl ? { linkedinUrl } : {}), ...(bookingPlan ? { bookingPlan } : {}) } : {}),
+          ...(alternativesBoth?.length ? { alternativesBoth } : {}),
           ...(availabilitySource === "ashby" && submittedAvailability ? { submittedAvailability } : {}),
           ...(suggestion ? { suggestion } : {}), ...(requested?.length ? { requested } : {}) });
       try {

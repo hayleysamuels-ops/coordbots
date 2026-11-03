@@ -1,6 +1,6 @@
 "use strict";
 const express = require("express");
-function bookingRoutes({ engine, store, clientId, discussion = null, rules = null, facts, sendStatus = null, inspectDraft, inspectCalendar, inspectPlan, inspectFullCalendar, availability, googleCalendar, googleFreeBusy, capabilities = async () => ({ available: false, reason: "Ashby calendar and booking automation are not connected yet." }) }) {
+function bookingRoutes({ engine, store, clientId, discussion = null, rules = null, alternativesLog = null, facts, sendStatus = null, inspectDraft, inspectCalendar, inspectPlan, inspectFullCalendar, availability, googleCalendar, googleFreeBusy, capabilities = async () => ({ available: false, reason: "Ashby calendar and booking automation are not connected yet." }) }) {
   const router = express.Router();
   router.use((req, res, next) => {
     res.set("Cache-Control", "no-store");
@@ -51,7 +51,7 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     // the activity is still understood where the stage has just one.
     const activity=observed.activityId?plan.activities.find(a=>a.id===observed.activityId):plan.activities.length===1?plan.activities[0]:null;
     if(!activity)throw Object.assign(Error(observed.activityId?"The template's activity isn't in the published plan. Reload the plan.":'This stage has more than one activity, and the scheduling worker didn\'t say which one the template is. Update the scheduling worker.'),{status:409});
-    const expected=keptAlternatives(activity,alternatives,observed);
+    const {sessions:expected,both}=keptAlternatives(activity,alternatives,observed);
     if(!Array.isArray(observed.sessions)||observed.sessions.length!==expected.length||observed.sessions.some((s,i)=>s.sessionId!==expected[i].sessionId||s.interviewId!==expected[i].interviewId||s.durationMinutes!==expected[i].durationMinutes))throw Object.assign(Error('The template interviews no longer match the published plan.'),{status:409});
     const latest=await availability.requests(plan.applicationId);
     if(latest.stageId!==plan.stageId||!latest.requests.some(r=>r.scheduleId===request.scheduleId&&r.updatedAt===request.updatedAt))throw Object.assign(Error('The pending schedule changed. Reload its plan.'),{status:409});
@@ -63,31 +63,36 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     // Debriefs (Ashby isDebrief) are marked when the rules defer them until
     // the onsite is confirmed; agendas then leave them out (agendaSessions).
     if(rules&&rules.get().debriefs?.afterOnsiteConfirmed&&facts.debriefInterviewIds){const ids=await facts.debriefInterviewIds();sessions=sessions.map(s=>ids.has(s.interviewId)?{...s,isDebrief:true}:s);}
+    // A declared pair in full is planned as the template has it, flagged on
+    // the post (alternativesBoth), and counted (alternatives-log.js).
+    for(const g of both)alternativesLog?.record({jobId:plan.jobId,jobTitle:plan.jobTitle,applicationId:plan.applicationId,scheduleId:request.scheduleId,label:g.label,titles:g.titles});
     // activities narrows to the template's own, so the booking plan names it.
     // A left-out alternative is out of the activity too, so nothing downstream
     // can book it.
-    return {...plan,activities:[{...activity,sessions:expected}],activityId:activity.id,scheduleId:request.scheduleId,sessions,alternativesLeftOut:(observed.alternativesLeftOut||[]).map(s=>s.title),checkedAt:observed.checkedAt,bookingEnabled:false};
+    return {...plan,activities:[{...activity,sessions:expected}],activityId:activity.id,scheduleId:request.scheduleId,sessions,alternativesLeftOut:(observed.alternativesLeftOut||[]).map(s=>s.title),alternativesBoth:both,checkedAt:observed.checkedAt,bookingEnabled:false};
   }
   // The activity's sessions less the alternatives the worker left out, checked
   // here rather than trusted: only sessions of a declared group may be left
-  // out, and each group in the activity keeps exactly one. More than one kept
-  // is the dangerous case (a worker without the rule matches a template that
-  // has both), and refuses with the worker's own words.
+  // out, and each group in the activity keeps at least one. More than one kept
+  // isn't refused (some candidates take both, Hayley 2026-11-03) but is
+  // returned as `both`, worked out here from what was kept rather than from
+  // the worker's report, so the post flags it whichever worker read it.
+  // Titles are the published plan's, which the template matched exactly.
   function keptAlternatives(activity,alternatives,observed){
     const out=observed.alternativesLeftOut||[];
     if(!Array.isArray(out))throw Object.assign(Error('The scheduling worker\'s plan read is malformed. Update the scheduling worker.'),{status:409});
     const key=alternatives.length?rules.get().alternativeKey:null;
-    const outIds=new Set(out.map(s=>s.sessionId)),grouped=new Set();
+    const outIds=new Set(out.map(s=>s.sessionId)),grouped=new Set(),both=[];
     for(const g of alternatives){
       const titles=new Set(g.titles.map(key)),members=activity.sessions.filter(s=>titles.has(key(s.title)));
       if(members.length<2)continue;
       members.forEach(s=>grouped.add(s.sessionId));
       const kept=members.filter(s=>!outIds.has(s.sessionId));
-      if(kept.length>1)throw Object.assign(Error(`Both ${g.label} are in the template (${kept.map(s=>`"${s.title.trim()}"`).join(' and ')}), and only one should run. Remove the one this candidate isn't taking from the schedule's template in Ashby, then load the plan again. Nothing was booked.`),{status:409,needsPerson:true});
+      if(kept.length>1)both.push({label:g.label,titles:kept.map(s=>s.title.trim())});
       if(!kept.length)throw Object.assign(Error(`None of the ${g.label} (${members.map(s=>`"${s.title.trim()}"`).join(', ')}) is in the template, and one should run. Add the one this candidate is taking to the schedule's template in Ashby, then load the plan again.`),{status:409,needsPerson:true});
     }
     if(out.some(s=>!grouped.has(s.sessionId)))throw Object.assign(Error('The scheduling worker left an interview out of the plan that no alternatives rule covers. Reload the plan.'),{status:409});
-    return activity.sessions.filter(s=>!outIds.has(s.sessionId));
+    return {sessions:activity.sessions.filter(s=>!outIds.has(s.sessionId)),both};
   }
   router.post('/full-plan',handle(fullPlan));
   router.post('/calendar-availability',handle(async req=>{
@@ -232,8 +237,10 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
       if(st?.sendOn===true&&typeof st.as==='string'&&st.as)composed.plan={...composed.plan,send:true,sendAs:st.as};
       else console.log(`[ashby-check] Approving this post won't send: ${st?.reason||'the worker didn\'t say'}`);
     }
+    // A declared pair the template holds in full, flagged on the post itself.
+    const alternativesBoth=(plan.alternativesBoth||[]).filter(g=>g.titles.every(t=>chosen.events.some(e=>e.title.trim()===t)));
     return discussion.postScheduleOption({bookingPlan:composed.plan,applicationId:plan.applicationId,candidateId:plan.candidateId,timezone:result.timezone,option:chosen,optionNumber:index+1,linkedinUrl,
-      sourceRef:`full-schedule:${plan.scheduleId}:${ref}`,availabilitySource,attendance,
+      sourceRef:`full-schedule:${plan.scheduleId}:${ref}`,availabilitySource,attendance,...(alternativesBoth.length?{alternativesBoth}:{}),
       ...(suggestion?{suggestion}:{}),...(origin?{origin}:{}),
       // Standing requests travel only on calendar-checked posts, where they were applied.
       ...(requests&&result.requests?.applied?{requested:requests.requested,requestsReleased:requests.released,requestsDropped:requests.dropped}:{}),

@@ -66,7 +66,7 @@ test('the preferred host is used, flagged, only when nobody else is free',()=>{
 
 test('Luminai\'s rules: WFH Wednesdays, Gabrielle for Welcome, deferred debriefs, Sanjay 07:00–17:00 Pacific, Joe Penn\'s and Kesava\'s accounts, the FDE coding alternatives',()=>{
   const r=loadRules({clientId:'luminai',log:{log(){},warn(){}}}).get();
-  assert.equal(r.rulesRevision,9);
+  assert.equal(r.rulesRevision,10);
   // Each FDE job's two coding interviews, spelled as Ashby has them on that job.
   assert.deepEqual(['5ba29c75-1b89-4ffc-8f58-5db207afc527','009c1c4e-152b-44f0-bcb1-0879f8287b62','85218d8e-1de8-47ef-9ac9-f6b2067f89aa','837cc1e9-15ed-4f07-8755-51ee29f4ea39'].map(j=>r.alternativesFor(j).map(g=>[g.label,...g.titles])),
     [[['coding interviews','Coding - Roomba','Coding - URL Shortner']],[['coding interviews','Coding - Roomba','URL Shortner']],[['coding interviews','Coding - Roomba','URL Shortener']],[]]);

@@ -153,11 +153,11 @@ test("a read that keeps failing is retried every round, then given up on loudly 
 
 test("a refusal only a person can fix is said at once, marked, and checked again hourly, not every round", async t => {
   const f = fixture(t);
-  f.setFound(() => { throw Object.assign(new Error('Both coding interviews are in the template ("Coding - Roomba" and "Coding - URL Shortner"), and only one should run. Remove the one this candidate isn\'t taking from the schedule\'s template in Ashby, then load the plan again. Nothing was booked.'), { status: 409 }); });
+  f.setFound(() => { throw Object.assign(new Error('None of the coding interviews ("Coding - Roomba", "Coding - URL Shortner") is in the template, and one should run. Add the one this candidate is taking to the schedule\'s template in Ashby, then load the plan again.'), { status: 409 }); });
   await f.auto.round(); await f.auto.round(); await f.auto.round();
   assert.equal(f.calls.suggester, 1);
   assert.equal(f.calls.notices.length, 1);
-  assert.match(f.calls.notices[0].text, /^⚠️ Needs someone in Ashby: auto-post can't propose TEST's schedule until this is fixed\. Both coding interviews are in the template .* This won't fix itself\. Auto-post checks again every hour/);
+  assert.match(f.calls.notices[0].text, /^⚠️ Needs someone in Ashby: auto-post can't propose TEST's schedule until this is fixed\. None of the coding interviews .* is in the template, .* This won't fix itself\. Auto-post checks again every hour/);
   f.setFound(null);
   f.clock.t += 61 * 60 * 1000;
   await f.auto.round();
@@ -169,7 +169,7 @@ test("a refusal only a person can fix is said at once, marked, and checked again
 test("a needs-a-person refusal keeps when it started across the hourly rechecks, and every failure is recorded for the digest", async t => {
   const f = fixture(t);
   const events = () => fs.readFileSync(path.join(f.dir, "auto-post-events.jsonl"), "utf8").trim().split("\n").map(l => JSON.parse(l));
-  f.setFound(() => { throw new Error("Both coding interviews are in the template, and only one should run."); });
+  f.setFound(() => { throw new Error("None of the coding interviews is in the template, and one should run."); });
   await f.auto.round();
   const first = JSON.parse(fs.readFileSync(path.join(f.dir, "auto-post.json"), "utf8"))[SCHED].needsPerson;
   f.clock.t += 61 * 60 * 1000;
