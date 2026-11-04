@@ -25,6 +25,15 @@ test('a panel is read as one eligible list per slot, with everyone in them, neve
   const welcome=parseAssignment('Welcome\nInterviewers\n2\nSlot #1\n—\n1 Eligible Match\nSpecific Employees:\n1 Employees\nGabrielle Struckell\nAND\nSlot #2\n—\n2 Eligible Matches\nSpecific Employees:\n2 Employees\nGrace Buckingham\nOR Ali Feldman\nAdd Interviewer Slot','Welcome');
   assert.equal(welcome.requiredCount,2);
   assert.deepEqual(welcome.slots.map(x=>x.eligibleInterviewers.map(p=>p.name)),[['Gabrielle Struckell'],['Grace Buckingham','Ali Feldman']]);
+  // The page as read (textContent): the separator is "and" (CSS shows it
+  // uppercase), and need not be the body's last line. TEST's two-slot Initial.
+  for(const sep of ['and','And','AND','and\nor'])for(const where of ['end','middle']){
+    const slot1=where==='end'?`Hayley Samuels\n${sep}`:`${sep}\nHayley Samuels`;
+    const t=parseAssignment(`Initial\nInterviewers\n2\nSlot #1\n—\n1 Eligible Match\nSpecific Employees:\n1 Employees\n${slot1}\nSlot #2\n—\n1 Eligible Match\nSpecific Employees:\n1 Employees\nAnna Jones\nAdd Interviewer Slot`,'Initial');
+    assert.deepEqual(t.slots.map(x=>x.eligibleInterviewers.map(p=>p.name)),[['Hayley Samuels'],['Anna Jones']],`${JSON.stringify(sep)} at the ${where}`);
+  }
+  // Anything else stray between slots still refuses (never becomes a name).
+  assert.throws(()=>parseAssignment('Initial\nSlot #1\n—\n1 Eligible Match\nSpecific Employees:\n1 Employees\nHayley Samuels\nFeedback required\nand\nSlot #2\n—\n1 Eligible Match\nSpecific Employees:\n1 Employees\nAnna Jones\nAdd Interviewer Slot','Initial'),/Slot #1 lists 1 employee but 2 names were read from it \("Hayley Samuels", "Feedback required"\)/);
   // Someone in both slots is one person in the union.
   const both=parseAssignment('Welcome\nSlot #1 —\n2 Eligible Matches\nSpecific Employees:\n2 Employees\nGabrielle Struckell\nOR Grace Buckingham\nAND\nSlot #2 —\n2 Eligible Matches\nSpecific Employees:\n2 Employees\nGabrielle Struckell\nOR Grace Buckingham\nAdd Interviewer Slot','Welcome');
   assert.deepEqual(both.eligibleInterviewers.map(p=>p.name),['Gabrielle Struckell','Grace Buckingham']);

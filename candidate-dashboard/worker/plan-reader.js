@@ -40,7 +40,9 @@ function parseSlot(slot,name,k){
     if(start<0||end<=start)refuse(`${label} uses an Advanced matcher whose employee list could not be read`,namedFix);
     names=slot.slice(start,end).filter(s=>!['Search for user...','is'].includes(s)).map(s=>s.replace(/^is\s+/,''));
   }
-  names=[...new Set(names.filter(s=>s&&!/^OR$/.test(s)&&s!=='Select matcher...'))];
+  // A lone "or" between names is Ashby's joiner, in any case (see "and" in
+  // parseAssignment). The "OR " prefix stays uppercase-only: "Or" is a first name.
+  names=[...new Set(names.filter(s=>s&&!/^or$/i.test(s)&&s!=='Select matcher...'))];
   const bad=names.find(n=>!/^\p{L}[\p{L} .’'\-]+$/u.test(n));
   if(bad)fail(`"${name}": ${label} lists ${quote(bad)}, which doesn't read as an employee's name. Check the slot in Ashby.`);
   // Never loosened: a name that isn't a real eligible interviewer would go to
@@ -52,6 +54,7 @@ function parseSlot(slot,name,k){
   // so every name goes on with Ashby's count, and the dashboard settles it
   // against Ashby's directory, holding the count exactly (excludeDeactivated).
   const listed=employees>=0&&slot.includes('Specific Employees:')?Number(slot[employees].match(/^(\d+)/)[1]):null;
+  if(listed!==null&&names.length!==listed)console.warn(`[plan-reader] "${name}" ${label}: lists ${listed}, read ${names.length}: ${names.map(quote).join(', ')||'none'}. Slot lines: ${slot.map(quote).join(' | ')}`);
   if(listed!==null&&names.length!==listed)fail(`"${name}": ${label} lists ${listed} employee${listed===1?'':'s'} but ${names.length} name${names.length===1?' was':'s were'} read from it (${names.map(quote).join(', ')||'none'}). Check the slot in Ashby, then load the plan again.`);
   if(count&&names.length>count)return {eligibleInterviewers:names.map(name=>({name})),eligibleCount:count};
   if(!count||names.length!==count){
@@ -80,9 +83,11 @@ function parseAssignment(text,title='This interview'){
   if(numbers.some((n,k)=>n!==k+1))fail(`"${name}": the slots read are numbered ${numbers.map(n=>`#${n}`).join(', ')}, not in order from #1. Load the plan again; if it persists, check the event in Ashby.`);
   const tail=lines.includes('Add Interviewer Slot')?lines.lastIndexOf('Add Interviewer Slot'):lines.length;
   const slots=slotStarts.map((at,k)=>{
-    const body=lines.slice(at+1,k+1<slotStarts.length?slotStarts[k+1]:tail);
-    // Ashby joins slots with "AND"; it belongs to neither.
-    while(body.length&&body[body.length-1]==='AND')body.pop();
+    // Ashby joins slots with "AND"; it belongs to neither. The page is read as
+    // textContent, which ignores CSS text-transform, so the separator arrives
+    // as "and" (shown uppercase) and isn't always a body's last line. A lone
+    // "and" in any case is never a name: names are full names.
+    const body=lines.slice(at+1,k+1<slotStarts.length?slotStarts[k+1]:tail).filter(s=>!/^and$/i.test(s));
     return parseSlot(body,name,k+1);
   });
   if(slots.length===1)return {requiredCount:1,...slots[0],assignmentVerified:true};
