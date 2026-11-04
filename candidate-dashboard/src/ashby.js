@@ -595,6 +595,18 @@ function groupEventsByApplicationId(schedules) {
 }
 
 /**
+ * The interviewers who could still owe a scorecard for an event: everyone not
+ * explicitly marked isFeedbackRequired false (a missing value counts as
+ * required, so an org where the field is ever absent doesn't silently drop a
+ * real panelist). An event where this is empty has no scorecard due at all —
+ * e.g. a Welcome whose hosts are all feedback-not-required — and is never
+ * Feedback Overdue, rather than shown with an empty interviewer list.
+ */
+function feedbackOwers(event) {
+  return (event.interviewers || []).filter((i) => i.isFeedbackRequired !== false);
+}
+
+/**
  * A candidate can have multiple schedules over the life of one application
  * (one per interview stage/round) — an earlier round's missing feedback can
  * keep showing as overdue long after the candidate has moved on to (or even
@@ -713,6 +725,8 @@ async function listIssues(options = {}) {
 
       if (event.hasSubmittedFeedback || !event.endTime) continue;
       if (debriefInterviewIds.has(event.interviewId)) continue; // debriefs have no scorecard due back
+      const owers = feedbackOwers(event);
+      if (!owers.length) continue; // nobody on it owes a scorecard
       if (isSupersededByLaterActivity(event, schedule.applicationId, eventsByApplicationId)) continue;
       // The application has already moved on to its current stage since this
       // interview ended — the scorecard gap is moot even though no later
@@ -756,8 +770,7 @@ async function listIssues(options = {}) {
         interviewEventId: event.id,
         endTime: event.endTime,
         hoursOverdue: Math.round(hoursOverdue),
-        interviewers: (event.interviewers || [])
-          .filter((i) => i.isFeedbackRequired !== false)
+        interviewers: owers
           .map((i) => ({
             name: `${i.firstName || ""} ${i.lastName || ""}`.trim() || i.email,
             email: i.email,
@@ -1158,4 +1171,5 @@ module.exports = {
   listOffers,
   getApiCallCount,
   getApiCallCountByEndpoint,
+  feedbackOwers,
 };
