@@ -272,6 +272,11 @@ const config = {
   // value. Empty means "use the default token," not "no accent."
   clientAccentColor: process.env.CLIENT_ACCENT_COLOR || "",
 
+  // The topbar logo: the name of a file in public/assets/clients/ (see
+  // client-logo.js), e.g. "luminai" for luminai.svg. Empty means Carrara's
+  // mark.
+  clientLogo: (process.env.CLIENT_LOGO || "").trim().toLowerCase(),
+
   // Recruiter/Coordinator filter: exact hiringTeam[].role name to match
   // (not a substring/keyword list like source/stage above — Ashby's
   // hiringTeamRole.list is a small controlled per-org list, not free text,

@@ -614,7 +614,7 @@
     }
   }
 
-  function renderSignalChips(countsByQueue, totalCount) {
+  function renderSignalChips(countsByQueue, totalCount, hiddenCount) {
     const container = document.getElementById("signal-chip-row");
     if (!container) return;
     const chips = [
@@ -626,6 +626,11 @@
         `<button type="button" class="signal-chip${activeSignal === queue.key ? " is-active" : ""}" data-signal="${queue.key}">${queue.label} ${countsByQueue[queue.key]}</button>`
       );
     }
+    // Set apart from the signals: it lists what's been taken off the
+    // dashboard, not something waiting on a coordinator.
+    chips.push(
+      `<button type="button" class="signal-chip signal-chip-hidden${activeSignal === "hidden" ? " is-active" : ""}" data-signal="hidden">Hidden &amp; snoozed ${hiddenCount}</button>`
+    );
     container.innerHTML = chips.join("");
   }
 
@@ -654,8 +659,16 @@
     const totalCount = allRows.length;
 
     renderQueueNav(countsByQueue, totalCount, data);
-    renderSignalChips(countsByQueue, totalCount);
+    renderSignalChips(countsByQueue, totalCount, (data.hidden || []).length);
     updateActionQueueFootnote(data.thresholds && data.thresholds.rescheduleCountThreshold);
+
+    const thead = document.getElementById("action-queue-head");
+    if (thead && actionQueueHeadHtml === null) actionQueueHeadHtml = thead.innerHTML;
+    if (activeSignal === "hidden") {
+      renderHiddenQueue(data);
+      return;
+    }
+    if (thead && thead.innerHTML !== actionQueueHeadHtml) thead.innerHTML = actionQueueHeadHtml;
 
     const sub = document.getElementById("actionQueue-sub");
     if (sub) {
@@ -704,6 +717,140 @@
       ? visibleRows.map((row) => actionQueueRowHtml(row, data.thresholds)).join("")
       : `<tr><td colspan="5">${emptyStateHtml(hasError, "Nothing flagged")}</td></tr>`;
     if (scrollContainer) scrollContainer.scrollTop = previousScrollTop;
+  }
+
+  // The Action queue's Hidden & snoozed tab: every hide and snooze still in
+  // force (data.hidden, built server-side in hidden-list.js), with a Restore
+  // button on each. It ignores the entity filters so nothing hidden can be
+  // out of sight here too. "Hidden by" is the name typed into the browser
+  // that hid it: self-reported, not a record of who was signed in.
+  let actionQueueHeadHtml = null;
+  const HIDDEN_SECTION_LABELS = {
+    readyToSchedule: "Ready to schedule",
+    recentSourced: "Recently sourced",
+    staleCandidates: "Stale candidates",
+    onsiteToday: "Onsite today",
+    interviewerLimits: "Weekly limits",
+    interviewerTraining: "Interviewer training",
+    offersNotYetSent: "Offer not yet sent",
+    offersAwaitingAcceptance: "Offer awaiting acceptance",
+    offersSigned: "Offer signed",
+  };
+
+  function hiddenSectionLabel(key) {
+    const queue = TRIAGE_QUEUES.find((q) => q.key === key);
+    return queue ? queue.label : HIDDEN_SECTION_LABELS[key] || key;
+  }
+
+  function formatHiddenTime(ms) {
+    return new Date(ms).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: displayTimeZone });
+  }
+
+  function hiddenRowHtml(entry) {
+    const label = entry.name ? escapeHtml(entry.name) : `<span class="muted">${entry.kind === "interviewer" ? "Interviewer" : "Candidate"} (name not saved)</span>`;
+    const nameHtml = entry.ashbyProfileUrl ? `<a href="${escapeHtml(entry.ashbyProfileUrl)}" target="_blank" rel="noopener">${label}</a>` : label;
+    const kind = entry.kind === "interviewer" ? `<div class="hidden-sub">Interviewer</div>` : entry.jobTitle ? `<div class="hidden-sub">${escapeHtml(entry.jobTitle)}</div>` : "";
+    const from = entry.sections.length ? entry.sections.map(hiddenSectionLabel).map(escapeHtml).join(", ") : `<span class="muted">—</span>`;
+    // A snooze always lifts at the next midnight in DISPLAY_TIMEZONE, so
+    // "midnight" is enough; the exact time is in the tooltip.
+    const status = entry.scope === "forever"
+      ? "Hidden"
+      : `<span${entry.expiresAt ? ` title="${escapeHtml(formatHiddenTime(entry.expiresAt))}"` : ""}>Snoozed until midnight</span>`;
+    const by = entry.by ? escapeHtml(entry.by) : `<span class="muted">—</span>`;
+    const when = entry.hiddenAt ? escapeHtml(formatHiddenTime(entry.hiddenAt)) : `<span class="muted">Not saved</span>`;
+    return `
+      <tr class="action-queue-row">
+        <td class="aq-candidate">${nameHtml}${kind}</td>
+        <td>${from}</td>
+        <td>${status}</td>
+        <td>${by}</td>
+        <td>${when}</td>
+        <td class="aq-dismiss"><button type="button" class="hidden-restore-btn" data-key="${escapeHtml(entry.key)}">Restore</button></td>
+      </tr>`;
+  }
+
+  function renderHiddenQueue(data) {
+    const entries = data.hidden || [];
+    const thead = document.getElementById("action-queue-head");
+    if (thead) {
+      thead.innerHTML = `
+        <tr>
+          <th>Name</th>
+          <th>Hidden from</th>
+          <th>Status</th>
+          <th>Hidden by (self-reported)</th>
+          <th>When</th>
+          <th></th>
+        </tr>`;
+    }
+    const sub = document.getElementById("actionQueue-sub");
+    if (sub) {
+      const name = hiderName();
+      sub.innerHTML =
+        `Everything hidden or snoozed on this dashboard, whatever the filters above. Restore puts it back. ` +
+        `"Hidden by" is the name typed into the browser that hid it, not a record of who did. ` +
+        `<span class="hidden-by-self">This browser: ${name ? escapeHtml(name) : "no name"} · <button type="button" class="hider-name-change">Change</button></span>`;
+    }
+    const shownCountEl = document.getElementById("actionQueue-shown-count");
+    if (shownCountEl) shownCountEl.textContent = "";
+    const tbody = document.getElementById("action-queue-body");
+    if (!tbody) return;
+    const scrollContainer = document.querySelector(".action-queue-scroll");
+    const previousScrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
+    const showing = entries.filter((e) => e.onDashboard);
+    const elsewhere = entries.filter((e) => !e.onDashboard);
+    tbody.innerHTML = entries.length
+      ? showing.map(hiddenRowHtml).join("") +
+        (elsewhere.length
+          ? `<tr class="hidden-divider"><td colspan="6">Not on the dashboard right now (${elsewhere.length}). Restoring one shows it again if it's flagged later.</td></tr>` +
+            elsewhere.map(hiddenRowHtml).join("")
+          : "")
+      : `<tr><td colspan="6"><div class="empty-state">Nothing is hidden or snoozed.</div></td></tr>`;
+    if (scrollContainer) scrollContainer.scrollTop = previousScrollTop;
+  }
+
+  // The name sent as "by" with each hide or snooze, asked for once and kept
+  // in this browser. undefined: never asked; "": asked and skipped.
+  const HIDER_NAME_KEY = "dashboard.hiddenByName";
+  function hiderName() {
+    try {
+      const v = localStorage.getItem(HIDER_NAME_KEY);
+      return v === null ? undefined : v;
+    } catch (err) {
+      return ""; // storage blocked: don't ask on every hide
+    }
+  }
+
+  function askHiderName() {
+    const dialog = document.getElementById("hider-name-dialog");
+    if (!dialog || typeof dialog.showModal !== "function") return Promise.resolve("");
+    const input = document.getElementById("hider-name-input");
+    input.value = hiderName() || "";
+    return new Promise((resolve) => {
+      dialog.addEventListener("close", () => {
+        const name = dialog.returnValue === "save" ? input.value.trim().slice(0, 80) : (hiderName() || "");
+        try { localStorage.setItem(HIDER_NAME_KEY, name); } catch (err) {}
+        resolve(name);
+      }, { once: true });
+      dialog.returnValue = "";
+      dialog.showModal();
+      input.focus();
+    });
+  }
+
+  async function restoreHidden(key) {
+    try {
+      const res = await fetch("/api/undismiss", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key }),
+      });
+      const data = await res.json();
+      render(data);
+      showUndoToast(null, null, "Restored.");
+    } catch (err) {
+      console.error(`[restore] request failed for key "${key}":`, err);
+    }
   }
 
   function renderStale(items, hasError) {
@@ -1283,12 +1430,15 @@
   // time; a new dismiss replaces whatever's showing rather than stacking.
   let dismissToastTimer = null;
 
-  function showUndoToast(key, scope) {
+  // With `message`, a plain notice (a restore) with no Undo button.
+  function showUndoToast(key, scope, message) {
     const toast = document.getElementById("dismiss-toast");
     const text = document.getElementById("dismiss-toast-text");
     if (!toast || !text) return;
-    text.textContent = scope === "forever" ? "Hidden indefinitely." : "Hidden until tomorrow.";
-    toast.dataset.key = key;
+    text.textContent = message || (scope === "forever" ? "Hidden indefinitely." : "Hidden until tomorrow.");
+    const undo = toast.querySelector(".dismiss-toast-undo");
+    if (undo) undo.hidden = Boolean(message);
+    toast.dataset.key = message ? "" : key;
     toast.hidden = false;
     clearTimeout(dismissToastTimer);
     dismissToastTimer = setTimeout(() => {
@@ -1315,11 +1465,13 @@
       return;
     }
     closeAllMenus();
+    let by = hiderName();
+    if (by === undefined) by = await askHiderName();
     try {
       const res = await fetch("/api/dismiss", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key, scope }),
+        body: JSON.stringify({ key, scope, by: by || null }),
       });
       const data = await res.json();
       render(data);
@@ -1434,6 +1586,17 @@
       const alreadyHandled =
         lastPointerActivation && lastPointerActivation.el === control && Date.now() - lastPointerActivation.time < 1000;
       if (!alreadyHandled) activateDismissControl(e.target);
+      return;
+    }
+
+    const restoreBtn = e.target.closest(".hidden-restore-btn");
+    if (restoreBtn) {
+      restoreHidden(restoreBtn.dataset.key);
+      return;
+    }
+
+    if (e.target.closest(".hider-name-change")) {
+      askHiderName().then(() => { if (lastData) render(lastData); });
       return;
     }
 

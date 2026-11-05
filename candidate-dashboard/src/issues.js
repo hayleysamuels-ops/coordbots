@@ -5,6 +5,7 @@ const ashby = require("./ashby");
 const dismissals = require("./dismissals");
 const notes = require("./notes");
 const { splitDismissed } = require("./scheduling/ready-queue");
+const { hiddenEntries } = require("./hidden-list");
 
 const thresholds = {
   feedbackOverdueHours: config.feedbackOverdueHours,
@@ -282,6 +283,9 @@ function applyDismissals(snap) {
   const ready = splitDismissed(snap.readyToSchedule, dismissals.isDismissed);
   return {
     ...snap,
+    // The Action queue's Hidden & snoozed tab (see hidden-list.js), built from
+    // the snapshot before anything below is filtered out.
+    hidden: hiddenEntries(dismissals.list(), snap, hiddenKeys()),
     readyToSchedule: ready.visible,
     readyToScheduleHidden: ready.hidden,
     feedbackOverdue: snap.feedbackOverdue.filter(keepCandidate),
@@ -305,6 +309,23 @@ function applyDismissals(snap) {
     offersAwaitingAcceptance: snap.offersAwaitingAcceptance.filter(keepCandidate),
     offersSigned: snap.offersSigned.filter(keepCandidate),
   };
+}
+
+// Which sections each kind of dismissal key can hide a row from.
+function hiddenKeys() {
+  return {
+    candidateKeys: CANDIDATE_NOTE_KEYS,
+    interviewerKeys: config.trainingTrackerEnabled ? ["interviewerLimits"] : ["interviewerLimits", "interviewerTraining"],
+    disabledSections: config.disabledSections,
+  };
+}
+
+// The name on the dashboard for a dismissal key right now (null if it's on
+// nothing), saved with a dismissal so the Hidden & snoozed tab can still name
+// it after it drops off the dashboard.
+function nameForKey(key) {
+  const [entry] = hiddenEntries([{ key }], snapshot, hiddenKeys());
+  return (entry && entry.name) || null;
 }
 
 // Every candidate-keyed section key applyDismissals' keepCandidate filter
@@ -378,4 +399,4 @@ function getSnapshot() {
   };
 }
 
-module.exports = { start, getSnapshot, refresh };
+module.exports = { start, getSnapshot, refresh, nameForKey };

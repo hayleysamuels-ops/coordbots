@@ -152,6 +152,9 @@ body {
 .topbar-brand img {
   height: 26px;
   width: auto;
+  /* A client wordmark can be much wider than Carrara's square mark. */
+  max-width: 160px;
+  object-fit: contain;
   display: block;
 }
 
@@ -1304,6 +1307,127 @@ button#refresh-btn.spinning {
 .dismiss-toast-undo:hover,
 .dismiss-toast-undo:focus-visible {
   text-decoration: underline;
+}
+
+/* --- Hidden & snoozed tab (renderHiddenQueue() in app.js) --- */
+
+/* Pushed to the far end of the chip row: it lists what's been taken off the
+   dashboard, not a signal waiting on someone. */
+.signal-chip-hidden {
+  margin-left: auto;
+}
+
+.hidden-restore-btn {
+  border: 1px solid var(--border-default);
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: calc(var(--radius-control) - 2px);
+  cursor: pointer;
+}
+
+.hidden-restore-btn:hover {
+  background: var(--surface-sunken);
+}
+
+.action-queue-table .hidden-divider td {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 18px;
+}
+
+.action-queue-table .hidden-sub {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.hidden-by-self {
+  white-space: nowrap;
+}
+
+.hider-name-change {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text-primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.hider-name-dialog {
+  max-width: min(420px, calc(100vw - 32px));
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  color: var(--text-primary);
+  padding: 20px 24px;
+  box-shadow: var(--shadow-sm);
+}
+
+.hider-name-dialog::backdrop {
+  background: rgba(45, 42, 42, 0.35);
+}
+
+.hider-name-dialog h2 {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  margin: 0 0 8px;
+}
+
+.hider-name-dialog p {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.hider-name-dialog label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.hider-name-dialog input {
+  width: 100%;
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text-primary);
+}
+
+/* Save comes first in the markup so Enter saves; shown on the right. */
+.hider-name-actions {
+  display: flex;
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.hider-name-actions button {
+  font: inherit;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-default);
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.hider-name-actions .hider-name-save {
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+  color: var(--surface);
 }
 
 

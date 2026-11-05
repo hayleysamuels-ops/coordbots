@@ -15,10 +15,12 @@
 <body>
   <header class="topbar">
     <div class="topbar-brand">
-      <!-- Grafite mark on light pages, marmol (same geometry, light fills) on dark. -->
+      <!-- The client's logo (CLIENT_LOGO), or Carrara's mark when unset: the
+           server picks the file behind these two fixed paths (client-logo.js).
+           alt is empty because the title beside it names the client. -->
       <picture>
-        <source srcset="assets/carrara-iso-marmol.svg" media="(prefers-color-scheme: dark)" />
-        <img src="assets/carrara-iso-grafite.svg" alt="" />
+        <source srcset="assets/client-logo-dark" media="(prefers-color-scheme: dark)" />
+        <img src="assets/client-logo" alt="" />
       </picture>
       <h1 id="dashboard-title">Candidate Dashboard</h1>
     </div>
@@ -89,7 +91,7 @@
         <p class="aq-shown-count" id="actionQueue-shown-count"></p>
         <div class="action-queue-scroll">
           <table class="action-queue-table">
-            <thead>
+            <thead id="action-queue-head">
               <tr>
                 <th>Candidate</th>
                 <th>Stage &amp; role</th>
@@ -255,6 +257,21 @@
   <!-- scheduling:end -->
 
   <footer class="page-footer">Created by Hayley・Carrara</footer>
+
+  <!-- Asked once per browser, on the first Snooze or Hide (see askHiderName() in app.js). -->
+  <dialog id="hider-name-dialog" class="hider-name-dialog" aria-labelledby="hider-name-title">
+    <form method="dialog">
+      <h2 id="hider-name-title">Your name, for the Hidden &amp; snoozed tab</h2>
+      <p class="muted">Saved in this browser and shown next to what you hide, so others know who to ask. It's a convenience, not a record: anyone can type any name.</p>
+      <label for="hider-name-input">Name</label>
+      <input id="hider-name-input" type="text" maxlength="80" autocomplete="name" />
+      <div class="hider-name-actions">
+        <!-- Save first so Enter in the field saves; CSS puts Skip on the left. -->
+        <button type="submit" value="save" class="hider-name-save">Save</button>
+        <button type="submit" value="skip" class="hider-name-skip">Skip</button>
+      </div>
+    </form>
+  </dialog>
 
   <div id="dismiss-toast" class="dismiss-toast" hidden role="status" aria-live="polite">
     <span id="dismiss-toast-text"></span>

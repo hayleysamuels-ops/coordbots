@@ -5,6 +5,7 @@ const path = require("path");
 const express = require("express");
 const issues = require("./issues");
 const dismissals = require("./dismissals");
+const { resolveClientLogo } = require("./client-logo");
 const notes = require("./notes");
 const { basicAuth } = require("./auth");
 
@@ -186,6 +187,16 @@ function createServer() {
       next();
     });
   }
+  // The topbar logo, per client (CLIENT_LOGO, see client-logo.js). Fixed
+  // paths so index.html never changes; resolved once, since the files and
+  // the variable only change with a deploy.
+  const logo = resolveClientLogo(config.clientLogo, { assetsDir: path.join(__dirname, "..", "public", "assets") });
+  if (logo.warning) console.warn(`[config] Warning: ${logo.warning}`);
+  else if (config.clientLogo) console.log(`[server] Client logo: ${path.basename(logo.light)}${logo.dark !== logo.light ? ` (dark: ${path.basename(logo.dark)})` : " (no dark version)"}`);
+  const sendLogo = (file) => (req, res) => { res.set("Cache-Control", "public, max-age=300"); res.sendFile(file); };
+  app.get("/assets/client-logo", sendLogo(logo.light));
+  app.get("/assets/client-logo-dark", sendLogo(logo.dark));
+
   app.use(express.static(path.join(__dirname, "..", "public")));
 
   // Interviewer training tracker: mounted only where TRAINING_TRACKER_CLIENT_ID
@@ -207,13 +218,16 @@ function createServer() {
     res.json(issues.getSnapshot());
   });
 
-  // Dismiss a candidate/interviewer card. scope "today" clears at next local
-  // midnight; "forever" persists until manually undismissed. Returns the
-  // freshly filtered snapshot so the dashboard updates immediately.
+  // Dismiss a candidate/interviewer card. scope "today" clears at the next
+  // midnight in DISPLAY_TIMEZONE; "forever" persists until restored. `by` is
+  // the name typed into this browser (self-reported). The name on the card is
+  // looked up here and saved, so the Hidden & snoozed tab can still name an
+  // entry once it's no longer on the dashboard. Returns the freshly filtered
+  // snapshot so the dashboard updates immediately.
   app.post("/api/dismiss", (req, res) => {
-    const { key, scope } = req.body || {};
+    const { key, scope, by } = req.body || {};
     if (!key) return res.status(400).json({ error: "key required" });
-    dismissals.add(key, scope === "forever" ? "forever" : "today");
+    dismissals.add(key, scope === "forever" ? "forever" : "today", { by, label: issues.nameForKey(key) });
     res.json(issues.getSnapshot());
   });
 

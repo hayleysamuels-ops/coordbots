@@ -319,6 +319,7 @@ Fill in `.env`:
 | `ONSITE_STAGE_KEYWORDS` | no | Default `final,exec`. Comma-separated, case-insensitive substrings matched against interview stage titles to approximate "onsite" (Ashby has no real location signal — see § Onsite Interviews Today). **January's convention, not an Ashby default** — verify with `scripts/check-ashby-compatibility.js` before onboarding a new client. Empty value disables the section. |
 | `CLIENT_NAME` | no | Single source of truth for the client this deployment is for. Drives the browser tab title and page header: `"<CLIENT_NAME> Coordination Dashboard"`. Unset means a plain, unbranded `Candidate Dashboard`. |
 | `DASHBOARD_TITLE` | no | Full override for the title/header text above — wins outright over the `CLIENT_NAME`-derived title if set. Only needed when the title doesn't fit the `"<name> Coordination Dashboard"` shape; not part of `.env.example` since most deployments won't need it. |
+| `CLIENT_LOGO` | no | The topbar logo: the name of a file in `public/assets/clients/` (`CLIENT_LOGO=luminai` serves `luminai.svg`, `.png` or `.webp`, and `luminai-dark.*` in dark mode if present). Unset shows Carrara's mark; a name with no file warns at startup and shows Carrara's mark. See that directory's README. |
 | `CLIENT_ACCENT_COLOR` | no | Overrides the header accent color (topbar border + title text, default Carrara ember) so each client deployment is visually distinguishable at a glance. Any valid CSS color. |
 | `DISPLAY_TIMEZONE` | no | Default `America/New_York`. Real IANA time zone name (e.g. `America/Los_Angeles`, `Europe/London`) — formats every absolute time in the UI (`app.js`, via `appConfig`) and computes the "is this today" day boundary for Onsite Interviews Today (`ashby.js`, read directly). **Must be an IANA name, not a fixed abbreviation** — `EST`/`PST`/`CST` etc. silently resolve to a fixed UTC offset that never observes daylight saving (confirmed: Node resolves `EST` to the fixed `America/Panama`, not real US Eastern time), reading an hour off for roughly half the year. Warns on startup (not silently) if the value looks like a fixed abbreviation instead of an IANA name. |
 | `RECRUITER_ROLE_NAME` / `COORDINATOR_ROLE_NAME` | no | Defaults `Recruiter` / `Recruiting Coordinator`. Exact `hiringTeamRole.list` values (not a substring match) used for the Recruiter/Coordinator filter. **This org's actual role names, not an Ashby standard** — verify with `scripts/check-ashby-compatibility.js` before onboarding a new client. |
@@ -544,11 +545,21 @@ Every card, Action queue table row, and Onsite Interviews Today timeline
 entry has the same two always-visible buttons (no click-to-open menu — see
 § Correction below):
 
-- **Snooze** — hide until tomorrow; the card reappears at the next local midnight.
-- **Hide** — hide indefinitely; the card stays hidden until manually un-dismissed.
+- **Snooze** — hide until tomorrow; the card reappears at the next midnight in `DISPLAY_TIMEZONE`.
+- **Hide** — hide indefinitely; the card stays hidden until someone restores it.
 
 Either one fires immediately, no confirmation step, and a small toast at the
-bottom of the page offers **Undo** for 12 seconds afterward.
+bottom of the page offers **Undo** for 12 seconds afterward. The first Snooze or
+Hide in a browser asks for a name (or Skip), kept in that browser and saved with
+each one as "Hidden by (self-reported)". It's a convenience so people know who
+to ask, not a record: the dashboard has one shared login and anyone can type
+any name.
+
+The Action queue's last chip, **Hidden & snoozed**, lists every hide and snooze
+in force, whatever the entity filters: what it's hiding from, Hidden or Snoozed,
+by whom (self-reported) and when, with **Restore** on each. A candidate or
+interviewer hidden but not on the dashboard right now is listed separately, so a
+Hide can always be found. Entries from before this tab have no time or name.
 
 Dismissals are per-candidate (they hide that person from *all* candidate
 sections at once) or per-interviewer (for the Interviewer Weekly Limits
@@ -556,7 +567,7 @@ section), and are persisted to `<DATA_DIR>/dismissals.json` so "indefinitely"
 survives restarts. The one exception is Ready to schedule (scheduling pilot only):
 its dismissals are per submission, keyed `schedule:<scheduleId>:<submittedAt>`,
 so a candidate dismissed elsewhere stays in Ready to schedule, and any later change
-to the schedule in Ashby brings a hidden row back. Its status line counts hidden rows. Beyond the Undo toast, a card can also be brought back by
+to the schedule in Ashby brings a hidden row back. Its status line counts hidden rows. Beyond the Undo toast and Restore, a card can also be brought back by
 waiting for its "until tomorrow" window to lapse, `POST /api/undismiss` with
 `{ "key": "candidate:<id>" }`, or deleting the relevant entry from
 `dismissals.json`.

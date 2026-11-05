@@ -104,7 +104,18 @@ is normally still in Application Review and any status).
 - `src/dismissals.js` — persisted (`<DATA_DIR>/dismissals.json`) store of
   dismissed cards keyed `candidate:<id>` / `interviewer:<id>` /
   `schedule:<scheduleId>:<submittedAt>` (Ready to schedule only); "today" scope
-  expires at next local midnight (pruned lazily on read), "forever" persists.
+  (Snooze) expires at the next midnight in `DISPLAY_TIMEZONE`, not the
+  server's (UTC on Railway), pruned lazily on read; "forever" (Hide) persists.
+  Each entry also saves `hiddenAt`, `by` (the name typed into that browser,
+  self-reported, never shown as an audit trail) and `label` (the name on the
+  card, looked up server-side by `issues.nameForKey`); older entries lack them.
+- `src/hidden-list.js` — the Action queue's Hidden & snoozed tab: every live
+  dismissal matched against the pre-dismissal snapshot (`snapshot.hidden`).
+  A `schedule:` key that matches nothing is left out (it hides nothing).
+- `src/client-logo.js` — `CLIENT_LOGO` names a file in
+  `public/assets/clients/`, served behind the fixed `/assets/client-logo` and
+  `/assets/client-logo-dark` paths; unset or missing falls back to Carrara's
+  mark.
 - `src/ashby.js` — paginated Ashby client (`fetchAllPages` walks
   `moreDataAvailable`/`nextCursor`) + flag computation for Feedback Overdue,
   Needs Scheduling, Availability Submitted, Stale Candidates, Interviewer
@@ -796,8 +807,9 @@ is normally still in Application Review and any status).
   person from all seven candidate sections at once;
   `interviewer:<id>` hides an interviewer from the limits section. `/api/undismiss`
   is called by the Undo toast's button (`.dismiss-toast-undo` in app.js),
-  shown for 12 seconds after every dismiss — there's no other UI for
-  bringing a card back early. If you add a new candidate-facing section, add
+  shown for 12 seconds after every dismiss, and by Restore on the Action
+  queue's Hidden & snoozed tab (`renderHiddenQueue()`), which lists every
+  hide and snooze regardless of the entity filters. If you add a new candidate-facing section, add
   it to the `keepCandidate` filter list in `issues.js`'s `applyDismissals()`
   — it's not automatic.
 - **Ready to schedule is the one row-scoped exception, on purpose.** Its rows
