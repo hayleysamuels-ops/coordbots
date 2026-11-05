@@ -153,14 +153,17 @@
         },
         "preferredInterviewers": {
           "type": "array",
-          "description": "An ordered host preference for named sessions, matched like placementWindows. The calendar-checked preview offers the session to these interviewers first, in order, while they're free at its time, and falls back to the other eligible interviewers only when none of them is. Only people in the session's eligible list in Ashby are ever used. Optional.",
+          "description": "An ordered interviewer preference for named sessions, matched like placementWindows. The calendar-checked preview offers the session to `emails` first, in order, while they're free at its time; then to the other eligible interviewers; and to `lastResort` only when everyone else is busy. With `jobId`, the rule applies to that job's sessions only, and replaces any rule without one for the same session. Interviewer load (interviewerLoad) can pass over anyone but a last resort. Only people in the session's eligible list in Ashby are ever used. Optional.",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["match", "value", "emails"],
+            "required": ["match", "value"],
+            "anyOf": [{ "required": ["emails"] }, { "required": ["lastResort"] }],
             "properties": {
               "match": { "enum": ["exact", "contains"] },
               "value": { "type": "string", "minLength": 1 },
+              "jobId": { "type": "string", "pattern": "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$" },
+              "lastResort": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[^@\\sA-Z]+@[^@\\sA-Z]+\\.[^@\\sA-Z]+$" } },
               "emails": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[^@\\sA-Z]+@[^@\\sA-Z]+\\.[^@\\sA-Z]+$" } },
               "reason": { "type": ["string", "null"] }
             }
@@ -289,6 +292,18 @@
       }
     },
 
+    "interviewerLoad": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timezone", "overrideGap", "notCounted", "reason"],
+      "description": "Interviewer load when choosing who takes a session. Among the eligible people free at its time (never a last resort), anyone with overrideGap or more interviews that week than the lightest is passed over, whatever the preference order, and the post names who was suggested over whom with both counts. A week runs Monday to Sunday in `timezone`. Counted: interviews in Ashby that aren't cancelled and where the person gives feedback, plus this proposal's own sessions; never debriefs, or sessions matching notCounted. Optional: without it, load isn't considered.",
+      "properties": {
+        "timezone": { "type": "string", "minLength": 1 },
+        "overrideGap": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "notCounted": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["match", "value"], "properties": { "match": { "enum": ["exact", "contains"] }, "value": { "type": "string", "minLength": 1 } } } },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
     "meetingHours": {
       "type": "object",
       "additionalProperties": false,

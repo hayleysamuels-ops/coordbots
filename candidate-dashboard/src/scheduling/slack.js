@@ -8,7 +8,7 @@
 // Each session is shown in the dashboard's DISPLAY_TIMEZONE first (the
 // coordinators reading the channel), then in the plan's own timezone when it
 // differs, labelled by where it came from.
-const { describeFlag } = require("./flags");
+const { describeFlag, describeLoadOverride } = require("./flags");
 const ASHBY_CANDIDATE = "https://app.ashbyhq.com/candidate-searches/new/right-side/candidates/";
 
 // Slack's mrkdwn control characters; everything we didn't write is escaped.
@@ -247,6 +247,7 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     // one-app-in-Carrara's-workspace design, not a missing permission.
     const name = p => escape(p.name);
     const clashes = confirmed ? 0 : plan.sessions.reduce((n, s) => n + (s.flags || []).length, 0);
+    const loadNotes = confirmed ? 0 : plan.sessions.reduce((n, s) => n + (s.loadOverrides || []).length, 0);
     const secondLabel = plan.timezoneSource === "candidate_submitted" ? "Candidate time" : "Entered time";
     const lines = [];
     let day = null, previous = null;
@@ -264,6 +265,10 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       // Advisory clashes from the calendar check, under the session they
       // affect. A confirmed post moves them to its thread (movedDetails).
       if (!confirmed) for (const f of s.flags || []) lines.push(`      ⚠️ ${escape(describeFlag(f, displayTimeZone))}`);
+      // Interviewer load passing over the preference order, under the session
+      // it changed, so the override is never silent (scheduling-rules
+      // interviewerLoad). A confirmed post moves it to its thread too.
+      if (!confirmed) for (const o of s.loadOverrides || []) lines.push(`      ⚖️ ${escape(describeLoadOverride(o))}`);
     }
     const sections = chunked(lines.join("\n"));
     const header = [
@@ -284,7 +289,7 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     // on the post, and "flags" only when there are any.
     const forClient = clientName ? ` for ${escape(clientName)}` : "", button = interactive && draftDigest && !approval && !replaced;
     const pairs = bothPairs(plan), open = !approval && !replaced;
-    const instruction = `This is the proposed interview schedule${forClient}. Please review ${clashes || pairs.length ? "all flags" : "it"}, then post to the client channel for discussion${button ? (sends(plan) ? ` or press Schedule, which *sends it from ${sendsAs(plan)}'s account*` : " or press Schedule") : ""}.`;
+    const instruction = `This is the proposed interview schedule${forClient}. Please review ${clashes || pairs.length || loadNotes ? "all flags" : "it"}, then post to the client channel for discussion${button ? (sends(plan) ? ` or press Schedule, which *sends it from ${sendsAs(plan)}'s account*` : " or press Schedule") : ""}.`;
     const blocks = [
       { type: "section", text: mrkdwn(instruction) },
       header[0],
@@ -388,14 +393,17 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
   // A clean send's detail, moved off the post into its thread before the post
   // takes the confirmed format: the posting note (option number, calendar
   // check time, meeting-hours caveat, draft reference), the calendar clashes
-  // it was approved over, who approved and when, and the send result.
+  // it was approved over, any interviewer-load override, who approved and
+  // when, and the send result.
   send.movedDetails = async ({ channel, ts, row }) => {
     const { plan } = row, meta = { proposalId: row.id, approver: row.discussionApproval?.by || "a coordinator" };
     const flagged = plan.sessions.flatMap(s => (s.flags || []).map(f => `• ${clock(displayTimeZone, s)} – ${escape(s.title)}: ${escape(describeFlag(f, displayTimeZone))}`));
+    const overrides = plan.sessions.flatMap(s => (s.loadOverrides || []).map(o => `• ${clock(displayTimeZone, s)} – ${escape(s.title)}: ${escape(describeLoadOverride(o))}`));
     const blocks = [
       { type: "section", text: mrkdwn("Moved here from the post when the schedule was sent:") },
       { type: "section", text: mrkdwn(smallPrint(plan, meta, row.slackApproval)) },
       ...(flagged.length ? chunked(`*Calendar clashes flagged when it was posted:*\n${flagged.join("\n")}`).map(t => ({ type: "section", text: mrkdwn(t) })) : []),
+      ...(overrides.length ? chunked(`*Interviewer load, when it was posted:*\n${overrides.join("\n")}`).map(t => ({ type: "section", text: mrkdwn(t) })) : []),
       ...(bothPairs(plan).length ? [{ type: "section", text: mrkdwn(bothPairs(plan).map(g => `*Flagged when it was posted:* the template included both ${bothNames(g)}, which are usually alternatives (one per candidate).`).join("\n")) }] : []),
       { type: "section", text: mrkdwn(`${approvedLine(row.slackApproval)}${bothPairs(plan).length ? `\n${approvedWithBoth(plan)}` : ""}\n${checkText(plan, row.ashbyCheck)}`) },
     ];

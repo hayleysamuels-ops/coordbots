@@ -331,6 +331,31 @@ done and verified, in this order:
     - This is a per-session ordered preference, not the general
       free-interviewer-first rule. The unchecked preview has no interviewer
       identities, so it doesn't apply this preference.
+  - **FDE's Re Engineering Tech Screen** (revision 12, November 5): Ariel Perez
+    Chavez first, then Yun Feng and Keshav Malhotra, and Anisha Tandon only
+    when all three are busy (`lastResort`). The rule names the FDE job
+    (`jobId`), because another job has a session of the same name; a job's own
+    rule replaces any all-jobs rule for that session.
+  - **Interviewer load** (`interviewerLoad`, revision 12, November 5). Among
+    the eligible people free at a session's time, anyone with two or more
+    interviews that week than the lightest is passed over, whatever the
+    preference order, and the post says so under the session: "⚖️ Keshav
+    Malhotra suggested over Ariel Perez Chavez — Ariel has 2 interviews this
+    week, Keshav has 0." A last resort is never brought forward by load.
+    - A week is Monday to Sunday, Pacific. Counted: every Ashby schedule that
+      isn't cancelled (not just the dashboard's 30-day lookback; see
+      `src/interviewer-load.js`), places where the person gives feedback, and
+      this proposal's own sessions. Never counted: debriefs, Lunch (Ashby
+      sometimes marks Lunch feedback-required), the schedule being booked, or
+      a session the person didn't give feedback on the last time it was booked
+      (hosting Welcome, the Grace case).
+    - Read from Ashby's public API (`ashby.interviewerLoad()`), never the
+      composer page. If it can't be read, the preference order alone decides,
+      the coordbots log says `[calendar-check] interviewer load unavailable`,
+      and nothing is overridden.
+    - Ashby's own daily and weekly limits are still ignored unless zero
+      (`limits.ashbyInterviewerLimits: zero_only`): load reorders who is
+      suggested, it doesn't enforce a limit.
   - **Debriefs** (`debriefs`). Sessions whose Ashby interview has `isDebrief` are
     never proposed with the agenda. They're listed as "Not proposed here … once
     the onsite is confirmed". `meetingHoursExempt: true` records that the SOP
@@ -1669,20 +1694,28 @@ file permits it or the composer clicks Schedule.
   The second run (October 27, Mary chosen) showed Ashby creates the slot with
   nobody selected and alternates [Mary, Hayley], and its save for choosing Mary
   sets selected Mary, alternates [Hayley].
-- **The alternates rule (since October 27, from two observation passes):** a
-  slot's alternates are its eligible people other than the one chosen. Ashby
-  creates a draft's slot with nobody selected and every eligible person as an
-  alternate, and choosing one moves them out ([Mary, Hayley]: Mary chosen →
-  [Hayley]; Hayley chosen → [Mary]). The interviewer invite went to the
-  chosen person only both times, so alternates aren't invited. A save may
-  leave a slot's alternates as they were, or remove exactly the person it
-  chooses; nobody is ever added. The final check and the re-read before Send
-  allow only alternates the slot listed when Ashby created the draft (an
-  approved interviewer listed as one is harmless). The interviewer-invite
-  preview check stays strict, so a change in Ashby that invited alternates
-  would refuse. The October 13 observation (choosing Hayley left [Hayley])
-  came from a run that ended on Ashby's network-error page and no longer
-  passes.
+- **The alternates rule (November 5: any narrowing, nobody added):** a save
+  may leave a slot's alternates as they were or narrow them in any way; it may
+  never add anyone, and the list may not appear or vanish
+  (`alternatesChange` in `worker/booking-check.js`). What a pick does to
+  alternates isn't settled. October 27 (TEST, two eligible): choosing Mary
+  moved her out ([Mary, Hayley] → [Hayley]). October 13 (TEST, a run that
+  ended on Ashby's network-error page): choosing Hayley kept her. November 5
+  (FDE Re Engineering Tech Screen, four eligible, a real candidate): choosing
+  Keshav kept him and dropped Anisha Tandon, who wasn't chosen. Anisha was
+  still listed and the slot still read "4 Eligible Matches" afterwards, and she
+  had nothing booked on the day against her daily limit of 2, so the drop is
+  unexplained. The October 27 rule (only "minus the chosen person") refused that
+  booking, which was then booked by hand. Every save now logs each slot's selected
+  person and alternates before and after, as user IDs (names beside approved
+  ones), plus how the alternates changed (`minus-chosen` or `narrowed`), so the
+  next occurrence is evidence rather than a refusal. Alternates aren't invited:
+  the interviewer invite went to the chosen person only (October 27, both
+  ways), so a narrowing can't add a guest. The final check and the re-read
+  before Send still allow only alternates the slot listed when Ashby created
+  the draft (an approved interviewer listed as one is harmless), and the
+  interviewer-invite preview check stays strict, so a change in Ashby that
+  invited alternates would still refuse.
 - **Observing an off-plan pick** (`booking-dry-run.js --observe-off-plan`, dry
   run only, behind `BOOKING_DRY_RUN=on`; November 2, for Phase 2): a planned
   interviewer missing from the slot's eligible list is picked through Ashby's

@@ -5,6 +5,7 @@ const { mapWithConcurrency } = require("./concurrency");
 const rescheduleTracking = require("./rescheduleTracking");
 const interviewerSettingsCache = require("./interviewerSettingsCache");
 const applicationInfoCache = require("./applicationInfoCache");
+const { countInterviewLoad, createScheduleSync, weekKey } = require("./interviewer-load");
 
 function authHeader() {
   return `Basic ${Buffer.from(`${config.ashbyApiKey}:`).toString("base64")}`;
@@ -286,48 +287,25 @@ async function fetchOfferApplications(applicationIds, signatures) {
   return byId;
 }
 
-// Monday 00:00 UTC of the week containing `date`.
-function startOfWeekUTC(date) {
-  const daysSinceMonday = (date.getUTCDay() + 6) % 7; // getUTCDay: 0=Sun..6=Sat
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - daysSinceMonday));
-}
+// Every interview schedule, not just the SCHEDULE_LOOKBACK_DAYS window
+// listIssues() reads: an interview booked long ago for this week still counts
+// toward it. Kept current with Ashby's syncToken (interviewer-load.js), so
+// after the first full read each refresh costs one call when nothing changed.
+const scheduleSync = createScheduleSync({ fetchPage: (body) => ashbyPost("interviewSchedule.list", body) });
 
 /**
- * Counts interviews per interviewer for the current calendar week (Mon–Sun
- * UTC), from the same `schedules` already fetched for listIssues() — no
- * extra Ashby call. Cancelled schedules don't count toward load. Note this
- * inherits the same `config.scheduleLookbackDays` bound: an interview booked
- * further back than that for a slot this week wouldn't be counted.
+ * Counts interviews per interviewer for the current calendar week, Monday to
+ * Sunday in config.displayTimeZone (Luminai: Pacific), over every schedule
+ * (scheduleSync above). Cancelled schedules don't count toward load. Every
+ * interviewer on an event counts, as Ashby's own weekly limit would.
  */
-function countInterviewsThisWeek(schedules) {
-  const now = new Date();
-  const weekStart = startOfWeekUTC(now).getTime();
-  const weekEnd = weekStart + 7 * 24 * 60 * 60 * 1000;
-
+function countInterviewsThisWeek(schedules, now = Date.now()) {
+  const week = weekKey(now, config.displayTimeZone);
   const byInterviewer = new Map();
-
-  for (const schedule of schedules) {
-    if (schedule.status === "Cancelled") continue;
-
-    for (const event of schedule.interviewEvents || []) {
-      if (!event.startTime) continue;
-      const start = new Date(event.startTime).getTime();
-      if (start < weekStart || start >= weekEnd) continue;
-
-      for (const interviewer of event.interviewers || []) {
-        if (!interviewer.id) continue;
-        const existing = byInterviewer.get(interviewer.id) || {
-          userId: interviewer.id,
-          name: `${interviewer.firstName || ""} ${interviewer.lastName || ""}`.trim() || interviewer.email,
-          email: interviewer.email,
-          scheduledCount: 0,
-        };
-        existing.scheduledCount += 1;
-        byInterviewer.set(interviewer.id, existing);
-      }
-    }
+  for (const [userId, row] of countInterviewLoad(schedules, { timeZone: config.displayTimeZone })) {
+    const scheduledCount = row.weeks.get(week) || 0;
+    if (scheduledCount) byInterviewer.set(userId, { userId, name: row.name, email: row.email, scheduledCount });
   }
-
   return byInterviewer;
 }
 
@@ -495,8 +473,7 @@ function keepMostRecentPerCandidate(taggedEntries) {
 // UTC day, which rolls over at 8pm Eastern during EDT (4am UTC) rather than
 // local midnight — an evening onsite interview would silently drop off this
 // section hours before the day actually changed for anyone in the org.
-// countInterviewsThisWeek's Monday-Sunday week boundary (above) has the
-// same class of UTC-vs-local issue but wasn't in scope for this fix.
+// countInterviewsThisWeek's Monday-Sunday week (above) uses the same zone.
 function matchesOnsiteStage(title) {
   if (!title) return false;
   const lower = title.toLowerCase();
@@ -664,7 +641,12 @@ async function listIssues(options = {}) {
 
   const [fetchedApplications, interviewerLimits, debriefInterviewIds] = await Promise.all([
     fetchApplicationsById(applicationIds, scheduleUpdatedAtByApplication),
-    listInterviewerLimits(schedules),
+    // Every schedule, so a long-booked interview this week counts; the
+    // lookback window's schedules if that read fails.
+    scheduleSync.schedules().catch((err) => {
+      console.warn("[ashby] reading every interview schedule failed; Interviewer Weekly Limits counts only the lookback window:", err.message);
+      return schedules;
+    }).then(listInterviewerLimits),
     fetchDebriefInterviewIds(),
   ]);
   const applications = summarizeApplications(fetchedApplications);
@@ -1162,7 +1144,37 @@ async function listUsers() {
   return users;
 }
 
+/**
+ * Interviewer load for the calendar-checked proposal (scheduling-rules
+ * interviewerLoad, booking-routes.js): each person's interviews per week,
+ * Monday to Sunday in `timeZone`, over every schedule that isn't cancelled
+ * (scheduleSync), leaving out `excludeScheduleIds` (the schedule being
+ * booked). Only places where the person gives feedback count, never a debrief,
+ * and never a session whose title `countsTitle` refuses (Lunch).
+ * `feedbackFor(interviewId, userId)`: whether that person gave feedback the
+ * last time that interview was booked (null if it never was), for the
+ * proposal's own sessions.
+ */
+async function interviewerLoad({ timeZone, countsTitle = () => true, excludeScheduleIds = [] }) {
+  const [schedules, interviews] = await Promise.all([scheduleSync.schedules(), fetchAllPages("interview.list", { limit: 100 })]);
+  const byId = new Map(interviews.map((i) => [i.id, i]));
+  const rows = countInterviewLoad(schedules, {
+    timeZone,
+    excludeScheduleIds,
+    counts: (event, interviewer) => {
+      const interview = byId.get(event.interviewId);
+      return interviewer.isFeedbackRequired !== false && !interview?.isDebrief && countsTitle(interview?.title ?? "");
+    },
+  });
+  return {
+    weeks: Object.fromEntries([...rows].map(([userId, row]) => [userId, Object.fromEntries(row.weeks)])),
+    feedbackFor: (interviewId, userId) => scheduleSync.feedbackHistory(interviewId, userId),
+  };
+}
+
 module.exports = {
+  interviewerLoad,
+  countInterviewsThisWeek,
   listIssues,
   listUsers,
   listRecentSourced,

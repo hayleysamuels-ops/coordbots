@@ -2,6 +2,7 @@
 const {windowsToInstants}=require('./booking-planner');
 const {distinctFrom,awayFromStarts,withinStartWindows}=require('./option-variety');
 const {peopleOf,validAssignment}=require('./panel');
+const {weekKey}=require('../interviewer-load');
 const fail=message=>{throw Object.assign(Error(message),{status:422});};
 const MAX_AGE=60000,STEP=5*60000,SEARCH_LIMIT=100000,RELAX_LIMIT=20000;
 function intervals(rows){
@@ -44,18 +45,31 @@ function dateIn(ms,timezone){
 // starts on these weekdays in that zone; hard in both modes (Luminai: WFH
 // Wednesdays). A session's preferredUserIds (sessions.preferredInterviewers)
 // are offered it first, in order: in advisory mode while they're free at its
-// time, falling back to the others only when none of them is.
+// time, falling back to the others only when none of them is; its
+// lastResortUserIds only after everyone else, free or not.
+// interviewerLoad ({timezone,overrideGap,weeks:{userId:{weekMonday:count}}},
+// from scheduling-rules interviewerLoad and Ashby, booking-routes.js): among
+// the people free at a session's time, other than its last resorts, anyone
+// with overrideGap or more interviews that week (Monday to Sunday in its
+// timezone, plus this agenda's own sessions, but not those listed in a
+// session's loadExemptUserIds) than the lightest is tried after the rest,
+// whatever the preference order. Each time that changes who takes a session,
+// the event says so in loadOverrides ({chosen,over,week}, each person with
+// their count), for the post. Without it, load isn't considered.
 // avoidStarts (ISO instants, from Slack's "Suggest another time"): no option
 // starts on the same candidate-local day within an hour of any of them. The
 // search goes on past them, so the limit still counts only options it keeps.
 // fixedStarts (ISO instants, one per session, from a Slack amend): each
 // session may start only at its own; every other rule still applies, so the
 // result is that one agenda or none. Nothing else about the search changes.
-function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.now(),limit=5,minBreakMinutes=0,maxGapMinutes=0,maxGapCount=0,variety=true,advisory=false,excludedWeekdays=null,avoidStarts=[],fixedStarts=null}){
+function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.now(),limit=5,minBreakMinutes=0,maxGapMinutes=0,maxGapCount=0,variety=true,advisory=false,excludedWeekdays=null,avoidStarts=[],fixedStarts=null,interviewerLoad=null}){
   if(!Array.isArray(sessions)||!sessions.length||sessions.length>30)fail('Load a complete interview plan first.');
   if(!Array.isArray(avoidStarts)||avoidStarts.length>50||avoidStarts.some(a=>typeof a!=='string'||!Number.isFinite(Date.parse(a))))fail('Invalid times to avoid.');
   if(fixedStarts!==null&&(!Array.isArray(fixedStarts)||fixedStarts.length!==sessions.length||fixedStarts.some(a=>typeof a!=='string'||!Number.isFinite(Date.parse(a)))))fail('Fixed times must give one start per session.');
   const fixed=fixedStarts&&fixedStarts.map(a=>Date.parse(a));
+  const L=interviewerLoad;
+  if(L!==null&&(!L||!Number.isInteger(L.overrideGap)||L.overrideGap<1||!L.weeks||typeof L.weeks!=='object'))fail('Invalid interviewer load.');
+  if(L)try{weekKey(0,L.timezone);}catch(_){fail('Invalid interviewer load time zone.');}
   if(!Number.isInteger(limit)||limit<1||limit>5)fail('Invalid proposal limit.');
   if(![minBreakMinutes,maxGapMinutes].every(m=>Number.isInteger(m)&&m>=0&&m%5===0)||maxGapMinutes<minBreakMinutes||maxGapMinutes>480)fail('Breaks must be whole 5-minute steps, with the maximum gap at least the minimum break.');
   if(!Number.isInteger(maxGapCount)||maxGapCount<0||maxGapCount>29||(maxGapCount>0&&maxGapMinutes<5))fail('The break count must be 0 to 29, and breaks need a maximum of at least 5 minutes.');
@@ -142,6 +156,14 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
   const minSpan=totalMinutes*60000;
   const limitedIds=[...people.keys()].filter(id=>people.get(id).limited);
   const NONE={hours:new Set(),busy:new Set(),limits:new Set(),placement:new Set()};
+  // Interviewer load: a person's interviews in the week of `ms`, from Ashby
+  // plus this agenda's sessions that count for them (interviewerLoad).
+  const weeks=new Map(),weekOf=ms=>{if(!weeks.has(ms))weeks.set(ms,weekKey(ms,L.timezone));return weeks.get(ms);};
+  const exempt=new Map(sessions.map(x=>[x.sessionId,new Set(x.loadExemptUserIds||[])]));
+  function loadOf(userId,ms,events){
+    const week=weekOf(ms);
+    return (L.weeks[userId]?.[week]||0)+events.filter(e=>weekOf(Date.parse(e.start))===week&&!exempt.get(e.sessionId)?.has(userId)&&peopleOf(e).some(x=>x.userId===userId)).length;
+  }
   const everyoneIds=new Set(people.keys());
   // What a search always relaxes: nothing normally; every interviewer
   // constraint in advisory mode, leaving availability, start windows and breaks.
@@ -163,8 +185,10 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
       const key=`${index}|${cursor}|${window.end}|${day}|${used}|${limitedIds.map(sessionsOf).join(',')}`;
       if(dead.has(key))return null;
       const s=sessions[index],duration=s.durationMinutes*60000;
-      // Preferred hosts first, in their order; then fewest sessions in this agenda.
-      const pref=s.preferredUserIds||[],rank=p=>{const i=pref.indexOf(p.userId);return i<0?pref.length:i;};
+      // Preferred hosts first, in their order; then fewest sessions in this
+      // agenda; last resorts after everyone else.
+      const pref=s.preferredUserIds||[],last=s.lastResortUserIds||[];
+      const rank=p=>{const i=pref.indexOf(p.userId);return i>=0?i:last.includes(p.userId)?pref.length+1:pref.length;};
       const sorted=list=>list.slice().sort((a,b)=>rank(a)-rank(b)||sessionsOf(a.userId)-sessionsOf(b.userId));
       const eligible=sorted(s.eligibleInterviewers);
       // Back to back first, then each allowed break length, shortest first.
@@ -181,12 +205,34 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
         // preference order). So a preferred host who clashes yields to a free
         // colleague, and is only used, flagged, when nobody is free.
         const ordered=list=>advisory?list.map((p,i)=>({p,i,c:unavailable(p,s,start,end,events,NONE)?1:0})).sort((a,b)=>a.c-b.c||a.i-b.i).map(x=>x.p):list;
+        // Interviewer load (interviewerLoad): the heavy go after the rest.
+        const isFree=p=>!unavailable(p,s,start,end,events,NONE);
+        const byLoad=list=>{
+          if(!L)return list;
+          const pool=list.filter(p=>!last.includes(p.userId)&&isFree(p));
+          if(pool.length<2)return list;
+          const least=Math.min(...pool.map(p=>loadOf(p.userId,start,events)));
+          const light=pool.filter(p=>loadOf(p.userId,start,events)<least+L.overrideGap);
+          return [...light,...list.filter(p=>!light.includes(p))];
+        };
+        // Who load passed over for `chosen`: the first free, not last-resort
+        // person in preference order, when that's someone else, overrideGap or
+        // more heavier. `taken`: the rest of the panel, never "passed over".
+        const overrideFor=(list,chosen,taken=[])=>{
+          if(!L)return null;
+          const first=list.find(p=>!last.includes(p.userId)&&isFree(p)&&!taken.some(t=>t.userId===p.userId));
+          if(!first||first.userId===chosen.userId)return null;
+          const a=loadOf(first.userId,start,events),b=loadOf(chosen.userId,start,events);
+          if(a-b<L.overrideGap)return null;
+          return {week:weekOf(start),timezone:L.timezone,chosen:{userId:chosen.userId,name:chosen.name,count:b},over:{userId:first.userId,name:first.name,count:a}};
+        };
         const at={sessionId:s.sessionId,interviewId:s.interviewId,title:s.title,durationMinutes:s.durationMinutes,start:new Date(start).toISOString(),end:new Date(end).toISOString()};
         if(!s.slots){
-          for(const person of ordered(eligible)){
+          for(const person of ordered(byLoad(eligible))){
             const why=unavailable(person,s,start,end,events,relax);
             if(why){if(tally)tally(s,person,why);continue;}
-            const found=assign(index+1,end,[...events,{...at,interviewer:person,eligibleInterviewers:s.eligibleInterviewers}],window,day,used+(start>cursor?1:0));
+            const override=overrideFor(eligible,person);
+            const found=assign(index+1,end,[...events,{...at,interviewer:person,eligibleInterviewers:s.eligibleInterviewers,...(override?{loadOverrides:[override]}:{})}],window,day,used+(start>cursor?1:0));
             if(found)return found;
           }
           continue;
@@ -197,14 +243,16 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
         // Each person is checked, and tallied, once per start.
         const free=new Map();
         for(const person of eligible){const why=unavailable(person,s,start,end,events,relax);if(why&&tally)tally(s,person,why);free.set(person.userId,!why);}
-        const lists=s.slots.map(x=>ordered(sorted(x.eligibleInterviewers)).filter(p=>free.get(p.userId)));
+        const prefs=s.slots.map(x=>sorted(x.eligibleInterviewers));
+        const lists=prefs.map(x=>ordered(byLoad(x)).filter(p=>free.get(p.userId)));
         const need=s.requiredUserIds||[];
         const teams=function*(k,team){
           if(k===lists.length){if(need.every(id=>team.some(p=>p.userId===id)))yield team;return;}
           for(const p of lists[k])if(!team.some(x=>x.userId===p.userId))yield* teams(k+1,[...team,p]);
         };
         for(const team of teams(0,[])){
-          const found=assign(index+1,end,[...events,{...at,interviewers:team,eligibleInterviewers:s.eligibleInterviewers,slots:s.slots}],window,day,used+(start>cursor?1:0));
+          const overrides=team.map((p,k)=>overrideFor(prefs[k],p,team.filter((_,j)=>j!==k))).filter(Boolean);
+          const found=assign(index+1,end,[...events,{...at,interviewers:team,eligibleInterviewers:s.eligibleInterviewers,slots:s.slots,...(overrides.length?{loadOverrides:overrides}:{})}],window,day,used+(start>cursor?1:0));
           if(found)return found;
         }
       }

@@ -66,7 +66,7 @@ test('the preferred host is used, flagged, only when nobody else is free',()=>{
 
 test('Luminai\'s rules: WFH Wednesdays, lunch starting 12:00–13:00 and ending by 13:30 Pacific, Gabrielle for Welcome, deferred debriefs, Sanjay 07:00–17:00 Pacific, Joe Penn\'s and Kesava\'s accounts, the FDE coding alternatives',()=>{
   const r=loadRules({clientId:'luminai',log:{log(){},warn(){}}}).get();
-  assert.equal(r.rulesRevision,11);
+  assert.equal(r.rulesRevision,12);
   assert.deepEqual(r.placementFor('Lunch/Coffee').map(w=>[w.earliestStart,w.latestStart,w.latestEnd,w.timezone]),[['12:00','13:00','13:30','America/Los_Angeles']]);
   // Each FDE job's two coding interviews, spelled as Ashby has them on that job.
   assert.deepEqual(['5ba29c75-1b89-4ffc-8f58-5db207afc527','009c1c4e-152b-44f0-bcb1-0879f8287b62','85218d8e-1de8-47ef-9ac9-f6b2067f89aa','837cc1e9-15ed-4f07-8755-51ee29f4ea39'].map(j=>r.alternativesFor(j).map(g=>[g.label,...g.titles])),
@@ -75,7 +75,14 @@ test('Luminai\'s rules: WFH Wednesdays, lunch starting 12:00–13:00 and ending 
   assert.deepEqual([r.identityFor('Joe Penn'),r.identityFor(' joe  penn '),r.identityFor('Mary Petrino')],['joe@luminai.com','joe@luminai.com',null]);
   assert.deepEqual([r.identityFor('Kesava Kirupa Dinakaran'),r.identityFor('kesava  kirupa dinakaran')],['kesava@luminai.com','kesava@luminai.com']);
   assert.deepEqual([r.agenda.excludedWeekdays.days,r.agenda.excludedWeekdays.timezone],[['wed'],'America/Los_Angeles']);
-  assert.deepEqual([r.preferredFor('Welcome'),r.preferredFor('  welcome '),r.preferredFor('Welcome Lunch')],[['gabrielle@luminai.com'],['gabrielle@luminai.com'],[]]);
+  const G1={first:['gabrielle@luminai.com'],last:[]};
+  assert.deepEqual([r.preferenceFor('Welcome'),r.preferenceFor('  welcome '),r.preferenceFor('Welcome Lunch')],[G1,G1,{first:[],last:[]}]);
+  // FDE's Re Engineering Tech Screen only: Ariel first, Anisha last resort.
+  const FDE='5ba29c75-1b89-4ffc-8f58-5db207afc527';
+  assert.deepEqual(r.preferenceFor('Re Engineering Tech Screen',FDE),{first:['ariel@luminai.com'],last:['anisha@luminai.com']});
+  assert.deepEqual(r.preferenceFor('Re Engineering Tech Screen','009c1c4e-152b-44f0-bcb1-0879f8287b62'),{first:[],last:[]});
+  assert.deepEqual(r.interviewerLoad,{timezone:'America/Los_Angeles',overrideGap:2,notCounted:[{match:'contains',value:'Lunch'}],reason:r.interviewerLoad.reason});
+  assert.deepEqual([r.loadCounts('Lunch'),r.loadCounts('Lunch/Coffee'),r.loadCounts('Welcome'),r.loadCounts('Coding - Roomba')],[false,false,true,true]);
   assert.deepEqual(r.debriefs,{afterOnsiteConfirmed:true,meetingHoursExempt:true});
   assert.deepEqual(r.meetingHoursFor('sanjay@luminai.com'),{hours:{timezone:'America/Los_Angeles',days:['mon','tue','wed','thu','fri'],start:'07:00',end:'17:00'},source:'override'});
 });
@@ -129,4 +136,26 @@ test('a start window\'s latest end is optional, a time, and later than its earli
   for(const change of [w=>{w.latestEnd='1:30pm';},w=>{w.latestEnd='12:00';},w=>{w.latestEnd='11:00';}])
     assert.throws(()=>parseRules(doc(change),'luminai'),/needs a latest end later than its earliest start/);
   assert.equal(parseRules(doc(w=>{delete w.latestEnd;}),'luminai').placementFor('Lunch')[0].latestEnd,undefined);
+});
+
+test('a preference rule may name a job, a last resort or both lists, never someone twice; interviewer load is optional and checked',()=>{
+  const {parseRules}=require('../src/scheduling/rules');
+  const FDE='5ba29c75-1b89-4ffc-8f58-5db207afc527',OTHER='009c1c4e-152b-44f0-bcb1-0879f8287b62';
+  const doc=change=>{const d=JSON.parse(JSON.stringify(require('../scheduling-rules/luminai.json')));change(d);return d;};
+  const withRules=list=>doc(d=>{d.sessions.preferredInterviewers=list;});
+  // A job's own rule replaces an all-jobs rule for that session; other jobs keep the all-jobs rule.
+  const r=parseRules(withRules([{match:'exact',value:'Screen',emails:['x@luminai.com']},{match:'exact',value:'Screen',jobId:FDE,lastResort:['z@luminai.com']}]),'luminai');
+  assert.deepEqual([r.preferenceFor('Screen',FDE),r.preferenceFor('Screen',OTHER),r.preferenceFor('Screen')],[{first:[],last:['z@luminai.com']},{first:['x@luminai.com'],last:[]},{first:['x@luminai.com'],last:[]}]);
+  for(const [rule,pattern] of [
+    [{match:'exact',value:'S',jobId:'FDE',emails:['x@luminai.com']},/isn't a lowercase Ashby job ID/],
+    [{match:'exact',value:'S'},/must be lowercase emails, first or last resort/],
+    [{match:'exact',value:'S',emails:[],lastResort:[]},/must be lowercase emails/],
+    [{match:'exact',value:'S',emails:['X@luminai.com']},/must be lowercase emails/],
+    [{match:'exact',value:'S',emails:['x@luminai.com'],lastResort:['x@luminai.com']},/list someone twice/]])
+    assert.throws(()=>parseRules(withRules([rule]),'luminai'),pattern);
+  const load=change=>doc(d=>change(d.interviewerLoad));
+  for(const [change,pattern] of [[l=>{l.timezone='Mars/Base';},/valid time zone/],[l=>{l.overrideGap=0;},/overrideGap/],[l=>{l.notCounted=[{match:'starts',value:'Lunch'}];},/notCounted/],[l=>{l.reason=' ';},/needs a reason/]])
+    assert.throws(()=>parseRules(load(change),'luminai'),pattern);
+  const off=parseRules(doc(d=>{delete d.interviewerLoad;}),'luminai');
+  assert.deepEqual([off.interviewerLoad,off.loadCounts('Lunch')],[null,true]);
 });

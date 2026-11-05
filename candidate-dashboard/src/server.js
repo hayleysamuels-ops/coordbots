@@ -125,6 +125,9 @@ function createServer() {
       rules: schedulingRules,
       alternativesLog: require("./scheduling/alternatives-log").createAlternativesLog(connectionConfig.dataDir),
       panels: slackConfig.schedulingPanels,
+      // Interviewer load for scheduling-rules interviewerLoad: every Ashby
+      // schedule, read through the dashboard's own sync (ashby.js).
+      interviewerLoad: opts => require("./ashby").interviewerLoad(opts),
       availability: availabilitySource,
       inspectFullCalendar: payload => bookingWorker.call("inspect-full-calendar",payload),
       inspectPlan: payload => bookingWorker.call("inspect-plan",payload),

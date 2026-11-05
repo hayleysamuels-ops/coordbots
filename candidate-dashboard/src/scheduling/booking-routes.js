@@ -1,6 +1,6 @@
 "use strict";
 const express = require("express");
-function bookingRoutes({ engine, store, clientId, discussion = null, rules = null, alternativesLog = null, panels = "off", facts, sendStatus = null, inspectDraft, inspectCalendar, inspectPlan, inspectFullCalendar, availability, googleCalendar, googleFreeBusy, capabilities = async () => ({ available: false, reason: "Ashby calendar and booking automation are not connected yet." }) }) {
+function bookingRoutes({ engine, store, clientId, discussion = null, rules = null, alternativesLog = null, panels = "off", interviewerLoad = null, facts, sendStatus = null, inspectDraft, inspectCalendar, inspectPlan, inspectFullCalendar, availability, googleCalendar, googleFreeBusy, capabilities = async () => ({ available: false, reason: "Ashby calendar and booking automation are not connected yet." }) }) {
   const router = express.Router();
   router.use((req, res, next) => {
     res.set("Cache-Control", "no-store");
@@ -205,7 +205,21 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     if(welcome>0)throw Object.assign(Error(`The template has "${plan.sessions[welcome].title}" as session ${welcome+1}, but Welcome must come first. Move it to the start of the template in Ashby, then load the plan again.`),{status:409,needsPerson:true});
     // Advisory: busy time and meeting hours are flagged, not enforced; the
     // candidate's availability, start windows and breaks stay hard.
-    const result=require('./full-calendar-schedule').proposeCalendarSchedule({sessions:inputs.sessions,windows,timezone,calendars:inputs.calendars,...inputs.agenda,advisory:true,avoidStarts,fixedStarts});
+    // Interviewer load (scheduling-rules interviewerLoad): each person's
+    // interviews per week from every Ashby schedule but this one, and, per
+    // session, who it wouldn't count for (Lunch, or someone who didn't give
+    // feedback the last time it was booked). If Ashby can't be read, the
+    // preference order alone decides, and the result says so.
+    const loadRule=rules.get().interviewerLoad;let load=null,sessions=inputs.sessions;
+    if(loadRule&&interviewerLoad){
+      try{
+        const read=await interviewerLoad({timeZone:loadRule.timezone,countsTitle:rules.get().loadCounts,excludeScheduleIds:[plan.scheduleId]});
+        load={timezone:loadRule.timezone,overrideGap:loadRule.overrideGap,weeks:read.weeks};
+        sessions=sessions.map(s=>{const out=s.eligibleInterviewers.filter(p=>!rules.get().loadCounts(s.title)||read.feedbackFor(s.interviewId,p.userId)===false).map(p=>p.userId);return out.length?{...s,loadExemptUserIds:out}:s;});
+      }catch(e){console.warn(`[calendar-check] interviewer load unavailable, preference order only: ${e.message}`);}
+    }
+    context.calendarCheck.interviewerLoad=!loadRule?'off':load?'applied':'unavailable';
+    const result=require('./full-calendar-schedule').proposeCalendarSchedule({sessions,windows,timezone,calendars:inputs.calendars,...inputs.agenda,advisory:true,avoidStarts,fixedStarts,interviewerLoad:load});
     // One line per no-fit, reason counts only (no names): the running evidence
     // for how often busy time, rather than hours or limits, is what binds.
     if(result.diagnosis){const d=result.diagnosis,c=d.conflicts;console.log(`[calendar-check] no fit: placed ${d.furthest.placed}/${d.furthest.of}; unblock=${d.unblock.map(u=>u.kind==='combination'?u.changes.map(x=>x.kind).join('+'):u.kind==='hours'?`hours-${u.changes[0].hoursSource}`:u.kind==='placement'?`placement-breaks${u.changes[0].currentBreaks.count}x${u.changes[0].currentBreaks.maxMinutes}-fits${u.changes[0].fitsWithBreaks?`${u.changes[0].fitsWithBreaks.count}x${u.changes[0].fitsWithBreaks.maxMinutes}`:'none'}`:u.kind).join(',')||'none'}; rejected busy=${c.busy} hours-default=${c.hours.default} hours-override=${c.hours.override} hours-verified=${c.hours.verified} limits=${c.limits} placement=${c.placement}`);}
@@ -257,7 +271,7 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
       // The candidate's submission this option was built from, kept in the
       // plan (so the approval's digest covers it) for the check at approval.
       submittedAvailability:submission?require('./availability-gate').postedAvailability(submission):null,rulesRevision:clientRules.rulesRevision,
-      calendarCheck:['calendar_checked','needs_attention'].includes(result.status)?{checkedAt:result.calendarCheckedAt,meetingHoursAssumed:result.meetingHoursAssumed===true,flags:chosen.events.map(e=>e.flags||[])}:null},user);
+      calendarCheck:['calendar_checked','needs_attention'].includes(result.status)?{checkedAt:result.calendarCheckedAt,meetingHoursAssumed:result.meetingHoursAssumed===true,flags:chosen.events.map(e=>e.flags||[]),loadOverrides:chosen.events.map(e=>e.loadOverrides||[])}:null},user);
   }
   // The current plan for a post's schedule (amend.js): the same read and
   // checks as posting, nothing posted. Each session's eligible list comes with it.

@@ -76,9 +76,12 @@ async function buildCalendarInputs({ plan, windows, timezone, rules, facts, free
       eligibleInterviewers = [...seen.values()];
       panel = { slots, ...(required(i) ? { requiredUserIds: [...new Set(requiredAll(i).map(r => r.userId))] } : {}) };
     } else eligibleInterviewers = s.eligibleInterviewers.filter(p => usable.has(p.userId) && (required(i) ? p.userId === required(i).userId : !steered(i, p.userId)));
-    // Preferred hosts by email, in order, kept only if eligible and usable.
-    const preferredUserIds = (rules.preferredFor ? rules.preferredFor(s.title) : []).map(email => eligibleInterviewers.find(p => p.email === email)?.userId).filter(Boolean);
-    return { ...s, eligibleInterviewers, ...panel, ...(placementWindows.length ? { placementWindows } : {}), ...(preferredUserIds.length ? { preferredUserIds } : {}) };
+    // Preferred interviewers by email, in order, and last resorts, for this
+    // job's session; kept only if eligible and usable.
+    const preference = rules.preferenceFor ? rules.preferenceFor(s.title, plan.jobId) : { first: [], last: [] };
+    const ids = emails => emails.map(email => eligibleInterviewers.find(p => p.email === email)?.userId).filter(Boolean);
+    const preferredUserIds = ids(preference.first), lastResortUserIds = ids(preference.last);
+    return { ...s, eligibleInterviewers, ...panel, ...(placementWindows.length ? { placementWindows } : {}), ...(preferredUserIds.length ? { preferredUserIds } : {}), ...(lastResortUserIds.length ? { lastResortUserIds } : {}) };
   });
   const context = { excluded, meetingHours: hoursUsed, limitsPolicy: rules.limitsPolicy, rulesRevision: rules.rulesRevision, busySource: "Google free/busy, primary calendars" };
   const empty = sessions.find(s => !s.eligibleInterviewers.length);

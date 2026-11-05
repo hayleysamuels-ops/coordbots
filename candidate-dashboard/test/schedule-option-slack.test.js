@@ -344,6 +344,26 @@ test("a flagged calendar-checked option posts as needing attention, with each cl
   assert.match(posts[0].text, /needs attention \(1 calendar clash\)/);
 });
 
+// Interviewer load passing over the preference order is never silent: the
+// post names who was suggested over whom, with both counts, under the session.
+test("an interviewer-load override is stored on its session and said under it on the post", async t => {
+  const { service, sent } = setup(t);
+  const override = { week: "2099-01-05", timezone: "America/Los_Angeles", chosen: { userId: "k", name: "Keshav Malhotra", count: 0 }, over: { userId: "a", name: "Ariel Perez Chavez", count: 2 } };
+  await service.postScheduleOption(post({ calendarCheck: { checkedAt: Date.parse("2098-12-31T09:00:00Z"), meetingHoursAssumed: true, flags: [[]], loadOverrides: [[override]] } }), user);
+  const plan = sent[0].plan;
+  assert.deepEqual(plan.sessions[0].loadOverrides, [{ chosen: { name: "Keshav Malhotra", count: 0 }, over: { name: "Ariel Perez Chavez", count: 2 }, weekLabel: "the week of Mon, Jan 5" }]);
+  const posts = [];
+  const send = require("../src/scheduling/slack").createSlack("xoxb-test", async (url, init) => { posts.push(JSON.parse(init.body)); return { ok: true, json: async () => ({ ok: true, ts: "1.2", channel: "C1" }) }; }, { displayTimeZone: "UTC", interactive: true, clientName: "Luminai" });
+  await send(plan, { channelId: "C1", proposalId: "draft-1", approver: "Coordinator", digest: "d".repeat(64) });
+  const text = posts[0].blocks.flatMap(b => b.text ? [b.text.text] : b.elements ? b.elements.map(e => e.text?.text ?? e.text) : []).join("\n");
+  assert.match(text, /\n {6}⚖️ Keshav Malhotra suggested over Ariel Perez Chavez — Ariel has 2 interviews the week of Mon, Jan 5, Keshav has 0\./);
+  assert.match(posts[0].blocks[0].text.text, /Please review all flags/);
+  // No override: nothing said, and the plan carries none.
+  const { service: s2, sent: sent2 } = setup(t);
+  await s2.postScheduleOption(post({ calendarCheck: { checkedAt: Date.parse("2098-12-31T09:00:00Z"), meetingHoursAssumed: true, flags: [[]], loadOverrides: [[]] } }), user);
+  assert.equal(sent2[0].plan.sessions[0].loadOverrides, undefined);
+});
+
 // A declared alternatives pair the template holds in full is planned as the
 // template has it and named in the post itself, with what to do if it's wrong.
 test("both of a declared pair are flagged in the post itself, then on the approval and the sent thread", async t => {

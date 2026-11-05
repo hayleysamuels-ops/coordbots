@@ -397,9 +397,7 @@ is normally still in Application Review and any status).
   actual stage titles so you can pick real keywords instead of guessing.
   "Today" is a calendar day in `config.displayTimeZone` (`isToday`/
   `calendarDateInTimeZone`, replacing the old `isTodayUTC`) — NOT the server
-  container's UTC day, and NOT `countInterviewsThisWeek`'s
-  Monday-Sunday UTC week boundary above (same class of issue, out of scope,
-  untouched). The old UTC boundary rolled over at 8pm Eastern during EDT (UTC
+  container's UTC day (`countInterviewsThisWeek`'s week uses the same zone). The old UTC boundary rolled over at 8pm Eastern during EDT (UTC
   midnight), so an evening onsite interview could silently drop off this
   section hours before the day actually changed for anyone in the org —
   confirmed the exact failure live: a 9:30pm-America/New_York event
@@ -690,16 +688,22 @@ is normally still in Application Review and any status).
   Stale Candidates and a regular column.
 - **Interviewer Weekly Limits ignores application status entirely.** Load is
   computed straight from `interviewSchedule.list` events (`countInterviewsThisWeek`
-  in `ashby.js`) without going through `fetchApplicationSummaries` — an
+  in `ashby.js`, over every schedule — see the week bullet below) without going through `fetchApplicationSummaries` — an
   interviewer's calendar load is real regardless of whether their candidate
   later gets archived or hired. Only interviewers with a non-null
   `weeklyLimit` from `user.interviewerSettings` are ever flagged; there's one
   API call per unique interviewer seen this week, bounded by
   `mapWithConcurrency`.
-- The "current week" for Interviewer Weekly Limits is Monday 00:00 UTC
-  through the following Monday (`startOfWeekUTC` in `ashby.js`) — not the
-  server's local timezone, not Ashby's org timezone setting (unverified
-  whether Ashby even has one exposed via the API).
+- The "current week" for Interviewer Weekly Limits is Monday to Sunday in
+  `config.displayTimeZone` (`weekKey` in `src/interviewer-load.js`; it was a
+  UTC week until November 5, 2026) — not the server's local timezone, not
+  Ashby's org timezone setting (unverified whether Ashby even has one exposed
+  via the API). Its counts come from every interview schedule, not the
+  `SCHEDULE_LOOKBACK_DAYS` window: `createScheduleSync` reads the whole
+  history once, then only changes via Ashby's `syncToken`, and drops from
+  memory schedules whose events all ended more than 8 days ago. The same
+  counts, filtered to places where the person gives feedback, feed the
+  scheduling pilot's interviewer load (`ashby.interviewerLoad()`).
 - **Availability Submitted is not threshold-gated on the server** — unlike
   Feedback Overdue/Needs Scheduling (which only include entries past their
   `_HOURS` threshold), every `CandidateAvailabilitySubmitted` schedule is

@@ -1,5 +1,5 @@
 "use strict";
-const { validFlags } = require("./flags");
+const { validFlags, validLoadOverrides } = require("./flags");
 const { peopleOf, MAX_PANEL } = require("./panel");
 const { blocksRepost } = require("./store");
 // Server-supplied only (from the candidate's Ashby profile); https LinkedIn URLs.
@@ -106,11 +106,16 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
       // calendar check found for its assigned interviewer. Stored with the plan,
       // so the digest covers them and the Slack post shows exactly these.
       if (meta.flags && (!Array.isArray(meta.flags) || meta.flags.length !== input.sessions.length || !meta.flags.every(validFlags))) fail(500, "Calendar flags don't match the sessions.");
+      // meta.loadOverrides (server code only): per session, who interviewer
+      // load passed over for the assigned interviewer, with both counts
+      // (scheduling-rules interviewerLoad). Stored with the plan, so the
+      // digest covers them and the Slack post says so.
+      if (meta.loadOverrides && (!Array.isArray(meta.loadOverrides) || meta.loadOverrides.length !== input.sessions.length || !meta.loadOverrides.every(validLoadOverrides))) fail(500, "Interviewer load notes don't match the sessions.");
       const sessions = input.sessions.map((s, i) => {
         // Explicit offsets make the reviewed instant unambiguous; the UI displays
         // the full selected timezone again before the separate approval action.
         if (![s.start, s.end].every(v => typeof v === "string" && /T.*(?:Z|[+-]\d\d:\d\d)$/.test(v) && Number.isFinite(Date.parse(v))) || Date.parse(s.start) >= Date.parse(s.end)) fail(400, "Session times must include an offset and end after they start");
-        return { title: text(s.title, "a session title"), start: new Date(s.start).toISOString(), end: new Date(s.end).toISOString(), interviewers: text(s.interviewers, "interviewers", 500), location: text(s.location, "a room or location"), ...(meta.people ? { people: meta.people[i].map(p => ({ name: p.name.trim() })) } : {}), ...(meta.flags?.[i]?.length ? { flags: meta.flags[i].map(f => ({ kind: f.kind, name: f.name, start: new Date(f.start).toISOString(), end: new Date(f.end).toISOString(), minutes: f.minutes, ...(f.kind === "hours" ? { hoursSource: f.hoursSource, hoursLabel: f.hoursLabel || null } : {}) })) } : {}) };
+        return { title: text(s.title, "a session title"), start: new Date(s.start).toISOString(), end: new Date(s.end).toISOString(), interviewers: text(s.interviewers, "interviewers", 500), location: text(s.location, "a room or location"), ...(meta.people ? { people: meta.people[i].map(p => ({ name: p.name.trim() })) } : {}), ...(meta.flags?.[i]?.length ? { flags: meta.flags[i].map(f => ({ kind: f.kind, name: f.name, start: new Date(f.start).toISOString(), end: new Date(f.end).toISOString(), minutes: f.minutes, ...(f.kind === "hours" ? { hoursSource: f.hoursSource, hoursLabel: f.hoursLabel || null } : {}) })) } : {}), ...(meta.loadOverrides?.[i]?.length ? { loadOverrides: meta.loadOverrides[i].map(o => ({ chosen: { name: o.chosen.name.trim(), count: o.chosen.count }, over: { name: o.over.name.trim(), count: o.over.count }, weekLabel: o.weekLabel })) } : {}) };
       });
       const plan = { candidateId: c.candidateId, applicationId: c.applicationId, candidateName: c.candidateName, jobTitle: c.jobTitle, timezone, sessions, notes: typeof input.notes === "string" ? input.notes.slice(0, 2000) : "", source: meta.source || "coordinator_draft", timezoneSource: meta.timezoneSource || "coordinator_entered", ...(meta.sourceRef ? { sourceRef: meta.sourceRef } : {}), ...(meta.rulesRevision ? { rulesRevision: meta.rulesRevision } : {}), ...(meta.format ? { format: meta.format } : {}), ...(linkedIn(meta.linkedinUrl) ? { linkedinUrl: linkedIn(meta.linkedinUrl) } : {}),
         // The Ashby check's plan (booking-plan.js), inside the plan so the
@@ -160,6 +165,9 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
       const source = availabilitySource === "ashby" ? "candidate-submitted availability" : "coordinator-entered availability";
       const checked = calendarCheck ? `Checked against interviewers' primary Google calendars at ${new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(calendarCheck.checkedAt))}.${calendarCheck.meetingHoursAssumed ? " Meeting hours are assumed from client rules, not verified." : ""} Other calendars and non-zero interview limits were not checked.` : "Not calendar-checked: suggested interviewers are eligible choices, not confirmed available.";
       const flags = calendarCheck?.flags || option.events.map(() => []), flagged = flags.reduce((n, f) => n + f.length, 0);
+      const { loadWeekLabel } = require("./flags");
+      const loadOverrides = (calendarCheck?.loadOverrides || option.events.map(() => [])).map(list => (list || []).map(o => ({ chosen: o.chosen, over: o.over, weekLabel: loadWeekLabel(o.week, o.timezone) })));
+      const overridden = loadOverrides.some(l => l.length);
       const { describeRequest, describeRequests } = require("./requests");
       const requestNote = `${requested?.length ? `Keeps the Slack request${requested.length === 1 ? "" : "s"}: ${describeRequests(requested)}. ` : ""}${requestsReleased ? `Releases the Slack request for ${describeRequest(requestsReleased)}. ` : ""}${requestsDropped?.length ? `Drops the Slack request${requestsDropped.length === 1 ? "" : "s"} for ${describeRequests(requestsDropped)}, in booking review by ${user.id}. ` : ""}`;
       const row = await this.draft({ applicationId, timezone,
@@ -171,7 +179,7 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
           // Calendar-checked options use the Slack format with the Ashby link and
           // the solver's assigned interviewer per session, by name (see
           // slack.js for why plain). Never the eligible alternatives.
-          ...(calendarCheck ? { format: "calendar_checked", people: option.events.map(e => peopleOf(e).map(p => ({ name: p.name }))), ...(flagged ? { flags } : {}), ...(linkedinUrl ? { linkedinUrl } : {}), ...(bookingPlan ? { bookingPlan } : {}) } : {}),
+          ...(calendarCheck ? { format: "calendar_checked", people: option.events.map(e => peopleOf(e).map(p => ({ name: p.name }))), ...(flagged ? { flags } : {}), ...(overridden ? { loadOverrides } : {}), ...(linkedinUrl ? { linkedinUrl } : {}), ...(bookingPlan ? { bookingPlan } : {}) } : {}),
           ...(alternativesBoth?.length ? { alternativesBoth } : {}),
           ...(availabilitySource === "ashby" && submittedAvailability ? { submittedAvailability } : {}),
           ...(suggestion ? { suggestion } : {}), ...(requested?.length ? { requested } : {}) });

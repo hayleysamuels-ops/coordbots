@@ -13,7 +13,7 @@ A small dashboard for a recruiting coordinator: at a glance, which candidates
 | **Feedback Overdue** | An interview ended and the interviewer still hasn't submitted their scorecard, past `FEEDBACK_OVERDUE_HOURS` (default 24h). Debrief events are excluded — a debrief is an internal wrap-up meeting with no scorecard due back, so it can never be "overdue." | Ashby `interviewSchedule.list` — `interviewEvents[].endTime` + `hasSubmittedFeedback`, cross-referenced against `interview.list`'s `isDebrief` (a real structural field, not org-configured naming — safe for any client). |
 | **Needs Scheduling** | Nothing has been sent to the candidate yet — no availability request, no self-schedule link — past `NEEDS_SCHEDULING_ALERT_HOURS` (default 48h). | Ashby `interviewSchedule.list` — `status: "NeedsScheduling"`. |
 | **Availability Submitted** | The candidate replied with their availability; waiting on someone to book it. Shown regardless of age (not threshold-gated); `AVAILABILITY_SUBMITTED_ALERT_HOURS` (default 24h) only drives the amber/red color-coding. | Ashby `interviewSchedule.list` — `status: "CandidateAvailabilitySubmitted"`. |
-| **Interviewer Weekly Limits** | An interviewer whose remaining weekly interview capacity has dropped to `INTERVIEWER_LIMIT_BUFFER` slots or fewer (default 1) — i.e. their Ashby-configured `weeklyLimit` minus interviews already on their calendar this week (Mon–Sun UTC). Interviewers with no `weeklyLimit` set never appear. | Ashby `user.interviewerSettings` (the limit) + `interviewSchedule.list` event data (the count). |
+| **Interviewer Weekly Limits** | An interviewer whose remaining weekly interview capacity has dropped to `INTERVIEWER_LIMIT_BUFFER` slots or fewer (default 1) — i.e. their Ashby-configured `weeklyLimit` minus interviews already on their calendar this week (Mon–Sun in `DISPLAY_TIMEZONE`, from every schedule, not just the lookback window). Interviewers with no `weeklyLimit` set never appear. | Ashby `user.interviewerSettings` (the limit) + `interviewSchedule.list` event data (the count). |
 | **Recently Sourced** | Candidates whose application was **created** in the last `SOURCED_LOOKBACK_DAYS` (default 3) with a referral or agency source. All statuses shown (Active/Archived/Hired/Lead), labeled per card. | Ashby `application.list` (`createdAfter` + `source.sourceType`). |
 | **Onsite Interviews Today** | Today's final-round and executive interview events, shown in a persistent right-margin column with a deliberately heavier border than the rest of the page. "Onsite" is **approximated**: Ashby has no per-interview location/format field anywhere in this org (checked interview events, interview definitions, interview stages, and all 38 org custom fields), so this matches on the interview stage title containing "final" or "exec" instead, per explicit product decision. "Today" is a calendar day in `DISPLAY_TIMEZONE` (default `America/New_York`) — the same zone every displayed time uses — not the server container's UTC day. | Ashby `interviewSchedule.list` (the same fetch `listIssues()` already does — no extra pagination call) + `interviewStage.info` per unique stage id involved. |
 | **Interviewer Training** (without `TRAINING_TRACKER_CLIENT_ID`) | Every interviewer currently enrolled in a pool's training path — real Ashby `Shadow`/`ReverseShadow` roles (not a naming-convention guess), with progress toward each stage's required interview count. Paused trainees are hidden by default behind a "Show N paused interview trainees" toggle, since a paused trainee isn't actionable the way an active one's progress is; toggling reveals them, sorted before active trainees. Not tied to any candidate/application. | Ashby `interviewerPool.list` + `interviewerPool.info` per pool with an enabled `trainingPath` (small, bounded — 22 pools on this org). |
@@ -606,12 +606,15 @@ accidental dismiss.
   Active candidates only; a non-Active candidate's row is intentionally
   unlinked rather than pointing at a URL that may 404.
 - Interview-schedule lookback is 30 days — anything older and still
-  unresolved wouldn't surface (see Scope above for the tradeoff). This also
-  bounds Interviewer Weekly Limits: an interview booked more than 30 days ago
-  for a slot this week wouldn't be counted toward that interviewer's load.
-- Interviewer Weekly Limits counts interviews for the current calendar week
-  (Monday 00:00 UTC through Sunday), regardless of timezone settings in Ashby
-  itself. Cancelled schedules don't count toward load.
+  unresolved wouldn't surface (see Scope above for the tradeoff). Interviewer
+  Weekly Limits is not bounded by it: it counts from every schedule, kept
+  current with Ashby's `syncToken` (`src/interviewer-load.js`; the first read
+  after a restart is the whole history, then each refresh reads only what
+  changed), so an interview booked months ago for this week still counts.
+- Interviewer Weekly Limits counts interviews for the current calendar week,
+  Monday to Sunday in `DISPLAY_TIMEZONE` (was Monday 00:00 UTC until November
+  5, 2026), regardless of timezone settings in Ashby itself. Cancelled
+  schedules don't count toward load.
 - If an Ashby refresh fails outright, the dashboard keeps serving the last
   good snapshot rather than going blank, and shows the error next to the
   "Updated" timestamp.
