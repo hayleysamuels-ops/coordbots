@@ -19,8 +19,9 @@ function readyQueue(schedules, applications) {
 // dismissals from other sections never apply here. submittedAt is the
 // schedule's updatedAt, so any later Ashby change to the schedule (a
 // resubmission, or an unrelated edit) no longer matches and the row
-// resurfaces. That is deliberate: there is no un-hide UI past the Undo toast,
-// and a resurfaced row is safer than a permanently buried submission. Without
+// resurfaces. That is deliberate: a resurfaced row is safer than a
+// permanently buried submission. (Restore on the Hidden & snoozed tab brings
+// one back sooner.) Without
 // both ids the row gets no key and can't be dismissed at all.
 function dismissKey(row) {
   return row.scheduleId&&row.submittedAt?`schedule:${row.scheduleId}:${row.submittedAt}`:null;
