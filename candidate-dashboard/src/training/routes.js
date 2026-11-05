@@ -58,7 +58,7 @@ function routes(issues) {
   // rather than matching the title at read time means renaming an interview
   // in Ashby can't silently orphan the path.
   router.post("/paths", (req, res) => {
-    const { id, label, interviewTitle, interviewIds, jobId, jobTitle, requiredShadows, requiredReverseShadows } = req.body || {};
+    const { id, label, interviewTitle, interviewIds, jobId, jobTitle, requiredShadows, requiredReverseShadows, interviewerPoolId, interviewerPoolTitle } = req.body || {};
     if (!requireFields(res, req.body, ["interviewTitle", "jobId"])) return;
     if (!Array.isArray(interviewIds) || !interviewIds.length) {
       return res.status(400).json({ error: "interviewIds required" });
@@ -70,6 +70,10 @@ function routes(issues) {
       interviewIds,
       jobId,
       jobTitle: jobTitle || "",
+      // Optional pool scope: lets two paths share an interview title and job
+      // and still be told apart. See training/progress.js poolVerdict.
+      interviewerPoolId: interviewerPoolId || null,
+      interviewerPoolTitle: interviewerPoolTitle || "",
       requiredShadows: Number.isFinite(requiredShadows) ? requiredShadows : config.trainingDefaultShadows,
       requiredReverseShadows: Number.isFinite(requiredReverseShadows)
         ? requiredReverseShadows
@@ -165,6 +169,19 @@ function routes(issues) {
     if (!store.setRequirements(userId, pathId, { shadows, reverseShadows })) {
       return res.status(404).json({ error: "enrolment not found" });
     }
+    respond(res);
+  });
+
+  // Assigns one interview event to a specific path. Only needed where two
+  // pool-scoped paths could both own it and Ashby recorded no pool - see
+  // progress.js poolVerdict's "ask" verdict. Keyed globally by event, so
+  // assigning it here removes it from the sibling path in the same write and
+  // the same interview can never advance two paths at once.
+  router.post("/session/assign-path", (req, res) => {
+    const { eventId, pathId } = req.body || {};
+    if (!requireFields(res, req.body, ["eventId"])) return;
+    if (pathId && !store.getPath(pathId)) return res.status(404).json({ error: "path not found" });
+    store.assignEventToPath(eventId, pathId || null);
     respond(res);
   });
 

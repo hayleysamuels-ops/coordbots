@@ -65,8 +65,16 @@ async function resolveInterviewTitles(interviewIds, fetchInterview) {
 // actually trains on.
 function pathOptions({ schedules, jobByApplicationId, interviewTitleById, existingPaths, now }) {
   const events = progress.completedEvents(schedules, now);
+  // Only an UNSCOPED path fully claims an interview+job. A pool-scoped one
+  // covers a single pool, and its sibling usually still needs creating - so
+  // hiding the option after the first would make the second impossible to add
+  // (exactly the Bug Bash Python/JavaScript case).
   const claimed = new Set();
-  for (const p of existingPaths) for (const id of p.interviewIds) claimed.add(`${id}:${p.jobId}`);
+  for (const p of existingPaths) {
+    if (p.interviewerPoolId) continue;
+    for (const id of p.interviewIds) claimed.add(`${id}:${p.jobId}`);
+  }
+  const claimedPools = new Set(existingPaths.filter((p) => p.interviewerPoolId).map((p) => `${p.jobId}:${p.interviewerPoolId}`));
 
   const byKey = new Map();
   for (const event of events) {
@@ -82,6 +90,10 @@ function pathOptions({ schedules, jobByApplicationId, interviewTitleById, existi
       eventCount: 0,
       shadowedEventCount: 0,
       alreadyConfigured: false,
+      // Pools actually seen on these events. Where an interview title and job
+      // cover two different interviews (Bug Bash Python vs JavaScript), this
+      // is the only thing that can separate them, so the picker offers it.
+      pools: new Map(),
     };
     entry.interviewIds.add(event.interviewId);
     entry.eventCount += 1;
@@ -90,11 +102,21 @@ function pathOptions({ schedules, jobByApplicationId, interviewTitleById, existi
     // involve training, rather than one-on-one screens that never do.
     if (event.interviewerUserIds.length > 1) entry.shadowedEventCount += 1;
     if (claimed.has(`${event.interviewId}:${job.jobId}`)) entry.alreadyConfigured = true;
+    for (const i of event.interviewers || []) {
+      if (i.interviewerPool && i.interviewerPool.id) entry.pools.set(i.interviewerPool.id, i.interviewerPool.title);
+    }
     byKey.set(key, entry);
   }
 
   return [...byKey.values()]
-    .map((e) => ({ ...e, interviewIds: [...e.interviewIds], label: `${e.interviewTitle} - ${e.jobTitle}` }))
+    .map((e) => ({
+      ...e,
+      interviewIds: [...e.interviewIds],
+      pools: [...e.pools]
+        .map(([id, title]) => ({ id, title, alreadyConfigured: claimedPools.has(`${e.jobId}:${id}`) }))
+        .sort((a, b) => a.title.localeCompare(b.title)),
+      label: `${e.interviewTitle} - ${e.jobTitle}`,
+    }))
     .sort((a, b) => b.shadowedEventCount - a.shadowedEventCount || b.eventCount - a.eventCount);
 }
 
@@ -124,6 +146,7 @@ function recompute() {
     ashbyTraining: lastInputs.ashbyNativeTraining || [],
     now,
     stalledAfterDays: lastInputs.stalledAfterDays,
+    eventPaths: store.listEventPaths(),
   });
   return {
     interviewerTraining: entries,
@@ -173,6 +196,7 @@ async function build({ schedules, jobByApplicationId, ashbyNativeTraining, fetch
     ashbyTraining: ashbyNativeTraining || [],
     now,
     stalledAfterDays,
+    eventPaths: store.listEventPaths(),
   });
 
   return {

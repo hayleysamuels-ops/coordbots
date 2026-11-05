@@ -408,6 +408,41 @@ not from `interview.list`: that endpoint returns only a fraction of an org's
 interviews (103 of 364 at Forus), and most of what it does return is dormant
 (all 8 `[Forus] Coding Interview` records produced zero events in 60 days).
 
+### Two interviews that share a title and a job
+
+Ashby can run two genuinely different interviews under one interview record on
+one job. At Forus, Bug Bash Python and Bug Bash JavaScript are the same
+`[Forus] Bug Bash Coding Interview` on `Software Engineer`, distinguished only
+by which **interviewer pool** the panel came from — and the client can't change
+that in Ashby.
+
+A path can therefore carry an optional `interviewerPoolId`. The picker offers
+it only where an interview+job genuinely ran under more than one pool (one
+option of the bug bash set, over 90 days of live data).
+
+Resolution order for a pool-scoped path, from `poolVerdict` in `progress.js`:
+
+1. **Event assigned by hand** → that path, and only that path.
+2. **Pool recorded on the event** → the matching path; sibling paths exclude it
+   outright. Ashby records this on roughly **43%** of bug bash events.
+3. **No pool recorded, trainee trains on only one candidate path** → counted
+   there and labelled *"pool not recorded — assumed this path"*.
+4. **No pool recorded, trainee trains on more than one** → counted by neither,
+   surfaced under Needs a decision with a button per path. Assignment is stored
+   globally per event, so one click also removes it from the sibling and the
+   same interview can never advance two paths at once.
+
+Why inference rather than reading pool membership: every JavaScript-qualified
+interviewer at Forus is **also** Python-qualified (5 of 5), so the panel's
+membership can never establish "this was JavaScript". Only the pool recorded on
+the event can, and it is absent more often than not.
+
+Measured over the live 90-day window, splitting the shared bug bash option in
+two: where trainees train on one language, 16 sessions counted, 10 assumed and
+**nothing** needing a decision. Where everyone trains on both, 70 need a
+decision — so avoid enrolling people on both paths unless they really do train
+on both.
+
 ### How a session is counted
 
 A qualifying session is an interview event where the trainee is one of the
