@@ -1,6 +1,6 @@
 'use strict';
 const {windowsToInstants}=require('./booking-planner');
-const {distinctFrom,awayFromStarts}=require('./option-variety');
+const {distinctFrom,awayFromStarts,withinStartWindows}=require('./option-variety');
 const {peopleOf,validAssignment}=require('./panel');
 const fail=message=>{throw Object.assign(Error(message),{status:422});};
 const MAX_AGE=60000,STEP=5*60000,SEARCH_LIMIT=100000,RELAX_LIMIT=20000;
@@ -34,7 +34,7 @@ function dateIn(ms,timezone){
 // advisory: interviewer busy time and meeting hours (assumed or verified) stop
 // being constraints. The agenda is built as if calendars were clear: template
 // order, the earliest start that fits the candidate's availability, the start
-// windows (Lunch 12:00–13:30) and the break budget, which all stay hard. Each
+// windows (Luminai: Lunch starts 12:00–13:00 and ends by 13:30) and the break budget, which all stay hard. Each
 // session whose interviewer has a conflict is then flagged with who, what and
 // by how much. Sessions are never reordered and times never moved to avoid a
 // conflict. At a session's fixed time, an eligible interviewer who is free is
@@ -66,12 +66,12 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
     if(!s.sessionId||ids.has(s.sessionId)||!Number.isInteger(s.durationMinutes)||s.durationMinutes<5||s.durationMinutes>480||s.assignmentVerified!==true||!Array.isArray(s.eligibleInterviewers)||!s.eligibleInterviewers.length||s.eligibleInterviewers.some(i=>!i.userId||!i.name)||!validAssignment(s)||(s.requiredUserIds!==undefined&&(!s.slots||!Array.isArray(s.requiredUserIds)||s.requiredUserIds.some(id=>!s.eligibleInterviewers.some(p=>p.userId===id)))))fail('Every interview needs a verified duration and resolved eligible interviewer identities.');
     ids.add(s.sessionId);
     // Optional start windows from scheduling-rules sessions.placementWindows.
-    if(s.placementWindows!==undefined&&(!Array.isArray(s.placementWindows)||s.placementWindows.some(w=>!/^([01]\d|2[0-3]):[0-5]\d$/.test(w?.earliestStart||'')||!/^([01]\d|2[0-3]):[0-5]\d$/.test(w?.latestStart||'')||w.latestStart<w.earliestStart||(()=>{try{timeIn(0,w.timezone);return false;}catch(_){return true;}})())))fail(`The start window for ${s.title} is invalid.`);
+    if(s.placementWindows!==undefined&&(!Array.isArray(s.placementWindows)||s.placementWindows.some(w=>!/^([01]\d|2[0-3]):[0-5]\d$/.test(w?.earliestStart||'')||!/^([01]\d|2[0-3]):[0-5]\d$/.test(w?.latestStart||'')||w.latestStart<w.earliestStart||(w.latestEnd!==undefined&&(!/^([01]\d|2[0-3]):[0-5]\d$/.test(w.latestEnd)||w.latestEnd<=w.earliestStart))||(()=>{try{timeIn(0,w.timezone);return false;}catch(_){return true;}})())))fail(`The start window for ${s.title} is invalid.`);
   }
   if(excludedWeekdays&&(!Array.isArray(excludedWeekdays.days)||excludedWeekdays.days.some(d=>!['sun','mon','tue','wed','thu','fri','sat'].includes(d))||(()=>{try{timeIn(0,excludedWeekdays.timezone);return false;}catch(_){return true;}})()))fail('The excluded weekdays are invalid.');
   const weekdayOf=ms=>new Intl.DateTimeFormat('en-US',{timeZone:excludedWeekdays.timezone,weekday:'short'}).format(ms).toLowerCase();
   const dayExcluded=ms=>!!excludedWeekdays&&excludedWeekdays.days.includes(weekdayOf(ms));
-  const placementOk=(s,start)=>!s.placementWindows||s.placementWindows.every(w=>{const t=timeIn(start,w.timezone);return t>=w.earliestStart&&t<=w.latestStart;});
+  const placementOk=withinStartWindows;
   // Meeting hours are either verified (workingHoursVerified) or explicitly
   // assumed from client rules (workingHoursSource "assumed"). Assumed hours are
   // allowed but reported: the result is then never availabilityVerified.
@@ -294,7 +294,7 @@ function proposeCalendarSchedule({sessions,windows,timezone,calendars,now=Date.n
       // interviewers, so with no interviewer rejections the window is the reason.
       return {...person(i.userId),reason:r.hours+r.busy+r.limits?reason:placementRejections.get(blocked.sessionId)?'placement':'agenda',counts:{hours:r.hours,busy:r.busy,limits:r.limits}};
     });
-    const windowOf=x=>x.placementWindows.map(w=>({value:w.value,timezone:w.timezone,earliestStart:w.earliestStart,latestStart:w.latestStart}));
+    const windowOf=x=>x.placementWindows.map(w=>({value:w.value,timezone:w.timezone,earliestStart:w.earliestStart,latestStart:w.latestStart,...(w.latestEnd!==undefined?{latestEnd:w.latestEnd}:{})}));
     const blockedPlacement=blocked.placementWindows&&placementRejections.get(blocked.sessionId)?{title:blocked.title,windows:windowOf(blocked),rejectedStarts:placementRejections.get(blocked.sessionId)}:null;
     // Would the agenda fit if no interviewer constraint applied at all? If not,
     // the candidate's own availability is what's too short.

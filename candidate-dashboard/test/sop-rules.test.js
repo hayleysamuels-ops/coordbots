@@ -64,9 +64,10 @@ test('the preferred host is used, flagged, only when nobody else is free',()=>{
   assert.equal(r.proposals[0].flagCount,1);
 });
 
-test('Luminai\'s rules: WFH Wednesdays, Gabrielle for Welcome, deferred debriefs, Sanjay 07:00–17:00 Pacific, Joe Penn\'s and Kesava\'s accounts, the FDE coding alternatives',()=>{
+test('Luminai\'s rules: WFH Wednesdays, lunch starting 12:00–13:00 and ending by 13:30 Pacific, Gabrielle for Welcome, deferred debriefs, Sanjay 07:00–17:00 Pacific, Joe Penn\'s and Kesava\'s accounts, the FDE coding alternatives',()=>{
   const r=loadRules({clientId:'luminai',log:{log(){},warn(){}}}).get();
-  assert.equal(r.rulesRevision,10);
+  assert.equal(r.rulesRevision,11);
+  assert.deepEqual(r.placementFor('Lunch/Coffee').map(w=>[w.earliestStart,w.latestStart,w.latestEnd,w.timezone]),[['12:00','13:00','13:30','America/Los_Angeles']]);
   // Each FDE job's two coding interviews, spelled as Ashby has them on that job.
   assert.deepEqual(['5ba29c75-1b89-4ffc-8f58-5db207afc527','009c1c4e-152b-44f0-bcb1-0879f8287b62','85218d8e-1de8-47ef-9ac9-f6b2067f89aa','837cc1e9-15ed-4f07-8755-51ee29f4ea39'].map(j=>r.alternativesFor(j).map(g=>[g.label,...g.titles])),
     [[['coding interviews','Coding - Roomba','Coding - URL Shortner']],[['coding interviews','Coding - Roomba','URL Shortner']],[['coding interviews','Coding - Roomba','URL Shortener']],[]]);
@@ -120,4 +121,12 @@ test('an alternatives rule needs a job ID, a label, two or more different interv
     assert.throws(()=>parseRules(doc([rule]),'luminai'),pattern);
   assert.throws(()=>parseRules(doc([ok,{...ok,interviews:['b','C']}]),'luminai'),/"b" is in two alternatives rules for job/);
   assert.throws(()=>parseRules(doc({}),'luminai'),/sessions.alternatives must be a list/);
+});
+
+test('a start window\'s latest end is optional, a time, and later than its earliest start',()=>{
+  const {parseRules}=require('../src/scheduling/rules');
+  const doc=change=>{const d=JSON.parse(JSON.stringify(require('../scheduling-rules/luminai.json')));change(d.sessions.placementWindows[0]);return d;};
+  for(const change of [w=>{w.latestEnd='1:30pm';},w=>{w.latestEnd='12:00';},w=>{w.latestEnd='11:00';}])
+    assert.throws(()=>parseRules(doc(change),'luminai'),/needs a latest end later than its earliest start/);
+  assert.equal(parseRules(doc(w=>{delete w.latestEnd;}),'luminai').placementFor('Lunch')[0].latestEnd,undefined);
 });

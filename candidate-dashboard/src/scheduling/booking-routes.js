@@ -194,7 +194,7 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     // An amend's own pins win for their sessions; requests fill the rest.
     const pinned=new Set(requireInterviewers.map(r=>r.session)),required=[...requireInterviewers,...needed.filter(r=>!pinned.has(r.session)).map(({request,...r})=>r)];
     const inputs=await require('./calendar-inputs').buildCalendarInputs({plan,windows,timezone,rules:rules.get(),facts,freeBusy:googleFreeBusy,excludeInterviewers,requireInterviewers:required});
-    const startWindowsApplied=(inputs.sessions||[]).flatMap(s=>(s.placementWindows||[]).map(w=>({title:s.title,earliestStart:w.earliestStart,latestStart:w.latestStart,timezone:w.timezone})));
+    const startWindowsApplied=(inputs.sessions||[]).flatMap(s=>(s.placementWindows||[]).map(w=>({title:s.title,earliestStart:w.earliestStart,latestStart:w.latestStart,...(w.latestEnd!==undefined?{latestEnd:w.latestEnd}:{}),timezone:w.timezone})));
     const context={calendarCheck:{excluded:inputs.excluded,meetingHours:inputs.meetingHours,limitsPolicy:inputs.limitsPolicy,busySource:inputs.busySource,rulesRevision:inputs.rulesRevision,startWindowsApplied}};
     const failedRequest=inputs.requirement&&needed.find(r=>r.session===inputs.requirement.session&&r.userId===inputs.requirement.userId)?.request;
     if(failedRequest)return unavailable(failedRequest,inputs.requirement.why,inputs.blocked,context);

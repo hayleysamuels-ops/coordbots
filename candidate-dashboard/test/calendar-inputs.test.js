@@ -176,7 +176,7 @@ test("start windows from the rules attach to sessions by Ashby interview name, c
   const lunchPlan = { sessions: [...plan.sessions, { sessionId: "s3", interviewId: "i3", title: "  team LUNCH ", durationMinutes: 45, assignmentVerified: true, requiredCount: 1, eligibleInterviewers: [{ name: "Ana Silva" }] }] };
   const { facts, freeBusy } = sources();
   const inputs = await buildCalendarInputs({ plan: lunchPlan, windows, timezone, rules: rulesDoc(), facts, freeBusy });
-  assert.deepEqual(inputs.sessions.map(s => (s.placementWindows || []).map(w => `${w.earliestStart}-${w.latestStart} ${w.timezone}`)), [[], [], ["12:00-13:30 America/Los_Angeles"]]);
+  assert.deepEqual(inputs.sessions.map(s => (s.placementWindows || []).map(w => `${w.earliestStart}-${w.latestStart} ${w.timezone}`)), [[], [], ["12:00-13:00 America/Los_Angeles"]]);
   const exact = rulesDoc(d => { d.sessions.placementWindows = [{ match: "exact", value: "lunch", timezone: "UTC", earliestStart: "12:00", latestStart: "13:00" }]; });
   assert.equal(exact.placementFor("Lunch").length, 1);
   assert.equal(exact.placementFor("Team lunch").length, 0);

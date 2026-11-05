@@ -166,8 +166,19 @@ done and verified, in this order:
     as a conflict.
   - **Lunch has a start window.** `sessions.placementWindows` (rules revision 4)
     requires any session whose Ashby interview name contains "Lunch" to start
-    between 12:00 and 13:30 America/Los_Angeles. The calendar-checked search
-    prunes by it as it places each session. With no breaks, the only way to move
+    between 12:00 and 13:00 America/Los_Angeles and finish by 13:30, whatever its
+    length (revision 11, November 5: the optional `latestEnd`, so a 45-minute
+    lunch starts by 12:45; until then the latest start was 13:30 and the end
+    unbounded). The shared check is `withinStartWindows` (option-variety.js),
+    used by both previews. The calendar-checked search prunes by it as it
+    places each session.
+  - **Templates are copied when a schedule is created.** Anna rearranged the
+    Software Engineer, Product and Software Engineer, Platform onsite plans on
+    November 5, 2026: Welcome, System Design, Full-Stack Development Exercise,
+    Lunch, Leadership, HM Screen (Lunch had been last). A schedule created
+    before then still carries the old template with Lunch last, and the bot
+    follows the schedule's template, not the job's plan: check such a post
+    before trusting it. With no breaks, the only way to move
     lunch is to move the whole agenda's start; Luminai's two 15–30-minute breaks
     give it some slack. When the window still binds, the no-fit report says so and
     names the smallest break allowance that would fit, fewest breaks first ("one
@@ -645,7 +656,7 @@ done and verified, in this order:
   - **What it does:** it always proposes agendas in template order, at the
     earliest start that fits.
     - **Hard:** the candidate's submitted availability, start windows (Lunch
-      12:00–13:30 PT), the break budget, zero interview limits (excluded
+      12:00–13:00 PT), the break budget, zero interview limits (excluded
       upstream), and Welcome first. A template with Welcome elsewhere is
       refused, not rearranged.
     - **Advisory, flagged per session:** busy time on the primary calendar, and

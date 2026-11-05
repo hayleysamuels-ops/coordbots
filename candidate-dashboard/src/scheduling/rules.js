@@ -51,6 +51,7 @@ function parseRules(doc, clientId) {
   for (const w of placement) {
     if (!["exact", "contains"].includes(w.match) || typeof w.value !== "string" || !w.value.trim()) invalid("Each placement window needs match (exact or contains) and a session name.");
     if (!TIME.test(w.earliestStart || "") || !TIME.test(w.latestStart || "") || w.latestStart < w.earliestStart) invalid(`The placement window for "${w.value}" needs an earliest start no later than its latest start.`);
+    if (w.latestEnd !== undefined && (!TIME.test(w.latestEnd) || w.latestEnd <= w.earliestStart)) invalid(`The placement window for "${w.value}" needs a latest end later than its earliest start.`);
     try { new Intl.DateTimeFormat("en", { timeZone: w.timezone }); } catch (_) { invalid(`The placement window for "${w.value}" has an invalid time zone.`); }
   }
   // No agenda on these weekdays, judged in their own time zone (Luminai: WFH Wednesdays).
@@ -120,7 +121,7 @@ function parseRules(doc, clientId) {
     // Every placement window whose pattern matches this Ashby interview name
     // (case-insensitive, surrounding spaces ignored); a session must satisfy all.
     placementFor: title => placement.filter(w => w.match === "exact" ? norm(title) === norm(w.value) : norm(title).includes(norm(w.value)))
-      .map(w => ({ match: w.match, value: w.value, timezone: w.timezone, earliestStart: w.earliestStart, latestStart: w.latestStart })),
+      .map(w => ({ match: w.match, value: w.value, timezone: w.timezone, earliestStart: w.earliestStart, latestStart: w.latestStart, ...(w.latestEnd !== undefined ? { latestEnd: w.latestEnd } : {}) })),
     // Always an assumption (schema: meetingHours). `source` says which rule
     // applied; null hours means the interviewer has none and can't be scheduled.
     meetingHoursFor: email => {

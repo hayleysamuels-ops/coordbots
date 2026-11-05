@@ -149,6 +149,27 @@ test('a session with a start window is only ever placed inside it',()=>{
   assert.equal(r.proposals[0].events[2].start,pacific(12));
 });
 
+test('a latest end bounds a session of any length: a 45-minute lunch finishes by 13:30, so starts by 12:45',()=>{
+  const {withinStartWindows}=require('../src/scheduling/option-variety');
+  const W={...LUNCH,latestStart:'13:00',latestEnd:'13:30'};
+  const l=minutes=>({durationMinutes:minutes,placementWindows:[W]});
+  assert.equal(withinStartWindows(l(30),Date.parse(pacific(13))),true,'30 minutes at 13:00 ends 13:30');
+  assert.equal(withinStartWindows(l(45),Date.parse(pacific(12,45))),true,'45 minutes at 12:45 ends 13:30');
+  assert.equal(withinStartWindows(l(45),Date.parse(pacific(12,50))),false,'45 minutes at 12:50 ends 13:35');
+  assert.equal(withinStartWindows(l(45),Date.parse(pacific(11,55))),false,'still not before 12:00');
+  assert.equal(withinStartWindows({durationMinutes:45,placementWindows:[LUNCH]},Date.parse(pacific(13,30))),true,'no latestEnd: the start alone');
+  // In the search: Ana takes lunch and is busy 12:00-12:50 PT. A 30-minute lunch
+  // fits at 12:50-13:20 or 12:55-13:25 or 13:00-13:30; a 45-minute one can't end by 13:30.
+  const s=minutes=>[session('1',60,[B]),{...session('2',minutes,[A]),title:'Lunch',placementWindows:[W]}];
+  const busy=[[[15,0],[15,50]]]; // 15:00-15:50 ET = 12:00-12:50 PT
+  const s30=s(30),thirty=solve(s30,[calendar(A,{busy,sessions:s30}),calendar(B,{sessions:s30})]);
+  assert.equal(thirty.status,'calendar_checked');
+  for(const p of thirty.proposals){const e=p.events[1];assert.ok(e.start>=pacific(12,50)&&e.end<=pacific(13,30),e.start+'-'+e.end);}
+  const s45=s(45),fortyFive=solve(s45,[calendar(A,{busy,sessions:s45}),calendar(B,{sessions:s45})]);
+  assert.equal(fortyFive.status,'no_calendar_fit');
+  assert.deepEqual(fortyFive.diagnosis.blockedPlacement.windows,[{value:'Lunch',timezone:'America/Los_Angeles',earliestStart:'12:00',latestStart:'13:00',latestEnd:'13:30'}]);
+});
+
 test('when the start window binds, the report says so and tests how much gap would fit',()=>{
   // Ana can only do 09:00-10:00 ET (06:00-07:00 PT), so the agenda must start then;
   // back-to-back, lunch would start at 07:00 PT, far outside 12:00-13:30.

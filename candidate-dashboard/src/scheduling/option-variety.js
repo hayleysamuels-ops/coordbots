@@ -25,12 +25,17 @@ const awayFromStarts = (start, avoided, timezone) => avoided.every(a => {
 });
 
 // Start windows (scheduling-rules sessions.placementWindows): true when the
-// session may start at `start`. Shared by both previews.
+// session may start at `start`. With a latestEnd, it must also finish by then,
+// on the same local date (Luminai: lunch finishes by 13:30, whatever its
+// length). Shared by both previews.
 function withinStartWindows(session, start) {
+  const local = (ms, tz) => Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(ms).map(x => [x.type, x.value]));
   return !session.placementWindows || session.placementWindows.every(w => {
-    const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: w.timezone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(start).map(x => [x.type, x.value]));
-    const t = `${p.hour}:${p.minute}`;
-    return t >= w.earliestStart && t <= w.latestStart;
+    const s = local(start, w.timezone), t = `${s.hour}:${s.minute}`;
+    if (t < w.earliestStart || t > w.latestStart) return false;
+    if (w.latestEnd === undefined) return true;
+    const e = local(start + session.durationMinutes * 60000, w.timezone);
+    return `${e.year}-${e.month}-${e.day}` === `${s.year}-${s.month}-${s.day}` && `${e.hour}:${e.minute}` <= w.latestEnd;
   });
 }
 

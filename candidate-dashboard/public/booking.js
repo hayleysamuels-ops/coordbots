@@ -99,7 +99,7 @@
       // leave "Preparing…" on screen with the spinner gone.
       if(JSON.stringify(plain)!==JSON.stringify(requestDetails())){$('full-suggestions').textContent='The availability or plan changed while this agenda was being prepared, so it was discarded. Run it again.';return;}
       const fmt=value=>new Intl.DateTimeFormat('en-US',{timeZone:result.timezone,dateStyle:'medium',timeStyle:'short'}).format(new Date(value));
-      const windowsLine=list=>list?.length?`<p>Start windows applied: ${[...new Map(list.map(w=>[w.title+w.earliestStart+w.latestStart+w.timezone,w])).values()].map(w=>`${esc(w.title)} starts ${esc(w.earliestStart)}–${esc(w.latestStart)} ${esc(w.timezone)}`).join('; ')}.</p>`:'';
+      const windowsLine=list=>list?.length?`<p>Start windows applied: ${[...new Map(list.map(w=>[w.title+w.earliestStart+w.latestStart+(w.latestEnd||'')+w.timezone,w])).values()].map(w=>`${esc(w.title)} starts ${esc(w.earliestStart)}–${esc(w.latestStart)}${w.latestEnd?` and ends by ${esc(w.latestEnd)}`:''} ${esc(w.timezone)}`).join('; ')}.</p>`:'';
       // Advisory clashes (full-calendar-schedule.js, advisory mode), worded as
       // in src/scheduling/flags.js so the page and the Slack post agree.
       const attention=result.status==='needs_attention';
@@ -129,7 +129,7 @@
   // as a data gap so they never read as a real conflict.
   function diagnosisHtml(d){
     const hours=c=>c.hoursSource==='default'?`the client's placeholder hours (${esc(c.hoursLabel)}), which aren't confirmed for them`:c.hoursSource==='verified'?'their verified meeting hours':`the hours set for them (${esc(c.hoursLabel)}), which are assumed`;
-    const win=w=>`${esc(w.earliestStart)}–${esc(w.latestStart)} ${esc(w.timezone)}`;
+    const win=w=>`${esc(w.earliestStart)}–${esc(w.latestStart)}${w.latestEnd?` and end by ${esc(w.latestEnd)}`:''} ${esc(w.timezone)}`;
     const words=['no','one','two','three'],breaks=(n,max)=>`${words[n]||n} break${n===1?'':'s'} of up to ${max} minutes`;
     // With no breaks allowed the agenda's start time is the only lever; with a
     // budget, say what it is. Then the smallest allowance that would fit.
