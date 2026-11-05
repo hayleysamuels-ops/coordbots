@@ -713,6 +713,35 @@ button#refresh-btn.spinning {
   overflow-y: auto;
 }
 
+/* Scroll windows inside a section (the Action queue, card lists, the onsite
+   timeline) sit in a well of the page tint, so a list that runs past its
+   max-height reads as its own scrolling surface rather than the end of the
+   section. Rows and cards stay on --surface: muted text is only measured
+   for contrast on --surface (DESIGN.md, Keeping today's contrast and
+   dark-mode fixes), so the tint shows as a frame and in the gaps, never
+   behind text. A list with nothing in it, or only its empty-state line,
+   draws no well. */
+.action-queue-scroll,
+.cards,
+.onsite-timeline {
+  background: var(--page);
+  border-radius: var(--radius-control);
+  padding: 6px;
+}
+
+.cards:empty,
+.onsite-timeline:empty,
+.cards:has(> .empty-state:only-child),
+.onsite-timeline:has(> .empty-state:only-child) {
+  padding: 0;
+  background: none;
+}
+
+.action-queue-table,
+.onsite-timeline-item {
+  background: var(--surface);
+}
+
 .action-queue-table {
   width: 100%;
   /* separate + zero spacing, not collapse — border-collapse: collapse
@@ -966,7 +995,7 @@ button#refresh-btn.spinning {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 10px 0;
+  padding: 10px 8px;
   border-bottom: 1px solid var(--gridline);
 }
 
@@ -1043,7 +1072,6 @@ button#refresh-btn.spinning {
   gap: 10px;
   max-height: 360px;
   overflow-y: auto;
-  padding-right: 4px;
 }
 
 /* An item inside a section card: hairline border, no shadow, and no state
