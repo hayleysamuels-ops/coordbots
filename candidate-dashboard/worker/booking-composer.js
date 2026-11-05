@@ -229,8 +229,8 @@ const draftUrl=id=>id?`${ORIGIN}/schedules/drafts/${id}`:null;
 //   (send-gate.js), called once every other lock is open, just before the
 //   click; null lets the click go ahead (the send is then counted), anything
 //   else is {reason} and the draft is left for a person.
-// `observeAlternates` (booking-dry-run.js --observe-alternates only): lets a
-// slot's alternates narrow (checkSave), logs unapproved alternates left at the
+// `observeAlternates` (booking-dry-run.js --observe-alternates only): logs
+// unapproved alternates left at the
 // end instead of refusing (checkFinal), and logs each eligible interviewer's
 // row on Ashby's interviewer page and every invite preview's recipients
 // (`observe` events). Never with a kept draft or Send.
@@ -247,7 +247,7 @@ async function dryRun({context,page,plan,log=()=>{},timing={},respond,onRefusal,
   const guard=await guardWrites(context,{warn:m=>note({type:'blocked',ashby:!!guard.blocked[guard.blocked.length-1]?.ashby,detail:m.replace('[write-guard] ','')})});
   const state={};
   const budget=saveBudget(plan);
-  const permits=await installBookingPermits(context,{plan,state,log:note,observeAlternates,observeOffPlan,maxSaves:budget.limit,...(respond?{respond}:{})});
+  const permits=await installBookingPermits(context,{plan,state,log:note,observeOffPlan,maxSaves:budget.limit,...(respond?{respond}:{})});
   // The earlier draft's delete: that draft only, once, and only while armed.
   const superseding={armed:false,discarded:undefined};
   if(supersedeDraftId)await installPermit(context,{op:OP.discard,max:1,log:note,capture:true,...(respond?{respond}:{}),

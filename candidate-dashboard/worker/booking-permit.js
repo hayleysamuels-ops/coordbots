@@ -14,7 +14,7 @@
 // Send (ApiScheduleInterviewScheduleFromDraft) is not on this list, so the dry
 // run cannot send. ApiCancelInterviewScheduleProcess ("Delete Activity") and
 // ApiUpdateDraftScheduleCalendarSettings are never permitted.
-const {normalizeDraft,checkBaseline,checkSave}=require('./booking-check');
+const {normalizeDraft,checkBaseline,alternatesChange,checkSave}=require('./booking-check');
 const ORIGIN='https://app.ashbyhq.com';
 const OP={create:'ApiCreateTemplateDraftScheduleForInterviewSchedule',save:'ApiUpdateDraftSchedule',
   refresh:'ApiRefreshDraftInterviewScheduleCandidateConfirmationEmailPreview',discard:'ApiDeleteDraftInterviewSchedule',
@@ -79,6 +79,11 @@ const fullSlots=events=>events.map((e,i)=>({event:i+1,eventId:e.id,slots:e.slots
 // (off the interview's eligible list), and who wasn't already selected.
 const offPlanPick=(created,prev,next)=>next.flatMap((e,i)=>e.slots.map((s,j)=>({i,j,s})).filter(({i,j,s})=>s.selected&&s.selected!==prev[i]?.slots[j]?.selected
   &&!(created?.[i]?.slots?.[j]?.alternates||[]).includes(s.selected)&&created?.[i]?.slots?.[j]?.selected!==s.selected));
+// Each slot whose alternates a save changed, and how (alternatesChange).
+const alternatesChanges=(prev,next)=>next.flatMap((e,i)=>e.slots.map((s,j)=>{
+  const p=prev[i]?.slots[j],chose=s.selected!==p?.selected?s.selected:null;
+  return {event:i+1,slot:j+1,change:alternatesChange(p?.alternates,s.alternates,chose)};
+}).filter(x=>x.change!=='unchanged'));
 const planNames=plan=>new Map((plan.sessions||[]).flatMap(s=>(s.interviewers||[]).map(x=>[x.userId,x.name||x.email||x.userId])));
 
 // The draft saves a booking may make, from the plan alone, as an upper bound
@@ -111,7 +116,7 @@ function saveBudget(plan){
 // before, after, and what checkSave makes of it) and then refused whatever
 // checkSave says, so nothing off-plan is ever written; state.offPlanObserved
 // tells the composer to stop.
-async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxSaves=saveBudget(plan).limit,maxRefreshes=10,observeAlternates=false,observeOffPlan=false}){
+async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxSaves=saveBudget(plan).limit,maxRefreshes=10,observeOffPlan=false}){
   Object.assign(state,{draftId:null,created:null,last:null,saves:0,lastSaveAt:0,lastRefreshAt:0,refusals:[],baselineError:null,cleanup:false,sent:0,lastSeq:0,zone:null,attempts:0});
   const forDraft=v=>!!state.draftId&&v.draftInterviewScheduleId===state.draftId;
   const names=planNames(plan);
@@ -135,21 +140,23 @@ async function installBookingPermits(context,{plan,state,respond,log=()=>{},maxS
       // `seq` orders the replies.
       const attempt=++state.attempts;
       let next=null;
-      // Slots before and after, logged whenever a save changes them or is refused.
+      // Slots before and after, logged on every save, passed or refused, so
+      // each one adds to what's known about alternates (alternatesChange).
       const slots=()=>{const before=slotSummary(state.last,names),after=next?slotSummary(next,names):null;return {before,after};};
       try{next=normalizeDraft(v.draftSchedule);
         const picks=observeOffPlan?offPlanPick(state.created,state.last,next):[];
         if(picks.length){
           let verdict='would pass the save check';
-          try{checkSave(state.last,next,plan,{compareRest:state.saves>0,timeZone:state.zone,observeAlternates});}catch(e){verdict=`refused by the save check: ${e.message}`;}
+          try{checkSave(state.last,next,plan,{compareRest:state.saves>0,timeZone:state.zone});}catch(e){verdict=`refused by the save check: ${e.message}`;}
           state.offPlanObserved=true;
           log({type:'observe',what:'off-plan save, refused before it reached Ashby',seq:attempt,picked:picks.map(({i,j,s})=>({event:i+1,slot:j+1,userId:s.selected})),
             comparedSettings:state.saves>0,checkSave:verdict,created:fullSlots(state.created),before:fullSlots(state.last),after:fullSlots(next)});
           state.refusals.push('off-plan save observed and refused (--observe-off-plan)');
           return false;
         }
-        checkSave(state.last,next,plan,{compareRest:state.saves>0,timeZone:state.zone,observeAlternates});
-        const s=slots(),seq=++state.sent;log({type:'save-checked',seq:attempt,ok:true,events:saveSummary(next),...(s.before!==s.after?{slots:s}:{})});return {next,seq,attempt};}
+        checkSave(state.last,next,plan,{compareRest:state.saves>0,timeZone:state.zone});
+        const seq=++state.sent,alternates=alternatesChanges(state.last,next);
+        log({type:'save-checked',seq:attempt,ok:true,events:saveSummary(next),slots:slots(),...(alternates.length?{alternates}:{})});return {next,seq,attempt};}
       catch(e){state.refusals.push(e.message);log({type:'refused-save',seq:attempt,reason:e.message,slots:slots()});return false;}
     },
     // Replies can arrive out of order; only the most recently sent accepted

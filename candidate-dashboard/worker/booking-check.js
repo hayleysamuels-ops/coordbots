@@ -33,12 +33,12 @@ function normalizeDraft(draftSchedule){
       const id=selectedId(s?.selected);
       if(id===undefined)fail(`Event ${i+1}, slot ${j+1}: the selected interviewer is in a shape this check doesn't recognise (fields: ${keys(s.selected).join(', ')||typeof s.selected}).`);
       const {selected,alternates,...rest}=s||{};
-      // Alternates: the slot's eligible people other than the one chosen. A new
-      // draft has nobody selected and every eligible person as an alternate;
-      // choosing one moves them out (seen October 27, both ways: [Mary,
-      // Hayley] → Mary chosen, [Hayley]; Hayley chosen, [Mary]). Alternates
-      // aren't invited: the interviewer invite went to the chosen person
-      // only. IDs only.
+      // Alternates: a new draft has nobody selected and every eligible person
+      // as an alternate. What a pick does to them isn't settled: October 27
+      // moved the chosen person out; October 13 and November 5 kept them, and
+      // November 5 also dropped someone not chosen (alternatesChange).
+      // Alternates aren't invited: the interviewer invite went to the chosen
+      // person only. IDs only, sorted, so their order means nothing.
       let alts=null;
       if(alternates!==undefined&&alternates!==null){
         if(!Array.isArray(alternates))fail(`Event ${i+1}, slot ${j+1}: alternates are in a shape this check doesn't recognise.`);
@@ -84,10 +84,26 @@ function parts(ms,timeZone){
 // whose previous state came from Ashby's create response (a different shape).
 // `timeZone` is the zone the composer edits in (composerZone below); the plan's
 // own zone until it has been read.
-// `observeAlternates` (the dry run's --observe-alternates only, never a real
-// check): a slot's alternates may also narrow to any subset of what it held
-// before, never gain anyone. It exists to watch what Ashby does with them.
-function checkSave(prev,next,plan,{compareRest=true,timeZone=null,observeAlternates=false}={}){
+// `observeAlternates` no longer changes this check: what it allowed (any
+// narrowing) is now the rule for every save (alternatesChange below).
+// How a save changed one slot's alternates (sorted user IDs, or null when
+// Ashby sent none), given who the save newly chose (or null):
+//   unchanged     the same list
+//   minus-chosen  the previous list without the person chosen (October 27)
+//   narrowed      any other subset: the chosen person kept (October 13,
+//                 November 5), or someone not chosen dropped (November 5,
+//                 unexplained: Ashby still listed them as eligible)
+//   gained        anyone added, or the list appeared or vanished: refused
+// Alternates aren't invited (October 27), so losing one can't add a guest;
+// gaining one is never accepted. Each narrowing is logged with before and
+// after by the save permit, so it adds evidence rather than blocking a booking.
+function alternatesChange(was,now,chose){
+  if(same(now,was))return 'unchanged';
+  if(!Array.isArray(now)||!Array.isArray(was)||!now.every(a=>was.includes(a)))return 'gained';
+  if(chose!==null&&was.includes(chose)&&same(now,was.filter(a=>a!==chose)))return 'minus-chosen';
+  return 'narrowed';
+}
+function checkSave(prev,next,plan,{compareRest=true,timeZone=null}={}){
   const why=[];
   if(next.length!==prev.length)fail(`This save has ${next.length} events; the draft had ${prev.length}.`);
   next.forEach((e,i)=>{
@@ -107,12 +123,9 @@ function checkSave(prev,next,plan,{compareRest=true,timeZone=null,observeAlterna
     // A panel's people go slot by slot, in the approval's order (booking-plan.js).
     e.slots.forEach((slot,j)=>{
       if(slot.selected!==p.slots[j]?.selected&&slot.selected!==null&&slot.selected!==s.interviewers[j]?.userId)why.push(`${label}, slot ${j+1}: an interviewer who wasn't approved was selected${s.interviewers.length>1?' (not the one approved for this slot)':''}`);
-      // Alternates may only stay as they were, or lose exactly the person this
-      // save chooses (and nobody else). Nobody is ever added.
+      // Alternates may stay or narrow; nobody is ever added (alternatesChange).
       const was=p.slots[j]?.alternates,chose=slot.selected!==p.slots[j]?.selected?slot.selected:null;
-      const minusChosen=Array.isArray(slot.alternates)&&Array.isArray(was)&&chose!==null&&was.includes(chose)&&same(slot.alternates,was.filter(a=>a!==chose));
-      const narrowed=observeAlternates&&Array.isArray(slot.alternates)&&Array.isArray(was)&&slot.alternates.every(a=>was.includes(a));
-      if(!minusChosen&&!narrowed&&!same(slot.alternates,was))why.push(`${label}, slot ${j+1}: alternates changed to ${JSON.stringify(slot.alternates)}, which is neither the previous list nor the previous list without the interviewer this save chose`);
+      if(alternatesChange(was,slot.alternates,chose)==='gained')why.push(`${label}, slot ${j+1}: alternates changed to ${JSON.stringify(slot.alternates)}, which adds someone the previous list (${JSON.stringify(was)}) didn't have`);
       if(compareRest&&!same(slot.rest,p.slots[j]?.rest)){
         // Name what changed, with before and after (IDs and settings, never page text).
         const changed=keys(slot.rest).filter(k=>!same(slot.rest[k],p.slots[j]?.rest?.[k]));
@@ -572,4 +585,4 @@ function classifyDialog(text){
   return {action:'stop',reason:`Ashby showed a dialog the booking doesn't recognise: "${t.slice(0,160)}". Nothing was confirmed.`};
 }
 
-module.exports={classifyInviteStatus,DRAFT_READ_OP,draftReadCopy,draftShape,draftsIn,maskAgendaItem,agendaFromList,emailAgendaItems,zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,checkSave,checkFinal,formats,savedField,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,ONE_SESSION_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};
+module.exports={classifyInviteStatus,DRAFT_READ_OP,draftReadCopy,draftShape,draftsIn,maskAgendaItem,agendaFromList,emailAgendaItems,zoneOffset,clockMinutes,partitionPreviews,selectedId,normalizeDraft,checkBaseline,alternatesChange,checkSave,checkFinal,formats,savedField,composerZone,checkInviteDropdowns,INVITE_DROPDOWNS,ONE_SESSION_DROPDOWNS,emailsIn,checkInvitePreview,checkInterviewerInvitePreviews,checkConfirmationEmail,classifyDialog,CONFIRMABLE,NEVER_CONFIRM};
