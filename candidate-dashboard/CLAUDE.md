@@ -112,6 +112,10 @@ is normally still in Application Review and any status).
 - `src/hidden-list.js` — the Action queue's Hidden & snoozed tab: every live
   dismissal matched against the pre-dismissal snapshot (`snapshot.hidden`).
   A `schedule:` key that matches nothing is left out (it hides nothing).
+- `src/legal-pages.js` — `GET /privacy` and `GET /terms`, public on every
+  deployment (exact paths, ahead of Basic Auth), serving `legal/*.html`. Linked
+  from the Google sign-in consent screen. Separate from `/privacy.html`, the
+  Luminai calendar policy.
 - `src/client-logo.js` — `CLIENT_LOGO` names a file in
   `public/assets/clients/`, served behind the fixed `/assets/client-logo` and
   `/assets/client-logo-dark` paths; unset or missing falls back to Carrara's

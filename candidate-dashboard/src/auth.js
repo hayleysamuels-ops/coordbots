@@ -19,7 +19,8 @@ function timingSafeEqualString(a, b) {
 }
 
 // Applied in front of every route (including static files and /api/*) in
-// server.js, except the two mounted ahead of it there: GET /privacy.html (only
+// server.js, except those mounted ahead of it there: GET /privacy and /terms
+// (every deployment, legal-pages.js), GET /privacy.html (only
 // where the scheduling pilot is on), POST /api/slack/interactions and POST
 // /api/slack/events (both Slack-signed). Credentials come from DASHBOARD_USER/DASHBOARD_PASSWORD — if
 // either is unset, config's required() already warned at startup and every

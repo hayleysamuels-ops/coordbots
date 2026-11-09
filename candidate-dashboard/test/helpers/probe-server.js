@@ -45,6 +45,19 @@ const NOAUTH_PAGE_PROBES = [
   ["GET", "/privacy%2Ehtml"],
   ["GET", "/privacy.htm"],
   ["GET", "/privacy"],
+  ["HEAD", "/privacy"],
+  ["GET", "/privacy?from=google"],
+  ["GET", "/terms"],
+  ["HEAD", "/terms"],
+  ["POST", "/privacy"],
+  ["POST", "/terms"],
+  ["GET", "/privacy/"],
+  ["GET", "/terms/"],
+  ["GET", "/PRIVACY"],
+  ["GET", "/Terms"],
+  ["GET", "/terms.html"],
+  ["GET", "/legal/privacy.html"],
+  ["GET", "/legal/terms.html"],
   ["GET", "/"],
   ["GET", "/index.html"],
   ["GET", "/style.css"],
@@ -78,7 +91,8 @@ const server = createServer().listen(0, "127.0.0.1", async () => {
     const response = await fetch(base + "/api/slack/events", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
     out["NOAUTH POST /api/slack/events"] = { status: response.status, body: await response.text() };
   }
-  // The privacy page is the one public GET. Everything else here, including
+  // The public GETs are /privacy and /terms everywhere, and /privacy.html with
+  // the scheduling pilot on. Everything else here, including
   // near-misses on its path and the stylesheet it deliberately doesn't link,
   // must still demand a login.
   for (const [method, path] of NOAUTH_PAGE_PROBES) {

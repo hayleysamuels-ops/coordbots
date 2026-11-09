@@ -132,10 +132,37 @@ test("flag off: the privacy page isn't served, with or without credentials", () 
   assert.doesNotMatch(off["GET /privacy.html"].body, /Luminai/);
 });
 
-test("nothing else is public: the exemption doesn't widen past /privacy.html and the Slack POST", () => {
+test("both states: the dashboard's privacy policy and terms are public at exactly /privacy and /terms", () => {
+  // Google's consent screen and reviewers link to them without credentials.
+  const LEGAL = path.join(__dirname, "..", "legal");
+  for (const state of [off, on]) {
+    for (const [route, file] of [["/privacy", "privacy.html"], ["/privacy?from=google", "privacy.html"], ["/terms", "terms.html"]]) {
+      const r = state["NOAUTH GET " + route];
+      assert.equal(r.status, 200, route);
+      assert.match(r.type, /^text\/html/, route);
+      assert.equal(r.body, fs.readFileSync(path.join(LEGAL, file), "utf8"), route);
+    }
+    assert.equal(state["NOAUTH HEAD /privacy"].status, 200);
+    assert.equal(state["NOAUTH HEAD /terms"].status, 200);
+    // Near misses, other methods and the files' own paths still demand a login.
+    for (const route of ["POST /privacy", "POST /terms", "GET /privacy/", "GET /terms/", "GET /PRIVACY", "GET /Terms",
+      "GET /terms.html", "GET /legal/privacy.html", "GET /legal/terms.html"]) {
+      assert.equal(state["NOAUTH " + route].status, 401, route);
+    }
+  }
+  // Neither page can link anything on this server behind the login: only
+  // external https: pages, mailto: and each other.
+  for (const file of ["privacy.html", "terms.html"]) {
+    const page = fs.readFileSync(path.join(LEGAL, file), "utf8");
+    assert.doesNotMatch(page, /(href|src)="(?!https:\/\/|mailto:|privacy"|terms")[^"]*"/, file);
+    assert.doesNotMatch(page, /Luminai/, file);
+  }
+});
+
+test("nothing else is public: the exemption doesn't widen past /privacy, /terms, /privacy.html and the Slack POST", () => {
   const stillLocked = [
     "POST /privacy.html", "GET /privacy.html/", "GET /PRIVACY.HTML", "GET /privacy%2Ehtml",
-    "GET /privacy.htm", "GET /privacy", "GET /", "GET /index.html", "GET /style.css", "GET /app.js",
+    "GET /privacy.htm", "GET /", "GET /index.html", "GET /style.css", "GET /app.js",
     "GET /booking.html", "GET /google-calendar.html", "GET /api/issues", "GET /api/google-calendar/status",
     // Only POST is exempt on the Slack routes.
     "GET /api/slack/interactions", "GET /api/slack/events",

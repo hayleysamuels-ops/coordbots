@@ -299,7 +299,7 @@ Fill in `.env`:
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `DASHBOARD_USER` | yes | HTTP Basic Auth username, required in front of every route (including `/api/*`) except `/privacy.html` (scheduling pilot dashboards only) and Slack's `POST /api/slack/interactions`. One shared set of credentials, not per-user. |
+| `DASHBOARD_USER` | yes | HTTP Basic Auth username, required in front of every route (including `/api/*`) except `GET /privacy` and `GET /terms` (every dashboard: the privacy policy and terms Google's consent screen links to, in `legal/`), `/privacy.html` (scheduling pilot dashboards only: the Google Calendar policy) and Slack's `POST /api/slack/interactions` and `POST /api/slack/events`. One shared set of credentials, not per-user. |
 | `DASHBOARD_PASSWORD` | yes | HTTP Basic Auth password. Compared with `crypto.timingSafeEqual`, not `===`. |
 | `ASHBY_API_KEY` | yes | Reads applications and interview schedules. |
 | `ASHBY_APP_BASE_URL` | no | Only change for a custom Ashby domain. |

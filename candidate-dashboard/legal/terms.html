@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Terms of Service · Carrara Coordination Dashboard</title>
+  <!-- Served outside the dashboard's login on every deployment (see
+       legal-pages.js), so it can't link style.css, which is behind it. The
+       tokens below are copied from style.css's :root and dark-mode blocks, as
+       in public/privacy.html; keep them in step if those change. -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=Manrope:wght@400;600;700&family=PT+Serif:wght@700&display=swap">
+  <style>
+    :root {
+      --ember: #eb4e19;
+      --page: #f5f3f1;
+      --surface: #ffffff;
+      --text-primary: #2d2a2a;
+      --text-secondary: #59534f;
+      --border: #d3cfcc;
+      --font-serif: "PT Serif", Georgia, "Times New Roman", serif;
+      --font-sans: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+      --surface-sunken: #edebea;
+      --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+      --radius-card: 12px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --ember: #ffad89;
+        --page: #2d2a2a;
+        --surface: #3a3634;
+        --text-primary: #ffffff;
+        --text-secondary: #d3cfcb;
+        --border: rgba(255, 255, 255, 0.12);
+        --surface-sunken: #242121;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 48px 16px;
+      background: var(--page);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 15px;
+      line-height: 1.6;
+    }
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 32px 40px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-top: 3px solid var(--ember);
+      border-radius: var(--radius-card);
+    }
+    h1, h2 { font-family: var(--font-serif); letter-spacing: -0.01em; }
+    h1 { font-size: 28px; margin: 0 0 4px; }
+    h2 { font-size: 19px; margin: 32px 0 8px; }
+    .updated { color: var(--text-secondary); margin: 0 0 24px; }
+    a { color: var(--ember); overflow-wrap: anywhere; }
+    ul { padding-left: 22px; margin: 0 0 16px; }
+    li + li { margin-top: 4px; }
+    p { margin: 0 0 14px; }
+    code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surface-sunken); padding: 1px 5px; border-radius: 4px; }
+    @media (max-width: 600px) {
+      body { padding: 24px 16px; }
+      main { padding: 24px 20px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Terms of Service</h1>
+    <p class="updated">Carrara Coordination Dashboard · Last updated: 9 November 2026</p>
+    <p>These terms apply to the recruiting coordination dashboards Carrara runs for the companies it works with, each at its own address (for example, <code>pace.carrara.is</code>). By signing in, you agree to them. They sit alongside any agreement between Carrara and your employer, which takes precedence where the two differ.</p>
+
+    <h2>Who may use it</h2>
+    <p>A dashboard may be used only by staff of the company it was set up for, and by Carrara, for that company's recruiting work. Sign in only with your own work account, and don't share access with anyone else.</p>
+
+    <h2>Candidate information</h2>
+    <p>The dashboard shows confidential information about job candidates. Use it only for recruiting and interview coordination, keep it confidential, and don't copy it outside your company's own systems except as your company permits.</p>
+
+    <h2>Acceptable use</h2>
+    <ul>
+      <li>Don't try to reach another company's dashboard or data, or to get around sign-in or access controls.</li>
+      <li>Don't interfere with the dashboard's operation, or use automated tools against it beyond what Carrara has agreed.</li>
+      <li>Don't add notes or other content that is unlawful or that you have no right to share.</li>
+    </ul>
+
+    <h2>Availability and accuracy</h2>
+    <p>The dashboard summarises information from your company's applicant tracking system and other connected tools. Carrara works to keep it accurate and available but provides it as is: it may be out of date, incomplete or temporarily unavailable. Check the source system before acting on anything that matters.</p>
+
+    <h2>Suspension and changes</h2>
+    <p>Carrara may suspend or end access to protect candidate information or the service, including when someone leaves the company or misuses the dashboard. Carrara may update these terms; the date above shows when they last changed.</p>
+
+    <h2>Privacy</h2>
+    <p>The <a href="privacy">Privacy Policy</a> describes what the dashboard collects and how it is used.</p>
+
+    <h2>Contact</h2>
+    <p>CARRARA<br>
+      <a href="mailto:hayley.samuels@carrara.is">hayley.samuels@carrara.is</a></p>
+  </main>
+</body>
+</html>

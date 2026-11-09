@@ -8,10 +8,15 @@ const dismissals = require("./dismissals");
 const { resolveClientLogo } = require("./client-logo");
 const notes = require("./notes");
 const { basicAuth } = require("./auth");
+const { legalPages } = require("./legal-pages");
 
 function createServer() {
   const app = express();
   const config = require("./config");
+
+  // Outside Basic Auth, on every deployment: the dashboard's privacy policy and
+  // terms at exactly /privacy and /terms (legal-pages.js).
+  app.use(legalPages);
 
   // Outside Basic Auth, scheduling pilot only: the privacy policy, which Google
   // fetches without credentials for the OAuth consent screen. It names the

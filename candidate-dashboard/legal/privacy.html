@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy · Carrara Coordination Dashboard</title>
+  <!-- Served outside the dashboard's login on every deployment (see
+       legal-pages.js), so it can't link style.css, which is behind it. The
+       tokens below are copied from style.css's :root and dark-mode blocks, as
+       in public/privacy.html; keep them in step if those change. -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=Manrope:wght@400;600;700&family=PT+Serif:wght@700&display=swap">
+  <style>
+    :root {
+      --ember: #eb4e19;
+      --page: #f5f3f1;
+      --surface: #ffffff;
+      --text-primary: #2d2a2a;
+      --text-secondary: #59534f;
+      --border: #d3cfcc;
+      --font-serif: "PT Serif", Georgia, "Times New Roman", serif;
+      --font-sans: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+      --surface-sunken: #edebea;
+      --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+      --radius-card: 12px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --ember: #ffad89;
+        --page: #2d2a2a;
+        --surface: #3a3634;
+        --text-primary: #ffffff;
+        --text-secondary: #d3cfcb;
+        --border: rgba(255, 255, 255, 0.12);
+        --surface-sunken: #242121;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 48px 16px;
+      background: var(--page);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 15px;
+      line-height: 1.6;
+    }
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 32px 40px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-top: 3px solid var(--ember);
+      border-radius: var(--radius-card);
+    }
+    h1, h2 { font-family: var(--font-serif); letter-spacing: -0.01em; }
+    h1 { font-size: 28px; margin: 0 0 4px; }
+    h2 { font-size: 19px; margin: 32px 0 8px; }
+    .updated { color: var(--text-secondary); margin: 0 0 24px; }
+    a { color: var(--ember); overflow-wrap: anywhere; }
+    ul { padding-left: 22px; margin: 0 0 16px; }
+    li + li { margin-top: 4px; }
+    p { margin: 0 0 14px; }
+    code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surface-sunken); padding: 1px 5px; border-radius: 4px; }
+    @media (max-width: 600px) {
+      body { padding: 24px 16px; }
+      main { padding: 24px 20px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Privacy Policy</h1>
+    <p class="updated">Carrara Coordination Dashboard · Last updated: 9 November 2026</p>
+    <p>Carrara runs recruiting coordination dashboards for the companies it works with. Each company has its own dashboard at its own address (for example, <code>pace.carrara.is</code>), used only by that company's staff and by Carrara. This policy describes what the dashboard collects when someone signs in with Google, what recruiting information it handles, and who can see it.</p>
+
+    <h2>Signing in with Google</h2>
+    <p>The dashboard asks Google for basic sign-in only: <code>openid</code>, <code>email</code> and <code>profile</code>. From that, it receives your name, your email address, whether Google has verified that address, the Google Workspace domain that manages your account, and your Google account ID.</p>
+    <p>It uses them to:</p>
+    <ul>
+      <li>check that your account is managed by an organisation allowed to use that dashboard, and refuse it otherwise;</li>
+      <li>show your name next to changes you make on the dashboard, such as hiding or snoozing an item, so colleagues know who to ask.</li>
+    </ul>
+    <p>It does not request or read your Gmail, Calendar, Drive, contacts or any other Google data. Google's access tokens are used once to confirm who you are and are not stored. Your signed-in session is kept in a browser cookie that expires after 24 hours.</p>
+
+    <h2>Recruiting information</h2>
+    <p>The dashboard reads recruiting data from the company's applicant tracking system (Ashby), using access the company grants: candidates' names, the jobs and interview stages they are in, interview times, interviewers' names and similar pipeline details. It shows this to signed-in staff of that company and to Carrara, to highlight work that needs a coordinator's attention.</p>
+    <p>This information belongs to the company. Carrara handles it only on the company's behalf and only to provide the dashboard.</p>
+    <p>The dashboard also stores a small amount of its own data: notes staff add, items they hide or snooze, with the name and time, and records of interview reschedules it has observed. These stay until someone removes them or the company asks Carrara to delete them.</p>
+
+    <h2>Scheduling features</h2>
+    <p>Where a company uses the dashboard's interview scheduling features, proposed schedules are posted to a private channel in that company's or Carrara's Slack workspace. When someone asks in Slack for a proposal to be changed, the text of the request and the relevant interview details are sent to Anthropic's API to interpret the request. Candidates' email addresses are never sent. Calendar access for scheduling is described separately where it is used.</p>
+
+    <h2>Who else processes it</h2>
+    <p>Carrara does not sell this information, use it for advertising, or use it to train machine learning models. It is processed by these service providers only to run the dashboard:</p>
+    <ul>
+      <li>Railway, which hosts the dashboard and stores its data;</li>
+      <li>Google, for sign-in;</li>
+      <li>Slack and Anthropic, only where the scheduling features above are used.</li>
+    </ul>
+
+    <h2>Google API Services User Data Policy</h2>
+    <p>The dashboard's use of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
+
+    <h2>Your choices</h2>
+    <p>You can remove the dashboard's access to your Google account at any time at <a href="https://myaccount.google.com/permissions">https://myaccount.google.com/permissions</a>. To ask what information the dashboard holds about you, or to have it corrected or deleted, contact Carrara below. Candidates should contact the company they applied to, which controls their recruiting data.</p>
+
+    <h2>Contact</h2>
+    <p>CARRARA<br>
+      <a href="mailto:hayley.samuels@carrara.is">hayley.samuels@carrara.is</a></p>
+  </main>
+</body>
+</html>
