@@ -18,7 +18,8 @@ const FILE = path.join(DATA_DIR, "dismissals.json");
 // hiddenAt, by and label were added with the Hidden & snoozed tab; entries
 // from before that have none of them. `by` is whatever name the person typed
 // into this browser: self-reported, not a record of who was signed in (the
-// dashboard has one shared login).
+// dashboard has one shared login), unless byVerified is true: then it's the
+// name on the Google account that was signed in (signin.js).
 let store = {};
 
 function load() {
@@ -56,7 +57,7 @@ function nextMidnight(ms = Date.now(), timeZone = config.displayTimeZone) {
   return at;
 }
 
-function add(key, scope, { by = null, label = null, now = Date.now() } = {}) {
+function add(key, scope, { by = null, byVerified = false, label = null, now = Date.now() } = {}) {
   if (!key) return;
   const clean = (v, max) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
   store[key] = {
@@ -66,6 +67,7 @@ function add(key, scope, { by = null, label = null, now = Date.now() } = {}) {
     by: clean(by, 80),
     label: clean(label, 200),
   };
+  if (byVerified && store[key].by) store[key].byVerified = true;
   save();
 }
 
@@ -89,11 +91,12 @@ function isDismissed(key) {
   return true;
 }
 
-// Every dismissal still in force, as [{ key, scope, expiresAt, hiddenAt, by, label }].
+// Every dismissal still in force, as [{ key, scope, expiresAt, hiddenAt, by, byVerified, label }].
 function list() {
   return Object.keys(store).filter(isDismissed).map((key) => ({
     key, scope: store[key].scope, expiresAt: store[key].expiresAt ?? null,
-    hiddenAt: store[key].hiddenAt ?? null, by: store[key].by ?? null, label: store[key].label ?? null,
+    hiddenAt: store[key].hiddenAt ?? null, by: store[key].by ?? null, byVerified: store[key].byVerified === true,
+    label: store[key].label ?? null,
   }));
 }
 

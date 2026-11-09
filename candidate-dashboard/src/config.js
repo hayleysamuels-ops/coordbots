@@ -175,6 +175,26 @@ const config = {
   dashboardUser: required("DASHBOARD_USER"),
   dashboardPassword: required("DASHBOARD_PASSWORD"),
 
+  // Google sign-in (signin.js): on only where ALLOWED_EMAIL_DOMAINS is set
+  // (Pace: withpace.com,carrara.is). Everywhere else the dashboard keeps the
+  // Basic Auth password above and none of these are read. signin.js checks
+  // that the rest are set and sane, and leaves sign-in off, with a warning,
+  // if they aren't.
+  allowedEmailDomains: list("ALLOWED_EMAIL_DOMAINS", []),
+  googleSignInClientId: (process.env.GOOGLE_SIGNIN_CLIENT_ID || "").trim(),
+  googleSignInClientSecret: (process.env.GOOGLE_SIGNIN_CLIENT_SECRET || "").trim(),
+  googleSignInRedirectUri: (process.env.GOOGLE_SIGNIN_REDIRECT_URI || "").trim(),
+  // Signs the session cookie. Changing it signs everyone out.
+  sessionSecret: process.env.SESSION_SECRET || "",
+  // How long a sign-in lasts. There is no users table, so this is how long
+  // someone who has left the company keeps access after their Google
+  // account is suspended.
+  sessionHours: hours("SESSION_HOURS", 24),
+  // "off" removes the password from the sign-in page and ends every password
+  // session. Anything else keeps it, each use logged.
+  passwordSignIn: (process.env.PASSWORD_SIGNIN || "on").trim().toLowerCase() !== "off",
+  passwordSignInRaw: (process.env.PASSWORD_SIGNIN || "").trim(),
+
   ashbyApiKey: required("ASHBY_API_KEY"),
   ashbyAppBaseUrl: (process.env.ASHBY_APP_BASE_URL || "https://app.ashbyhq.com").replace(/\/+$/, ""),
 

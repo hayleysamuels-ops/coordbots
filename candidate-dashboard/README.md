@@ -301,6 +301,13 @@ Fill in `.env`:
 | --- | --- | --- |
 | `DASHBOARD_USER` | yes | HTTP Basic Auth username, required in front of every route (including `/api/*`) except `GET /privacy` and `GET /terms` (every dashboard: the privacy policy and terms Google's consent screen links to, in `legal/`), `/privacy.html` (scheduling pilot dashboards only: the Google Calendar policy) and Slack's `POST /api/slack/interactions` and `POST /api/slack/events`. One shared set of credentials, not per-user. |
 | `DASHBOARD_PASSWORD` | yes | HTTP Basic Auth password. Compared with `crypto.timingSafeEqual`, not `===`. |
+| `ALLOWED_EMAIL_DOMAINS` | no | Turns on Google sign-in (`src/signin.js`) in place of Basic Auth, e.g. `withpace.com,carrara.is`. Someone gets in only if Google's verified ID token has `email_verified`, an email on one of these domains, and a signed `hd` claim (the managing Google Workspace) on one of them too, which keeps out a personal Google account registered on a work address. Needs the four variables below; if any is missing or wrong, startup warns and the dashboard stays on Basic Auth. Unset everywhere but where it's being rolled out. |
+| `GOOGLE_SIGNIN_CLIENT_ID` | with sign-in | The sign-in OAuth client (scopes `openid email profile` only). Not the Luminai calendar client. |
+| `GOOGLE_SIGNIN_CLIENT_SECRET` | with sign-in | That client's secret. |
+| `GOOGLE_SIGNIN_REDIRECT_URI` | with sign-in | `https://<this dashboard's address>/auth/google/callback`, exactly as registered on the client. Page loads on any other address of the dashboard (the old `*.up.railway.app` one) are sent here. |
+| `SESSION_SECRET` | with sign-in | At least 32 characters (`openssl rand -hex 32`). Signs the session cookie; changing it signs everyone out. |
+| `SESSION_HOURS` | no | How long a sign-in lasts. Default `24`. Nothing ends a session earlier, so this is how long someone removed from the company's Workspace keeps access. |
+| `PASSWORD_SIGNIN` | no | With sign-in on, the shared password is a form on the sign-in page (no longer a Basic Auth header), and every use is logged (`[auth] Password sign-in`). `off` removes it and ends every password session. Rotating `DASHBOARD_PASSWORD` also ends them. The scheduling pilot's coordinator logins work as before. |
 | `ASHBY_API_KEY` | yes | Reads applications and interview schedules. |
 | `ASHBY_APP_BASE_URL` | no | Only change for a custom Ashby domain. |
 | `FEEDBACK_OVERDUE_HOURS` | no | Default `24`. |

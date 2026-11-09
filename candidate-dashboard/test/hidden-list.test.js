@@ -53,12 +53,13 @@ test('a snooze lifts at the next midnight in the display time zone, across DST c
   assert.equal(at('2026-03-08T05:00:00Z','America/New_York'),'2026-03-09T04:00:00.000Z');    // midnight EST, the day DST starts
 });
 
-test('a dismissal saves when, by whom (trimmed, or null) and the name; restore removes it',()=>{
+test('a dismissal saves when, by whom (trimmed, or null, and whether a Google sign-in verified it) and the name; restore removes it',()=>{
   dismissals.add('candidate:t1','forever',{by:'  Anna ',label:'Ada',now:1000});
   dismissals.add('candidate:t2','today',{by:'',now:Date.now()});
+  dismissals.add('candidate:t3','forever',{by:'Ana Example',byVerified:true,now:2000});
   const byKey=Object.fromEntries(dismissals.list().map(e=>[e.key,e]));
-  assert.deepEqual(byKey['candidate:t1'],{key:'candidate:t1',scope:'forever',expiresAt:null,hiddenAt:1000,by:'Anna',label:'Ada'});
-  assert.equal(byKey['candidate:t2'].by,null);assert.ok(byKey['candidate:t2'].expiresAt>Date.now());
-  dismissals.remove('candidate:t1');
+  assert.deepEqual(byKey['candidate:t1'],{key:'candidate:t1',scope:'forever',expiresAt:null,hiddenAt:1000,by:'Anna',byVerified:false,label:'Ada'});
+  assert.equal(byKey['candidate:t2'].by,null);assert.equal(byKey['candidate:t3'].byVerified,true);assert.ok(byKey['candidate:t2'].expiresAt>Date.now());
+  dismissals.remove('candidate:t1');dismissals.remove('candidate:t3');
   assert.ok(!dismissals.isDismissed('candidate:t1'));
 });

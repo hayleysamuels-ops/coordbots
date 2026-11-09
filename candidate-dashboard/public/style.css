@@ -185,6 +185,20 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+#signed-in-as form {
+  display: inline;
+}
+
+.signout-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .muted {
   color: var(--text-muted);
 }

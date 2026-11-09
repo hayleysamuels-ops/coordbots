@@ -116,6 +116,17 @@ is normally still in Application Review and any status).
   deployment (exact paths, ahead of Basic Auth), serving `legal/*.html`. Linked
   from the Google sign-in consent screen. Separate from `/privacy.html`, the
   Luminai calendar policy.
+- `src/signin.js` — Google sign-in, only where `ALLOWED_EMAIL_DOMAINS` is set
+  (and its four settings are valid; otherwise it warns and Basic Auth stays).
+  Replaces `basicAuth` in server.js. Checks the verified ID token's
+  `email_verified`, email domain AND signed `hd` claim against the list. Stateless
+  HMAC-signed session cookie (`SESSION_SECRET`, `SESSION_HOURS`, default 24h),
+  re-checked against current settings on every request. The shared password is
+  a logged form there (`PASSWORD_SIGNIN=off` removes it), never a Basic header;
+  approver Basic logins and `x-coordinator-authorization` still work. A 401 for
+  a non-page request carries `X-Sign-In`, which app.js's fetch wrapper follows.
+  `req.viewer` feeds `/api/viewer` and a verified `by` (`byVerified`) on
+  dismissals. Google's tokens are never stored (the privacy page says so).
 - `src/client-logo.js` — `CLIENT_LOGO` names a file in
   `public/assets/clients/`, served behind the fixed `/assets/client-logo` and
   `/assets/client-logo-dark` paths; unset or missing falls back to Carrara's

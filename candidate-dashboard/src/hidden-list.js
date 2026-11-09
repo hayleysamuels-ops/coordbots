@@ -58,6 +58,7 @@ function hiddenEntries(dismissed, snap, { candidateKeys, interviewerKeys, disabl
       expiresAt: d.expiresAt,
       hiddenAt: d.hiddenAt,
       by: d.by,
+      byVerified: d.byVerified === true,
     });
   }
   // On the dashboard first, then most recently hidden; entries with no

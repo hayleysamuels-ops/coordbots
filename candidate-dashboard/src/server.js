@@ -9,6 +9,7 @@ const { resolveClientLogo } = require("./client-logo");
 const notes = require("./notes");
 const { basicAuth } = require("./auth");
 const { legalPages } = require("./legal-pages");
+const { signInSettings, createSignIn } = require("./signin");
 
 function createServer() {
   const app = express();
@@ -17,6 +18,21 @@ function createServer() {
   // Outside Basic Auth, on every deployment: the dashboard's privacy policy and
   // terms at exactly /privacy and /terms (legal-pages.js).
   app.use(legalPages);
+
+  // Google sign-in, only where ALLOWED_EMAIL_DOMAINS is set (signin.js): its
+  // sign-in page and Google's callback are outside the login, and its check
+  // takes Basic Auth's place below. Elsewhere, and wherever its settings are
+  // incomplete, the dashboard keeps the Basic Auth password.
+  const signInConfig = signInSettings(config);
+  for (const w of signInConfig.warnings) console.warn(`[config] Warning: ${w}.`);
+  let signIn = null;
+  if (signInConfig.enabled) {
+    signIn = createSignIn(signInConfig);
+    app.use(signIn.router);
+    console.log(`[auth] Google sign-in on for ${signInConfig.domains.join(", ")} at ${signInConfig.origin}; sessions last ${signInConfig.sessionHours}h; password sign-in ${signInConfig.passwordSignIn ? "on (each use logged)" : "off (PASSWORD_SIGNIN)"}.`);
+  } else if (signInConfig.problems.length) {
+    console.warn(`[auth] Warning: ALLOWED_EMAIL_DOMAINS is set but Google sign-in is OFF, so the dashboard still uses the Basic Auth password: ${signInConfig.problems.join("; ")}.`);
+  }
 
   // Outside Basic Auth, scheduling pilot only: the privacy policy, which Google
   // fetches without credentials for the OAuth consent screen. It names the
@@ -49,7 +65,7 @@ function createServer() {
 
   // Ahead of static files and every other /api/* route: nothing else on this
   // server is reachable without valid credentials.
-  app.use(basicAuth);
+  app.use(signIn ? signIn.requireSignIn : basicAuth);
 
   app.use(express.json());
   const pageGate = require("./scheduling/page-gate");
@@ -212,6 +228,16 @@ function createServer() {
     app.use("/api/training", require("./training/routes").routes(issues));
   }
 
+  // Who is signed in, for the topbar and the Hidden & snoozed tab (app.js).
+  // signIn false: this dashboard uses the shared Basic Auth password.
+  app.get("/api/viewer", (req, res) => {
+    const v = req.viewer;
+    res.set("Cache-Control", "no-store");
+    res.json(signIn
+      ? { signIn: true, method: v ? v.method : null, email: v ? v.email : null, name: v ? v.name : null }
+      : { signIn: false });
+  });
+
   app.get("/api/issues", (req, res) => {
     res.json(issues.getSnapshot());
   });
@@ -225,14 +251,18 @@ function createServer() {
 
   // Dismiss a candidate/interviewer card. scope "today" clears at the next
   // midnight in DISPLAY_TIMEZONE; "forever" persists until restored. `by` is
-  // the name typed into this browser (self-reported). The name on the card is
+  // the Google account's name for someone signed in with Google (verified),
+  // otherwise the name typed into this browser (self-reported). The name on the card is
   // looked up here and saved, so the Hidden & snoozed tab can still name an
   // entry once it's no longer on the dashboard. Returns the freshly filtered
   // snapshot so the dashboard updates immediately.
   app.post("/api/dismiss", (req, res) => {
     const { key, scope, by } = req.body || {};
     if (!key) return res.status(400).json({ error: "key required" });
-    dismissals.add(key, scope === "forever" ? "forever" : "today", { by, label: issues.nameForKey(key) });
+    const verified = req.viewer && req.viewer.method === "google";
+    dismissals.add(key, scope === "forever" ? "forever" : "today", {
+      by: verified ? req.viewer.name : by, byVerified: verified, label: issues.nameForKey(key),
+    });
     res.json(issues.getSnapshot());
   });
 

@@ -1,6 +1,23 @@
 (() => {
   const REFRESH_MS = 60 * 1000;
 
+  // With Google sign-in on (signin.js), a request after the session ends
+  // gets a 401 carrying X-Sign-In: send the page there, coming back here
+  // after. Wraps every script's fetch, since they all look it up on window.
+  // Dashboards without sign-in never send the header.
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = async (...args) => {
+    const res = await nativeFetch(...args);
+    const signIn = res.status === 401 && res.headers.get("X-Sign-In");
+    if (signIn) location.assign(`${signIn}?next=${encodeURIComponent(location.pathname + location.search)}`);
+    return res;
+  };
+
+  // Who is signed in (/api/viewer): { signIn: false } on a dashboard with
+  // the shared password only. Loaded once, before the first render.
+  let viewer = { signIn: false };
+  const verifiedViewer = () => viewer.signIn && viewer.method === "google";
+
   // The filter is purely client-side: the last-fetched snapshot is cached
   // here so checking/unchecking an option, or switching which field to
   // filter by, re-renders instantly without a network round-trip. Applies
@@ -723,7 +740,9 @@
   // force (data.hidden, built server-side in hidden-list.js), with a Restore
   // button on each. It ignores the entity filters so nothing hidden can be
   // out of sight here too. "Hidden by" is the name typed into the browser
-  // that hid it: self-reported, not a record of who was signed in.
+  // that hid it: self-reported, not a record of who was signed in. With
+  // Google sign-in, it's the signed-in account's name instead (byVerified),
+  // and only older entries are self-reported.
   let actionQueueHeadHtml = null;
   const HIDDEN_SECTION_LABELS = {
     readyToSchedule: "Ready to schedule",
@@ -756,7 +775,11 @@
     const status = entry.scope === "forever"
       ? "Hidden"
       : `<span${entry.expiresAt ? ` title="${escapeHtml(formatHiddenTime(entry.expiresAt))}"` : ""}>Snoozed until midnight</span>`;
-    const by = entry.by ? escapeHtml(entry.by) : `<span class="muted">—</span>`;
+    const by = !entry.by
+      ? `<span class="muted">—</span>`
+      : entry.byVerified || !verifiedViewer()
+        ? escapeHtml(entry.by)
+        : `${escapeHtml(entry.by)} <span class="muted">(self-reported)</span>`;
     const when = entry.hiddenAt ? escapeHtml(formatHiddenTime(entry.hiddenAt)) : `<span class="muted">Not saved</span>`;
     return `
       <tr class="action-queue-row">
@@ -778,13 +801,17 @@
           <th>Name</th>
           <th>Hidden from</th>
           <th>Status</th>
-          <th>Hidden by (self-reported)</th>
+          <th>${verifiedViewer() ? "Hidden by" : "Hidden by (self-reported)"}</th>
           <th>When</th>
           <th></th>
         </tr>`;
     }
     const sub = document.getElementById("actionQueue-sub");
-    if (sub) {
+    if (sub && verifiedViewer()) {
+      sub.textContent =
+        `Everything hidden or snoozed on this dashboard, whatever the filters above. Restore puts it back. ` +
+        `"Hidden by" is the Google account that was signed in; entries marked self-reported are from before sign-in, or from the dashboard password, and show the name typed into that browser.`;
+    } else if (sub) {
       const name = hiderName();
       sub.innerHTML =
         `Everything hidden or snoozed on this dashboard, whatever the filters above. Restore puts it back. ` +
@@ -1465,7 +1492,8 @@
       return;
     }
     closeAllMenus();
-    let by = hiderName();
+    // Signed in with Google, the server records the account's name instead.
+    let by = verifiedViewer() ? null : hiderName();
     if (by === undefined) by = await askHiderName();
     try {
       const res = await fetch("/api/dismiss", {
@@ -1824,6 +1852,20 @@
     });
   });
 
-  load();
+  async function loadViewer() {
+    try {
+      const res = await fetch("/api/viewer");
+      if (res.ok) viewer = await res.json();
+    } catch (err) {
+      console.error("[viewer]", err);
+    }
+    const el = document.getElementById("signed-in-as");
+    if (!el || !viewer.signIn || !viewer.method) return;
+    const who = viewer.method === "google" ? escapeHtml(viewer.email) : "Dashboard password";
+    el.innerHTML = `${who} · <form method="post" action="/signout"><button type="submit" class="signout-btn">Sign out</button></form>`;
+    el.hidden = false;
+  }
+
+  loadViewer().finally(load);
   setInterval(load, REFRESH_MS);
 })();
