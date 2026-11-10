@@ -21,7 +21,8 @@ function timingSafeEqualString(a, b) {
 // Applied in front of every route (including static files and /api/*) in
 // server.js, on every dashboard without Google sign-in (with it, signin.js's
 // middleware takes its place), except those mounted ahead of it there: GET /privacy and /terms
-// (every deployment, legal-pages.js), GET /privacy.html (only
+// (every deployment, legal-pages.js), GET /google<…>.html (only where
+// GOOGLE_SITE_VERIFICATION names it, site-verification.js), GET /privacy.html (only
 // where the scheduling pilot is on), POST /api/slack/interactions and POST
 // /api/slack/events (both Slack-signed). Credentials come from DASHBOARD_USER/DASHBOARD_PASSWORD — if
 // either is unset, config's required() already warned at startup and every

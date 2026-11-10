@@ -21,6 +21,7 @@ Object.assign(process.env, {
   GOOGLE_SIGNIN_CLIENT_SECRET: "fictional-client-secret",
   GOOGLE_SIGNIN_REDIRECT_URI: "http://127.0.0.1/auth/google/callback",
   SESSION_SECRET: "c".repeat(64),
+  GOOGLE_SITE_VERIFICATION: "google0123456789abcdef.html",
 });
 delete process.env.RAILWAY_VOLUME_MOUNT_PATH;
 const config = require("../src/config");
@@ -36,8 +37,8 @@ test("config: domains are lowercased and trimmed", () => {
   assert.deepEqual(config.allowedEmailDomains, ["example-client.com", "example-agency.com"]);
 });
 
-test("public: /privacy, /terms and /signin; the Slack routes still answer before sign-in", async () => {
-  for (const p of ["/privacy", "/terms", "/signin"]) assert.equal((await fetch(base + p)).status, 200, p);
+test("public: /privacy, /terms, /signin and the Search Console file; the Slack routes still answer before sign-in", async () => {
+  for (const p of ["/privacy", "/terms", "/signin", "/google0123456789abcdef.html"]) assert.equal((await fetch(base + p)).status, 200, p);
   for (const p of ["/api/slack/interactions", "/api/slack/events"]) {
     assert.equal((await fetch(base + p, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).status, 404, p);
   }

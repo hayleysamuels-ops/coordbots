@@ -297,6 +297,10 @@ const config = {
   // mark.
   clientLogo: (process.env.CLIENT_LOGO || "").trim().toLowerCase(),
 
+  // Search Console's ownership file for this dashboard's address, e.g.
+  // google1234abcd.html (site-verification.js). Empty serves nothing.
+  googleSiteVerification: process.env.GOOGLE_SITE_VERIFICATION || "",
+
   // Recruiter/Coordinator filter: exact hiringTeam[].role name to match
   // (not a substring/keyword list like source/stage above — Ashby's
   // hiringTeamRole.list is a small controlled per-org list, not free text,

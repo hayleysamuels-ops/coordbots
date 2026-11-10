@@ -9,6 +9,7 @@ const { resolveClientLogo } = require("./client-logo");
 const notes = require("./notes");
 const { basicAuth } = require("./auth");
 const { legalPages } = require("./legal-pages");
+const { siteVerificationSettings, siteVerification } = require("./site-verification");
 const { signInSettings, createSignIn } = require("./signin");
 
 function createServer() {
@@ -18,6 +19,14 @@ function createServer() {
   // Outside Basic Auth, on every deployment: the dashboard's privacy policy and
   // terms at exactly /privacy and /terms (legal-pages.js).
   app.use(legalPages);
+
+  // Outside the login, only where GOOGLE_SITE_VERIFICATION is set: Search
+  // Console's ownership file, so Google's OAuth Branding review accepts this
+  // address (site-verification.js).
+  const verification = siteVerificationSettings(config.googleSiteVerification);
+  if (verification.warning) console.warn(`[config] Warning: ${verification.warning}.`);
+  else if (verification.file) console.log(`[server] Search Console verification file served at /${verification.file}.`);
+  app.use(siteVerification(verification.file));
 
   // Google sign-in, only where ALLOWED_EMAIL_DOMAINS is set (signin.js): its
   // sign-in page and Google's callback are outside the login, and its check

@@ -127,6 +127,9 @@ is normally still in Application Review and any status).
   a non-page request carries `X-Sign-In`, which app.js's fetch wrapper follows.
   `req.viewer` feeds `/api/viewer` and a verified `by` (`byVerified`) on
   dismissals. Google's tokens are never stored (the privacy page says so).
+- `src/site-verification.js` — `GOOGLE_SITE_VERIFICATION` (e.g.
+  `google1234abcd.html`) serves Search Console's ownership file at exactly that
+  root path, outside the login; unset serves nothing.
 - `src/client-logo.js` — `CLIENT_LOGO` names a file in
   `public/assets/clients/`, served behind the fixed `/assets/client-logo` and
   `/assets/client-logo-dark` paths; unset or missing falls back to Carrara's
