@@ -297,15 +297,6 @@
     updateEntityButtonLabel();
   }
 
-  // Rows beyond this stay in the DOM (all of visibleRows renders — see
-  // renderActionQueue()) but out of view until the user scrolls
-  // .action-queue-scroll; CSS (max-height there) is what actually enforces
-  // this, so this constant only drives the "Showing 10 of 26" label's
-  // numerator, not the cap itself. Kept in sync manually with that CSS
-  // value — there's no clean way to read a max-height back out in "rows"
-  // rather than pixels.
-  const ACTION_QUEUE_VISIBLE_ROWS = 10;
-
   // The four sections that used to be their own stacked columns are now
   // merged into one "Action queue" table (see renderActionQueue() below) —
   // this table drives that merge instead of one renderColumn() per key.
@@ -696,19 +687,6 @@
 
     const visibleRows = activeSignal === "all" ? allRows : allRows.filter((r) => r.queue.key === activeSignal);
 
-    // "Showing 10 of 26" reflects visibleRows — whatever the active signal
-    // chip has already narrowed to, not allRows' unfiltered total — since
-    // that's the count the cap below actually applies against. All
-    // visibleRows still render into the DOM (the cap is a CSS max-height +
-    // overflow-y:auto on .action-queue-scroll, not a JS slice), so nothing
-    // here needs to change when the container scrolls; this is purely the
-    // label.
-    const shownCountEl = document.getElementById("actionQueue-shown-count");
-    if (shownCountEl) {
-      shownCountEl.textContent =
-        visibleRows.length > ACTION_QUEUE_VISIBLE_ROWS ? `Showing ${ACTION_QUEUE_VISIBLE_ROWS} of ${visibleRows.length}` : "";
-    }
-
     const tbody = document.getElementById("action-queue-body");
     if (!tbody) return;
     // All four TRIAGE_QUEUES keys are one fetch group server-side (see
@@ -716,24 +694,9 @@
     // of them stands in for "the whole merged table."
     const hasError = sectionHasError(data, "feedbackOverdue");
 
-    // Explicitly saved/restored around the innerHTML replacement (rather
-    // than relying on the browser to leave a persistent ancestor's
-    // scrollTop alone on its own, which it normally does, but isn't
-    // guaranteed) — dismissing a row re-renders the whole tbody on every
-    // poll and after every dismiss; without this, triaging down a long,
-    // scrolled queue would keep tape-measuring back to row 1. This also
-    // covers opening/closing a row's inline note editor (see noteBlockHtml()
-    // above) — that goes through this same render() -> renderActionQueue()
-    // path and changes that row's height, but by pixel-value scrollTop
-    // preservation rather than row-index, so it doesn't matter that the
-    // cause this time is a row growing/shrinking in place rather than one
-    // disappearing.
-    const scrollContainer = document.querySelector(".action-queue-scroll");
-    const previousScrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     tbody.innerHTML = visibleRows.length
       ? visibleRows.map((row) => actionQueueRowHtml(row, data.thresholds)).join("")
       : `<tr><td colspan="5">${emptyStateHtml(hasError, "Nothing flagged")}</td></tr>`;
-    if (scrollContainer) scrollContainer.scrollTop = previousScrollTop;
   }
 
   // The Action queue's Hidden & snoozed tab: every hide and snooze still in
@@ -818,12 +781,8 @@
         `"Hidden by" is the name typed into the browser that hid it, not a record of who did. ` +
         `<span class="hidden-by-self">This browser: ${name ? escapeHtml(name) : "no name"} · <button type="button" class="hider-name-change">Change</button></span>`;
     }
-    const shownCountEl = document.getElementById("actionQueue-shown-count");
-    if (shownCountEl) shownCountEl.textContent = "";
     const tbody = document.getElementById("action-queue-body");
     if (!tbody) return;
-    const scrollContainer = document.querySelector(".action-queue-scroll");
-    const previousScrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     const showing = entries.filter((e) => e.onDashboard);
     const elsewhere = entries.filter((e) => !e.onDashboard);
     tbody.innerHTML = entries.length
@@ -833,7 +792,6 @@
             elsewhere.map(hiddenRowHtml).join("")
           : "")
       : `<tr><td colspan="6"><div class="empty-state">Nothing is hidden or snoozed.</div></td></tr>`;
-    if (scrollContainer) scrollContainer.scrollTop = previousScrollTop;
   }
 
   // The name sent as "by" with each hide or snooze, asked for once and kept
@@ -1239,7 +1197,66 @@
     applyDisabledSections(appConfig.disabledSections);
   }
 
+  // Every refresh (each minute, the refresh button, a hide, a note) replaces
+  // every section's rows, and rows above the one you're reading can come and
+  // go, so the browser's scroll position alone would leave you on a
+  // different row. render() notes the rows at the top of the window before
+  // and scrolls so the first of them still there sits where it was. If none
+  // of them is (all hidden or gone), it falls back to the section they were
+  // in.
+  const READING_ITEMS = ".action-queue-row, .card, .onsite-timeline-item, .scheduling-draft";
+
+  function readingItemId(el) {
+    const section = el.closest("section");
+    const keyed = el.querySelector("[data-key]");
+    const key = keyed ? keyed.dataset.key : (el.querySelector("a, .card-name") || el).textContent.trim().slice(0, 80);
+    // The same candidate can be in one section twice (two Action queue
+    // signals), so count which one this is.
+    const same = section ? [...section.querySelectorAll(READING_ITEMS)].filter((x) => {
+      const k = x.querySelector("[data-key]");
+      return (k ? k.dataset.key : (x.querySelector("a, .card-name") || x).textContent.trim().slice(0, 80)) === key;
+    }) : [el];
+    return `${section ? section.id : ""}|${key}|${same.indexOf(el)}`;
+  }
+
+  function readingPlace() {
+    if (window.scrollY < 1) return null;
+    const onScreen = [...document.querySelectorAll(READING_ITEMS)]
+      .filter((el) => el.offsetParent !== null)
+      .map((el) => ({ el, top: el.getBoundingClientRect().top, bottom: el.getBoundingClientRect().bottom }))
+      .filter((x) => x.bottom > 0 && x.top < window.innerHeight)
+      .sort((a, b) => a.top - b.top)
+      .slice(0, 8);
+    if (!onScreen.length) return null;
+    const section = onScreen[0].el.closest("section");
+    return {
+      items: onScreen.map((x) => ({ id: readingItemId(x.el), top: x.top })),
+      section: section && section.id ? { id: section.id, top: section.getBoundingClientRect().top } : null,
+    };
+  }
+
+  function keepReadingPlace(place) {
+    if (!place) return;
+    const now = new Map();
+    for (const el of document.querySelectorAll(READING_ITEMS)) if (el.offsetParent !== null) now.set(readingItemId(el), el);
+    for (const [i, item] of place.items.entries()) {
+      const el = now.get(item.id);
+      // When the rows above it have gone (just hidden, say), the next one
+      // moves up into the first one's place, so you can keep working down
+      // the list without moving the mouse.
+      if (el) return window.scrollBy(0, el.getBoundingClientRect().top - (i ? place.items[0].top : item.top));
+    }
+    const section = place.section && document.getElementById(place.section.id);
+    if (section) window.scrollBy(0, section.getBoundingClientRect().top - place.section.top);
+  }
+
   function render(data) {
+    const place = readingPlace();
+    renderSections(data);
+    keepReadingPlace(place);
+  }
+
+  function renderSections(data) {
     lastData = data;
     lastDepartments = data.departments || [];
     applyAppConfig(data.appConfig);
@@ -1770,7 +1787,7 @@
   });
 
   // A menu positioned from a stale rect (post-scroll) would float away from
-  // its button, so any scroll — page or a .cards container — closes it.
+  // its button, so any scroll closes it.
   // Exception: the entity menu's own internal scroll (it's overflow-y: auto
   // so long option lists can scroll) would otherwise trigger this same
   // capture-phase listener and immediately close itself.

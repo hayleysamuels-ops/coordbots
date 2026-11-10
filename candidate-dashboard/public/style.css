@@ -538,8 +538,9 @@ button#refresh-btn.spinning {
 
 .side-margin {
   flex: 0 0 300px;
-  position: sticky;
-  top: 24px;
+  /* Not sticky: the onsite timeline shows every onsite, so this column can
+     be taller than the window, and a sticky column that tall can't be read
+     past its first screenful until the page ends. */
 }
 
 @media (max-width: 900px) {
@@ -616,7 +617,6 @@ button#refresh-btn.spinning {
   flex-direction: row;
   flex-wrap: wrap;
   align-content: flex-start;
-  max-height: 210px;
 }
 
 .wide-section .card {
@@ -702,61 +702,14 @@ button#refresh-btn.spinning {
   color: var(--surface);
 }
 
-.aq-shown-count {
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  margin: 0 0 8px;
-}
-
-/* Caps the table at roughly 10 rows without extending the page — scroll
-   happens inside this box instead (see the scrollTop save/restore around
-   renderActionQueue()'s tbody.innerHTML replacement in app.js, so
-   dismissing a row mid-scroll doesn't jump back to the top). max-height is
-   an approximation tuned for typical row content (Stage & role and Signal
-   cells both commonly wrap to two lines) — not a pixel-exact guarantee of
-   exactly 10, same as the "Showing 10 of N" label's numerator is a fixed
-   constant (ACTION_QUEUE_VISIBLE_ROWS in app.js), not read back from this
-   value. The header scrolls away with the rows rather than staying
-   pinned — position: sticky on <th> was tried and reverted: confirmed live
-   (screenshot) that rows scrolling underneath painted THROUGH the sticky
-   header instead of being hidden behind it, a known cross-browser quirk
-   with sticky table cells that border-collapse: separate (still applied
-   below regardless) didn't fix either. Not worth chasing further for a
-   nicety that was never actually requested — a header that scrolls with
-   its rows is a correct, bug-free tradeoff. */
-.action-queue-scroll {
-  max-height: 560px;
-  overflow-y: auto;
-}
-
-/* Scroll windows inside a section (the Action queue, card lists, the onsite
-   timeline) sit in a well of the page tint, so a list that runs past its
-   max-height reads as its own scrolling surface rather than the end of the
-   section. Rows and cards stay on --surface: muted text is only measured
-   for contrast on --surface (DESIGN.md, Keeping today's contrast and
-   dark-mode fixes), so the tint shows as a frame and in the gaps, never
-   behind text. A list with nothing in it, or only its empty-state line,
-   draws no well. */
-.action-queue-scroll,
-.cards,
-.onsite-timeline {
-  background: var(--page);
-  border-radius: var(--radius-control);
-  padding: 6px;
-}
-
-.cards:empty,
-.onsite-timeline:empty,
-.cards:has(> .empty-state:only-child),
-.onsite-timeline:has(> .empty-state:only-child) {
-  padding: 0;
-  background: none;
-}
-
-.action-queue-table,
-.onsite-timeline-item {
-  background: var(--surface);
+/* Sections show every row at once: nothing on the dashboard scrolls inside
+   a section (the page scrolls instead). Lists sit straight on the section's
+   --surface, framed by their own hairlines; no tinted well. The Action
+   queue's wrapper has no height cap; only on a phone-width screen, where the
+   table is wider than the section, does it scroll sideways, so the page
+   itself doesn't. */
+.action-queue-wrap {
+  overflow-x: auto;
 }
 
 .action-queue-table {
@@ -1004,8 +957,6 @@ button#refresh-btn.spinning {
 .onsite-timeline {
   display: flex;
   flex-direction: column;
-  max-height: 480px;
-  overflow-y: auto;
 }
 
 .onsite-timeline-item {
@@ -1087,8 +1038,6 @@ button#refresh-btn.spinning {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  max-height: 360px;
-  overflow-y: auto;
 }
 
 /* An item inside a section card: hairline border, no shadow, and no state
