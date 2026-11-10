@@ -37,22 +37,16 @@ test("config: domains are lowercased and trimmed", () => {
 });
 
 test("public: /privacy, /terms and /signin; the Slack routes still answer before sign-in", async () => {
-  for (const p of ["/privacy", "/terms"]) assert.equal((await fetch(base + p)).status, 200, p);
-  // /signin is public too, but this test server isn't on the redirect URI's
-  // address, so it sends the browser there first.
-  const signin = await fetch(base + "/signin", { redirect: "manual" });
-  assert.equal(signin.status, 302);
-  assert.equal(signin.headers.get("location"), "http://127.0.0.1/signin");
+  for (const p of ["/privacy", "/terms", "/signin"]) assert.equal((await fetch(base + p)).status, 200, p);
   for (const p of ["/api/slack/interactions", "/api/slack/events"]) {
     assert.equal((await fetch(base + p, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).status, 404, p);
   }
 });
 
 test("not public: pages go to sign-in, everything else is 401, the shared password header included", async () => {
-  // Requests come from 127.0.0.1:<port>, not the redirect URI's host, so a
-  // page load is first sent to that address; the API answers 401 either way.
-  const page = await fetch(base + "/", { redirect: "manual", headers: { Accept: "text/html" } });
+  const page = await fetch(base + "/?tab=offers", { redirect: "manual", headers: { Accept: "text/html" } });
   assert.equal(page.status, 302);
+  assert.equal(page.headers.get("location"), "/signin?next=%2F%3Ftab%3Doffers");
   const auth = "Basic " + Buffer.from("shared:fictional-shared-password").toString("base64");
   for (const p of ["/api/issues", "/api/viewer", "/app.js", "/style.css", "/assets/client-logo"]) {
     const res = await fetch(base + p, { headers: { Authorization: auth } });
@@ -94,7 +88,6 @@ test("signed in with Google: a hide records the account's name as verified, what
   const stub = app.listen(0, "127.0.0.1");
   await new Promise((r) => stub.on("listening", r));
   const stubBase = `http://127.0.0.1:${stub.address().port}`;
-  settings.host = `127.0.0.1:${stub.address().port}`;
   try {
     const started = await fetch(stubBase + "/auth/google", { redirect: "manual" });
     const url = new URL(started.headers.get("location"));

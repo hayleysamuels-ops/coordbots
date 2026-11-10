@@ -55,9 +55,7 @@ async function start(t, { config = {}, identity = {}, tokens } = {}) {
   t.after(() => server.close());
   const port = server.address().port;
   const host = `127.0.0.1:${port}`;
-  // The redirect URI's host has to match where the test server listens.
-  settings.host = host;
-  settings.origin = `http://${host}`;
+  // The redirect URI has to be where the test server listens.
   settings.redirectUri = `http://${host}/auth/google/callback`;
   const jar = {};
   async function request(path, { method = "GET", headers = {}, body, html = false } = {}) {
@@ -98,7 +96,6 @@ test("settings: off where ALLOWED_EMAIL_DOMAINS is unset; incomplete settings le
   assert.equal(signInSettings({ ...BASE_CONFIG, googleSignInRedirectUri: "http://dash.example.com/auth/google/callback" }).enabled, false, "http only on localhost");
   const ok = signInSettings({ ...BASE_CONFIG, googleSignInRedirectUri: "https://dash.example.com/auth/google/callback", sessionHours: 0, passwordSignInRaw: "of" });
   assert.equal(ok.enabled, true);
-  assert.equal(ok.host, "dash.example.com");
   assert.equal(ok.secure, true);
   assert.equal(ok.sessionHours, 24);
   assert.equal(ok.warnings.length, 2);
@@ -288,20 +285,6 @@ test("sign out clears the session", async (t) => {
   assert.equal(res.headers.get("location"), "/signin?signedout=1");
   assert.equal(s.jar.dashboard_session, undefined);
   assert.equal((await s.request("/api/viewer")).status, 401);
-});
-
-test("the old address sends page loads to the sign-in address", async (t) => {
-  const s = await start(t);
-  // fetch won't send another Host header, so this goes through http.
-  const get = (path, headers) => new Promise((resolve, reject) => {
-    require("node:http").get({ host: "127.0.0.1", port: s.settings.host.split(":")[1], path,
-      headers: { Host: "old-dashboard.up.railway.app", ...headers } }, (res) => { res.resume(); resolve(res); }).on("error", reject);
-  });
-  const res = await get("/signin?next=%2F", {});
-  assert.equal(res.statusCode, 302);
-  assert.equal(res.headers.location, `${s.settings.origin}/signin?next=%2F`);
-  const page = await get("/", { Accept: "text/html" });
-  assert.equal(page.headers.location, `${s.settings.origin}/`);
 });
 
 test("an error in the query string is never echoed onto the page", async (t) => {

@@ -78,8 +78,6 @@ function signInSettings(config) {
     if (!u || !(u.protocol === "https:" || (local && u.protocol === "http:")) || u.username || u.password || u.search || u.hash || u.pathname !== CALLBACK_PATH) {
       p.push(`GOOGLE_SIGNIN_REDIRECT_URI must be https://<this dashboard's address>${CALLBACK_PATH}`);
     } else {
-      settings.origin = u.origin;
-      settings.host = u.host;
       settings.secure = u.protocol === "https:";
     }
   }
@@ -162,20 +160,9 @@ function createSignIn(settings, { oauthFactory = (o) => new OAuth2Client(o), now
   };
   const ip = (req) => String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
 
-  // Send a browser on any other address of this dashboard (the old
-  // *.up.railway.app one) to the address Google returns to, since the
-  // sign-in cookies are set there. Only for page loads: an API call can't
-  // follow a redirect to another origin anyway.
-  function onCanonicalHost(req, res) {
-    if (req.headers.host === settings.host || !["GET", "HEAD"].includes(req.method)) return true;
-    res.redirect(302, settings.origin + req.originalUrl);
-    return false;
-  }
-
   const router = express.Router();
 
   router.get("/signin", (req, res) => {
-    if (!onCanonicalHost(req, res)) return;
     const next = safeNext(req.query.next);
     if (session(req)) return res.redirect(302, next);
     res.set("Cache-Control", "no-store");
@@ -186,7 +173,6 @@ function createSignIn(settings, { oauthFactory = (o) => new OAuth2Client(o), now
   });
 
   router.get("/auth/google", async (req, res) => {
-    if (!onCanonicalHost(req, res)) return;
     try {
       const client = oauthFactory({ clientId: settings.clientId, clientSecret: settings.clientSecret, redirectUri: settings.redirectUri });
       const pkce = await client.generateCodeVerifierAsync();
@@ -277,7 +263,6 @@ function createSignIn(settings, { oauthFactory = (o) => new OAuth2Client(o), now
     const approver = login && approverFor(login);
     if (approver) { req.schedulingUser = { id: approver.username, canApprove: true }; return next(); }
     const page = ["GET", "HEAD"].includes(req.method) && (req.headers.accept || "").includes("text/html");
-    if (page && !onCanonicalHost(req, res)) return;
     if (page) return res.redirect(302, signInUrl(safeNext(req.originalUrl)));
     // app.js sends the page to sign-in when it sees X-Sign-In. No
     // WWW-Authenticate, so the browser doesn't open its password prompt.

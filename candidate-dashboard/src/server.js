@@ -29,7 +29,7 @@ function createServer() {
   if (signInConfig.enabled) {
     signIn = createSignIn(signInConfig);
     app.use(signIn.router);
-    console.log(`[auth] Google sign-in on for ${signInConfig.domains.join(", ")} at ${signInConfig.origin}; sessions last ${signInConfig.sessionHours}h; password sign-in ${signInConfig.passwordSignIn ? "on (each use logged)" : "off (PASSWORD_SIGNIN)"}.`);
+    console.log(`[auth] Google sign-in on for ${signInConfig.domains.join(", ")}, returning to ${signInConfig.redirectUri}; sessions last ${signInConfig.sessionHours}h; password sign-in ${signInConfig.passwordSignIn ? "on (each use logged)" : "off (PASSWORD_SIGNIN)"}.`);
   } else if (signInConfig.problems.length) {
     console.warn(`[auth] Warning: ALLOWED_EMAIL_DOMAINS is set but Google sign-in is OFF, so the dashboard still uses the Basic Auth password: ${signInConfig.problems.join("; ")}.`);
   }
