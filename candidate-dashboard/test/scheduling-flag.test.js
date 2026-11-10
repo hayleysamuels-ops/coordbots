@@ -159,7 +159,26 @@ test("both states: the dashboard's privacy policy and terms are public at exactl
   }
 });
 
-test("nothing else is public: the exemption doesn't widen past /privacy, /terms, /privacy.html and the Slack POST", () => {
+test("both states: /robots.txt is public and keeps crawlers out of all but /privacy and /terms", () => {
+  for (const state of [off, on]) {
+    for (const route of ["GET /robots.txt", "HEAD /robots.txt"]) {
+      assert.equal(state["NOAUTH " + route].status, 200, route);
+      assert.match(state["NOAUTH " + route].type, /^text\/plain/, route);
+    }
+    assert.equal(state["NOAUTH GET /robots.txt"].body, "User-agent: *\nAllow: /privacy\nAllow: /terms\nDisallow: /\n");
+    for (const route of ["POST /robots.txt", "GET /robots.txt/"]) assert.equal(state["NOAUTH " + route].status, 401, route);
+  }
+});
+
+test("both states: every response says noindex, the public pages and the 401s and 404s included", () => {
+  for (const state of [off, on]) {
+    for (const [route, r] of Object.entries(state)) {
+      if (route.startsWith("NOAUTH ") && "robots" in r) assert.equal(r.robots, "noindex, nofollow", route);
+    }
+  }
+});
+
+test("nothing else is public: the exemption doesn't widen past /robots.txt, /privacy, /terms, /privacy.html and the Slack POST", () => {
   const stillLocked = [
     "POST /privacy.html", "GET /privacy.html/", "GET /PRIVACY.HTML", "GET /privacy%2Ehtml",
     "GET /privacy.htm", "GET /", "GET /index.html", "GET /style.css", "GET /app.js",

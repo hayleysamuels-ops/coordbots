@@ -9,12 +9,17 @@ const { resolveClientLogo } = require("./client-logo");
 const notes = require("./notes");
 const { basicAuth } = require("./auth");
 const { legalPages } = require("./legal-pages");
+const { noIndex } = require("./no-index");
 const { siteVerificationSettings, siteVerification } = require("./site-verification");
 const { signInSettings, createSignIn } = require("./signin");
 
 function createServer() {
   const app = express();
   const config = require("./config");
+
+  // First, on every deployment and every response: noindex, and a public
+  // /robots.txt (no-index.js).
+  app.use(noIndex);
 
   // Outside Basic Auth, on every deployment: the dashboard's privacy policy and
   // terms at exactly /privacy and /terms (legal-pages.js).

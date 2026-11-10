@@ -38,7 +38,11 @@ test("config: domains are lowercased and trimmed", () => {
 });
 
 test("public: /privacy, /terms, /signin and the Search Console file; the Slack routes still answer before sign-in", async () => {
-  for (const p of ["/privacy", "/terms", "/signin", "/google0123456789abcdef.html"]) assert.equal((await fetch(base + p)).status, 200, p);
+  for (const p of ["/privacy", "/terms", "/signin", "/google0123456789abcdef.html", "/robots.txt"]) {
+    const res = await fetch(base + p);
+    assert.equal(res.status, 200, p);
+    assert.equal(res.headers.get("x-robots-tag"), "noindex, nofollow", p);
+  }
   for (const p of ["/api/slack/interactions", "/api/slack/events"]) {
     assert.equal((await fetch(base + p, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).status, 404, p);
   }
@@ -54,6 +58,7 @@ test("not public: pages go to sign-in, everything else is 401, the shared passwo
     assert.equal(res.status, 401, p);
     assert.equal(res.headers.get("x-sign-in"), "/signin", p);
     assert.equal(res.headers.get("www-authenticate"), null, p);
+    assert.equal(res.headers.get("x-robots-tag"), "noindex, nofollow", p);
   }
 });
 

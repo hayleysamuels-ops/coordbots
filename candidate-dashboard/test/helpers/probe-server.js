@@ -68,6 +68,10 @@ const NOAUTH_PAGE_PROBES = [
   ["GET", "/api/google-calendar/status"],
   ["GET", "/api/slack/interactions"],
   ["GET", "/api/slack/events"],
+  ["GET", "/robots.txt"],
+  ["HEAD", "/robots.txt"],
+  ["POST", "/robots.txt"],
+  ["GET", "/robots.txt/"],
 ];
 
 const server = createServer().listen(0, "127.0.0.1", async () => {
@@ -97,7 +101,7 @@ const server = createServer().listen(0, "127.0.0.1", async () => {
   // must still demand a login.
   for (const [method, path] of NOAUTH_PAGE_PROBES) {
     const response = await fetch(base + path, { method });
-    out["NOAUTH " + method + " " + path] = { status: response.status, type: response.headers.get("content-type"), body: await response.text() };
+    out["NOAUTH " + method + " " + path] = { status: response.status, type: response.headers.get("content-type"), robots: response.headers.get("x-robots-tag"), body: await response.text() };
   }
   // config.js logs to stdout at load, so the result goes on its own marked line.
   // Exit only after the write flushes; a pipe is asynchronous and exiting

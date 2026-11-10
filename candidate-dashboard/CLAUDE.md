@@ -127,6 +127,9 @@ is normally still in Application Review and any status).
   a non-page request carries `X-Sign-In`, which app.js's fetch wrapper follows.
   `req.viewer` feeds `/api/viewer` and a verified `by` (`byVerified`) on
   dismissals. Google's tokens are never stored (the privacy page says so).
+- `src/no-index.js` — mounted first: `X-Robots-Tag: noindex, nofollow` on every
+  response, and a public `/robots.txt` disallowing all but `/privacy` and `/terms`
+  (left crawlable so the noindex header is seen).
 - `src/site-verification.js` — `GOOGLE_SITE_VERIFICATION` (e.g.
   `google1234abcd.html`) serves Search Console's ownership file at exactly that
   root path, outside the login; unset serves nothing.
