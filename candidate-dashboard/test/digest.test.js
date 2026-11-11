@@ -233,3 +233,56 @@ test("a refusal that already says what to change in Ashby gets no generic fix li
   assert.match(d.thread, /: Welcome must come first\. Move it to the top of the schedule's template in Ashby\. Auto-post checks again within the hour/);
   assert.doesNotMatch(d.thread, /Fix it in Ashby/);
 });
+
+// Approved, composed, nobody sent it, the sweep deleted it: a lapse. Auto-post
+// never re-posts it by itself, so the digest carries it under Needs a person
+// until a fresh option is posted or the schedule leaves the Ready list.
+const lapsedRow = (id, name, extra = {}) => post(id, name, "2026-11-03T18:00:00Z", { state: "discussion_approved",
+  slackApproval: { name: "Anna Jones", email: "anna@example.com", at: "2026-10-30T22:30:00Z" },
+  ashbyCheck: { state: "deleted", composedAt: "2026-10-30T22:35:00Z", deleteBy: "2026-10-31T22:35:00Z", deletedAt: "2026-10-31T22:36:00Z" }, ...extra });
+
+test("a lapsed approval is under Needs a person: who, which role, when it was approved, and that nobody sent it", async () => {
+  const d = await buildDigest({ ...quiet, rows: [lapsedRow("ella", "Ella Smith")], snapshot: snapshot([ready("s-ella", "Ella Smith", FDE)]) });
+  const { text, thread } = renderDigest(d);
+  assert.match(text, /^Scheduling digest, Mon, Nov 2: 1 waiting on someone$/m);
+  assert.match(text, /^• Needs a person: 1: Ella Smith \(approved Fri, Oct 30, never sent\)$/m);
+  // Not also listed as eligible and unposted.
+  assert.match(text, /^• Eligible, not posted: none/m);
+  assert.match(thread, /^Needs a person$/m);
+  assert.match(thread, /^• Ella Smith \(Forward Deployed Engineer\): approved by Anna Jones Fri, Oct 30, 3:30 PM PDT, but nobody sent the draft in Ashby, so it was deleted Sat, Oct 31 \(the approved first session was Tue, Nov 3, 10:00 AM PST\)\. Nothing is booked and auto-post won't post this schedule again by itself: post a fresh option from booking review, or book it by hand in Ashby\.$/m);
+});
+
+test("a lapse is carried forward, day after day, while the schedule waits and nothing new is posted", async () => {
+  const later = { ...quiet, now: MON + 3 * 86400000, rows: [lapsedRow("ella", "Ella Smith")], snapshot: { ...snapshot([ready("s-ella", "Ella Smith", FDE)]), sectionStatus: { readyToSchedule: { lastUpdated: new Date(MON + 3 * 86400000 - 60000).toISOString(), lastError: null } } } };
+  assert.match(renderDigest(await buildDigest(later)).text, /^• Needs a person: 1: Ella Smith \(approved Fri, Oct 30, never sent\)$/m);
+});
+
+test("a lapse drops off once a fresh option is posted for the schedule, or the schedule leaves the Ready list", async () => {
+  const fresh = post("ella2", "Ella Smith", "2026-11-05T18:00:00Z", { slack: { channel: "C1", ts: ts("2026-11-02T15:00:00Z") }, plan: { candidateName: "Ella Smith", jobTitle: "Forward Deployed Engineer",
+    sessions: [{ start: "2026-11-05T18:00:00Z" }], bookingPlan: { interviewScheduleId: "s-ella" } } });
+  let d = await buildDigest({ ...quiet, rows: [lapsedRow("ella", "Ella Smith"), fresh], snapshot: snapshot([ready("s-ella", "Ella Smith", FDE)]) });
+  assert.equal(d.person.length, 0);
+  assert.equal(d.open.length, 1, "the fresh post is what's waiting now");
+  // Booked by hand in Ashby (or the candidate moved on): no longer on the Ready list.
+  d = await buildDigest({ ...quiet, rows: [lapsedRow("ella", "Ella Smith")], snapshot: snapshot([]) });
+  assert.equal(d.person.length, 0);
+});
+
+test("a lapse stays listed when the Ready list can't be read, and a hidden row still counts as waiting", async () => {
+  let d = await buildDigest({ ...quiet, rows: [lapsedRow("ella", "Ella Smith")], snapshot: { sectionStatus: { readyToSchedule: { lastUpdated: null, lastError: "HTTP 502" } } } });
+  assert.deepEqual(d.person.map(p => p.name), ["Ella Smith"]);
+  d = await buildDigest({ ...quiet, rows: [lapsedRow("ella", "Ella Smith")], snapshot: snapshot([], [ready("s-ella", "Ella Smith", FDE)]) });
+  assert.deepEqual(d.person.map(p => p.name), ["Ella Smith"]);
+});
+
+test("only the latest lapse per schedule; a draft that left Ashby unsent is a lapse too; a release, a send or a live draft isn't", async () => {
+  const older = lapsedRow("ella0", "Ella Smith", { slack: { channel: "C1", ts: ts("2026-10-28T18:00:00Z") } });
+  const gone = lapsedRow("ella", "Ella Smith", { ashbyCheck: { state: "gone", deleteBy: "2026-10-31T22:35:00Z", goneSeenAt: "2026-10-31T09:00:00Z" } });
+  let d = await buildDigest({ ...quiet, rows: [older, gone], snapshot: snapshot([ready("s-ella", "Ella Smith", FDE)]) });
+  assert.equal(d.person.length, 1);
+  assert.match(renderDigest(d).thread, /so it left Ashby unsent Sat, Oct 31/);
+  for (const state of ["released", "sent", "composed", "delete_failed"]) {
+    d = await buildDigest({ ...quiet, rows: [lapsedRow("ella", "Ella Smith", { ashbyCheck: { state, draftId: "d1" } })], snapshot: snapshot([ready("s-ella", "Ella Smith", FDE)]) });
+    assert.equal(d.person.filter(p => p.lapsed).length, 0, state);
+  }
+});

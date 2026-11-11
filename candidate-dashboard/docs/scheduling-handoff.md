@@ -1141,6 +1141,14 @@ silence is never the signal. Its sections, in order:
    before that kind existed whose error is one of them (Kshitiz Parashar's),
    while the schedule is on the Ready list, with how long they've waited (an
    old give-up says "given up on <day>": it records nothing earlier).
+   **Lapsed approvals** too (November 11, 2026): approved in Slack, draft
+   composed, nobody sent it, and the sweep deleted it (or it left Ashby
+   unsent). "<name> (approved <day>, never sent)", with the role, who
+   approved it and when in the thread. Auto-post doesn't re-post these by
+   design (a loop on a schedule nobody is actioning only fills the channel),
+   so the digest carries the lapse forward every weekday until a fresh option
+   is posted for that schedule or it leaves the Ready list (booked by hand,
+   or the candidate moved on). Still listed when the Ready list can't be read.
 2. **Waiting for approval:** open posts, soonest first session first, and
    approved posts whose draft is composed in Ashby but not sent. ⚠️ when the
    first session is within two working days (Monday to Friday; no holidays).

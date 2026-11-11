@@ -13,7 +13,13 @@
 //   1. Needs a person: refusals only a person can clear in Ashby, from
 //      auto-post.json (needsPerson, kept with `since`; and give-ups from
 //      before that existed whose error is one of auto-post's needs-a-person
-//      refusals), while the schedule is still on the Ready list.
+//      refusals), while the schedule is still on the Ready list. And lapsed
+//      approvals: approved in Slack, the draft composed, nobody sent it, and
+//      the sweep deleted it (or it left Ashby unsent). Auto-post never posts
+//      that schedule again on its own, by choice, so without this nothing
+//      would say so. Listed until someone posts a fresh option for the
+//      schedule, or it leaves the Ready list (booked by hand in Ashby, or the
+//      candidate moved on).
 //   2. Waiting for approval: open posts, soonest first session first; and
 //      approved posts whose draft is composed in Ashby but not sent. Either is
 //      flagged when its first session is within FLAG_DAYS working days
@@ -133,6 +139,25 @@ async function buildDigest({ now, zone = ZONE, since, sinceDigest, clientId, row
     person.push({ scheduleId, name: tidy(r.candidateName || seen.candidateName) || "a candidate", job: tidy(r.jobTitle) || null,
       since: Date.parse(seen.needsPerson?.since || seen.needsPerson?.at || seen.at), why: wholeSentences(seen.needsPerson?.why || seen.lastError), legacy });
   }
+  // Lapsed approvals: the latest approval per schedule whose draft was
+  // deleted unsent, with nothing posted for that schedule since. While the
+  // Ready list can't be read, they're listed anyway: a lapse mustn't vanish
+  // because a refresh failed.
+  const lapsed = new Map();
+  for (const r of rows) {
+    const scheduleId = r.plan?.bookingPlan?.interviewScheduleId;
+    if (!scheduleId || r.state !== "discussion_approved" || !["deleted", "gone"].includes(r.ashbyCheck?.state)) continue;
+    if (readyKnown && !readyBySchedule.has(scheduleId)) continue;
+    const postedAt = Number(r.slack?.ts) * 1000 || 0;
+    if (rows.some(o => o.id !== r.id && o.plan?.bookingPlan?.interviewScheduleId === scheduleId && Number(o.slack?.ts) * 1000 > postedAt)) continue;
+    const prior = lapsed.get(scheduleId);
+    if (prior && prior.postedAt >= postedAt) continue;
+    const ready = readyBySchedule.get(scheduleId);
+    lapsed.set(scheduleId, { scheduleId, lapsed: true, postedAt, name: tidy(r.plan.candidateName || ready?.candidateName) || "a candidate", job: tidy(r.plan.jobTitle || ready?.jobTitle) || null,
+      approvedAt: Date.parse(r.slackApproval?.at) || null, approvedBy: tidy(r.slackApproval?.name || r.slackApproval?.email) || null,
+      since: Date.parse(r.ashbyCheck.deletedAt || r.ashbyCheck.goneSeenAt) || Date.parse(r.ashbyCheck.deleteBy) || now, how: r.ashbyCheck.state, start: firstStart(r) });
+  }
+  person.push(...lapsed.values());
   person.sort((a, b) => a.since - b.since);
   const personIds = new Set(person.map(p => p.scheduleId));
 
@@ -254,7 +279,8 @@ function renderDigest(d) {
     : outstanding ? `${outstanding} waiting on someone${expiredText ? `, and ${expiredText}` : ""}` : expiredText || "all clear"}`;
   const gaveUpOn = p => `given up on ${new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "short" }).format(p.since)}`;
   const lines = [head];
-  lines.push(`• Needs a person: ${d.person.length ? `${d.person.length}: ${names(d.person, p => `${p.name} (${p.legacy ? gaveUpOn(p) : ago(now - p.since)})`)}` : "none"}`);
+  const approvedOn = p => p.approvedAt ? `approved ${dayOf(p.approvedAt, zone)}` : "approved";
+  lines.push(`• Needs a person: ${d.person.length ? `${d.person.length}: ${names(d.person, p => `${p.name} (${p.lapsed ? `${approvedOn(p)}, never sent` : p.legacy ? gaveUpOn(p) : ago(now - p.since)})`)}` : "none"}`);
   lines.push(`• Waiting for approval: ${d.open.length ? `${d.open.length}: ${names(d.open, i => `${i.flag ? "⚠️ " : ""}${i.name} (${dayOf(i.start, zone)}, ${due(i)})`)}` : "none"}`);
   lines.push(`• Expired, never approved: ${d.expired.length ? `${d.expired.length}: ${names(d.expired, i => `${i.name} (${dayOf(i.start, zone)}${i.pressed ? `; ${i.pressed}` : ""})`)}` : "none"}`);
   lines.push(`• Approved, draft not sent in Ashby: ${d.composed.length ? `${d.composed.length}: ${names(d.composed, i => `${i.flag ? "⚠️ " : ""}${i.name} (${dayOf(i.start, zone)}, ${due(i)})`)}` : "none"}`);
@@ -274,6 +300,10 @@ function renderDigest(d) {
   if (d.person.length) {
     detail.push("Needs a person");
     for (const p of d.person) {
+      if (p.lapsed) {
+        detail.push(`• ${p.name}${p.job ? ` (${p.job})` : ""}: approved${p.approvedBy ? ` by ${p.approvedBy}` : ""}${p.approvedAt ? ` ${when(p.approvedAt, zone)}` : ""}, but nobody sent the draft in Ashby, so ${p.how === "gone" ? "it left Ashby unsent" : "it was deleted"} ${dayOf(p.since, zone)}${Number.isFinite(p.start) ? ` (the approved first session was ${when(p.start, zone)})` : ""}. Nothing is booked and auto-post won't post this schedule again by itself: post a fresh option from booking review, or book it by hand in Ashby.`);
+        continue;
+      }
       // The refusal's own words say what to change when they name Ashby.
       const fix = /\bin Ashby\b/.test(p.why) ? "" : "Fix it in Ashby (the schedule's template or the job's interview plan). ";
       detail.push(`• ${p.name}${p.job ? ` (${p.job})` : ""}, ${p.legacy ? `${gaveUpOn(p)}, ${dayOf(p.since, zone).replace(/^\w+, /, "")}` : `waiting ${ago(now - p.since)}`}: ${p.why}. ${fix}${p.legacy
