@@ -5,7 +5,7 @@
   "main": "src/index.js",
   "type": "commonjs",
   "scripts": {
-    "test": "node --test test/*.test.js",
+    "test": "node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./test/helpers/skip-summary.js --test-reporter-destination=stdout test/*.test.js",
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "check-ashby-compatibility": "node scripts/check-ashby-compatibility.js"

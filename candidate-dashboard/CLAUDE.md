@@ -38,6 +38,10 @@ npm run dev             # same, with --watch
 
 No build step or linter. Tests use Node’s built-in test runner (`npm test`);
 last implementation check passed 158 tests. Node 18+, CommonJS (`require`).
+`npm test` ends with a "Skipped tests" block from `test/helpers/skip-summary.js`
+naming every skip and its reason. The browser tests in `template-guard.test.js`
+skip rather than fail when a read runs out of time on a slow machine; a hung
+reader looks the same, so rerun that file alone before trusting such a run.
 
 **Multi-client env files.** `.env` is the full local dev config for whichever
 client this checkout currently targets. `.env.<client>` files (`.env.january`,
