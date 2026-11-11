@@ -1161,6 +1161,11 @@ silence is never the signal. Its sections, in order:
    release the schedule first. Same drop-off as a lapse. (The three on
    November 5 were all booked by hand, but only because someone saw the
    refusal in its Slack thread.)
+   **Checks that didn't finish** too (`uncertain`: the worker didn't answer,
+   gave no clear result, or the dashboard restarted mid-check): "<name>
+   (approved <day>, Ashby check didn't finish)"; a draft may be left and the
+   schedule is blocked until released. Same drop-off; one that did get booked
+   has left the Ready list, so it isn't listed.
 2. **Waiting for approval:** open posts, soonest first session first, and
    approved posts whose draft is composed in Ashby but not sent. ⚠️ when the
    first session is within two working days (Monday to Friday; no holidays).

@@ -322,3 +322,22 @@ test("an approval the Ashby check refused is under Needs a person, with the reas
   assert.equal((await buildDigest({ ...quiet, rows: [refused(), fresh], snapshot: sheet })).person.length, 0);
   assert.equal((await buildDigest({ ...quiet, rows: [refused()], snapshot: snapshot([]) })).person.length, 0);
 });
+
+test("an approval whose Ashby check didn't finish is under Needs a person: a draft may be left and the schedule is blocked until released", async () => {
+  const unfinished = (extra = {}) => lapsedRow("ella", "Ella Smith", { ashbyCheck: { state: "uncertain", at: "2026-10-30T22:36:00Z", reason: "The dashboard restarted while the check was running.", ...extra } });
+  const sheet = snapshot([ready("s-ella", "Ella Smith", FDE)]);
+  let d = await buildDigest({ ...quiet, rows: [unfinished()], snapshot: sheet });
+  const { text, thread } = renderDigest(d);
+  assert.match(text, /^• Needs a person: 1: Ella Smith \(approved Fri, Oct 30, Ashby check didn't finish\)$/m);
+  assert.match(text, /^• Eligible, not posted: none/m);
+  assert.match(thread, /^• Ella Smith \(Forward Deployed Engineer\): approved by Anna Jones Fri, Oct 30, 3:30 PM PDT, but the Ashby check didn't finish Fri, Oct 30 \(The dashboard restarted while the check was running\)\. Ashby still shows the schedule waiting \(the approved first session was Tue, Nov 3, 10:00 AM PST\), and a draft may have been left: check Drafts in the left sidebar under SCHEDULES\. The schedule takes no new post until someone presses Release this schedule on the post in the dashboard's Scheduling tab\. Then post a fresh option from booking review, or book it by hand in Ashby\.$/m);
+  // A known draft is linked.
+  d = await buildDigest({ ...quiet, rows: [unfinished({ draftId: "d-7" })], snapshot: sheet });
+  assert.match(renderDigest(d).thread, /a draft may have been left \(https:\/\/app\.ashbyhq\.com\/schedules\/drafts\/d-7\)\./);
+  // Released, booked (off the Ready list) or posted afresh: off the list.
+  assert.equal((await buildDigest({ ...quiet, rows: [lapsedRow("ella", "Ella Smith", { ashbyCheck: { state: "released", previous: { state: "uncertain" } } })], snapshot: sheet })).person.length, 0);
+  assert.equal((await buildDigest({ ...quiet, rows: [unfinished()], snapshot: snapshot([]) })).person.length, 0);
+  const fresh = post("ella2", "Ella Smith", "2026-11-05T18:00:00Z", { slack: { channel: "C1", ts: ts("2026-11-02T15:00:00Z") }, plan: { candidateName: "Ella Smith", jobTitle: "Forward Deployed Engineer",
+    sessions: [{ start: "2026-11-05T18:00:00Z" }], bookingPlan: { interviewScheduleId: "s-ella" } } });
+  assert.equal((await buildDigest({ ...quiet, rows: [unfinished(), fresh], snapshot: sheet })).person.length, 0);
+});
