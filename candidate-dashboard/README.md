@@ -308,6 +308,7 @@ Fill in `.env`:
 | `SESSION_SECRET` | with sign-in | At least 32 characters (`openssl rand -hex 32`). Signs the session cookie; changing it signs everyone out. |
 | `SESSION_HOURS` | no | How long a sign-in lasts. Default `24`. Nothing ends a session earlier, so this is how long someone removed from the company's Workspace keeps access. |
 | `PASSWORD_SIGNIN` | no | With sign-in on, the shared password is a form on the sign-in page (no longer a Basic Auth header), and every use is logged (`[auth] Password sign-in`). `off` removes it and ends every password session. Rotating `DASHBOARD_PASSWORD` also ends them. The scheduling pilot's coordinator logins work as before. |
+| `ADMIN_EMAILS` | no | With Google sign-in on, turns on the usage log (`src/usage-log.js`) and lists exactly who can read it at `/usage`, e.g. `someone@carrara.is`. Unset, nothing is recorded and `/usage` is a 404. Records sign-ins, page/tab/queue/section opens, Ashby links opened, hides, snoozes, restores, notes (not their text) and refreshes, kept 90 days on the volume. |
 | `ASHBY_API_KEY` | yes | Reads applications and interview schedules. |
 | `ASHBY_APP_BASE_URL` | no | Only change for a custom Ashby domain. |
 | `FEEDBACK_OVERDUE_HOURS` | no | Default `24`. |

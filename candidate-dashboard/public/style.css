@@ -189,6 +189,10 @@ body {
   display: inline;
 }
 
+#signed-in-as a {
+  color: inherit;
+}
+
 .signout-btn {
   padding: 0;
   border: 0;

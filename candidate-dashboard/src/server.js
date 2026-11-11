@@ -12,6 +12,8 @@ const { legalPages } = require("./legal-pages");
 const { noIndex } = require("./no-index");
 const { siteVerificationSettings, siteVerification } = require("./site-verification");
 const { signInSettings, createSignIn } = require("./signin");
+const { createUsageLog, BROWSER_EVENTS } = require("./usage-log");
+const { usagePage } = require("./usage-page");
 
 function createServer() {
   const app = express();
@@ -40,8 +42,19 @@ function createServer() {
   const signInConfig = signInSettings(config);
   for (const w of signInConfig.warnings) console.warn(`[config] Warning: ${w}.`);
   let signIn = null;
+  // The usage log (usage-log.js): only with Google sign-in on and
+  // ADMIN_EMAILS set, since only a Google account can be an admin. Otherwise
+  // nothing is recorded and /usage is a 404 like any other unknown path.
+  let usage = null;
+  if (signInConfig.enabled && config.adminEmails.length) {
+    usage = createUsageLog({ dataDir: config.dataDir, timeZone: config.displayTimeZone, admins: config.adminEmails });
+    usage.start();
+    console.log(`[usage] Usage log on: readable at /usage by ${config.adminEmails.length} admin${config.adminEmails.length === 1 ? "" : "s"} (ADMIN_EMAILS); kept 90 days.`);
+  } else if (config.adminEmails.length) {
+    console.warn("[usage] Warning: ADMIN_EMAILS is set but Google sign-in is off, so the usage log is off.");
+  }
   if (signInConfig.enabled) {
-    signIn = createSignIn(signInConfig);
+    signIn = createSignIn(signInConfig, { usage });
     app.use(signIn.router);
     console.log(`[auth] Google sign-in on for ${signInConfig.domains.join(", ")}, returning to ${signInConfig.redirectUri}; sessions last ${signInConfig.sessionHours}h; password sign-in ${signInConfig.passwordSignIn ? "on (each use logged)" : "off (PASSWORD_SIGNIN)"}.`);
   } else if (signInConfig.problems.length) {
@@ -82,6 +95,55 @@ function createServer() {
   app.use(signIn ? signIn.requireSignIn : basicAuth);
 
   app.use(express.json());
+
+  // The usage log's routes and the page loads it records, ahead of the
+  // pages themselves. A signed-in viewer who isn't an admin gets the same
+  // 404 as a dashboard without the log.
+  const record = (req, event, extra) => { if (usage && req.viewer) usage.record(req.viewer, event, extra); };
+  // The name for a dismissal key, for the usage log: on the dashboard now,
+  // or saved with the hide.
+  const nameFor = (key) => issues.nameForKey(key) || (dismissals.list().find((d) => d.key === key) || {}).label || null;
+  const candidateOf = (key) => (typeof key === "string" && key.startsWith("candidate:") ? key.slice(10) : null);
+  const isAdmin = (req) => Boolean(usage && req.viewer && req.viewer.method === "google" && usage.isAdmin(req.viewer.email));
+  if (usage) {
+    app.use((req, res, next) => {
+      if (req.method === "GET" && (req.path === "/" || req.path === "/index.html")) record(req, "page");
+      next();
+    });
+    app.get("/usage", (req, res, next) => {
+      if (!isAdmin(req)) return next();
+      const q = req.query;
+      const str = (v) => (typeof v === "string" ? v : "");
+      const day = /^\d{4}-\d{2}-\d{2}$/.test(str(q.day)) ? str(q.day) : null;
+      const person = str(q.person).slice(0, 200) || null;
+      const includeAdmins = str(q.admins) === "1";
+      const page = Math.max(0, Math.min(1000, parseInt(str(q.page), 10) || 0));
+      record(req, "usage_view");
+      // Picking an admin in the person filter shows them, toggle or not.
+      const { rows, more } = usage.list({ day, person, includeAdmins: includeAdmins || usage.isAdmin(person), offset: page * 500, limit: 500 });
+      res.set("Cache-Control", "no-store");
+      res.type("html").send(usagePage({
+        title: config.dashboardTitle, timeZone: config.displayTimeZone, rows, more, page,
+        filters: { day, person, includeAdmins }, people: usage.listPeople(), days: usage.days(), admins: config.adminEmails,
+      }));
+    });
+    // What the browser alone sees (app.js): tabs, queue views, section
+    // jumps and Ashby links opened. Who comes from the session, never the
+    // request; an Ashby link is named from the dashboard's own data.
+    app.post("/api/usage", (req, res) => {
+      const { event, detail, href } = req.body || {};
+      if (!BROWSER_EVENTS.has(event)) return res.status(400).json({ error: "unknown event" });
+      if (event === "ashby") {
+        const m = /\/candidates\/([0-9a-f-]{8,64})(?:\/|$|\?)/i.exec(typeof href === "string" ? href : "");
+        const candidateId = m ? m[1] : null;
+        record(req, "ashby", { candidateId, detail: (candidateId && nameFor("candidate:" + candidateId)) || "candidate not on the dashboard" });
+      } else {
+        record(req, event, { detail });
+      }
+      res.status(204).end();
+    });
+  }
+
   const pageGate = require("./scheduling/page-gate");
 
   // Scheduling pilot: mounted only where SCHEDULING_CLIENT_ID is set. Other
@@ -248,7 +310,8 @@ function createServer() {
     const v = req.viewer;
     res.set("Cache-Control", "no-store");
     res.json(signIn
-      ? { signIn: true, method: v ? v.method : null, email: v ? v.email : null, name: v ? v.name : null }
+      ? { signIn: true, method: v ? v.method : null, email: v ? v.email : null, name: v ? v.name : null,
+        ...(usage ? { usageLog: true, admin: isAdmin(req) } : {}) }
       : { signIn: false });
   });
 
@@ -259,6 +322,7 @@ function createServer() {
   // Manual refresh button on the dashboard hits this instead of waiting for
   // the background interval.
   app.post("/api/refresh", async (req, res) => {
+    record(req, "refresh");
     await issues.refresh();
     res.json(issues.getSnapshot());
   });
@@ -274,15 +338,18 @@ function createServer() {
     const { key, scope, by } = req.body || {};
     if (!key) return res.status(400).json({ error: "key required" });
     const verified = req.viewer && req.viewer.method === "google";
+    const label = issues.nameForKey(key);
     dismissals.add(key, scope === "forever" ? "forever" : "today", {
-      by: verified ? req.viewer.name : by, byVerified: verified, label: issues.nameForKey(key),
+      by: verified ? req.viewer.name : by, byVerified: verified, label,
     });
+    record(req, scope === "forever" ? "hide" : "snooze", { detail: label || key, candidateId: candidateOf(key) });
     res.json(issues.getSnapshot());
   });
 
   app.post("/api/undismiss", (req, res) => {
     const { key } = req.body || {};
     if (!key) return res.status(400).json({ error: "key required" });
+    record(req, "restore", { detail: nameFor(key) || key, candidateId: candidateOf(key) });
     dismissals.remove(key);
     res.json(issues.getSnapshot());
   });
@@ -295,6 +362,8 @@ function createServer() {
     const { candidateId, text } = req.body || {};
     if (!candidateId) return res.status(400).json({ error: "candidateId required" });
     notes.set(candidateId, text);
+    // That a note changed and for whom, never its text.
+    record(req, String(text || "").trim() ? "note_saved" : "note_deleted", { detail: nameFor("candidate:" + candidateId), candidateId });
     res.json(issues.getSnapshot());
   });
 
@@ -302,6 +371,7 @@ function createServer() {
     const { candidateId } = req.body || {};
     if (!candidateId) return res.status(400).json({ error: "candidateId required" });
     notes.remove(candidateId);
+    record(req, "note_deleted", { detail: nameFor("candidate:" + candidateId), candidateId });
     res.json(issues.getSnapshot());
   });
 

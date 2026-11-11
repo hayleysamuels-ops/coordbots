@@ -194,6 +194,10 @@ const config = {
   // session. Anything else keeps it, each use logged.
   passwordSignIn: (process.env.PASSWORD_SIGNIN || "on").trim().toLowerCase() !== "off",
   passwordSignInRaw: (process.env.PASSWORD_SIGNIN || "").trim(),
+  // Who can read the usage log at /usage (usage-log.js): exact emails,
+  // signed in with Google. Unset, nothing is recorded and /usage doesn't
+  // exist; with Google sign-in off, the same.
+  adminEmails: list("ADMIN_EMAILS", []),
 
   ashbyApiKey: required("ASHBY_API_KEY"),
   ashbyAppBaseUrl: (process.env.ASHBY_APP_BASE_URL || "https://app.ashbyhq.com").replace(/\/+$/, ""),

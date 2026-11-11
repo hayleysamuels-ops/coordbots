@@ -112,3 +112,15 @@ test("signed in with Google: a hide records the account's name as verified, what
     stub.close();
   }
 });
+
+test("without ADMIN_EMAILS there's no usage log: /usage and /api/usage are 404s and nothing is recorded", async () => {
+  const res = await fetch(base + "/signin/password", {
+    method: "POST", redirect: "manual", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: "username=shared&password=fictional-shared-password",
+  });
+  const cookie = res.headers.getSetCookie()[0].split(";")[0];
+  assert.equal((await fetch(base + "/usage", { headers: { Cookie: cookie } })).status, 404);
+  assert.equal((await fetch(base + "/api/usage", { method: "POST", headers: { Cookie: cookie, "Content-Type": "application/json" }, body: '{"event":"tab"}' })).status, 404);
+  await fetch(base + "/", { headers: { Cookie: cookie, Accept: "text/html" } });
+  assert.equal(fs.existsSync(path.join(dir, "usage")), false);
+});

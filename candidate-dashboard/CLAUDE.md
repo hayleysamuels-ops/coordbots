@@ -131,6 +131,16 @@ is normally still in Application Review and any status).
   a non-page request carries `X-Sign-In`, which app.js's fetch wrapper follows.
   `req.viewer` feeds `/api/viewer` and a verified `by` (`byVerified`) on
   dismissals. Google's tokens are never stored (the privacy page says so).
+- `src/usage-log.js`, `src/usage-page.js` — the usage log, only with Google
+  sign-in on AND `ADMIN_EMAILS` set (exact emails); otherwise nothing is
+  recorded and `/usage` 404s. `/data/usage/YYYY-MM-DD.jsonl` (DISPLAY_TIMEZONE
+  days), append-only, day files over 90 days deleted every 6h. Server records
+  sign-ins/refusals/sign-outs (signin.js), page loads, hide/snooze/restore,
+  notes (never the text), refresh; app.js posts only tab/queue/section/ashby to
+  `/api/usage`, and who always comes from the session. Password sessions show
+  as "dashboard password" with a random per-sign-in id; no IPs. Admins are
+  recorded but filtered out of `/usage` unless "Include admins". The privacy
+  page's "Usage log" section describes all of this: keep them in step.
 - `src/no-index.js` — mounted first: `X-Robots-Tag: noindex, nofollow` on every
   response, and a public `/robots.txt` disallowing all but `/privacy` and `/terms`
   (left crawlable so the noindex header is seen).

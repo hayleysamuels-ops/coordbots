@@ -51,6 +51,17 @@ const ERRORS = {
   password: "That username or password isn't right.",
   "password-off": "Password sign-in is turned off on this dashboard.",
 };
+// The same refusals, as the usage log (usage-log.js) names them.
+const REFUSED = {
+  expired: "took too long or was started in another browser",
+  cancelled: "cancelled at Google",
+  google: "Google couldn't confirm the account",
+  unverified: "email not verified by Google",
+  domain: "account not in an allowed domain",
+  workspace: "personal Google account",
+  password: "wrong username or password",
+  "password-off": "password sign-in is off",
+};
 
 // The settings sign-in needs, checked. `enabled` is false where
 // ALLOWED_EMAIL_DOMAINS is unset; `problems` lists what stops it where it
@@ -95,7 +106,9 @@ function signInSettings(config) {
 
 const b64 = (buf) => Buffer.from(buf).toString("base64url");
 
-function createSignIn(settings, { oauthFactory = (o) => new OAuth2Client(o), now = () => Date.now(), log = console } = {}) {
+function createSignIn(settings, { oauthFactory = (o) => new OAuth2Client(o), now = () => Date.now(), log = console, usage = null } = {}) {
+  // The usage log (usage-log.js), where it's on: sign-ins, refusals, sign-outs.
+  const recordUsage = (...args) => { if (usage) usage.record(...args); };
   const key = crypto.createHmac("sha256", settings.sessionSecret).update("dashboard-session-v1").digest();
   const mac = (purpose, data) => crypto.createHmac("sha256", key).update(purpose + "." + data).digest("base64url");
   const sign = (purpose, payload) => { const data = b64(JSON.stringify(payload)); return data + "." + mac(purpose, data); };
@@ -138,7 +151,7 @@ function createSignIn(settings, { oauthFactory = (o) => new OAuth2Client(o), now
     }
     if (s.m === "password") {
       if (!settings.passwordSignIn || !timingSafeEqualString(String(s.p), passwordMark())) return null;
-      return { method: "password", email: null, name: null, expiresAt: s.iat + settings.sessionHours * 3600000 };
+      return { method: "password", email: null, name: null, session: typeof s.s === "string" ? s.s : null, expiresAt: s.iat + settings.sessionHours * 3600000 };
     }
     return null;
   }
@@ -196,11 +209,13 @@ function createSignIn(settings, { oauthFactory = (o) => new OAuth2Client(o), now
     clearCookie(res, FLOW_COOKIE, "/auth/google");
     const state = req.query.state;
     if (!flow || typeof flow.t !== "number" || now() > flow.t || typeof state !== "string" || !timingSafeEqualString(state, String(flow.s))) {
+      recordUsage(null, "signin_refused", { via: "google", detail: REFUSED.expired });
       return res.redirect(302, signInUrl("/", "expired"));
     }
     const next = safeNext(flow.x);
-    const refuse = (code, why) => {
+    const refuse = (code, why, email = null) => {
       log.warn(`[auth] Google sign-in refused (${why}).`);
+      recordUsage(null, "signin_refused", { via: "google", who: email, detail: REFUSED[code] });
       res.redirect(302, signInUrl(next, code));
     };
     if (req.query.error) return refuse("cancelled", `Google returned ${String(req.query.error).slice(0, 40)}`);
@@ -218,13 +233,14 @@ function createSignIn(settings, { oauthFactory = (o) => new OAuth2Client(o), now
     if (!identity || identity.nonce !== flow.n) return refuse("google", "nonce mismatch");
     const email = typeof identity.email === "string" ? identity.email.toLowerCase() : "";
     if (!email.includes("@")) return refuse("google", "no email in token");
-    if (identity.email_verified !== true) return refuse("unverified", `unverified email ${email}`);
-    if (!allowed(domainOf(email))) return refuse("domain", `${email} isn't in ALLOWED_EMAIL_DOMAINS`);
-    if (!identity.hd) return refuse("workspace", `${email} is a personal Google account (no hd)`);
-    if (!allowed(identity.hd)) return refuse("domain", `${email} is managed by ${identity.hd}, not in ALLOWED_EMAIL_DOMAINS`);
+    if (identity.email_verified !== true) return refuse("unverified", `unverified email ${email}`, email);
+    if (!allowed(domainOf(email))) return refuse("domain", `${email} isn't in ALLOWED_EMAIL_DOMAINS`, email);
+    if (!identity.hd) return refuse("workspace", `${email} is a personal Google account (no hd)`, email);
+    if (!allowed(identity.hd)) return refuse("domain", `${email} is managed by ${identity.hd}, not in ALLOWED_EMAIL_DOMAINS`, email);
     const name = typeof identity.name === "string" && identity.name.trim() ? identity.name.trim().slice(0, 80) : null;
     startSession(res, { m: "google", e: email, n: name, h: String(identity.hd).toLowerCase() });
     log.log(`[auth] Google sign-in: ${email}`);
+    recordUsage({ method: "google", email }, "signin", { detail: "Google" });
     res.redirect(302, next);
   });
 
@@ -233,6 +249,7 @@ function createSignIn(settings, { oauthFactory = (o) => new OAuth2Client(o), now
     const next = safeNext(req.body && req.body.next);
     if (!settings.passwordSignIn) {
       log.warn(`[auth] Password sign-in refused (PASSWORD_SIGNIN is off) from ${ip(req)}.`);
+      recordUsage(null, "signin_refused", { via: "password", detail: REFUSED["password-off"] });
       return res.redirect(303, signInUrl(next, "password-off"));
     }
     const user = String((req.body && req.body.username) || ""), pass = String((req.body && req.body.password) || "");
@@ -240,14 +257,21 @@ function createSignIn(settings, { oauthFactory = (o) => new OAuth2Client(o), now
     const passOk = timingSafeEqualString(pass, settings.dashboardPassword);
     if (!settings.dashboardUser || !settings.dashboardPassword || !userOk || !passOk) {
       log.warn(`[auth] Password sign-in refused (wrong username or password) from ${ip(req)}.`);
+      recordUsage(null, "signin_refused", { via: "password", detail: REFUSED.password });
       return res.redirect(303, signInUrl(next, "password"));
     }
-    startSession(res, { m: "password", p: passwordMark() });
+    // s: a random id for this sign-in, so the usage log can tell password
+    // sessions apart without naming anyone.
+    const sid = b64(crypto.randomBytes(6));
+    startSession(res, { m: "password", p: passwordMark(), s: sid });
     log.log(`[auth] Password sign-in (shared dashboard password) from ${ip(req)}.`);
+    recordUsage({ method: "password", session: sid }, "signin", { detail: "dashboard password" });
     res.redirect(303, next);
   });
 
   router.post("/signout", (req, res) => {
+    const viewer = session(req);
+    if (viewer) recordUsage(viewer, "signout");
     clearCookie(res, SESSION_COOKIE);
     res.redirect(303, "/signin?signedout=1");
   });

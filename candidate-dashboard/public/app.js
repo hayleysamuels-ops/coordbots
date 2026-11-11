@@ -18,6 +18,24 @@
   let viewer = { signIn: false };
   const verifiedViewer = () => viewer.signIn && viewer.method === "google";
 
+  // The usage log (usage-log.js), where the server says it's on: what only
+  // the browser sees, i.e. tabs, queue views, section jumps and Ashby links
+  // opened. The server records who from the session, and everything else
+  // (sign-ins, page loads, hides, notes) itself.
+  function trackUsage(event, fields) {
+    if (!viewer.usageLog) return;
+    fetch("/api/usage", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event, ...fields }) }).catch(() => {});
+  }
+  // Every Ashby candidate link (a new tab), however it's opened: click,
+  // Cmd/Ctrl-click or middle-click. The server names the candidate.
+  function trackAshbyLink(e) {
+    const link = e.target.closest && e.target.closest('a[target="_blank"][href*="/candidates/"]');
+    if (link && (e.type === "click" || e.button === 1)) trackUsage("ashby", { href: link.href });
+  }
+  document.addEventListener("click", trackAshbyLink, true);
+  document.addEventListener("auxclick", trackAshbyLink, true);
+
   // The filter is purely client-side: the last-fetched snapshot is cached
   // here so checking/unchecking an option, or switching which field to
   // filter by, re-renders instantly without a network round-trip. Applies
@@ -1698,9 +1716,16 @@
     // (both `.signal-chip` and the sidebar's Triage `.queue-nav-item`
     // buttons), so the Watchlist group's plain anchor links (no
     // `data-signal`) fall through untouched, navigating normally.
+    // The sidebar's Watchlist links jump to a section: logged, then left to
+    // navigate as before.
+    const sectionLink = e.target.closest('a.queue-nav-item[href^="#"]');
+    if (sectionLink) trackUsage("section", { detail: (sectionLink.querySelector("span") || sectionLink).textContent.trim() });
+
     const signalControl = e.target.closest("[data-signal]");
     if (signalControl) {
       activeSignal = signalControl.dataset.signal;
+      const queue = TRIAGE_QUEUES.find((q) => q.key === activeSignal);
+      trackUsage("queue", { detail: queue ? queue.label : activeSignal === "hidden" ? "Hidden & snoozed" : "All action items" });
       if (lastData) render(lastData);
       return;
     }
@@ -1858,6 +1883,7 @@
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       const target = btn.dataset.tab;
+      trackUsage("tab", { detail: btn.textContent.trim() });
       document.querySelectorAll(".tab-btn").forEach((b) => {
         const isActive = b.dataset.tab === target;
         b.classList.toggle("is-active", isActive);
@@ -1879,7 +1905,8 @@
     const el = document.getElementById("signed-in-as");
     if (!el || !viewer.signIn || !viewer.method) return;
     const who = viewer.method === "google" ? escapeHtml(viewer.email) : "Dashboard password";
-    el.innerHTML = `${who} · <form method="post" action="/signout"><button type="submit" class="signout-btn">Sign out</button></form>`;
+    const usageLink = viewer.admin ? `<a href="/usage">Usage log</a> · ` : "";
+    el.innerHTML = `${who} · ${usageLink}<form method="post" action="/signout"><button type="submit" class="signout-btn">Sign out</button></form>`;
     el.hidden = false;
   }
 
