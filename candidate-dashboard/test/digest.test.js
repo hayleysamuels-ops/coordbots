@@ -303,3 +303,22 @@ test("a draft the sweep couldn't delete is under Needs a person as blocked, unti
   assert.equal((await buildDigest({ ...quiet, rows: [failed], snapshot: snapshot([]) })).person.length, 0);
   assert.equal((await buildDigest({ ...quiet, rows: [failed], snapshot: { sectionStatus: { readyToSchedule: { lastUpdated: null, lastError: "HTTP 502" } } } })).person.length, 1);
 });
+
+test("an approval the Ashby check refused is under Needs a person, with the reason, on the same rules as a lapse", async () => {
+  const refused = (extra = {}) => lapsedRow("ella", "Ella Smith", { ashbyCheck: { state: "refused", step: "agenda", at: "2026-10-30T22:36:00Z",
+    reason: "The agenda in Ashby doesn't match the approved times. Nothing was sent.", draftId: null, cleanup: null, ...extra } });
+  const sheet = snapshot([ready("s-ella", "Ella Smith", FDE)]);
+  let d = await buildDigest({ ...quiet, rows: [refused()], snapshot: sheet });
+  let { text, thread } = renderDigest(d);
+  assert.match(text, /^• Needs a person: 1: Ella Smith \(approved Fri, Oct 30, refused in Ashby\)$/m);
+  assert.match(text, /^• Eligible, not posted: none/m);
+  assert.match(thread, /^• Ella Smith \(Forward Deployed Engineer\): approved by Anna Jones Fri, Oct 30, 3:30 PM PDT, but the Ashby check refused it Fri, Oct 30: The agenda in Ashby doesn't match the approved times\. Nothing was sent\. Nothing was booked \(the approved first session was Tue, Nov 3, 10:00 AM PST\), and auto-post won't post this schedule again by itself\. Post a fresh option from booking review once the cause is fixed, or book it by hand in Ashby\.$/m);
+  // Its draft not confirmed deleted: the schedule is blocked, so release comes first.
+  d = await buildDigest({ ...quiet, rows: [refused({ draftId: "d-9", cleanup: { deleted: false } })], snapshot: sheet });
+  assert.match(renderDigest(d).thread, /The draft it started wasn't confirmed deleted \(https:\/\/app\.ashbyhq\.com\/schedules\/drafts\/d-9\), so the schedule takes no new post until someone presses Release this schedule on the post in the dashboard's Scheduling tab\. Then post a fresh option/);
+  // Same drop-off: a fresh post, or off the Ready list (booked by hand).
+  const fresh = post("ella2", "Ella Smith", "2026-11-05T18:00:00Z", { slack: { channel: "C1", ts: ts("2026-11-02T15:00:00Z") }, plan: { candidateName: "Ella Smith", jobTitle: "Forward Deployed Engineer",
+    sessions: [{ start: "2026-11-05T18:00:00Z" }], bookingPlan: { interviewScheduleId: "s-ella" } } });
+  assert.equal((await buildDigest({ ...quiet, rows: [refused(), fresh], snapshot: sheet })).person.length, 0);
+  assert.equal((await buildDigest({ ...quiet, rows: [refused()], snapshot: snapshot([]) })).person.length, 0);
+});

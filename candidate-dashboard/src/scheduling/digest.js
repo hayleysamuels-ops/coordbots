@@ -23,7 +23,11 @@
 //      an unsent draft (delete_failed), so the draft may still be in Ashby and
 //      the schedule takes no new post until someone presses Release on the
 //      dashboard's Scheduling tab. Listed until it's released, while the
-//      schedule is on the Ready list.
+//      schedule is on the Ready list. And refusals after approval: approved
+//      in Slack, then the Ashby check refused (said once in the post's
+//      thread, and missed if nobody acts on it). Same rules as a lapse; when
+//      the refusal's own draft wasn't confirmed deleted, it also says to
+//      release the schedule first.
 //   2. Waiting for approval: open posts, soonest first session first; and
 //      approved posts whose draft is composed in Ashby but not sent. Either is
 //      flagged when its first session is within FLAG_DAYS working days
@@ -143,23 +147,26 @@ async function buildDigest({ now, zone = ZONE, since, sinceDigest, clientId, row
     person.push({ scheduleId, name: tidy(r.candidateName || seen.candidateName) || "a candidate", job: tidy(r.jobTitle) || null,
       since: Date.parse(seen.needsPerson?.since || seen.needsPerson?.at || seen.at), why: wholeSentences(seen.needsPerson?.why || seen.lastError), legacy });
   }
-  // Lapsed approvals: the latest approval per schedule whose draft was
-  // deleted unsent, with nothing posted for that schedule since. While the
-  // Ready list can't be read, they're listed anyway: a lapse mustn't vanish
-  // because a refresh failed.
+  // Lapsed approvals, and approvals the Ashby check refused: the latest
+  // approval per schedule that ended either way, with nothing posted for that
+  // schedule since. While the Ready list can't be read, they're listed
+  // anyway: a lapse mustn't vanish because a refresh failed.
   const lapsed = new Map();
   for (const r of rows) {
     const scheduleId = r.plan?.bookingPlan?.interviewScheduleId;
-    if (!scheduleId || r.state !== "discussion_approved" || !["deleted", "gone"].includes(r.ashbyCheck?.state)) continue;
+    if (!scheduleId || r.state !== "discussion_approved" || !["deleted", "gone", "refused"].includes(r.ashbyCheck?.state)) continue;
     if (readyKnown && !readyBySchedule.has(scheduleId)) continue;
     const postedAt = Number(r.slack?.ts) * 1000 || 0;
     if (rows.some(o => o.id !== r.id && o.plan?.bookingPlan?.interviewScheduleId === scheduleId && Number(o.slack?.ts) * 1000 > postedAt)) continue;
     const prior = lapsed.get(scheduleId);
     if (prior && prior.postedAt >= postedAt) continue;
     const ready = readyBySchedule.get(scheduleId);
-    lapsed.set(scheduleId, { scheduleId, lapsed: true, postedAt, name: tidy(r.plan.candidateName || ready?.candidateName) || "a candidate", job: tidy(r.plan.jobTitle || ready?.jobTitle) || null,
+    const check = r.ashbyCheck, refused = check.state === "refused";
+    lapsed.set(scheduleId, { scheduleId, lapsed: !refused, refused, postedAt, name: tidy(r.plan.candidateName || ready?.candidateName) || "a candidate", job: tidy(r.plan.jobTitle || ready?.jobTitle) || null,
       approvedAt: Date.parse(r.slackApproval?.at) || null, approvedBy: tidy(r.slackApproval?.name || r.slackApproval?.email) || null,
-      since: Date.parse(r.ashbyCheck.deletedAt || r.ashbyCheck.goneSeenAt) || Date.parse(r.ashbyCheck.deleteBy) || now, how: r.ashbyCheck.state, start: firstStart(r) });
+      since: Date.parse(check.deletedAt || check.goneSeenAt || (refused ? check.at : null)) || Date.parse(check.deleteBy) || now, how: check.state, start: firstStart(r),
+      ...(refused ? { why: check.reason ? wholeSentences(check.reason) : null, draftLeft: blocksRepost(r),
+        draftUrl: check.draftUrl || (check.draftId ? `https://app.ashbyhq.com/schedules/drafts/${check.draftId}` : null) } : {}) });
   }
   person.push(...lapsed.values());
   // Blocked approvals: a delete that failed leaves the schedule blocked
@@ -296,7 +303,7 @@ function renderDigest(d) {
   const gaveUpOn = p => `given up on ${new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "short" }).format(p.since)}`;
   const lines = [head];
   const approvedOn = p => p.approvedAt ? `approved ${dayOf(p.approvedAt, zone)}` : "approved";
-  lines.push(`• Needs a person: ${d.person.length ? `${d.person.length}: ${names(d.person, p => `${p.name} (${p.lapsed ? `${approvedOn(p)}, never sent` : p.blocked ? `draft couldn't be deleted, blocked ${ago(now - p.since)}` : p.legacy ? gaveUpOn(p) : ago(now - p.since)})`)}` : "none"}`);
+  lines.push(`• Needs a person: ${d.person.length ? `${d.person.length}: ${names(d.person, p => `${p.name} (${p.lapsed ? `${approvedOn(p)}, never sent` : p.refused ? `${approvedOn(p)}, refused in Ashby` : p.blocked ? `draft couldn't be deleted, blocked ${ago(now - p.since)}` : p.legacy ? gaveUpOn(p) : ago(now - p.since)})`)}` : "none"}`);
   lines.push(`• Waiting for approval: ${d.open.length ? `${d.open.length}: ${names(d.open, i => `${i.flag ? "⚠️ " : ""}${i.name} (${dayOf(i.start, zone)}, ${due(i)})`)}` : "none"}`);
   lines.push(`• Expired, never approved: ${d.expired.length ? `${d.expired.length}: ${names(d.expired, i => `${i.name} (${dayOf(i.start, zone)}${i.pressed ? `; ${i.pressed}` : ""})`)}` : "none"}`);
   lines.push(`• Approved, draft not sent in Ashby: ${d.composed.length ? `${d.composed.length}: ${names(d.composed, i => `${i.flag ? "⚠️ " : ""}${i.name} (${dayOf(i.start, zone)}, ${due(i)})`)}` : "none"}`);
@@ -318,6 +325,12 @@ function renderDigest(d) {
     for (const p of d.person) {
       if (p.lapsed) {
         detail.push(`• ${p.name}${p.job ? ` (${p.job})` : ""}: approved${p.approvedBy ? ` by ${p.approvedBy}` : ""}${p.approvedAt ? ` ${when(p.approvedAt, zone)}` : ""}, but nobody sent the draft in Ashby, so ${p.how === "gone" ? "it left Ashby unsent" : "it was deleted"} ${dayOf(p.since, zone)}${Number.isFinite(p.start) ? ` (the approved first session was ${when(p.start, zone)})` : ""}. Nothing is booked and auto-post won't post this schedule again by itself: post a fresh option from booking review, or book it by hand in Ashby.`);
+        continue;
+      }
+      if (p.refused) {
+        detail.push(`• ${p.name}${p.job ? ` (${p.job})` : ""}: approved${p.approvedBy ? ` by ${p.approvedBy}` : ""}${p.approvedAt ? ` ${when(p.approvedAt, zone)}` : ""}, but the Ashby check refused it ${dayOf(p.since, zone)}${p.why ? `: ${p.why}` : ""}. Nothing was booked${Number.isFinite(p.start) ? ` (the approved first session was ${when(p.start, zone)})` : ""}, and auto-post won't post this schedule again by itself. ${p.draftLeft
+          ? `The draft it started wasn't confirmed deleted${p.draftUrl ? ` (${p.draftUrl})` : ""}, so the schedule takes no new post until someone presses Release this schedule on the post in the dashboard's Scheduling tab. Then post`
+          : "Post"} a fresh option from booking review once the cause is fixed, or book it by hand in Ashby.`);
         continue;
       }
       if (p.blocked) {

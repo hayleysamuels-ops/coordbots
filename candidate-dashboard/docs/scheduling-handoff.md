@@ -1155,6 +1155,12 @@ silence is never the signal. Its sections, in order:
    dashboard's Scheduling tab. "<name> (draft couldn't be deleted, blocked
    <how long>)", with the reason and the draft's link in the thread; listed
    until released, while the schedule is on the Ready list.
+   **Refusals after approval** too: approved in Slack, then the Ashby check
+   refused. "<name> (approved <day>, refused in Ashby)", with the refusal's
+   reason in the thread; when its draft wasn't confirmed deleted, it says to
+   release the schedule first. Same drop-off as a lapse. (The three on
+   November 5 were all booked by hand, but only because someone saw the
+   refusal in its Slack thread.)
 2. **Waiting for approval:** open posts, soonest first session first, and
    approved posts whose draft is composed in Ashby but not sent. ⚠️ when the
    first session is within two working days (Monday to Friday; no holidays).
