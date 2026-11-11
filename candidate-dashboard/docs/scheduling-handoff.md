@@ -534,6 +534,27 @@ done and verified, in this order:
     - Applied AI Engineer - New Grad, "Applied AI Interview": a stage of type
       Lead, before Application Review. No schedule at a Lead-type stage has been
       handled; not worth finding out on send.
+- **Onsites re-surveyed** (November 11, 2026; plans read from Ashby's API,
+  schedules since June for who sat in each event). Supersedes the October 29
+  list above where they differ.
+  - **Fixed in Ashby since:** Welcome is first on every onsite; Executive
+    Director's two "One on One"s and its Breakfast activity are gone.
+  - **Not an alternatives pair after all:** SWE's "System Design" /
+    "Full-Stack Development Exercise" ran together in two of three past
+    onsites. Not declared.
+  - **Declared (rules revision 13):** all three Applied AI jobs' "Applied AI
+    Interview (Spreadsheet Parsing)" / "System Design (Virtual)": one or the
+    other in past onsites (1 and 5), never both.
+  - **Onsite compose added (not send):** Strategy Lead, Recruiting
+    Coordinator, Senior Support Engineer and the three Applied AI jobs. FDE's
+    three onsites stay on compose and send.
+  - **Held for activity renames in Ashby** (the composer finds the activity's
+    card by name): Deployment Strategist (four activities named "Onsite
+    Interview Interview Schedule"), Executive Director (two), Marketing Lead
+    (two), SWE Product and Platform ("Final Interview Loop" in both Onsite and
+    Founder Interview). Senior PM waits for Tier B: Case Study Presentation
+    has four slots. Marketing Lead's Case Study had three people at its only
+    past event: possibly a three-slot panel, unconfirmed.
 - **TEST should get its own interview plan** (October 29, 2026; Hayley to
   raise with Mary). TEST and Product Designer both use the organisation's
   "Default Interview Plan" (`88c2cce1`), Product Designer since February and

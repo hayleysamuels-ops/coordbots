@@ -3,7 +3,7 @@
   "$comment": "Reproduces candidate-dashboard on feature/client-ashby-connection as of 2026-09-22, plus revision 2's assumed 9–5 Pacific meeting hours and interviewer attendance. The dashboard reads this file at runtime.",
   "schemaVersion": 2,
   "clientId": "luminai",
-  "rulesRevision": 12,
+  "rulesRevision": 13,
 
   "trial": {
     "stageTitleContains": null,
@@ -30,7 +30,10 @@
     "alternatives": [
       { "jobId": "5ba29c75-1b89-4ffc-8f58-5db207afc527", "label": "coding interviews", "interviews": ["Coding - Roomba", "Coding - URL Shortner"], "reason": "Forward Deployed Engineer onsite: usually one coding exercise per candidate (Anna, 2026-10-29); both in the template is planned and flagged on the post, since some candidates take both (Kshitiz Parashar, 2026-11-03). Names as Ashby spells them on this job." },
       { "jobId": "009c1c4e-152b-44f0-bcb1-0879f8287b62", "label": "coding interviews", "interviews": ["Coding - Roomba", "URL Shortner"], "reason": "FDE Team Lead onsite: usually one coding exercise per candidate (Anna, 2026-10-29); both in the template is planned and flagged on the post, since some candidates take both (Kshitiz Parashar, 2026-11-03). Names as Ashby spells them on this job." },
-      { "jobId": "85218d8e-1de8-47ef-9ac9-f6b2067f89aa", "label": "coding interviews", "interviews": ["Coding - Roomba", "URL Shortener"], "reason": "FDE - New Grad onsite: usually one coding exercise per candidate (Anna, 2026-10-29); both in the template is planned and flagged on the post, since some candidates take both (Kshitiz Parashar, 2026-11-03). Names as Ashby spells them on this job." }
+      { "jobId": "85218d8e-1de8-47ef-9ac9-f6b2067f89aa", "label": "coding interviews", "interviews": ["Coding - Roomba", "URL Shortener"], "reason": "FDE - New Grad onsite: usually one coding exercise per candidate (Anna, 2026-10-29); both in the template is planned and flagged on the post, since some candidates take both (Kshitiz Parashar, 2026-11-03). Names as Ashby spells them on this job." },
+      { "jobId": "1c17da55-d9b4-47d1-aac7-8076af6c834a", "label": "technical interviews", "interviews": ["Applied AI Interview (Spreadsheet Parsing)", "System Design (Virtual)"], "reason": "Applied AI Engineer onsite: one of the two 60-minute technical interviews per candidate. Ashby's schedules since June show Applied AI Engineer onsites with one or the other (1 and 5), never both (Hayley, 2026-11-11). Both in the template is planned and flagged on the post. Ashby spells both names with a trailing space; names match ignoring spacing." },
+      { "jobId": "329773a3-940e-49dd-9771-f99ab49ac0e8", "label": "technical interviews", "interviews": ["Applied AI Interview (Spreadsheet Parsing)", "System Design (Virtual)"], "reason": "Applied AI Engineer - New Grad onsite: one of the two 60-minute technical interviews per candidate. Ashby's schedules since June show Applied AI Engineer onsites with one or the other (1 and 5), never both (Hayley, 2026-11-11). Both in the template is planned and flagged on the post. Ashby spells both names with a trailing space; names match ignoring spacing." },
+      { "jobId": "6f2b26ad-b064-4ec9-bad5-bbedf75acb5a", "label": "technical interviews", "interviews": ["Applied AI Interview (Spreadsheet Parsing)", "System Design (Virtual)"], "reason": "Applied AI Engineer, Team Lead onsite: one of the two 60-minute technical interviews per candidate. Ashby's schedules since June show Applied AI Engineer onsites with one or the other (1 and 5), never both (Hayley, 2026-11-11). Both in the template is planned and flagged on the post. Ashby spells both names with a trailing space; names match ignoring spacing." }
     ]
   },
 

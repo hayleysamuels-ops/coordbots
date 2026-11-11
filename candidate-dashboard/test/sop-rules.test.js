@@ -66,11 +66,17 @@ test('the preferred host is used, flagged, only when nobody else is free',()=>{
 
 test('Luminai\'s rules: WFH Wednesdays, lunch starting 12:00–13:00 and ending by 13:30 Pacific, Gabrielle for Welcome, deferred debriefs, Sanjay 07:00–17:00 Pacific, Joe Penn\'s and Kesava\'s accounts, the FDE coding alternatives',()=>{
   const r=loadRules({clientId:'luminai',log:{log(){},warn(){}}}).get();
-  assert.equal(r.rulesRevision,12);
+  assert.equal(r.rulesRevision,13);
   assert.deepEqual(r.placementFor('Lunch/Coffee').map(w=>[w.earliestStart,w.latestStart,w.latestEnd,w.timezone]),[['12:00','13:00','13:30','America/Los_Angeles']]);
   // Each FDE job's two coding interviews, spelled as Ashby has them on that job.
   assert.deepEqual(['5ba29c75-1b89-4ffc-8f58-5db207afc527','009c1c4e-152b-44f0-bcb1-0879f8287b62','85218d8e-1de8-47ef-9ac9-f6b2067f89aa','837cc1e9-15ed-4f07-8755-51ee29f4ea39'].map(j=>r.alternativesFor(j).map(g=>[g.label,...g.titles])),
     [[['coding interviews','Coding - Roomba','Coding - URL Shortner']],[['coding interviews','Coding - Roomba','URL Shortner']],[['coding interviews','Coding - Roomba','URL Shortener']],[]]);
+  // The three Applied AI jobs' two technical interviews (revision 13), matching
+  // Ashby's names, which end in a space.
+  const AAI=[['technical interviews','Applied AI Interview (Spreadsheet Parsing)','System Design (Virtual)']];
+  assert.deepEqual(['1c17da55-d9b4-47d1-aac7-8076af6c834a','329773a3-940e-49dd-9771-f99ab49ac0e8','6f2b26ad-b064-4ec9-bad5-bbedf75acb5a'].map(j=>r.alternativesFor(j).map(g=>[g.label,...g.titles])),[AAI,AAI,AAI]);
+  assert.equal(r.alternativeKey('Applied AI Interview (Spreadsheet Parsing) '),r.alternativeKey('applied ai interview (spreadsheet parsing)'));
+  assert.equal(r.alternativeKey('System Design (Virtual) '),r.alternativeKey('System Design (Virtual)'));
   assert.equal(r.alternativeKey(' Coding — Roomba '),r.alternativeKey('coding - roomba'));
   assert.deepEqual([r.identityFor('Joe Penn'),r.identityFor(' joe  penn '),r.identityFor('Mary Petrino')],['joe@luminai.com','joe@luminai.com',null]);
   assert.deepEqual([r.identityFor('Kesava Kirupa Dinakaran'),r.identityFor('kesava  kirupa dinakaran')],['kesava@luminai.com','kesava@luminai.com']);
