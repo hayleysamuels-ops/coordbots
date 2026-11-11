@@ -281,8 +281,25 @@ test("only the latest lapse per schedule; a draft that left Ashby unsent is a la
   let d = await buildDigest({ ...quiet, rows: [older, gone], snapshot: snapshot([ready("s-ella", "Ella Smith", FDE)]) });
   assert.equal(d.person.length, 1);
   assert.match(renderDigest(d).thread, /so it left Ashby unsent Sat, Oct 31/);
-  for (const state of ["released", "sent", "composed", "delete_failed"]) {
+  for (const state of ["released", "sent", "composed"]) {
     d = await buildDigest({ ...quiet, rows: [lapsedRow("ella", "Ella Smith", { ashbyCheck: { state, draftId: "d1" } })], snapshot: snapshot([ready("s-ella", "Ella Smith", FDE)]) });
     assert.equal(d.person.filter(p => p.lapsed).length, 0, state);
   }
+});
+
+test("a draft the sweep couldn't delete is under Needs a person as blocked, until it's released", async () => {
+  const failed = lapsedRow("ella", "Ella Smith", { ashbyCheck: { state: "delete_failed", draftId: "d-123", deleteBy: "2026-10-31T22:35:00Z", failedAt: "2026-10-31T22:36:00Z",
+    reason: "Ashby's Drafts page didn't load. The draft wasn't deleted." } });
+  const sheet = snapshot([ready("s-ella", "Ella Smith", FDE)]);
+  let d = await buildDigest({ ...quiet, rows: [failed], snapshot: sheet });
+  const { text, thread } = renderDigest(d);
+  assert.match(text, /^• Needs a person: 1: Ella Smith \(draft couldn't be deleted, blocked 2 days\)$/m);
+  assert.match(text, /^• Eligible, not posted: none/m);
+  assert.match(thread, /^• Ella Smith \(Forward Deployed Engineer\): approved by Anna Jones Fri, Oct 30, 3:30 PM PDT and never sent; the unsent draft couldn't be deleted Sat, Oct 31 \(Ashby's Drafts page didn't load\. The draft wasn't deleted\), so it may still be in Ashby \(https:\/\/app\.ashbyhq\.com\/schedules\/drafts\/d-123\)\. This schedule takes no new post until someone presses Release this schedule on the post in the dashboard's Scheduling tab, which deletes the draft\. Then post a fresh option, or book it by hand in Ashby\.$/m);
+  // Released: off the list (and a release isn't a lapse either).
+  d = await buildDigest({ ...quiet, rows: [lapsedRow("ella", "Ella Smith", { ashbyCheck: { state: "released", previous: { state: "delete_failed" } } })], snapshot: sheet });
+  assert.equal(d.person.length, 0);
+  // Gone from the Ready list: off it too; listed when the list can't be read.
+  assert.equal((await buildDigest({ ...quiet, rows: [failed], snapshot: snapshot([]) })).person.length, 0);
+  assert.equal((await buildDigest({ ...quiet, rows: [failed], snapshot: { sectionStatus: { readyToSchedule: { lastUpdated: null, lastError: "HTTP 502" } } } })).person.length, 1);
 });

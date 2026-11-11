@@ -1149,6 +1149,12 @@ silence is never the signal. Its sections, in order:
    so the digest carries the lapse forward every weekday until a fresh option
    is posted for that schedule or it leaves the Ready list (booked by hand,
    or the candidate moved on). Still listed when the Ready list can't be read.
+   **Blocked approvals** too: the sweep couldn't delete an unsent draft
+   (`delete_failed`), so it may still be in Ashby and the schedule takes no
+   new post until someone presses "Release this schedule…" on the post in the
+   dashboard's Scheduling tab. "<name> (draft couldn't be deleted, blocked
+   <how long>)", with the reason and the draft's link in the thread; listed
+   until released, while the schedule is on the Ready list.
 2. **Waiting for approval:** open posts, soonest first session first, and
    approved posts whose draft is composed in Ashby but not sent. ⚠️ when the
    first session is within two working days (Monday to Friday; no holidays).
