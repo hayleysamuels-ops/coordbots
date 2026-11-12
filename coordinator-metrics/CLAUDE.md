@@ -448,6 +448,12 @@ is the short list of things that look wrong and are not.
   this flag on any new client**, and expect to flip these two as the
   handovers complete.
 
+  OAIF (onboarded 12 November 2026) is the check coming out the other
+  way: Sadiqeh Agah books 247 of its 413 attributed schedules and 323
+  of 411 events are coordinated, so the `carrara-scheduled` default
+  stands. The point is that it was verified, not that it was right —
+  the same query decided all three.
+
 - **A name can resolve to two Ashby accounts at the same client.**
   LiteLLM has `Hayley Samuels` under both `hayley@berri.ai` and
   `hayley.samuels@carrara.is`. Roster matching is on name, so both

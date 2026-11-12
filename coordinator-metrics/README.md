@@ -301,11 +301,12 @@ material, not when the contract says so.
 averaging 0.1 interviewers, against Coffee Intro's 2. A block, not an
 interview. Coffee and Coffee Intro stay counted, as Forus's meals do.
 
-**When one of those four is onboarded, add Sadiqeh Agah back to the
-roster.** She was removed because she matched no scheduled work at any
-configured client — she works on one of the four — and without her, her
-work there will be counted as the client's own activity rather than
-ours.
+Sadiqeh Agah is back on the roster as of 12 November 2026. She had been
+removed because she matched no scheduled work at any configured client —
+she owns OAIF and Source Foundry, neither of which had a tab. OAIF now
+does, and she books the majority of it (247 of its 413 attributed
+schedules), so she is rostered there explicitly and restored to the
+shared fallback list. Source Foundry is still not onboarded.
 
 ## Where the roster comes from
 
@@ -339,6 +340,36 @@ Add one the first time their name shows up on a schedule.
 **Keep these in step with the tracker as allocations change**, and when
 removing someone, check they have no historical work at that client
 first — the rule is Owners ∪ past workers, never Owners alone.
+
+## OAIF
+
+Onboarded 12 November 2026, PT, `carrara-scheduled`, roster Sadiqeh Agah.
+
+The engagement flag was **checked against the data rather than assumed**,
+which is the rule that Pace and LiteLLM exist to enforce. Here the
+default turned out to be right:
+
+| | |
+|---|---|
+| Sadiqeh Agah | 247 schedules |
+| Emily Kasper (OAIF) | 98 |
+| unattributed | 65 |
+| Catherine Ardila (OAIF) | 3 |
+
+That is 323 of 411 events coordinated, 79%. Genuinely our work, unlike
+Pace at zero and LiteLLM at two, so it stays `carrara-scheduled`.
+
+No per-client title exclusions were needed. The shared defaults already
+remove `Break` (3 events) and nothing else on the tab is a block —
+every other title averages at least one interviewer, including the ones
+that read like blocks at a glance (`Work Session`, `Greeting`,
+`Meet & Greet`), which are candidate time and counted as Forus's meals
+and Pace's `Coffee Intro` are.
+
+**Its history starts 17 September 2026, not twelve months back**, because
+that is when the engagement started. Period-over-period comparisons on
+this tab rest on about two months, so read the prior-period deltas with
+that in mind until the window fills.
 
 ## Time zones
 

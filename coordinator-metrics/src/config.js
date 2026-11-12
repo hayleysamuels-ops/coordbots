@@ -124,14 +124,12 @@ const DEFAULT_COORDINATORS = [
   // name) rather than needing to be guessed in advance.
   "Tess Wicks",
   "Kelley Lantigua",
-  // Sadiqeh Agah is deliberately absent: she matched no scheduled work
-  // at any of the six clients here, because she works on one of the four
-  // that have no dashboard yet — Polymarket, OpenAI Foundation, Source
-  // Foundry, Modal. Listing her only produced a standing "no matching
-  // work anywhere" warning.
-  //
-  // RE-ADD HER when any of those four is onboarded, or her work there
-  // will be counted as someone else's client activity rather than ours.
+  // Sadiqeh Agah was absent while she matched no scheduled work at any
+  // configured client — she owns OAIF, Source Foundry and (formerly)
+  // Perchwell, none of which had a tab. OAIF was onboarded on
+  // 12 November 2026, so she is rostered there explicitly and belongs
+  // in this fallback too.
+  "Sadiqeh Agah",
   "Anna Jones",
   "Hayley Samuels",
   "Meredith Faria",
