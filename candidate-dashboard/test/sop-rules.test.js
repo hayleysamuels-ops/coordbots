@@ -64,9 +64,9 @@ test('the preferred host is used, flagged, only when nobody else is free',()=>{
   assert.equal(r.proposals[0].flagCount,1);
 });
 
-test('Luminai\'s rules: WFH Wednesdays, lunch starting 12:00–13:00 and ending by 13:30 Pacific, Gabrielle for Welcome, deferred debriefs, Sanjay 07:00–17:00 Pacific, Joe Penn\'s and Kesava\'s accounts, the FDE coding alternatives',()=>{
+test('Luminai\'s rules: WFH Wednesdays, lunch starting 12:00–13:00 and ending by 13:30 Pacific, Gabrielle for Welcome, deferred debriefs, Sanjay 09:00–17:00 Pacific, Joe Penn\'s and Kesava\'s accounts, the FDE coding alternatives',()=>{
   const r=loadRules({clientId:'luminai',log:{log(){},warn(){}}}).get();
-  assert.equal(r.rulesRevision,13);
+  assert.equal(r.rulesRevision,14);
   assert.deepEqual(r.placementFor('Lunch/Coffee').map(w=>[w.earliestStart,w.latestStart,w.latestEnd,w.timezone]),[['12:00','13:00','13:30','America/Los_Angeles']]);
   // Each FDE job's two coding interviews, spelled as Ashby has them on that job.
   assert.deepEqual(['5ba29c75-1b89-4ffc-8f58-5db207afc527','009c1c4e-152b-44f0-bcb1-0879f8287b62','85218d8e-1de8-47ef-9ac9-f6b2067f89aa','837cc1e9-15ed-4f07-8755-51ee29f4ea39'].map(j=>r.alternativesFor(j).map(g=>[g.label,...g.titles])),
@@ -90,7 +90,7 @@ test('Luminai\'s rules: WFH Wednesdays, lunch starting 12:00–13:00 and ending 
   assert.deepEqual(r.interviewerLoad,{timezone:'America/Los_Angeles',overrideGap:2,notCounted:[{match:'contains',value:'Lunch'}],reason:r.interviewerLoad.reason});
   assert.deepEqual([r.loadCounts('Lunch'),r.loadCounts('Lunch/Coffee'),r.loadCounts('Welcome'),r.loadCounts('Coding - Roomba')],[false,false,true,true]);
   assert.deepEqual(r.debriefs,{afterOnsiteConfirmed:true,meetingHoursExempt:true});
-  assert.deepEqual(r.meetingHoursFor('sanjay@luminai.com'),{hours:{timezone:'America/Los_Angeles',days:['mon','tue','wed','thu','fri'],start:'07:00',end:'17:00'},source:'override'});
+  assert.deepEqual(r.meetingHoursFor('sanjay@luminai.com'),{hours:{timezone:'America/Los_Angeles',days:['mon','tue','wed','thu','fri'],start:'09:00',end:'17:00'},source:'override'});
 });
 
 test('debrief ids and the candidate\'s LinkedIn come from Ashby, and are never guessed',async()=>{

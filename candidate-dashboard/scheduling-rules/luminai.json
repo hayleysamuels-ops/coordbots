@@ -3,7 +3,7 @@
   "$comment": "Reproduces candidate-dashboard on feature/client-ashby-connection as of 2026-09-22, plus revision 2's assumed 9–5 Pacific meeting hours and interviewer attendance. The dashboard reads this file at runtime.",
   "schemaVersion": 2,
   "clientId": "luminai",
-  "rulesRevision": 13,
+  "rulesRevision": 14,
 
   "trial": {
     "stageTitleContains": null,
@@ -60,13 +60,13 @@
     "reason": "Load wins past a gap of two: among the people free for a session, anyone with two or more interviews that Monday-to-Sunday Pacific week more than the lightest is passed over, even against the preference order, and the post names who was suggested over whom with both counts (revision 12, November 5). Only sessions the person gives feedback on count, so hosting Welcome doesn't (the Grace case); Lunch never counts, though Ashby sometimes marks its feedback required. A last resort is never brought forward by load." },
 
   "meetingHours": {
-    "$comment": "Assumed, not collected from interviewers. Luminai is San Francisco-based; the default's weekdays are an assumption too. Overrides added 2026-09-29 (revision 3); Sanjay Saraf's 07:00–17:00 Pacific added 2026-10-03 (revision 6), weekdays assumed. The other eight video interviewers under attendance still inherit the Pacific default, which is wrong for them; their hours are still to come.",
+    "$comment": "Assumed, not collected from interviewers. Luminai is San Francisco-based; the default's weekdays are an assumption too. Overrides added 2026-09-29 (revision 3); Sanjay Saraf's override added 2026-10-03 (revision 6) as 07:00–17:00 Pacific, weekdays assumed; narrowed to 09:00–17:00 on 2026-11-12 (revision 14), since no override starts before 09:00 unless the interviewer has confirmed it. The other eight video interviewers under attendance still inherit the Pacific default, which is wrong for them; their hours are still to come.",
     "default": { "timezone": "America/Los_Angeles", "days": ["mon", "tue", "wed", "thu", "fri"], "start": "09:00", "end": "17:00" },
     "overrides": {
       "aggelos@luminai.com": { "timezone": "Europe/Athens", "days": ["mon", "tue", "wed", "thu", "fri"], "start": "19:00", "end": "22:00" },
       "alex.mavrogiannis@luminai.com": { "timezone": "Europe/Athens", "days": ["mon", "tue", "wed", "thu", "fri"], "start": "19:00", "end": "22:00" },
       "mary@luminai.com": { "timezone": "America/New_York", "days": ["mon", "tue", "wed", "thu", "fri"], "start": "09:00", "end": "17:00" },
-      "sanjay@luminai.com": { "timezone": "America/Los_Angeles", "days": ["mon", "tue", "wed", "thu", "fri"], "start": "07:00", "end": "17:00" }
+      "sanjay@luminai.com": { "timezone": "America/Los_Angeles", "days": ["mon", "tue", "wed", "thu", "fri"], "start": "09:00", "end": "17:00" }
     }
   },
 

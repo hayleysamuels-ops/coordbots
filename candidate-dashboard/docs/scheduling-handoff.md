@@ -363,8 +363,10 @@ done and verified, in this order:
     debrief after the onsite is confirmed isn't built yet; it would need a
     confirmed-onsite signal (the schedule reaching `Scheduled` in Ashby). No
     open Luminai job has a debrief in its plan today.
-  - **Meeting hours:** Sanjay Saraf (sanjay@luminai.com) 07:00–17:00 Pacific,
-    weekdays assumed. Shawn Greenspan's are still to come.
+  - **Meeting hours:** Sanjay Saraf (sanjay@luminai.com) 09:00–17:00 Pacific,
+    weekdays assumed. It was 07:00–17:00 until revision 14 (2026-11-12): no
+    override starts before 09:00 unless the interviewer has confirmed it.
+    Shawn Greenspan's are still to come.
   - **Post format.** Calendar-checked posts now follow the SOP:
     - the instruction line, then the candidate and role;
     - "LinkedIn - Ashby", with LinkedIn taken from the candidate's Ashby profile
