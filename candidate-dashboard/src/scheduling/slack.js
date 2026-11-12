@@ -153,6 +153,18 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       text: { type: "mrkdwn", text: sends(plan) ? sendText(plan) : "With the Ashby check on, this schedule is then composed in Ashby, stopping before Send; otherwise, book it by hand. *Nothing is sent automatically:* no invitations or candidate email go out until someone clicks Send in Ashby.\n\nOnly approve a schedule you mean to book." },
       confirm: { type: "plain_text", text: "Approve" }, deny: { type: "plain_text", text: "Cancel" } } }, ...(suggestable(plan) ? suggestControls(proposalId, draftDigest, plan) : [])] });
 
+  // A post closed because of what Ashby shows (post-watch.js, service.closeFromAshby).
+  const shortDay = iso => new Intl.DateTimeFormat("en-US", { timeZone: displayTimeZone, weekday: "short", month: "short", day: "numeric" }).format(new Date(iso));
+  const closedInAshbyText = c => {
+    const seen = `(seen ${escape(when(c.at))})`, nothing = "Nothing from this message was booked or sent by the bot.";
+    if (c.kind === "booked") {
+      const events = (c.events || []).map(e => `${escape(shortDay(e.start))}, ${escape(clock(displayTimeZone, e))}${e.interviewers?.length ? ` with ${e.interviewers.map(escape).join(" and ")}` : ""}`);
+      return `*Booked in Ashby${c.by ? ` by ${escape(c.by)}` : ""}* ${seen}${events.length ? `: ${events.join("; ")}` : ""}. This option wasn't used, so it can no longer be scheduled or replaced from here. ${nothing}`;
+    }
+    if (c.kind === "cancelled") return `*Cancelled in Ashby* ${seen}: this interview request was cancelled, so this option no longer applies. ${nothing} If the candidate still needs this interview, send them a new availability request in Ashby.`;
+    if (c.kind === "inactive") return `*No longer active in Ashby* ${seen}: the candidate's application is ${escape(String(c.status || "not active").toLowerCase())}, so this option no longer applies. ${nothing}`;
+    return `*Moved on in Ashby* ${seen}: the candidate is now in another stage, so this option no longer applies. ${nothing} Schedule the new stage from its own request.`;
+  };
   const expiredText = e => `Expired at ${when(e.at)}: the first session (${when(e.firstStart)}) passed without approval, so this option can no longer be scheduled or replaced from here. Nothing from this message was booked or sent by the bot. ${e.presses || "Whether anyone pressed anything wasn't recorded."} Whether it was booked in Ashby some other way isn't known to the bot.`;
   const when = at => new Intl.DateTimeFormat("en-US", { timeZone: displayTimeZone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(at));
   // Where a left draft is, and how to delete one by hand: never "Delete
@@ -198,7 +210,9 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       case "superseded": return `*Superseded* at ${escape(when(check.supersededAt))} by a later approval for this schedule${check.draftDeleted ? "; its draft was deleted" : ""}. Nothing from this message was sent.`;
       case "refused": return `*The Ashby check stopped*${check.step ? ` at "${escape(check.step)}"` : ""}: ${escape(check.reason || "no reason was given")}\nNothing was sent. ${!check.draftId ? "No draft was made." : check.cleanup?.deleted ? "The draft it made was deleted." : check.cleanup?.absent ? "The draft it made is no longer in Ashby." : `The draft it made may still be in Ashby. ${deleteByHand(plan, check)}`} ${byHand}`;
       case "availability_changed": return `*Not checked or booked in Ashby:* ${escape(check.reason)}. Nothing was made in Ashby and nothing was sent. Post a fresh option from the candidate's current availability.`;
-      case "not_started": return `*The Ashby check didn't start:* ${escape(check.reason)} Nothing was sent and no draft was made. ${byHand}`;
+      // A request that isn't pending says what to do itself; "book this by
+      // hand" would be wrong for one already booked (ashby-check.js).
+      case "not_started": return `*The Ashby check didn't start:* ${escape(check.reason)} Nothing was sent and no draft was made.${check.notPending ? "" : ` ${byHand}`}`;
       case "booked_invites_pending": return emailWarning(check) + `⚠️ *Booked, but the invitations were not sent.* Schedule was clicked once${check.attemptedAt ? ` at ${escape(when(check.attemptedAt))}` : ""} and Ashby shows ${scheduleName(plan)} as Scheduled${check.differences?.length ? ` (differing from this approval: ${escape(check.differences.join("; "))})` : ", matching this approval"}, with its invites *pending*. Send them by hand from the schedule's page in Ashby ("Send to Candidate" and "Send to Interviewers"); nothing will be retried.`;
       case "booked_invites_unknown": return emailWarning(check) + `⚠️ *Booked; whether the invitations went out is unknown.* Ashby shows ${scheduleName(plan)} as Scheduled${check.differences?.length ? ` (differing from this approval: ${escape(check.differences.join("; "))})` : ", matching this approval"}, but its page didn't show the invites as sent. Check it in Ashby, and send them by hand if they're pending; nothing will be retried.`;
       case "send_uncertain": return `⚠️ *The send may have gone:* Schedule was clicked once${check.attemptedAt ? ` at ${escape(when(check.attemptedAt))}` : ""} (${escape(check.reason || "Ashby's answer wasn't a clear acceptance")}), and Ashby doesn't show the schedule as Scheduled yet. Check ${scheduleIn(plan)}: if it isn't Scheduled, book it by hand. Nothing will be retried.`;
@@ -305,9 +319,10 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
       { type: "section", text: mrkdwn(`*Interview Schedule${clashes ? " — needs attention" : ""}*`) },
       ...sections.map(t => ({ type: "section", text: mrkdwn(t) })),
       checklist,
-      { type: "context", elements: [mrkdwn(smallPrint(plan, { proposalId, approver }, approval))] },
+      { type: "context", elements: [mrkdwn(smallPrint(plan, { proposalId, approver }, approval || (replaced?.kind === "closed_in_ashby" && replaced.closed.kind === "booked")))] },
     ];
     if (replaced?.kind === "expired") blocks.push({ type: "section", text: mrkdwn(escape(expiredText(replaced))) });
+    else if (replaced?.kind === "closed_in_ashby") blocks.push({ type: "section", text: mrkdwn(closedInAshbyText(replaced.closed)) });
     else if (replaced) blocks.push({ type: "section", text: mrkdwn(replaced.kind === "resubmitted"
       ? `*Replaced* at ${escape(when(replaced.at))}: the candidate submitted new availability, so this option no longer applies${replaced.withDraft ? ", and a new option was posted below" : "; no new option was posted automatically"}. Nothing from this message was booked or sent.`
       : `*Replaced* at ${escape(when(replaced.at))}: ${escape(replaced.by)} asked ${replaced.kind === "amend" ? `to ${escape(replaced.change || "change it")}` : `for ${replaced.kind === "time" ? "another time" : `a different interviewer for session ${replaced.session + 1}`}`}, and a new option was posted below. Nothing from this message was booked or sent.`) });
@@ -364,6 +379,18 @@ function createSlack(token, request = fetch, { displayTimeZone = "America/New_Yo
     const problems = blockProblems(payload);
     if (problems.length) throw invalid(problems);
     const { ok, body } = await api("chat.update", { channel, ts, ...payload });
+    if (!ok || body.ok !== true) throw new Error(`The Slack message couldn't be updated${body.error ? ` (${body.error})` : ""}`);
+  };
+  // A post closed because Ashby shows its request booked, cancelled or left
+  // behind (row.closedInAshby, post-watch.js): its buttons gone, and what
+  // Ashby showed.
+  send.markClosedInAshby = async ({ channel, ts, row }) => {
+    const c = row.closedInAshby;
+    const { blocks } = await calendarChecked(row.plan, { proposalId: row.id, approver: row.discussionApproval?.by || "a coordinator" }, null, null, { kind: "closed_in_ashby", closed: c });
+    const text = `Interview schedule for ${row.plan.candidateName} · ${row.plan.jobTitle}: ${{ booked: "booked in Ashby", cancelled: "cancelled in Ashby", inactive: "no longer active in Ashby", stage: "moved to another stage in Ashby" }[c.kind] || "closed"}; this option wasn't used.`;
+    const problems = blockProblems({ text, blocks });
+    if (problems.length) throw invalid(problems);
+    const { ok, body } = await api("chat.update", { channel, ts, blocks, text });
     if (!ok || body.ok !== true) throw new Error(`The Slack message couldn't be updated${body.error ? ` (${body.error})` : ""}`);
   };
   // A post withdrawn for a Slack suggestion (row.replaced): shown as replaced,

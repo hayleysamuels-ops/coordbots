@@ -190,6 +190,17 @@ test("the Slack message says what's true in every state, and never that somethin
   }
 });
 
+test("a request that isn't pending: the post says what happened and never asks for it to be booked by hand", async () => {
+  const calls = [];
+  const slack = createSlack("x", async (url, o) => { calls.push(JSON.parse(o.body)); return { ok: true, json: async () => ({ ok: true }) }; }, { displayTimeZone: "America/Los_Angeles", interactive: true });
+  const at = "2099-10-14T22:00:00Z";
+  const render = async check => { calls.length = 0; await slack.markApproved({ channel: "C1", ts: "1.2", keepDetail: true, row: { id: "d1", plan: { candidateName: "TEST", jobTitle: "TEST", bookingPlan, sessions: [], notes: "" }, slackApproval: { email: "anna@carrara.is", name: "Anna Jones", at }, ashbyCheck: { at, ...check } } }); return calls[0].blocks.map(b => b.text?.text || "").join("\n"); };
+  const booked = await render({ state: "not_started", notPending: "booked", reason: "This interview has already been booked in Ashby (its status there is Scheduled), so this approval wasn't composed and nothing was made in Ashby. Check the booked time in Ashby, and change it there if it needs changing." });
+  assert.match(booked, /didn't start:\* This interview has already been booked in Ashby .* Nothing was sent and no draft was made\.$/m);
+  assert.doesNotMatch(booked, /by hand/);
+  assert.match(await render({ state: "not_started", reason: "Ashby is busy." }), /Not booked:\* book this schedule in Ashby by hand/, "any other reason still asks for it");
+});
+
 test("a posted option carries the check's plan: the activity holding its interviews, in the candidate's zone", () => {
   const fullPlan = { jobId: "837cc1e9-15ed-4f07-8755-51ee29f4ea39", candidateId: "fc88f24e-d59b-4e58-aa51-f0e94b1a32da", applicationId: "8dfd8f14-83c4-41f8-aaf1-416b75cb0892", scheduleId: SCHED,
     candidateName: "TEST", candidateEmail: "HayleySamuels511@gmail.com", jobTitle: "TEST", stageTitle: "First Round",
@@ -444,6 +455,10 @@ test("availability: any doubt starts nothing", async () => {
   const run = async (r, availability) => { const s = setup({ rows: [r], compose: composed, availability }); await s.check.start((await s.store.list())[0]); await s.check.idle(); return { c: s.store.data[r.id].ashbyCheck, calls: s.calls }; };
   let out = await run(fromSubmission("d1"), reader(Object.assign(new Error("That availability request is no longer pending in the candidate's current stage."), { status: 409 })));
   assert.equal(out.c.state, "not_started");assert.match(out.c.reason, /couldn't be read to confirm it's unchanged: That availability request is no longer pending/);assert.equal(out.calls.length, 0);
+  // Booked by hand in Ashby after the post (availability-source.js load()): said as such, not as unreadable.
+  out = await run(fromSubmission("d4"), reader(Object.assign(new Error("worded for a rebuild"), { status: 409, notPending: { kind: "booked", status: "Scheduled" } })));
+  assert.equal(out.c.state, "not_started");assert.equal(out.c.notPending, "booked");assert.equal(out.calls.length, 0);
+  assert.equal(out.c.reason, "This interview has already been booked in Ashby (its status there is Scheduled), so this approval wasn't composed and nothing was made in Ashby. Check the booked time in Ashby, and change it there if it needs changing.");
   // Posted from the candidate's submission before posts recorded it.
   out = await run(row("d2", { plan: { ...row("d2").plan, timezoneSource: "candidate_submitted" } }), reader({ timezone: "America/Los_Angeles", windows: postedWindows }));
   assert.equal(out.c.state, "not_started");assert.match(out.c.reason, /posted before posts recorded/);assert.equal(out.calls.length, 0);

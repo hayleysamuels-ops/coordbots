@@ -40,7 +40,7 @@ function bookingRoutes({ engine, store, clientId, discussion = null, rules = nul
     const plan=await facts.application(req.body.applicationId);
     const pending=await availability.requests(plan.applicationId);
     const request=pending.requests.find(r=>r.scheduleId===req.body.scheduleId);
-    if(!request||pending.stageId!==plan.stageId)throw Object.assign(Error('Choose a current pending schedule for this stage.'),{status:409});
+    if(!request||pending.stageId!==plan.stageId)throw Object.assign(Error(require('./availability-source').notPending(pending,req.body.scheduleId,plan.stageId)),{status:409});
     // This job's alternatives (scheduling-rules sessions.alternatives): the
     // worker accepts a template keeping one of each, and says which it left out.
     const alternatives=rules?.get().alternativesFor?.(plan.jobId)||[];

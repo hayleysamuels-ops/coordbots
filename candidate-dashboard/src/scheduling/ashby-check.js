@@ -55,6 +55,7 @@ function compareBooked(plan, booked) {
 }
 
 const { availabilityChange } = require("./availability-gate");
+const { notPendingText } = require("./availability-source");
 const { confirmedSend } = require("./slack");
 const { blocksRepost } = require("./store");
 const crypto = require("crypto");
@@ -140,7 +141,13 @@ function createAshbyCheck({ store, worker, facts, slackApi, clientId, availabili
     if (!availability) return { state: "not_started", reason: "The candidate's availability can't be read here, so it couldn't be confirmed unchanged." };
     let current;
     try { current = await availability.load({ applicationId: plan.bookingPlan.applicationId, scheduleId: posted.scheduleId }); }
-    catch (e) { return { state: "not_started", reason: `The candidate's availability couldn't be read to confirm it's unchanged: ${String(e.message || "no reason given").replace(/\.?$/, ".")}` }; }
+    catch (e) {
+      // The request isn't pending any more (booked by hand, cancelled, moved
+      // on): say what happened and what to do, not that it couldn't be read.
+      // `notPending` keeps slack.js from adding "book this by hand".
+      if (e.notPending) return { state: "not_started", reason: notPendingText(e.notPending, "approval"), notPending: e.notPending.kind };
+      return { state: "not_started", reason: `The candidate's availability couldn't be read to confirm it's unchanged: ${String(e.message || "no reason given").replace(/\.?$/, ".")}` };
+    }
     const change = availabilityChange(posted, current, now());
     if (change) log.warn(`[ashby-check] ${row.id}: not composed, ${change}.`);
     return change ? { state: "availability_changed", reason: change } : null;
