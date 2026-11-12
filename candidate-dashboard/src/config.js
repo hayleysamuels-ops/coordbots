@@ -131,6 +131,9 @@ const config = {
   // "on" posts it, "log" writes it to the log only; anything else is off.
   // Closing open Slack posts whose first session has passed (scheduling/post-expiry.js): exactly "on".
   schedulingPostExpiry: process.env.SCHEDULING_POST_EXPIRY === "on",
+  // Closing open Slack posts whose interview request Ashby shows booked,
+  // cancelled or left behind (scheduling/post-watch.js): exactly "on".
+  schedulingPostWatch: process.env.SCHEDULING_POST_WATCH === "on",
   // Two-person panels (scheduling/panel.js): "on" proposes them for every
   // job, "test" for TEST's application only; anything else refuses them as
   // needing a person, as before they were built.

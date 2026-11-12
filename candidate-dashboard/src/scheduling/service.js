@@ -21,6 +21,13 @@ function text(value, label, max = 200) {
   if (typeof value !== "string" || !value.trim() || value.length > max) fail(400, "Provide " + label);
   return value.trim();
 }
+// A press on a post closed by post-watch.js: what Ashby showed, and what to do.
+const CLOSED_IN_ASHBY = {
+  booked: "This interview has already been booked in Ashby, so this option is closed and there's nothing to schedule or replace. Check the booked time in Ashby.",
+  cancelled: "This interview request was cancelled in Ashby, so this option is closed. If the candidate still needs this interview, send them a new availability request in Ashby.",
+  inactive: "The candidate's application is no longer active in Ashby, so this option is closed.",
+  stage: "The candidate has moved to another stage in Ashby, so this option is closed. Schedule the new stage from its own request.",
+};
 // Whether Slack can rebuild a post (its suggestion buttons show, and an
 // @mention amend is accepted): built from the candidate's submitted
 // availability with an Ashby plan. Typed-in times and posts without a plan
@@ -50,6 +57,7 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
     if (!row || row.clientId !== clientId) fail(404, "This schedule's draft wasn't found.");
     if (row.state === "discussion_approved") already(row);
     if (row.state === "rejected" && row.replaced) fail(409, `This option was replaced by another suggestion (asked by ${row.replaced.by}). Use the newer post.`);
+    if (row.state === "rejected" && row.closedInAshby) fail(409, CLOSED_IN_ASHBY[row.closedInAshby.kind] || "This option was closed because of a change in Ashby.");
     if (row.state !== "shared" || row.plan.format !== "calendar_checked") fail(409, `This draft can't be ${what} from Slack.`);
     if (row.digest !== posted || digest(row.plan) !== row.digest) fail(409, "The draft changed after it was posted.");
     const { channelId } = destination(row.plan.candidateId);
@@ -331,6 +339,15 @@ function createService({ store, candidates, clientId, channelId, channelName, ca
       if (row?.clientId !== clientId || row.state !== "shared" || !(Date.parse(row.plan.sessions[0].start) <= Date.parse(at))) return null;
       return transition(row, "rejected", { expired: { at, firstStart: row.plan.sessions[0].start, ...(presses ? { presses: String(presses).slice(0, 1500) } : {}) },
         audit: [...row.audit, { action: "expired", at }] }).catch(() => null);
+    },
+    // An open post whose interview request Ashby shows booked, cancelled or
+    // left behind (post-watch.js): rejected with `closedInAshby` (what Ashby
+    // showed, at `at`), revision-checked, so one approved meanwhile is left
+    // alone. Never blocks a repost (store.js blocksRepost).
+    async closeFromAshby(row, { at = new Date().toISOString(), kind, status = null, by = null, events = [] } = {}) {
+      if (row?.clientId !== clientId || row.state !== "shared" || !["booked", "cancelled", "inactive", "stage"].includes(kind)) return null;
+      return transition(row, "rejected", { closedInAshby: { at, kind, ...(status ? { status } : {}), ...(by ? { by } : {}), ...(kind === "booked" ? { events } : {}) },
+        audit: [...row.audit, { action: "closed_in_ashby", kind, at }] }).catch(() => null);
     },
     // The replacement's draft ID, on the withdrawn post, once it's posted.
     async recordReplacement(oldId, newId) {

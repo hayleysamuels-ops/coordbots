@@ -1133,6 +1133,36 @@ such posts were found on November 2, five from before go-live (October 30).
   replies can't be read (the bot has no history scope), and amend @mentions
   aren't recorded.
 
+## Watching Ashby for open posts (November 12, 2026; off until SCHEDULING_POST_WATCH is "on")
+
+With most roles booked by hand in Ashby, an open post's interview request is
+often booked there while the post still offers Schedule and says "Nothing has
+been booked" (Yash Baldawa, November 12: Anna booked 9:00 by hand eleven
+minutes after the bot posted 7:00; "Suggest another time" then refused with
+"Choose a current pending schedule for this stage").
+
+- **The sweep** (`src/scheduling/post-watch.js`), every five minutes: each
+  open calendar-checked post whose first session is still ahead has its
+  request read from Ashby's API (`availability-source.js scheduleState`:
+  `application.info` and `interviewSchedule.list`, no browser). It's closed
+  (`service.closeFromAshby`: `rejected` with `closedInAshby: { at, kind, … }`,
+  revision-checked, never blocking a repost) when Ashby shows, in this order:
+  `booked` (Scheduled, WaitingOnFeedback or Complete, with who booked it and
+  the booked times and interviewers), `cancelled`, `inactive` (the
+  application isn't Active) or `stage` (the candidate has moved stage).
+  Anything else, a read that fails included, leaves it open.
+- **The message** (`slack.js markClosedInAshby`) loses its buttons and says
+  what Ashby showed, e.g. "*Booked in Ashby by Anna Jones* (seen …): Tue,
+  Nov 17, 9:00 AM – 9:30 AM (PST) with Sanjay Saraf. This option wasn't
+  used…". A booked post's small print drops "Nothing has been booked".
+- **A press** on a closed post is refused with the same cause (`postedRow`). A
+  press in the five minutes before the sweep sees it is answered by the
+  press's own check: Suggest another time and Schedule both name the cause
+  (`availability-source.js notPendingText`), and Schedule no longer says
+  "book this schedule in Ashby by hand" for a request already booked.
+- **The digest** counts posts closed as booked by hand since the last one, on
+  its "Since …" line, only when there are any.
+
 ## Daily digest (November 2, 2026; off until SCHEDULING_DIGEST is "on" or "log")
 
 `src/scheduling/digest.js`. Every weekday at 8am Pacific, one post in the

@@ -246,11 +246,13 @@ async function buildDigest({ now, zone = ZONE, since, sinceDigest, clientId, row
   const posted = rows.filter(r => { const ms = Number(r.slack?.ts) * 1000; return ms >= since && ms <= now; }).length;
   const booked = rows.filter(r => (r.audit || []).some(a => BOOKED.has(a.action) && inWindow(a.at))).length;
   const drafted = rows.filter(r => (r.audit || []).some(a => a.action === "ashby_check_composed" && inWindow(a.at))).length;
+  // Open posts closed because Ashby showed them booked by someone else (post-watch.js).
+  const byHand = rows.filter(r => r.closedInAshby?.kind === "booked" && inWindow(r.closedInAshby.at)).length;
   const failures = failureSummary(events.filter(e => e.kind !== "needs_person"), state);
 
   return { now, zone, since, sinceDigest, problems, readyAsOf, autoPost,
     person, open, expired, composed, unposted, old, offList, jobsKnown: !!jobs,
-    numbers: { posted, booked, drafted, failures } };
+    numbers: { posted, booked, drafted, byHand, failures } };
 }
 
 // What auto-post last did with an eligible submission nobody has posted.
@@ -319,7 +321,7 @@ function renderDigest(d) {
     : [f.total ? `${f.total} for ${f.people.length} candidate${f.people.length === 1 ? "" : "s"} (${statusText([...new Set(f.people.flatMap(p => p.statuses))].sort())})` : null,
       f.rounds ? `${f.rounds} whole round${f.rounds === 1 ? "" : "s"}` : null].filter(Boolean).join("; ");
   const window = d.sinceDigest ? `Since ${new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "long" }).format(d.since)}'s digest` : `Since ${when(d.since, zone)}`;
-  lines.push(`• ${window}: ${d.numbers.posted} posted, ${d.numbers.booked} booked through the bot, ${d.numbers.drafted} draft${d.numbers.drafted === 1 ? "" : "s"} composed; auto-post failures: ${failText}`);
+  lines.push(`• ${window}: ${d.numbers.posted} posted, ${d.numbers.booked} booked through the bot, ${d.numbers.byHand ? `${d.numbers.byHand} post${d.numbers.byHand === 1 ? "" : "s"} closed as booked in Ashby by hand, ` : ""}${d.numbers.drafted} draft${d.numbers.drafted === 1 ? "" : "s"} composed; auto-post failures: ${failText}`);
   if (d.problems.length) lines.push(`Couldn't check: ${d.problems.join("; ")}.`);
   if (d.readyAsOf) lines.push(d.readyAsOf);
 

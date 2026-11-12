@@ -341,3 +341,12 @@ test("an approval whose Ashby check didn't finish is under Needs a person: a dra
     sessions: [{ start: "2026-11-05T18:00:00Z" }], bookingPlan: { interviewScheduleId: "s-ella" } } });
   assert.equal((await buildDigest({ ...quiet, rows: [unfinished(), fresh], snapshot: sheet })).person.length, 0);
 });
+
+test("posts closed as booked by hand in Ashby (post-watch.js) are counted since the last digest, and aren't waiting for approval", async () => {
+  const closed = (id, name, kind, at) => post(id, name, "2026-11-05T17:00:00Z", { state: "rejected", closedInAshby: { at, kind } });
+  const d = await buildDigest({ ...quiet, rows: [closed("h1", "Sam Wu", "booked", "2026-11-01T18:00:00Z"), closed("h2", "Rachel Lo", "booked", "2026-11-02T15:00:00Z"),
+    closed("old", "Pat Doe", "booked", "2026-10-29T18:00:00Z"), closed("c1", "Emma Smith", "cancelled", "2026-11-01T18:00:00Z")] });
+  const { text } = renderDigest(d);
+  assert.match(text, /• Waiting for approval: none/);
+  assert.match(text, /• Since Friday's digest: 4 posted, 0 booked through the bot, 2 posts closed as booked in Ashby by hand, 0 drafts composed; auto-post failures: none/);
+});

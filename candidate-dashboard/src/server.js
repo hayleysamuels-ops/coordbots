@@ -250,6 +250,10 @@ function createServer() {
     if (scheduling.slackApi && slackConfig.schedulingPostExpiry) require("./scheduling/post-expiry").createPostExpiry({ service: scheduling, store: scheduling.store,
       slackApi: scheduling.slackApi, presses, clientId: connectionConfig.schedulingClientId }).start();
     else console.log("[expiry] off (SCHEDULING_POST_EXPIRY isn't \"on\")");
+    // Watching Ashby for open posts (post-watch.js): off unless SCHEDULING_POST_WATCH is exactly "on".
+    if (scheduling.slackApi && slackConfig.schedulingPostWatch) require("./scheduling/post-watch").createPostWatch({ service: scheduling, store: scheduling.store,
+      slackApi: scheduling.slackApi, availability: availabilitySource, clientId: connectionConfig.schedulingClientId }).start();
+    else console.log("[post-watch] off (SCHEDULING_POST_WATCH isn't \"on\")");
     // The weekday digest (digest.js): off unless SCHEDULING_DIGEST is "on" or "log".
     if (scheduling.slackApi && slackConfig.schedulingChannelId) require("./scheduling/digest").createDigest({ mode: slackConfig.schedulingDigest,
       dataDir: connectionConfig.dataDir, clientId: connectionConfig.schedulingClientId, channelId: slackConfig.schedulingChannelId,
