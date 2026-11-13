@@ -1163,6 +1163,50 @@ minutes after the bot posted 7:00; "Suggest another time" then refused with
 - **The digest** counts posts closed as booked by hand since the last one, on
   its "Since …" line, only when there are any.
 
+## Scheduling audit (November 12, 2026; weekly run off until SCHEDULING_AUDIT is "on" or "log")
+
+On November 11 the job lists named stages Ashby no longer had (FDE's "Agency
+Recruiter Screen", Executive Director's "Hiring Manager Screen" and two
+more), and nothing said so: the bot just stopped composing for them. Found by
+accident. `src/scheduling/audit.js` reads a client's Ashby once (open jobs,
+their plans, interviews, users, 90 days of schedules) and reports in three
+parts:
+
+- **Drifted since configured** (the main event): the worker's
+  `BOOKING_COMPOSE_JOBS` / `BOOKING_SEND_JOBS` naming a stage not in the plan,
+  a job that isn't open, or a send list wider than compose (judged with the
+  worker's own `jobList` / `jobAllows`); the rules file's alternatives,
+  preferred interviewers, start windows and not-counted rules matching no
+  interview (with rules.js's own `sessionMatches` / `alternativeKey`, exposed
+  with `entries` for this); preferred people and hours, attendance and
+  account overrides for someone deactivated or without an account; and stage,
+  activity and interview renames since the last run's snapshot (Ashby keeps no
+  rename history). Run against the November 11 lists it reports all of those.
+- **Blocking for onboarding:** two activities sharing a name in a stage (the
+  composer finds the card by name), and interviews usually staffed above
+  `MAX_PANEL` — *observed* people per event, since slots are only on the
+  template page, which this doesn't read.
+- **Worth knowing:** likely alternatives (per candidate, so a two-day onsite
+  counts once), declared alternatives seen together, two-person panels, hosts
+  (on at least half the events without feedback), a preferred interviewer not
+  seen on the session in 90 days (eligibility is on the template page: check
+  it), near-duplicate spellings, stray whitespace, stage names likely to churn,
+  open jobs not on the compose list.
+
+**By hand:** `railway run -- node scripts/scheduling-audit.js` in the
+client's project (`--lists=<file>` with the worker's two lines, since they're
+the worker service's variables; `--snapshot=<file>` for renames; `--json`).
+With nothing configured it's the onboarding view. Exits 1 on drift or a
+blocker.
+
+**Weekly** (`src/scheduling/audit-watch.js`, `SCHEDULING_AUDIT`): Mondays from
+9am Pacific, against the loaded rules and the worker's parsed lists
+(`booking-settings`). "on" posts the drift lines in the channel, only when
+there are some, marking last week's as "still"; "log" logs the full report.
+Lists the worker can't give are posted as unchecked; three failed Ashby reads
+in a week are posted once. State, including the snapshot, is in
+`<DATA_DIR>/scheduling-audit.json`; renames are found from the second week.
+
 ## Daily digest (November 2, 2026; off until SCHEDULING_DIGEST is "on" or "log")
 
 `src/scheduling/digest.js`. Every weekday at 8am Pacific, one post in the

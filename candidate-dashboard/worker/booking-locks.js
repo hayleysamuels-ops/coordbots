@@ -3,6 +3,10 @@
 // and the Slack-approved check (booking-compose.js): the opted-in jobs, and
 // the plan checks made before a session is read or a browser starts.
 const NOTICE_MINUTES=15;
+// Parsing and matching the lists lives in job-lists.js, which loads nothing,
+// so the dashboard's audit (src/scheduling/audit.js) can read the lists as
+// the worker does without loading anything of the robot's.
+const {jobList,jobAllows,isUuid,isText}=require('./job-lists');
 
 // Which jobs the robot may compose for, and which it may also send for: the
 // worker's BOOKING_COMPOSE_JOBS and BOOKING_SEND_JOBS (Hayley, 2026-10-27:
@@ -17,25 +21,6 @@ const NOTICE_MINUTES=15;
 // October 27 these were per-schedule lists in this file, which took a commit
 // and a deploy to change; the send gate (send-gate.js) now reads Ashby again
 // before every Send instead.
-function jobList(env,name){
-  const raw=String(env?.[name]??'').trim();
-  if(!raw)return {jobs:{}};
-  let v;try{v=JSON.parse(raw);}catch(_){return {problem:`${name} isn't valid JSON.`};}
-  if(!v||typeof v!=='object'||Array.isArray(v))return {problem:`${name} must be a JSON object of job IDs.`};
-  const jobs={};
-  for(const [jobId,stages] of Object.entries(v)){
-    if(!isUuid(jobId))return {problem:`${name} has a key that isn't a job ID (${String(jobId).slice(0,40)}).`};
-    if(stages==='all'){jobs[jobId.toLowerCase()]='all';continue;}
-    if(!Array.isArray(stages)||!stages.length||!stages.every(isText))return {problem:`${name} must give each job "all" or a list of stage titles.`};
-    jobs[jobId.toLowerCase()]=stages.map(t=>t.trim().toLowerCase());
-  }
-  return {jobs};
-}
-// Whether a list allows this job and stage.
-function jobAllows(jobs,jobId,stageTitle){
-  const stages=jobs[String(jobId||'').toLowerCase()];
-  return stages==='all'||(Array.isArray(stages)&&stages.includes(String(stageTitle||'').trim().toLowerCase()));
-}
 // Why the plan's job and stage aren't on a list, or null.
 function jobBlocked(plan,env,name,what){
   const list=jobList(env,name);
@@ -72,8 +57,6 @@ function sendBlocked(plan,env){
 
 class Stop extends Error{constructor(message,code=2){super(message);this.code=code;}}
 const stop=(message,code)=>{throw new Stop(message,code);};
-const isUuid=v=>typeof v==='string'&&/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(v);
-const isText=v=>typeof v==='string'&&v.trim().length>0;
 const isInstant=v=>typeof v==='string'&&/T.*(?:Z|[+-]\d\d:\d\d)$/.test(v)&&Number.isFinite(Date.parse(v));
 
 // The plan must be complete, for a job and stage on BOOKING_COMPOSE_JOBS, and

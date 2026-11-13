@@ -181,6 +181,14 @@ is normally still in Application Review and any status).
   unlike `docs/`, a rules change must redeploy. It moved here from the repo root
   because Railway builds this directory only. `poetic.json` is kept for the
   tracker's future use; nothing here reads it.
+- `scripts/scheduling-audit.js` — read-only audit of a client's Ashby against
+  the scheduler (`src/scheduling/audit.js`): drift in the worker's job lists
+  and the rules file, onboarding blockers, and notes. Unlike the
+  compatibility script below it deliberately requires `src/` and the worker's
+  `job-lists.js` (the list parsing `booking-locks.js` uses, split out so the
+  dashboard never loads robot code), so it matches exactly as the scheduler
+  does. Weekly in
+  the dashboard with `SCHEDULING_AUDIT` (`audit-watch.js`). See the handoff.
 - `scripts/check-ashby-compatibility.js` — standalone, read-only pre-
   onboarding diagnostic for a new client's Ashby org (see § client-specific
   assumptions below and the script's own header comment). Zero dependency

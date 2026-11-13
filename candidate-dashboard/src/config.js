@@ -139,6 +139,10 @@ const config = {
   // needing a person, as before they were built.
   schedulingPanels: ["on", "test"].includes(process.env.SCHEDULING_PANELS) ? process.env.SCHEDULING_PANELS : "off",
   schedulingDigest: ["on", "log"].includes(process.env.SCHEDULING_DIGEST) ? process.env.SCHEDULING_DIGEST : "off",
+  // The weekly scheduling audit (scheduling/audit-watch.js): "on" posts in the
+  // channel when the job lists or rules have drifted from Ashby, "log" logs
+  // the report only; anything else is off.
+  schedulingAudit: ["on", "log"].includes(process.env.SCHEDULING_AUDIT) ? process.env.SCHEDULING_AUDIT : "off",
   schedulingAmend: process.env.SCHEDULING_AMEND === "on",
   // The model that reads those requests (amend-interpret.js), through
   // Anthropic's API. Only needed with SCHEDULING_AMEND on.

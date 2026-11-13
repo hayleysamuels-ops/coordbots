@@ -261,6 +261,10 @@ function createServer() {
       settings: () => bookingWorker.call("booking-settings"),
       stageTitle: async applicationId => (await bookingFacts.application(applicationId)).stageTitle,
       autoPost: { on: slackConfig.schedulingAutoPost, wide: slackConfig.schedulingAutoPostComposeJobs } }).start();
+    // The weekly scheduling audit (audit-watch.js): off unless SCHEDULING_AUDIT is "on" or "log".
+    if (scheduling.slackApi && slackConfig.schedulingChannelId) require("./scheduling/audit-watch").createAuditWatch({ mode: slackConfig.schedulingAudit,
+      apiKey: connectionConfig.ashbyApiKey, rules: schedulingRules, worker: () => bookingWorker.call("booking-settings"),
+      dataDir: connectionConfig.dataDir, channelId: slackConfig.schedulingChannelId, slackApi: scheduling.slackApi }).start();
     // The worker's booking settings (job lists, domains, cap), posted in the channel when they change.
     if (scheduling.slackApi && slackConfig.schedulingChannelId) require("./scheduling/booking-settings-watch").createBookingSettingsWatch({ worker: bookingWorker,
       dataDir: connectionConfig.dataDir, channelId: slackConfig.schedulingChannelId, slackApi: scheduling.slackApi, jobTitle: bookingFacts.jobTitle }).start();

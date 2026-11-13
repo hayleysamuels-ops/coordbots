@@ -123,6 +123,21 @@ function parseRules(doc, clientId) {
   const matches = (w, title) => w.match === "exact" ? norm(title) === norm(w.value) : norm(title).includes(norm(w.value));
   return {
     clientId, rulesRevision: doc.rulesRevision,
+    // Every rule that names something in Ashby (a job, a session, a person),
+    // as validated above, for the drift audit (audit.js) to check against
+    // Ashby with the matchers below rather than its own copies of them.
+    entries: {
+      alternatives: alternatives.map(a => ({ jobId: a.jobId, label: a.label.trim(), interviews: [...a.interviews] })),
+      preferredInterviewers: preferred.map(p => ({ match: p.match, value: p.value, ...(p.jobId ? { jobId: p.jobId } : {}), emails: [...(p.emails ?? [])], lastResort: [...(p.lastResort ?? [])] })),
+      placementWindows: placement.map(w => ({ match: w.match, value: w.value })),
+      notCounted: loadDoc ? loadDoc.notCounted.map(w => ({ match: w.match, value: w.value })) : [],
+      identities: Object.entries(identityDoc?.overrides || {}).map(([name, o]) => ({ name, email: o.email })),
+      hourOverrides: Object.keys(hourOverrides),
+      attendanceOverrides: Object.keys(overrides),
+    },
+    // Whether a session-name rule ({ match, value }) applies to this title, as
+    // preferenceFor, placementFor and loadCounts decide it.
+    sessionMatches: (rule, title) => matches(rule, title),
     agenda: { singleDay: doc.agenda.singleDay === true, minBreakMinutes, maxGapMinutes, maxGapCount, excludedWeekdays: ex ? { days: [...ex.days], timezone: ex.timezone, reason: ex.reason || null } : null },
     // This job's alternatives, as the template reader takes them: [] when none.
     alternativesFor: jobId => alternatives.filter(a => a.jobId === String(jobId || "").toLowerCase()).map(a => ({ label: a.label.trim(), titles: [...a.interviews] })),
