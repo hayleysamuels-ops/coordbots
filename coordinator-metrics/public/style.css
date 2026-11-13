@@ -1280,13 +1280,13 @@ details.data-quality .notice { margin-top: 12px; border-left-color: var(--border
    hidden inside a closed menu with nothing on screen to say so. */
 .tab-menu.is-selected-group { border-bottom-color: var(--tab-accent, var(--ember)); }
 
+/* Fixed, not absolute: .tabs scrolls horizontally, which clips it
+   vertically too, and an absolute list below the bar was cut off.
+   top/left are set from the trigger by placeEndedMenu() in app.js. */
 .tab-menu-list {
-  position: absolute;
-  top: 100%;
-  left: 0;
+  position: fixed;
   z-index: 20;
   min-width: 220px;
-  margin-top: 2px;
   padding: 4px;
   background: var(--surface);
   border: 1px solid var(--border);

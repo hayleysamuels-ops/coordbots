@@ -432,6 +432,15 @@ is the short list of things that look wrong and are not.
   invisible inside a closed menu. With no ended clients there is no
   dropdown at all.
 
+  The open list is `position: fixed`, placed from the trigger's
+  on-screen position by `placeEndedMenu()`, and closes on any scroll
+  or resize. That is deliberate: `.tabs` is `overflow-x: auto` for
+  narrow screens, which clips it vertically too, and the original
+  absolutely positioned list opened below the bar and was cut off — the
+  caret flipped and nothing appeared, from 3 to 13 November 2026.
+  Don't move it back to `absolute`, and don't drop the tab bar's
+  overflow to fix a clipping problem.
+
 - **A client is classified by WHO ACTUALLY BOOKS, not by what the
   contract says.** Pace and LiteLLM were onboarded 3 November 2026 as
   `carrara-scheduled` on the understanding that we coordinate there.

@@ -1768,6 +1768,7 @@ function renderTabs() {
   if (ended.length) children.push(endedMenu(ended));
 
   tabsEl.replaceChildren(...children);
+  placeEndedMenu();
 }
 
 /**
@@ -1789,7 +1790,13 @@ function endedMenu(ended) {
     "aria-selected": String(Boolean(selected)),
     onclick: (e) => {
       e.stopPropagation();
-      state.endedMenuOpen = !state.endedMenuOpen;
+      // Closing goes through the same path as an outside click, so the
+      // document listeners are removed rather than left bound.
+      if (state.endedMenuOpen && state.endedMenuClose) {
+        state.endedMenuClose();
+        return;
+      }
+      state.endedMenuOpen = true;
       renderTabs();
     },
   }, [
@@ -1828,22 +1835,52 @@ function endedMenu(ended) {
   if (open && !state.endedMenuBound) {
     // Bound once per open, and removed by the handler itself, so
     // repeated renders cannot stack listeners.
+    //
+    // The list is position: fixed at the trigger's on-screen position
+    // (see placeEndedMenu), so any scroll or resize would leave it
+    // floating away from the trigger. It closes instead. Scroll is
+    // captured so the tab bar's own horizontal scroll counts too.
     const close = () => {
       state.endedMenuOpen = false;
       state.endedMenuBound = false;
+      state.endedMenuClose = null;
       document.removeEventListener("click", close);
       document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
       renderTabs();
     };
     const onKey = (e) => {
       if (e.key === "Escape") close();
     };
     state.endedMenuBound = true;
+    state.endedMenuClose = close;
     document.addEventListener("click", close);
     document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
   }
 
   return wrap;
+}
+
+/**
+ * Pin the open ended-engagements list under its trigger.
+ *
+ * The tab bar is `overflow-x: auto` so it scrolls on narrow screens, and
+ * that makes it clip vertically too: an absolutely positioned list
+ * inside it opened below the bar and was cut off, so the trigger's caret
+ * flipped and nothing appeared. Fixed positioning takes the list out of
+ * the bar's clipping, at the cost of placing it by hand. Runs after the
+ * tab bar is in the DOM, because the trigger has no position before.
+ */
+function placeEndedMenu() {
+  const list = tabsEl.querySelector(".tab-menu-list");
+  if (!list) return;
+  const rect = list.previousElementSibling.getBoundingClientRect();
+  const maxLeft = window.innerWidth - list.offsetWidth - 8;
+  list.style.top = `${rect.bottom + 2}px`;
+  list.style.left = `${Math.max(8, Math.min(rect.left, maxLeft))}px`;
 }
 
 function applyAccent() {
