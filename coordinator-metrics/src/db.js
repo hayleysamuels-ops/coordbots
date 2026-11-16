@@ -372,6 +372,7 @@ function rescheduleTrackingSince(clientId) {
 
 module.exports = {
   db,
+  transaction,
   writeSchedulePage,
   writeApplicationPage,
   writeReference,

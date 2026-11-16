@@ -87,6 +87,21 @@ is the short list of things that look wrong and are not.
   A client-facing per-client view needs real per-user auth, and keeping the
   decision in one file is what makes that a contained change.
 
+- **Alerts exclude today and compare against a 4-week average.** The
+  current window is the last 7 *complete* days. Including today makes
+  every morning look like a collapse — the same reason charts fade.
+
+- **Alert turnaround counts unbooked schedules at their current age.** The
+  dashboard tile doesn't, and shouldn't. For an alert, leaving them out
+  hides exactly the slow requests the alert exists to catch.
+
+- **Overdue scorecards and waiting candidates alert from snapshots.**
+  Ashby has no history of either, so `alert_snapshots` builds one; they are
+  silent until 7 days of snapshots exist. Don't try to backfill them.
+
+- **Per-coordinator alerts are Slack-only by default.** The banner is seen
+  by everyone who can log in; a named person's slowdown shouldn't be.
+
 ## Conventions
 
 - No build step and no frontend framework, matching the sibling dashboards.

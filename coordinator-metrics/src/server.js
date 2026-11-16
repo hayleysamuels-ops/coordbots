@@ -7,6 +7,7 @@ const { basicAuth } = require("./auth");
 const metrics = require("./metrics");
 const sync = require("./sync");
 const store = require("./db");
+const alerts = require("./alerts");
 
 function createServer() {
   const app = express();
@@ -55,6 +56,17 @@ function createServer() {
     const payload = metrics.getClient(req.params.id);
     if (!payload) return res.status(503).json({ error: "Metrics have not been computed yet. The first sync may still be running." });
     res.json(payload);
+  });
+
+  // Active alerts for the banner. Per-coordinator alerts are left out
+  // unless ALERT_BANNER_SHOW_COORDINATORS=true — everyone who can log in
+  // sees the banner, and those go to the Slack DM instead.
+  app.get("/api/alerts", (req, res) => {
+    res.json({
+      thresholdPct: config.alerts.thresholdPct,
+      baselineWeeks: config.alerts.baselineWeeks,
+      alerts: alerts.activeAlerts({ includeCoordinators: config.alerts.bannerShowsCoordinators }),
+    });
   });
 
   // Sync health: what ran, when, and whether it worked. Surfaced in the UI

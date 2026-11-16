@@ -592,6 +592,10 @@ function rebuild() {
 
   cache.set("__overview__", computeOverview(payloads));
   console.log(`[metrics] rebuilt ${payloads.length} client payloads in ${Date.now() - t0}ms`);
+
+  // Alerts read the payloads just cached, so they run straight after.
+  // Required lazily: alerts.js requires this module.
+  require("./alerts").run();
 }
 
 function getClient(clientId) {

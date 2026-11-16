@@ -160,6 +160,43 @@ const config = {
   // own zone. An event starting outside these counts as out-of-hours.
   businessHourStart: number("BUSINESS_HOUR_START", 8),
   businessHourEnd: number("BUSINESS_HOUR_END", 18),
+
+  // --- Alerts (see README § Alerts) ---
+  alerts: {
+    // A metric fires when it moves at least this far from its 4-week
+    // average. Agreed at 15%.
+    thresholdPct: number("ALERT_THRESHOLD_PCT", 15),
+    baselineWeeks: number("ALERT_BASELINE_WEEKS", 4),
+    // Small numbers swing by big percentages: 6 interviews against an
+    // average of 5 is +20% and means nothing. A count alert also needs to
+    // move by at least ALERT_MIN_CHANGE, and a drop needs a baseline of at
+    // least ALERT_MIN_BASELINE to have fallen from.
+    minBaseline: number("ALERT_MIN_BASELINE", 5),
+    minChange: number("ALERT_MIN_CHANGE", 3),
+    // Turnaround needs this many waited schedules in each window.
+    minSample: number("ALERT_MIN_SAMPLE", 5),
+    // A scorecard counts as overdue this long after the interview ends.
+    feedbackOverdueHours: number("FEEDBACK_OVERDUE_HOURS", 48),
+    // An active candidate whose last interview ended this many days ago,
+    // with nothing booked since, is waiting on a next step.
+    nextStepWaitDays: number("NEXT_STEP_WAIT_DAYS", 5),
+    // Optional: only watch these schedulers for per-coordinator alerts
+    // (first or full names, comma-separated). Empty watches everyone who
+    // books enough to clear ALERT_MIN_BASELINE.
+    coordinators: list("ALERT_COORDINATORS", []),
+    // Per-coordinator alerts go to Slack only unless this is true, because
+    // everyone who can log in to the dashboard sees the banner.
+    bannerShowsCoordinators: process.env.ALERT_BANNER_SHOW_COORDINATORS === "true",
+    timeZone: validateTimeZone(process.env.ALERT_TIMEZONE, "America/Denver", "Alerts"),
+    digestHour: number("ALERT_DIGEST_HOUR", 8),
+    // Skip a client's alerts when its last good sync is older than this,
+    // so a broken sync can't masquerade as a collapse in volume.
+    staleSyncHours: number("ALERT_STALE_SYNC_HOURS", 26),
+    slackBotToken: process.env.SLACK_BOT_TOKEN || "",
+    slackUserId: process.env.ALERT_SLACK_USER_ID || "",
+    slackEmail: process.env.ALERT_SLACK_EMAIL || "",
+    dashboardUrl: (process.env.DASHBOARD_URL || "").replace(/\/+$/, ""),
+  },
 };
 
 module.exports = config;

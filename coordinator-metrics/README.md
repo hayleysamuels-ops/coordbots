@@ -133,6 +133,58 @@ Anything referenced by a schedule but missing from the database renders as
 "Unknown role", so this step is not optional: before it existed, 132 of
 Runlayer's 730 events — 18% of the dashboard — sat under Unknown role.
 
+## Alerts
+
+Significant slowdowns and changes are flagged on a banner at the top of the
+dashboard and sent as a once-a-day Slack DM. Every alert compares **the last
+7 complete days against the average of the 4 weeks before** and fires at
+**±15%** (`ALERT_THRESHOLD_PCT`). Today is never in the current window — it
+is only partly elapsed.
+
+| Alert | Fires when | Per |
+|---|---|---|
+| Interview volume | Interviews held move 15%+ either way | Client |
+| Rework | Reschedules + cancellations rise 15%+ | Client |
+| Scheduling turnaround | Median request → booked time slows 15%+ (and by at least an hour) | Client, coordinator |
+| Overdue scorecards | Interviews more than `FEEDBACK_OVERDUE_HOURS` past with no scorecard rise 15%+ | Client |
+| Waiting on next step | Active candidates interviewed `NEXT_STEP_WAIT_DAYS`+ ago with nothing booked since rise 15%+ | Client |
+| Bookings | Interviews a coordinator booked move 15%+ either way | Coordinator |
+| Stale data | A client's last good sync is older than `ALERT_STALE_SYNC_HOURS` | Client |
+
+**Small-number guards.** 6 interviews against an average of 5 is +20% and
+means nothing, so a count must also move by `ALERT_MIN_CHANGE` and one side
+must reach `ALERT_MIN_BASELINE`. Turnaround needs `ALERT_MIN_SAMPLE` waited
+schedules in each window. Anything at twice the threshold is marked major.
+
+**Turnaround counts schedules still waiting.** The dashboard tile only
+measures schedules that got booked. For alerts, an unbooked request counts
+at its current age — otherwise the slowest requests of the week, the ones
+still waiting, would be invisible and a slowdown would read as a speed-up.
+Booked-outright schedules (under a minute) are excluded, as on the tile.
+
+**Overdue scorecards and waiting candidates are snapshots.** Ashby keeps no
+history of either, so each evaluation stores a daily snapshot
+(`alert_snapshots`) and compares today against their average. These two
+stay quiet until a week of snapshots exists.
+
+**Per coordinator** uses `scheduledBy` — the person who actually booked each
+slot — pooled across every client and matched by name, since Ashby user ids
+are per org. `ALERT_COORDINATORS` narrows it to named people. These go to
+the Slack DM only unless `ALERT_BANNER_SHOW_COORDINATORS=true`, because
+everyone who can log in sees the banner.
+
+**Stale data pauses alerts.** A sync that has quietly stopped looks exactly
+like a collapse in volume, so a client whose last good sync is too old gets
+one "data is stale" alert instead of a misleading set.
+
+**Holidays will trip the volume alert.** A Thanksgiving week is a real 15%+
+drop; the alert clears once normal volume returns.
+
+The DM goes out on the first sync after `ALERT_DIGEST_HOUR` in
+`ALERT_TIMEZONE`, lists alerts that started since the last one plus any back
+to normal, and never repeats an alert that is still open. Set
+`SLACK_BOT_TOKEN` and either `ALERT_SLACK_USER_ID` or `ALERT_SLACK_EMAIL`.
+
 ## Run locally
 
 ```bash
@@ -195,6 +247,7 @@ the observed-reschedule history, which is not recoverable from Ashby at all.
 | `GET /api/config` | Client list and display settings; never the API keys |
 | `GET /api/overview` | Cross-client roll-up |
 | `GET /api/client/:id` | One client's full payload |
+| `GET /api/alerts` | Active alerts for the banner |
 | `GET /api/status` | Last sync per client, and whether one is running |
 | `POST /api/sync` | Manual top-up; `?kind=full` re-reads twelve months |
 
