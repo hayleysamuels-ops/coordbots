@@ -1337,6 +1337,7 @@ details.data-quality .notice { margin-top: 12px; border-left-color: var(--border
   background: var(--critical-wash);
   border-color: var(--critical);
 }
+.alert-banner-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .alert-banner-head h2 { margin: 0; font-size: 16px; color: var(--text-primary); }
 .alert-banner-head .section-note { margin: 2px 0 0; }
 .alert-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; }
@@ -1359,3 +1360,19 @@ details.data-quality .notice { margin-top: 12px; border-left-color: var(--border
 .alert-message { font-weight: 600; color: var(--text-primary); }
 .alert-detail { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
 .alert-since { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+
+.alert-banner.collapsed { padding-top: 12px; padding-bottom: 12px; }
+.alert-toggle {
+  flex: none;
+  font: 600 13px var(--font-sans);
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 6px 12px;
+  min-height: 32px;
+  cursor: pointer;
+}
+.alert-toggle:hover { border-color: var(--text-secondary); }
+.alert-toggle:focus-visible { outline: 2px solid var(--accent, var(--ember)); outline-offset: 2px; }
+.alert-list[hidden] { display: none; }

@@ -1935,32 +1935,87 @@ function renderAlertBanner(data, activeKey) {
   if (items.length === 0) return null;
 
   const major = items.some((a) => a.severity === "major" || a.scope === "system");
-  return el("section", { class: `alert-banner${major ? " major" : ""}`, role: "status" }, [
-    el("div", { class: "alert-banner-head" }, [
-      el("h2", { text: `${items.length} significant change${items.length === 1 ? "" : "s"}` }),
-      el("p", {
-        class: "section-note",
-        text: `Last 7 complete days vs the ${data.baselineWeeks}-week average · flagged at ±${data.thresholdPct}%`,
-      }),
-    ]),
-    el(
-      "ul",
-      { class: "alert-list" },
-      items.map((a) =>
-        el("li", { class: `alert-item ${a.scope === "system" ? "system" : a.severity}` }, [
-          el("span", {
-            class: "alert-pill",
-            text: a.scope === "system" ? "data" : a.severity === "major" ? "major" : "notable",
+
+  // Collapsed state is remembered per viewer, against the exact set of
+  // alerts that was showing. A new alert (or one clearing) changes the set,
+  // so the banner opens again rather than hiding something nobody has seen.
+  const signature = items.map((a) => a.key).sort().join("|");
+  const collapsed = readCollapsedAlerts() === signature;
+  const listId = `alert-list-${activeKey}`;
+
+  const list = el(
+    "ul",
+    { class: "alert-list", id: listId, hidden: collapsed },
+    items.map((a) =>
+      el("li", { class: `alert-item ${a.scope === "system" ? "system" : a.severity}` }, [
+        el("span", {
+          class: "alert-pill",
+          text: a.scope === "system" ? "data" : a.severity === "major" ? "major" : "notable",
+        }),
+        el("div", {}, [
+          el("div", { class: "alert-message", text: a.message }),
+          a.detail ? el("div", { class: "alert-detail", text: a.detail }) : null,
+          el("div", { class: "alert-since", text: `since ${formatWhen(a.since)}` }),
+        ]),
+      ])
+    )
+  );
+
+  const toggle = el("button", {
+    class: "alert-toggle",
+    type: "button",
+    "aria-expanded": String(!collapsed),
+    "aria-controls": listId,
+    text: collapsed ? "Show" : "Hide",
+    onclick: () => {
+      const nowCollapsed = !list.hidden;
+      list.hidden = nowCollapsed;
+      toggle.setAttribute("aria-expanded", String(!nowCollapsed));
+      toggle.textContent = nowCollapsed ? "Show" : "Hide";
+      banner.classList.toggle("collapsed", nowCollapsed);
+      writeCollapsedAlerts(nowCollapsed ? signature : "");
+    },
+  });
+
+  const banner = el(
+    "section",
+    { class: `alert-banner${major ? " major" : ""}${collapsed ? " collapsed" : ""}`, role: "status" },
+    [
+      el("div", { class: "alert-banner-head" }, [
+        el("div", {}, [
+          el("h2", { text: `${items.length} significant change${items.length === 1 ? "" : "s"}` }),
+          el("p", {
+            class: "section-note",
+            text: `Last 7 complete days vs the ${data.baselineWeeks}-week average · flagged at ±${data.thresholdPct}%`,
           }),
-          el("div", {}, [
-            el("div", { class: "alert-message", text: a.message }),
-            a.detail ? el("div", { class: "alert-detail", text: a.detail }) : null,
-            el("div", { class: "alert-since", text: `since ${formatWhen(a.since)}` }),
-          ]),
-        ])
-      )
-    ),
-  ]);
+        ]),
+        toggle,
+      ]),
+      list,
+    ]
+  );
+  return banner;
+}
+
+// Browser storage can be unavailable (private windows, blocked site data);
+// the banner then simply starts open every time.
+const ALERTS_COLLAPSED_KEY = "coordinator-metrics:alerts-collapsed";
+
+function readCollapsedAlerts() {
+  try {
+    return localStorage.getItem(ALERTS_COLLAPSED_KEY) || "";
+  } catch (_) {
+    return "";
+  }
+}
+
+function writeCollapsedAlerts(value) {
+  try {
+    if (value) localStorage.setItem(ALERTS_COLLAPSED_KEY, value);
+    else localStorage.removeItem(ALERTS_COLLAPSED_KEY);
+  } catch (_) {
+    /* not remembered; nothing else depends on it */
+  }
 }
 
 async function render() {
