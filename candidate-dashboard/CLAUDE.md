@@ -45,18 +45,27 @@ reader looks the same, so rerun that file alone before trusting such a run.
 
 **Multi-client env files.** `.env` is the full local dev config for whichever
 client this checkout currently targets. `.env.<client>` files (`.env.january`,
-`.env.luminai`, `.env.poetic`, `.env.profound`) each hold just that client's
+`.env.luminai`, `.env.poetic`, `.env.forus`) each hold just that client's
 `ASHBY_API_KEY`, prefixed with a `# Client: <Name> — Railway project
 "dashboard-<name>"` comment so no file is ambiguous — see README § Running
 locally against a different client. All covered by `.gitignore`'s `.env`/
 `.env.*` (except `.env.example`). To point a local run at one of these
 without touching `.env`, strip the comment before handing it to `env`'s
 argument-list syntax (a bare `#` word otherwise gets executed as a command):
-`env $(grep -v '^#' .env.profound) npm start`. Don't assume a filename's
+`env $(grep -v '^#' .env.forus) npm start`. Don't assume a filename's
 client is correct without checking — it can be wrong (confirmed live: an
 earlier `.env.client` was assumed to be Profound and was actually Luminai).
 Verify via Ashby's `user.list` email domains and/or Railway's `CLIENT_NAME`
 var for that project, not the filename alone.
+
+**A client's key is shared with its live dashboard, so pace bulk reads.**
+Ashby rate-limits per key. Several heavy reads against one client at once
+(confirmed on Forus, 2026-11-17: two local `listIssues()` runs plus a survey)
+throttle the dashboard people are using. One heavy read per client at a time,
+concurrency 4 or lower; spread multi-client work across clients. Profound is
+no longer a client (17 November 2026): leave it out of every all-client
+script, loop and check. Its Railway project and volume are kept until the
+owner decides; see the root README.
 
 ## Architecture
 

@@ -32,7 +32,7 @@ reads it.
 | dashboard-january | `coordbots` | this repo, branch `main`, root `/candidate-dashboard`, rebuilds only on changes under `/candidate-dashboard/**` except `/candidate-dashboard/worker/**` and `/candidate-dashboard/docs/**` |
 | dashboard-luminai | `coordbots` | this repo, branch `main`, root `/candidate-dashboard`, rebuilds only on changes under `/candidate-dashboard/**` except `/candidate-dashboard/worker/**` and `/candidate-dashboard/docs/**` |
 | dashboard-luminai | `scheduling-worker` | this repo, branch `main`, root `/candidate-dashboard`, Dockerfile `candidate-dashboard/worker/Dockerfile`, rebuilds only on changes under `/candidate-dashboard/**` except `/candidate-dashboard/docs/**` |
-| dashboard-profound | `coordbots` | **Switched off on purpose** (see below). Same source settings as the other dashboards, but nothing is running |
+| dashboard-profound | `coordbots` | **No longer a coordination client** (see below). Nothing is running; the project and its volume are still on Railway pending a decision on removal |
 | dashboard-poetic | `coordbots` | this repo, branch `main`, root `/candidate-dashboard`, rebuilds only on changes under `/candidate-dashboard/**` except `/candidate-dashboard/worker/**` and `/candidate-dashboard/docs/**` |
 | dashboard-forus | `coordbots` | this repo, branch `main`, root `/candidate-dashboard`, rebuilds only on changes under `/candidate-dashboard/**` except `/candidate-dashboard/worker/**` and `/candidate-dashboard/docs/**` |
 | dashboard-runlayer | `coordbots` | this repo, branch `main`, root `/candidate-dashboard`, rebuilds only on changes under `/candidate-dashboard/**` except `/candidate-dashboard/worker/**` and `/candidate-dashboard/docs/**` |
@@ -43,10 +43,14 @@ reads it.
 | coordinator-metrics | `coordinator-metrics` | this repo, branch `main`, root `/coordinator-metrics`, rebuilds only on changes under `/coordinator-metrics/**` except `*.md`. **Its watch patterns come from `coordinator-metrics/railway.json`, not the dashboard** — config-as-code overrides the UI, so editing them there is silently ignored. Unlike the six per-client dashboards this is a SINGLE deployment holding every client's Ashby key, with a volume for its SQLite history |
 | dashboard-luminai | `candidate-channel-bot` | this repo, branch `main`, root `/candidate-channel-bot`, rebuilds only on changes under `/candidate-channel-bot/**` |
 
-**Profound's dashboard is intentionally switched off.** Its `coordbots` service has no running
-deployment: its latest deployments date from 29 September 2026 and all show `REMOVED`, and
-pushes to `main` don't bring it back. That's expected, not a fault to investigate or fix. Don't redeploy
-it unless the dashboard is being brought back for Profound.
+**Profound is no longer a coordination client** (17 November 2026). Its dashboard has had no
+running deployment since 29 September 2026 (all deployments `REMOVED`), and pushes to `main`
+don't bring it back. That's expected, not a fault to investigate or fix. Its dashboard Ashby key
+now returns Unauthorized. Leave Profound out of every all-client script, loop and check. The
+`dashboard-profound` project and its `coordbots-volume` (`/data`, about 194 MB of cached Ashby
+application records, notes and dismissals) are still on Railway: don't redeploy, delete or
+reattach any of it without a decision from the owner. coordinator-metrics deliberately still
+carries Profound as an `ended` client; see `coordinator-metrics/CLAUDE.md`.
 
 ## Two things called scheduling-worker
 

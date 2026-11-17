@@ -538,11 +538,11 @@ header comment for all CLI options.
 This repo's `.env` is the full local dev config (Basic Auth creds, thresholds,
 etc.) for whichever client it's currently checked out for. Alongside it,
 `.env.<client>` files (e.g. `.env.january`, `.env.luminai`, `.env.poetic`,
-`.env.profound`) hold just that client's `ASHBY_API_KEY`, each starting with
+`.env.forus`) hold just that client's `ASHBY_API_KEY`, each starting with
 a comment naming the client and its Railway project — e.g.:
 
 ```
-# Client: Profound — Railway project "dashboard-profound"
+# Client: Forus — Railway project "dashboard-forus"
 ASHBY_API_KEY=...
 ```
 
@@ -556,14 +556,25 @@ the comment line first**, since `env`'s argument-list syntax can't parse it
 such file or directory`):
 
 ```bash
-env $(grep -v '^#' .env.profound) npm start
+env $(grep -v '^#' .env.forus) npm start
 ```
 
 Everything else (`DASHBOARD_USER`, thresholds, `CLIENT_NAME`, etc.) still
 comes from `.env` — this only swaps which Ashby org's data populates the
 dashboard, and does not rebrand the header/title to match. `env $(cat
-.env.profound) ...)` (no `grep`) will fail the same way on any of these files
+.env.forus) ...)` (no `grep`) will fail the same way on any of these files
 now that they carry the identifying comment.
+
+**Pace bulk reads against a client's key.** Each client's `ASHBY_API_KEY` is
+the same key its live dashboard uses, and Ashby rate-limits per key. A local
+run of `listIssues()`, a survey script, or anything else that pages through a
+client's schedules shares that limit with the dashboard people are using, and
+can throttle it. On 2026-11-17 two local `listIssues()` runs plus a survey
+against Forus at once drew a stream of 429s that the live Forus dashboard
+had to absorb too. Run one heavy read per client at a time, keep concurrency
+low (4 or fewer), and spread multi-client work across clients rather than
+stacking it on one. Profound is no longer a client: leave it out of these
+runs entirely.
 
 ## Run
 

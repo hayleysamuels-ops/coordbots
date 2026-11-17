@@ -1400,8 +1400,8 @@ button#refresh-btn.spinning {
 
 /* Keep selected controls distinct from their dark surroundings. */
 @media (prefers-color-scheme: dark) {
-  /* CLIENT_ACCENT_COLOR can be any colour, including black (live on
-     Profound), which drew the topbar title and rule black on grafite. Keep
+  /* CLIENT_ACCENT_COLOR can be any colour, including black (a former
+     client's accent did exactly this), which drew the topbar title and rule black on grafite. Keep
      the client's hue but raise its lightness to a floor that reads on the
      dark page: black becomes a light grey, a dark blue a lighter blue, and an
      already-light accent (the default dark ember) is unchanged. Browsers
