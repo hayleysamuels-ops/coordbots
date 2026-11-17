@@ -65,8 +65,8 @@ Ashby rate-limits per key. Several heavy reads against one client at once
 throttle the dashboard people are using. One heavy read per client at a time,
 concurrency 4 or lower; spread multi-client work across clients. Profound is
 no longer a client (17 November 2026): leave it out of every all-client
-script, loop and check. Its Railway project and volume are kept until the
-owner decides; see the root README.
+script, loop and check. Its dashboard project was deleted that day; see the
+root README.
 
 ## Architecture
 
