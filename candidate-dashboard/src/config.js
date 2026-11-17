@@ -87,16 +87,31 @@ const SECTION_KEYS = [
   "feedbackOverdue",
   "needsScheduling",
   "availabilitySubmitted",
-  "staleCandidates",
   "interviewerLimits",
   "recentSourced",
   "onsiteToday",
+  "interviewsToday",
   "rescheduledInterviews",
   "interviewerTraining",
   "offersNotYetSent",
   "offersAwaitingAcceptance",
   "offersSigned",
 ];
+
+// Keys that used to be sections. Still accepted in DISABLED_SECTIONS (a
+// leftover entry does nothing) but warned about by name, so a deploy log
+// says why the toggle stopped mattering instead of calling it a typo.
+const RETIRED_SECTION_KEYS = {
+  staleCandidates:
+    "Stale Candidates is no longer its own section (2026-11-17): stale rows sit in the Action queue, marked \"stale\", with a Stale chip to show or hide them",
+};
+
+// An interview name as matched by NO_FEEDBACK_INTERVIEWS: trimmed, lowercased,
+// inner whitespace collapsed. Ashby titles carry stray trailing spaces
+// ("[Forus] Project Orientation "), so an exact raw match would miss them.
+function normalizeInterviewName(name) {
+  return String(name || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
 
 function schedulingJson(name, fallback) {
   try { return process.env[name] ? JSON.parse(process.env[name]) : fallback; }
@@ -209,8 +224,8 @@ const config = {
   needsSchedulingAlertHours: hours("NEEDS_SCHEDULING_ALERT_HOURS", 48),
   refreshIntervalMinutes: hours("REFRESH_INTERVAL_MINUTES", 5),
 
-  // Candidates this far past the normal thresholds get pulled into their own
-  // "Stale Candidates" section instead of sitting in the regular columns.
+  // Rows this far past the normal thresholds are marked "stale" in the
+  // Action queue (they're still in it; the Stale chip shows or hides them).
   staleFeedbackHours: hours("STALE_FEEDBACK_HOURS", 350),
   staleSchedulingHours: hours("STALE_SCHEDULING_HOURS", 7 * 24),
 
@@ -263,6 +278,16 @@ const config = {
   // narrowed per product decision to final-round and executive interviews
   // only.
   onsiteStageKeywords: list("ONSITE_STAGE_KEYWORDS", ["final", "exec"]),
+
+  // Interviews nobody owes feedback on, by Ashby interview NAME (never by
+  // person): comma-separated, matched whole after trimming, lowercasing and
+  // collapsing spaces. Anyone on such an event is a host — never counted as
+  // missing in Feedback Overdue or Interviews today, even when Ashby marks
+  // them feedback-required (Luminai's Welcome hosts are). Org-configured
+  // naming, so set per client and only for clear cases: excluding a real
+  // interview hides its missing feedback for good, while including an exempt
+  // one only shows a row someone can dismiss. Names can't contain commas.
+  noFeedbackInterviews: exactList("NO_FEEDBACK_INTERVIEWS", []).map(normalizeInterviewName),
 
   // "Offers Signed" section: an offer counts as "signed" once its
   // offerStatus is Ashby's real "CandidateAccepted" value (there's no
@@ -356,6 +381,7 @@ const config = {
   disabledSections: exactList("DISABLED_SECTIONS", []),
 
   knownSectionKeys: SECTION_KEYS,
+  normalizeInterviewName,
 };
 
 console.log(`[config] Recognized section keys: ${SECTION_KEYS.join(", ")}`);
@@ -364,7 +390,9 @@ console.log(`[config] Recognized section keys: ${SECTION_KEYS.join(", ")}`);
 // "interviewerLimits") would otherwise silently do nothing — the section
 // stays visible and nothing indicates why the toggle "didn't work."
 for (const key of config.disabledSections) {
-  if (!SECTION_KEYS.includes(key)) {
+  if (RETIRED_SECTION_KEYS[key]) {
+    console.warn(`[config] DISABLED_SECTIONS entry "${key}" no longer does anything. ${RETIRED_SECTION_KEYS[key]}.`);
+  } else if (!SECTION_KEYS.includes(key)) {
     console.warn(
       `[config] Warning: DISABLED_SECTIONS entry "${key}" doesn't match any known section key. ` +
         `Recognized keys: ${SECTION_KEYS.join(", ")}.`

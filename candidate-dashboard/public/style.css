@@ -547,6 +547,12 @@ button#refresh-btn.spinning {
      past its first screenful until the page ends. */
 }
 
+/* Onsite Interviews Today and Interviews Today stack here; same 24px gap as
+   the cards in the main column. */
+.side-margin > .column + .column {
+  margin-top: 24px;
+}
+
 @media (max-width: 900px) {
   .page-with-margin {
     flex-direction: column;
@@ -1015,6 +1021,66 @@ button#refresh-btn.spinning {
   flex: none;
 }
 
+/* Interviews Today (renderInterviewsToday() in app.js): one row per
+   interview, people inline. Markers are deliberately quiet — a small tick
+   in the "good" colour once someone's scorecard is in, a faint ring until
+   then. Hosts and anyone else who owes nothing are muted with no marker. */
+.interviews-today {
+  display: flex;
+  flex-direction: column;
+}
+
+.interview-today-item {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--gridline);
+}
+
+.interview-today-item:last-child {
+  border-bottom: none;
+}
+
+.interview-today-item .onsite-timeline-time {
+  margin-bottom: 2px;
+}
+
+.it-progress {
+  font-family: inherit;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.it-people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.it-person {
+  white-space: nowrap;
+}
+
+.it-host {
+  color: var(--text-muted);
+}
+
+.it-mark {
+  margin-left: 4px;
+  font-size: 12px;
+}
+
+.it-in {
+  color: var(--good);
+}
+
+.it-owed {
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
 /* Empty when there's nothing paused to reveal — collapses to zero height
    rather than reserving space for an absent button. */
 .section-toggle:empty {
@@ -1282,6 +1348,26 @@ button#refresh-btn.spinning {
    dashboard, not a signal waiting on someone. */
 .signal-chip-hidden {
   margin-left: auto;
+}
+
+/* Stale is a show/hide toggle within the current signal, not a signal of
+   its own: it never takes the filled "selected" look (that would read as a
+   second picked signal next to "All"). Its label says shown/hidden, and the
+   border goes dashed when stale rows are hidden. */
+.signal-chip-stale.is-off {
+  border-style: dashed;
+}
+
+/* "stale" after a row's waiting time: past STALE_FEEDBACK_HOURS /
+   STALE_SCHEDULING_HOURS. Text, not colour alone. */
+.stale-label {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-control);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: lowercase;
 }
 
 .hidden-restore-btn {

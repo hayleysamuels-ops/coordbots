@@ -14,10 +14,11 @@ interviews needing scheduling, candidates who've submitted availability but
 aren't booked yet, interviewers nearing their weekly interview limit (and
 their training progress — shadow/reverse-shadow), candidates recently
 sourced via referral/agency, today's onsite (final-round/executive)
-interviews, and interviews rescheduled more than a couple times, plus a
-"Stale Candidates" section that pulls out whichever candidate-facing flags
-have gone far enough past the normal thresholds to look abandoned rather
-than just freshly overdue. A third tab, Offers, tracks offers awaiting the
+interviews, every interview that started today with whose feedback is in
+(Interviews Today), and interviews rescheduled more than a couple times.
+Rows far enough past the normal thresholds to look abandoned are marked
+"stale" inside the Action queue (they used to be a separate Stale
+Candidates section, folded back in on 17 November 2026). A third tab, Offers, tracks offers awaiting the
 candidate's acceptance, offers stuck in internal approval (never sent to
 the candidate yet), and offers signed in the last week. Full behaviour is in
 `README.md`, including a correction to an earlier (wrong) claim that Ashby
@@ -74,8 +75,8 @@ refresh cycle: `issues.js` refreshes every `REFRESH_INTERVAL_MINUTES` by
 calling `ashby.listIssues()`, `ashby.listRecentSourced()`,
 `ashby.listInterviewerTraining()`, and `ashby.listOffers()` in parallel —
 the twelve sections (Feedback Overdue, Needs Scheduling, Availability
-Submitted, Stale Candidates, Interviewer Weekly Limits, Recently Sourced,
-Onsite Interviews Today, Interviewer Training, Rescheduled Interviews,
+Submitted, Interviewer Weekly Limits, Recently Sourced, Onsite Interviews
+Today, Interviews Today, Interviewer Training, Rescheduled Interviews,
 Offers Not Yet Sent, Offers Awaiting Acceptance, Offers
 Signed). Rescheduled Interviews is computed inside `ashby.listIssues()`
 itself (it reuses that same `interviewSchedule.list` fetch), not a separate
@@ -162,9 +163,9 @@ is normally still in Application Review and any status).
   mark.
 - `src/ashby.js` — paginated Ashby client (`fetchAllPages` walks
   `moreDataAvailable`/`nextCursor`) + flag computation for Feedback Overdue,
-  Needs Scheduling, Availability Submitted, Stale Candidates, Interviewer
-  Weekly Limits, Recently Sourced, Onsite Interviews Today, Interviewer
-  Training, and Rescheduled Interviews, plus `listDepartments()` for the
+  Needs Scheduling (stale rows marked), Availability Submitted, Interviewer
+  Weekly Limits, Recently Sourced, Onsite Interviews Today, Interviews Today,
+  Interviewer Training, and Rescheduled Interviews, plus `listDepartments()` for the
   department filter. The Active-only / past-Application-Review filter
   applies to Feedback Overdue / Needs Scheduling / Availability Submitted
   only — Interviewer Weekly Limits and Interviewer Training count
@@ -291,7 +292,7 @@ is normally still in Application Review and any status).
   `renderQueueNav()`/`renderSignalChips()`, each looping `TRIAGE_QUEUES` and
   skipping `isSectionDisabled(queue.key)` — the same idea `render()`'s old
   per-column loop already used, just now inside the merge instead of at
-  render()'s top level. `recentSourced`/`staleCandidates`/`onsiteToday`
+  render()'s top level. `recentSourced`/`onsiteToday`/`interviewsToday`
   keep their own static sections, so `applyDisabledSections()` still
   removes their DOM node directly (`section.remove()`, not `hidden`). This
   originally avoided a stray `.page-stack > * + *` divider; the restyle
@@ -712,9 +713,8 @@ is normally still in Application Review and any status).
   an interviewer's behalf; that interviewer's feedback is in. Don't switch
   the match to `submittedByUser`. A failed lookup keeps the old event-level
   reading for that application. See README § Per-person feedback.
-- **Debrief events are excluded from Feedback Overdue** (and therefore from
-  Stale Candidates' feedback-overdue reason too, since that list is derived
-  from `feedbackEntries`) **— a debrief is an internal wrap-up meeting with
+- **Debrief events are excluded from Feedback Overdue** (and from
+  Interviews Today's markers, via `owersFor()`) **— a debrief is an internal wrap-up meeting with
   no scorecard due back.** `fetchDebriefInterviewIds()` in `ashby.js` fetches
   `interview.list` once per refresh and keeps the `id`s where `isDebrief` is
   true, cross-referenced against each event's `interviewId` (a real
@@ -725,9 +725,27 @@ is normally still in Application Review and any status).
   can legitimately get rescheduled too. Degrades to "exclude nothing" (the
   pre-existing behavior) with a console warning if `interview.list` fails
   for any reason (e.g. an API key without `interviews:read`), rather than
-  taking down the rest of `listIssues()`'s `Promise.all`.
+  taking down the rest of `listIssues()`'s `Promise.all`. Known gap:
+  `interview.list` leaves out interviews defined inside a job's own plan
+  (January: 38 of 65 in use), so a debrief defined that way isn't caught.
+  None existed at any client in the 60 days to 17 November 2026.
+- **Who owes feedback is one rule, `owersFor()`, shared by Feedback Overdue
+  and Interviews Today.** Nobody on a debrief or on an interview whose NAME
+  is in `NO_FEEDBACK_INTERVIEWS`; otherwise everyone not marked
+  `isFeedbackRequired: false`. Names, never people (a Welcome host still owes
+  feedback on real interviews). Titles come from `interview.info` via
+  `training/interviewTitleCache.js`, because `interview.list` is incomplete;
+  an unresolved title counts as owing, so a lookup failure can't hide a
+  missing scorecard. Per-client lists and what was deliberately left off
+  are in README § Who owes feedback. Keep the list to clear cases.
+- **Interviews Today is NOT in the one-row-per-candidate pool**, like
+  Rescheduled Interviews: it's a fact about an event. It covers any
+  candidate status and skips cancelled schedules. Its per-person feedback
+  lookups are the same `applicationFeedback.list` calls Feedback Overdue
+  makes (one fetch, shared), only for applications whose event flag says
+  "in". Same SCHEDULE_LOOKBACK_DAYS window as Onsite Interviews Today.
 - **A candidate appears in at most ONE of feedbackOverdue/needsScheduling/
-  availabilitySubmitted/onsiteToday/staleCandidates, globally, never
+  availabilitySubmitted/onsiteToday, globally, never
   several at once.** `keepMostRecentPerCandidate()` in `ashby.js`'s
   `listIssues()` pools every candidate-linked entry across all four
   event-driven lists (tagged with a comparable `eventTime` — `endTime` for
@@ -735,22 +753,23 @@ is normally still in Application Review and any status).
   `startTime` for onsite — plus a `__section` marker) and keeps only the
   single most recent one per `candidateId`; everything else for that
   candidate is dropped entirely this refresh, not just hidden from one
-  section. This runs BEFORE the stale-exclusion step below, so a stale old
-  entry that's no longer a candidate's most recent event won't appear in
-  Stale Candidates either — it's genuinely superseded, not just relocated.
+  section, so a stale old entry that's no longer a candidate's most recent
+  event doesn't appear at all — it's genuinely superseded.
   Real example this fixed: a candidate with an old unsubmitted-feedback
   interview AND a newer onsite round scheduled today showed up in both
   Feedback Overdue and Onsite Interviews Today; now only the onsite entry
   survives. If you add a new event-driven candidate section, tag its
   entries with `eventTime`/`__section` and fold them into the `winners`
   pool too, or it won't participate in this dedup.
-- **Stale Candidates is exclusive at the candidate (applicationId) level, not
-  the entry level.** If ANY of a candidate's (post-dedup) entries crosses
-  `STALE_FEEDBACK_HOURS` / `STALE_SCHEDULING_HOURS`, that whole candidate is
-  excluded from `feedbackOverdue`/`needsScheduling`. See `staleApplicationIds`
-  in `ashby.js`'s `listIssues()`. Don't narrow this back to per-entry
-  filtering; that was the bug this fixed — a candidate showing up both in
-  Stale Candidates and a regular column.
+- **Stale rows stay in the Action queue, marked, and are shown by default.**
+  Past `STALE_FEEDBACK_HOURS` / `STALE_SCHEDULING_HOURS` a Feedback Overdue
+  or Needs Scheduling entry carries `isStale: true`; app.js labels it and
+  the Stale chip (`showStale`, a toggle, not a signal) hides or shows them.
+  The separate Stale Candidates section was removed on 17 November 2026
+  because it kept these out of the queue people work from; `showStale`
+  resets to shown on every load for the same reason. Don't make it default
+  to hidden or persist "hidden". `staleCandidates` in DISABLED_SECTIONS now
+  logs a "no longer does anything" warning (`RETIRED_SECTION_KEYS`).
 - **Interviewer Weekly Limits ignores application status entirely.** Load is
   computed straight from `interviewSchedule.list` events (`countInterviewsThisWeek`
   in `ashby.js`, over every schedule — see the week bullet below) without going through `fetchApplicationSummaries` — an

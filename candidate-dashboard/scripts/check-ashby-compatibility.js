@@ -24,6 +24,8 @@
  *   --referral-keywords=<a,b>    Comma-separated, default "referr"
  *   --agency-keywords=<a,b>      Comma-separated, default "agenc"
  *   --onsite-keywords=<a,b>      Comma-separated, default "final,exec"
+ *   --no-feedback-interviews=<a,b>  Interview names nobody owes feedback on
+ *                                (NO_FEEDBACK_INTERVIEWS), default none
  *   --recruiter-role=<name>      Exact hiringTeamRole.list value, default "Recruiter"
  *   --coordinator-role=<name>    Exact hiringTeamRole.list value, default "Recruiting Coordinator"
  *
@@ -58,6 +60,11 @@ const lookbackDays = parseInt(args["lookback-days"], 10) || 30;
 const referralKeywords = parseKeywordList(args["referral-keywords"], ["referr"]);
 const agencyKeywords = parseKeywordList(args["agency-keywords"], ["agenc"]);
 const onsiteKeywords = parseKeywordList(args["onsite-keywords"], ["final", "exec"]);
+const normalizeInterviewName = (n) => String(n || "").trim().toLowerCase().replace(/\s+/g, " ");
+const noFeedbackInterviews = (args["no-feedback-interviews"] ?? process.env.NO_FEEDBACK_INTERVIEWS ?? "")
+  .split(",")
+  .map(normalizeInterviewName)
+  .filter(Boolean);
 const recruiterRole = args["recruiter-role"] || "Recruiter";
 const coordinatorRole = args["coordinator-role"] || "Recruiting Coordinator";
 
@@ -302,6 +309,30 @@ async function main() {
     verdict(matchingOnsiteStages.length > 0, "Onsite Interviews Today (needs a stage title matching ONSITE_STAGE_KEYWORDS)");
   } else {
     console.log("  ○ DISABLED — Onsite Interviews Today (ONSITE_STAGE_KEYWORDS explicitly empty, by choice)");
+  }
+
+  // --- Interviews Today / who owes feedback ---
+  // Structural: event startTime/endTime/hasSubmittedFeedback, isFeedbackRequired,
+  // applicationFeedback.list (checked above). Org-configured: the
+  // NO_FEEDBACK_INTERVIEWS names, matched against interview titles. Titles
+  // come from interview.info, because interview.list leaves out interviews
+  // defined inside a job's own plan.
+  section("Interviews Today / who owes feedback");
+  const usedInterviewIds = [...new Set(schedules.flatMap((s) => (s.interviewEvents || []).map((e) => e.interviewId)).filter(Boolean))];
+  const usedTitles = (
+    await mapWithConcurrency(usedInterviewIds.slice(0, 300), 4, (id) =>
+      ashbyPost("interview.info", { id }).then((json) => json.results && json.results.title).catch(() => null)
+    )
+  ).filter(Boolean);
+  const usedNames = new Set(usedTitles.map(normalizeInterviewName));
+  console.log(`  ${usedNames.size} distinct interview names in recent schedules (up to 300 interviews read).`);
+  if (!noFeedbackInterviews.length) {
+    console.log("  NO_FEEDBACK_INTERVIEWS is empty: everyone Ashby marks feedback-required is counted as owing. Fine unless this client has hosted events (Welcome, Lunch) marked required.");
+  } else {
+    const unmatched = noFeedbackInterviews.filter((n) => !usedNames.has(n));
+    console.log(`  NO_FEEDBACK_INTERVIEWS: ${noFeedbackInterviews.join(", ")}`);
+    if (unmatched.length) console.log(`  Not used in the last ${lookbackDays} days (typo, or just not recently): ${unmatched.join(", ")}`);
+    verdict(unmatched.length < noFeedbackInterviews.length, "NO_FEEDBACK_INTERVIEWS matches at least one interview this client uses");
   }
 
   // --- Recently Sourced / source classification ---

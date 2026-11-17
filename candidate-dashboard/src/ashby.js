@@ -5,6 +5,7 @@ const { mapWithConcurrency } = require("./concurrency");
 const rescheduleTracking = require("./rescheduleTracking");
 const interviewerSettingsCache = require("./interviewerSettingsCache");
 const applicationInfoCache = require("./applicationInfoCache");
+const interviewTitleCache = require("./training/interviewTitleCache");
 const { countInterviewLoad, createScheduleSync, weekKey } = require("./interviewer-load");
 
 function authHeader() {
@@ -399,13 +400,12 @@ async function fetchDebriefInterviewIds() {
  *   status — the candidate replied with their times, waiting on someone to
  *   book it. Shown regardless of age (not threshold-gated like the other
  *   lists); AVAILABILITY_SUBMITTED_ALERT_HOURS only drives severity coloring.
- * - staleCandidates: candidates far enough past either threshold
- *   (STALE_FEEDBACK_HOURS / STALE_SCHEDULING_HOURS) that they're pulled out
- *   of the two lists above into their own section — these have likely fallen
- *   through the cracks rather than just being freshly overdue. This is a
- *   candidate-level exclusion: if ANY of a candidate's schedules/events is
- *   stale, none of their entries appear in feedbackOverdue/needsScheduling,
- *   even a separate event for the same candidate that's below the stale bar.
+ * - Stale rows: an entry in feedbackOverdue/needsScheduling past
+ *   STALE_FEEDBACK_HOURS / STALE_SCHEDULING_HOURS carries isStale: true and
+ *   stays in its list (the Action queue labels it). There is no separate
+ *   staleCandidates list any more (folded in 2026-11-17).
+ * - interviewsToday: every interview that started today, with each person
+ *   who owes a scorecard marked in / not in — see todaysStartedEvents().
  * - interviewerLimits: interviewers at or nearing their Ashby-configured
  *   weekly interview limit for the current calendar week — see
  *   listInterviewerLimits above. Independent of application status; an
@@ -421,18 +421,17 @@ async function fetchDebriefInterviewIds() {
  *   reschedules that already happened before that.
  *
  * A candidate appears in at most ONE of feedbackOverdue/needsScheduling/
- * availabilitySubmitted/onsiteToday/staleCandidates, never several at once —
+ * availabilitySubmitted/onsiteToday, never several at once —
  * see keepMostRecentPerCandidate below. Without this, a candidate could
  * legitimately show up in both, e.g., Feedback Overdue (an old interview's
  * feedback still isn't in) AND Onsite Interviews Today (they've since moved
  * on to a new round) — confusing, since the old feedback item is stale
  * information once a newer round exists. Only the single most recent event
  * per candidate is kept; everything else for that candidate is dropped
- * entirely (not moved to Stale Candidates either, unless that most-recent
- * event is itself the stale one). rescheduledInterviews is deliberately NOT
+ * entirely. rescheduledInterviews and interviewsToday are deliberately NOT
  * part of that pool — it's an orthogonal fact about a specific event's
  * history, not a mutually-exclusive candidate state, so a candidate can be
- * in Rescheduled Interviews AND one of the others at the same time.
+ * in Rescheduled Interviews (or Interviews today) AND one of the others.
  */
 // Collapses a pool of candidate-linked entries (tagged with `eventTime`, a
 // millisecond timestamp, and `__section`) down to one entry per candidateId
@@ -553,6 +552,75 @@ async function listOnsiteToday(schedules, applications) {
   return entries;
 }
 
+/**
+ * Interviews today: every interview event that started today (a calendar day
+ * in DISPLAY_TIMEZONE, same boundary as Onsite Interviews Today) and has
+ * already started. Not filtered by candidate status — a rejected
+ * candidate's scorecard is still owed — and not part of
+ * keepMostRecentPerCandidate's one-row-per-candidate pool: like Rescheduled
+ * Interviews, it's a fact about an event, not a candidate's state.
+ * Cancelled schedules are skipped. Same SCHEDULE_LOOKBACK_DAYS window as
+ * everything else in listIssues(), so a schedule created longer ago than that
+ * doesn't appear (the same holds for Onsite Interviews Today).
+ *
+ * Two steps so the per-person feedback lookups can be shared with Feedback
+ * Overdue: todaysStartedEvents() picks the events, buildInterviewsToday()
+ * turns them into rows once applicationFeedback.list has been read.
+ */
+function todaysStartedEvents(schedules, now) {
+  const picked = [];
+  for (const schedule of schedules) {
+    if (schedule.status === "Cancelled" || !schedule.applicationId) continue;
+    for (const event of schedule.interviewEvents || []) {
+      if (!event.startTime || !isToday(event.startTime)) continue;
+      if (new Date(event.startTime).getTime() > now) continue; // not started yet
+      picked.push({ schedule, event, ended: Boolean(event.endTime) && new Date(event.endTime).getTime() <= now });
+    }
+  }
+  return picked;
+}
+
+function buildInterviewsToday(picked, rawApplicationsById, debriefInterviewIds, feedbackByApplication) {
+  const rows = [];
+  for (const { schedule, event, ended } of picked) {
+    const raw = rawApplicationsById.get(schedule.applicationId);
+    if (!raw) continue; // application.info failed; nothing to name the row by
+    const app = buildApplicationRecord(raw);
+    const owerIds = new Set(owersFor(event, debriefInterviewIds).map((i) => i.id));
+    // Per person: true = scorecard in, false = not in yet, null = couldn't
+    // check (lookup failed). Only for people who owe one, and only once the
+    // interview has ended. A flag-false event needs no lookup: nobody's in.
+    let missingIds = null;
+    if (ended && owerIds.size) {
+      if (!event.hasSubmittedFeedback) missingIds = owerIds;
+      else {
+        const fb = feedbackByApplication.get(schedule.applicationId);
+        if (fb) missingIds = new Set(missingFeedbackOwers(event, fb).filter((i) => owerIds.has(i.id)).map((i) => i.id));
+      }
+    }
+    rows.push({
+      ...app,
+      ashbyProfileUrl: app.ashbyProfileUrl || candidateProfileUrl(app.candidateId),
+      scheduleId: schedule.id,
+      interviewEventId: event.id,
+      interviewTitle: interviewTitleCache.get(event.interviewId) || null,
+      startTime: event.startTime,
+      endTime: event.endTime,
+      inProgress: !ended,
+      people: (event.interviewers || []).map((i) => {
+        const owes = owerIds.has(i.id);
+        return {
+          name: `${i.firstName || ""} ${i.lastName || ""}`.trim() || i.email,
+          owes,
+          submitted: !owes || !ended ? null : missingIds ? !missingIds.has(i.id) : null,
+        };
+      }),
+    });
+  }
+  rows.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+  return rows;
+}
+
 // Groups every interview event in the lookback window by applicationId,
 // across ALL schedules regardless of that schedule's own status — no extra
 // Ashby call, since `schedules` already covers this window. Used to detect
@@ -629,6 +697,46 @@ async function fetchFeedbackByApplication(applicationIds) {
   return new Map(entries);
 }
 
+// Titles for interview ids, cached on disk forever (training/
+// interviewTitleCache.js). interview.list leaves out interviews defined inside
+// a job's own interview plan (January: 38 of 65 in use; Forus: most), so each
+// missing id is looked up with interview.info, 4 at a time, once ever. A
+// failed lookup leaves the id unresolved, which counts as "owes feedback"
+// (see isNoFeedbackInterview), so a lookup problem can't hide a missing
+// scorecard.
+async function resolveInterviewTitles(interviewIds) {
+  const missing = interviewTitleCache.missing(interviewIds);
+  if (!missing.length) return;
+  await mapWithConcurrency(missing, 4, async (id) => {
+    try {
+      const json = await ashbyPost("interview.info", { id });
+      interviewTitleCache.set(id, (json.results && json.results.title) || "");
+    } catch (err) {
+      console.warn(`[ashby] interview.info failed for ${id}; treating it as an interview that owes feedback:`, err.message);
+    }
+  });
+  interviewTitleCache.flush();
+}
+
+// True when the event's interview is on this client's NO_FEEDBACK_INTERVIEWS
+// list (matched by name, never by person). An unresolved title is false.
+function isNoFeedbackInterview(interviewId) {
+  if (!config.noFeedbackInterviews.length || !interviewTitleCache.has(interviewId)) return false;
+  return config.noFeedbackInterviews.includes(config.normalizeInterviewName(interviewTitleCache.get(interviewId)));
+}
+
+/**
+ * Who owes a scorecard for an event — the one rule Feedback Overdue and
+ * Interviews today share: nobody on a debrief or on an interview named in
+ * NO_FEEDBACK_INTERVIEWS (Luminai's Welcome hosts are marked
+ * feedback-required in Ashby and still owe nothing); otherwise everyone not
+ * explicitly marked isFeedbackRequired false (feedbackOwers above).
+ */
+function owersFor(event, debriefInterviewIds) {
+  if (debriefInterviewIds.has(event.interviewId) || isNoFeedbackInterview(event.interviewId)) return [];
+  return feedbackOwers(event);
+}
+
 /**
  * A candidate can have multiple schedules over the life of one application
  * (one per interview stage/round) — an earlier round's missing feedback can
@@ -703,6 +811,14 @@ async function listIssues(options = {}) {
   const readyToSchedule = require("./scheduling/ready-queue").readyQueue(schedules, applications);
 
   const now = Date.now();
+  const todayPicked = todaysStartedEvents(schedules, now);
+  // Titles are only needed to match NO_FEEDBACK_INTERVIEWS, and only for
+  // events that could owe feedback; with the list empty this does nothing.
+  if (config.noFeedbackInterviews.length) {
+    await resolveInterviewTitles(
+      schedules.flatMap((s) => (s.interviewEvents || []).filter((e) => e.endTime && feedbackOwers(e).length).map((e) => e.interviewId))
+    );
+  }
   let feedbackEntries = [];
   const feedbackCandidates = [];
   let schedulingEntries = [];
@@ -753,9 +869,10 @@ async function listIssues(options = {}) {
       }
 
       if (!event.endTime) continue;
-      if (debriefInterviewIds.has(event.interviewId)) continue; // debriefs have no scorecard due back
-      const owers = feedbackOwers(event);
-      if (!owers.length) continue; // nobody on it owes a scorecard
+      // Nobody owes a scorecard on a debrief, a NO_FEEDBACK_INTERVIEWS event,
+      // or one whose people are all feedback-not-required (owersFor).
+      const owers = owersFor(event, debriefInterviewIds);
+      if (!owers.length) continue;
       if (isSupersededByLaterActivity(event, schedule.applicationId, eventsByApplicationId)) continue;
       // The application has already moved on to its current stage since this
       // interview ended — the scorecard gap is moot even though no later
@@ -789,10 +906,18 @@ async function listIssues(options = {}) {
     }
   }
 
-  const needsPerPersonCheck = feedbackCandidates.filter((c) => c.event.hasSubmittedFeedback);
+  // One applicationFeedback.list per application, shared by Feedback Overdue
+  // and Interviews today: only where an event's flag says "in" (a flag-false
+  // event has nobody in, so there's nothing to look up).
+  const needsPerPersonCheck = [
+    ...feedbackCandidates.filter((c) => c.event.hasSubmittedFeedback),
+    ...todayPicked.filter((t) => t.ended && t.event.hasSubmittedFeedback && owersFor(t.event, debriefInterviewIds).length),
+  ];
   const feedbackByApplication = await fetchFeedbackByApplication(
     [...new Set(needsPerPersonCheck.map((c) => c.schedule.applicationId))]
   );
+  const rawApplicationsById = new Map(fetchedApplications.filter(Boolean).map((a) => [a.id, a]));
+  const interviewsToday = buildInterviewsToday(todayPicked, rawApplicationsById, debriefInterviewIds, feedbackByApplication);
   for (const { schedule, event, app, owers, hoursOverdue } of feedbackCandidates) {
     let missing = owers;
     if (event.hasSubmittedFeedback) {
@@ -834,31 +959,17 @@ async function listIssues(options = {}) {
   availabilitySubmitted = winners.filter((e) => e.__section === "availability").map(stripTag);
   onsiteToday = winners.filter((e) => e.__section === "onsite").map(stripTag);
 
-  // Candidate-level: once any entry for an applicationId is stale, that
-  // candidate is excluded entirely from the two regular lists below.
-  const staleApplicationIds = new Set(
-    [...feedbackEntries, ...schedulingEntries].filter((e) => e.isStale).map((e) => e.applicationId)
-  );
-
-  const staleCandidates = [
-    ...feedbackEntries
-      .filter((e) => e.isStale)
-      .map(({ isStale, ...e }) => ({ ...e, reason: "feedbackOverdue", reasonLabel: "Feedback overdue", hoursStale: e.hoursOverdue })),
-    ...schedulingEntries
-      .filter((e) => e.isStale)
-      .map(({ isStale, ...e }) => ({ ...e, reason: "needsScheduling", reasonLabel: "Needs scheduling", hoursStale: e.hoursPending })),
-  ];
-
-  const feedbackOverdue = feedbackEntries
-    .filter((e) => !e.isStale && !staleApplicationIds.has(e.applicationId))
-    .map(({ isStale, ...e }) => e);
-  const needsScheduling = schedulingEntries
-    .filter((e) => !e.isStale && !staleApplicationIds.has(e.applicationId))
-    .map(({ isStale, ...e }) => e);
+  // Stale rows stay in their own list, marked isStale (past
+  // STALE_FEEDBACK_HOURS / STALE_SCHEDULING_HOURS). They used to be pulled
+  // out into a separate Stale Candidates section, which kept them out of
+  // the Action queue people actually work from; folded back in 2026-11-17.
+  // After keepMostRecentPerCandidate there's one entry per candidate, so
+  // nothing here can show a candidate twice.
+  const feedbackOverdue = feedbackEntries;
+  const needsScheduling = schedulingEntries;
 
   feedbackOverdue.sort((a, b) => b.hoursOverdue - a.hoursOverdue);
   needsScheduling.sort((a, b) => b.hoursPending - a.hoursPending);
-  staleCandidates.sort((a, b) => b.hoursStale - a.hoursStale);
   availabilitySubmitted.sort((a, b) => b.hoursWaiting - a.hoursWaiting);
   rescheduledInterviews.sort((a, b) => b.rescheduleCount - a.rescheduleCount);
 
@@ -892,10 +1003,10 @@ async function listIssues(options = {}) {
     readyToSchedule,
     feedbackOverdue,
     needsScheduling,
-    staleCandidates,
     interviewerLimits,
     availabilitySubmitted,
     onsiteToday,
+    interviewsToday,
     rescheduledInterviews,
     ...training,
   };
@@ -1241,4 +1352,6 @@ module.exports = {
   getApiCallCountByEndpoint,
   feedbackOwers,
   missingFeedbackOwers,
+  owersFor,
+  buildInterviewsToday,
 };

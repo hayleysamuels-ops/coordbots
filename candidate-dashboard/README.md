@@ -9,26 +9,56 @@ A small dashboard for a recruiting coordinator: at a glance, which candidates
 
 | Section | What it flags | Source |
 | --- | --- | --- |
-| **Stale Candidates** | Pulled out of the two candidate columns below once feedback is overdue past `STALE_FEEDBACK_HOURS` (default 350h) or a schedule has been pending past `STALE_SCHEDULING_HOURS` (default 168h / 7 days) — these have likely fallen through the cracks, not just freshly overdue. | Same sources as the two rows below. |
 | **Feedback Overdue** | An interview ended and at least one interviewer who owes a scorecard still hasn't submitted it, past `FEEDBACK_OVERDUE_HOURS` (default 24h). The row names exactly who is still missing. Debrief events are excluded — a debrief is an internal wrap-up meeting with no scorecard due back, so it can never be "overdue." A scorecard counts for the person it is **credited to**, not whoever clicked submit: someone sometimes submits on an interviewer's behalf, and that interviewer's feedback is in (see § Per-person feedback). | Ashby `interviewSchedule.list` — `interviewEvents[].endTime` + `hasSubmittedFeedback`, cross-referenced against `interview.list`'s `isDebrief` (a real structural field, not org-configured naming — safe for any client); plus `applicationFeedback.list` per application when the event-level flag says "in". |
+| **Stale rows** (not a section) | A Feedback Overdue row past `STALE_FEEDBACK_HOURS` (default 350h) or a Needs Scheduling row past `STALE_SCHEDULING_HOURS` (default 168h / 7 days) is marked **stale** next to its waiting time in the Action queue. Until 2026-11-17 these were pulled out into a separate Stale Candidates section; they're folded back in so they can't be overlooked. A **Stale** chip above the table shows or hides them, shown by default and on every page load. | Same rows as Feedback Overdue / Needs Scheduling (`isStale`). |
 | **Needs Scheduling** | Nothing has been sent to the candidate yet — no availability request, no self-schedule link — past `NEEDS_SCHEDULING_ALERT_HOURS` (default 48h). | Ashby `interviewSchedule.list` — `status: "NeedsScheduling"`. |
 | **Availability Submitted** | The candidate replied with their availability; waiting on someone to book it. Shown regardless of age (not threshold-gated); `AVAILABILITY_SUBMITTED_ALERT_HOURS` (default 24h) only drives the amber/red color-coding. | Ashby `interviewSchedule.list` — `status: "CandidateAvailabilitySubmitted"`. |
 | **Interviewer Weekly Limits** | An interviewer whose remaining weekly interview capacity has dropped to `INTERVIEWER_LIMIT_BUFFER` slots or fewer (default 1) — i.e. their Ashby-configured `weeklyLimit` minus interviews already on their calendar this week (Mon–Sun in `DISPLAY_TIMEZONE`, from every schedule, not just the lookback window). Interviewers with no `weeklyLimit` set never appear. | Ashby `user.interviewerSettings` (the limit) + `interviewSchedule.list` event data (the count). |
 | **Recently Sourced** | Candidates whose application was **created** in the last `SOURCED_LOOKBACK_DAYS` (default 3) with a referral or agency source. All statuses shown (Active/Archived/Hired/Lead), labeled per card. | Ashby `application.list` (`createdAfter` + `source.sourceType`). |
 | **Onsite Interviews Today** | Today's final-round and executive interview events, shown in a persistent right-margin column with a deliberately heavier border than the rest of the page. "Onsite" is **approximated**: Ashby has no per-interview location/format field anywhere in this org (checked interview events, interview definitions, interview stages, and all 38 org custom fields), so this matches on the interview stage title containing "final" or "exec" instead, per explicit product decision. "Today" is a calendar day in `DISPLAY_TIMEZONE` (default `America/New_York`) — the same zone every displayed time uses — not the server container's UTC day. | Ashby `interviewSchedule.list` (the same fetch `listIssues()` already does — no extra pagination call) + `interviewStage.info` per unique stage id involved. |
+| **Interviews Today** | Every interview that has started today (a calendar day in `DISPLAY_TIMEZONE`, the same boundary as Onsite Interviews Today), one row per interview, under Onsite Interviews Today in the right margin. Each person who owes a scorecard gets a quiet marker once the interview has ended: ✓ when theirs is in, a faint ring until then. While it's running, it shows "in progress" and no markers. Hosts and anyone else who owes nothing are shown muted with no marker, so they can never read as missing (see § Who owes feedback). Any candidate status (a rejected candidate's scorecard is still owed); cancelled schedules left out. Not part of the one-row-per-candidate rule below. | Ashby `interviewSchedule.list` (same fetch) + `applicationFeedback.list` for applications whose event flag says "in" (shared with Feedback Overdue) + `interview.info` titles when `NO_FEEDBACK_INTERVIEWS` is set. |
 | **Interviewer Training** (without `TRAINING_TRACKER_CLIENT_ID`) | Every interviewer currently enrolled in a pool's training path — real Ashby `Shadow`/`ReverseShadow` roles (not a naming-convention guess), with progress toward each stage's required interview count. Paused trainees are hidden by default behind a "Show N paused interview trainees" toggle, since a paused trainee isn't actionable the way an active one's progress is; toggling reveals them, sorted before active trainees. Not tied to any candidate/application. | Ashby `interviewerPool.list` + `interviewerPool.info` per pool with an enabled `trainingPath` (small, bounded — 22 pools on this org). |
 | **Rescheduled Interviews** | Interview events whose reschedule count exceeds `RESCHEDULE_COUNT_THRESHOLD` (default 2, i.e. the 3rd reschedule onward). **Ashby has no reschedule history anywhere in its API** — checked schedule fields, event fields, `application.listHistory`, and `extraData` across a live sample of 131 events; only the event's *current* `startTime` exists. This app tracks it itself: each refresh, compares every event's `startTime` against what it last saw for that event id and increments a persisted counter when it changes. Counting starts at zero the first time a given event is ever seen — it can only catch reschedules from then on, not any that happened before. | Ashby `interviewSchedule.list` (the same fetch `listIssues()` already does) + this app's own persisted `<DATA_DIR>/reschedule-tracking.json`. |
 | **Offers Awaiting Acceptance** | Offers actually extended to the candidate, waiting on their decision. Excludes candidates whose application is already `Hired` or `Archived` — Ashby's `offerStatus` can lag the application's real outcome (confirmed live: both statuses showed up here before this exclusion), and neither is actually still "awaiting" anything. | Ashby `offer.list` — `offerStatus: "WaitingOnCandidateResponse"`, application `status` not `Hired`/`Archived`. |
 | **Offers Not Yet Sent** | The offer has been created but never reached the candidate — usually still working through this org's internal approval chain, if it uses one. **No field on the Offer object marks a "sent" event** (checked the full `offer.info` schema: Offer, OfferVersion, `versions[]`, `formDefinition` — no `sentAt`/`extendedAt`/`deliveredAt` anywhere), so this is inferred entirely from `offerStatus`. Confirmed no other `offerStatus` value can leak in here: `WaitingOnCandidateResponse`/`CandidateAccepted`/`CandidateRejected` all mean the candidate has been sent something; `OfferCancelled` is ambiguous but isn't included in this bucket at all. Kept separate from Offers Awaiting Acceptance per product decision: an offer a candidate has never seen isn't something they could be "awaiting acceptance" on. | Ashby `offer.list` — `offerStatus` one of `WaitingOnApprovalStart`/`WaitingOnOfferApproval`/`WaitingOnApprovalDefinition`. |
 | **Offers Signed** | Offers the candidate has accepted (Ashby's `CandidateAccepted` — the closest real signal to "signed"; there's no separate e-signature timestamp exposed) within `OFFERS_SIGNED_LOOKBACK_DAYS` (default 7) of `decidedAt`. | Ashby `offer.list` — `offerStatus: "CandidateAccepted"` + `decidedAt`. |
 
-Every candidate appears in **at most one** of the five sections above
-(Feedback Overdue, Needs Scheduling, Availability Submitted, Onsite
-Interviews Today, Stale Candidates) — never several at once. If a candidate
-has activity across more than one (say, an old interview whose feedback is
-still outstanding, and a newer round scheduled for today), only their single
-most recent event is kept; the rest are dropped rather than shown twice or
-moved to Stale Candidates.
+Every candidate appears in **at most one** of Feedback Overdue, Needs
+Scheduling, Availability Submitted and Onsite Interviews Today — never
+several at once. If a candidate has activity across more than one (say, an
+old interview whose feedback is still outstanding, and a newer round
+scheduled for today), only their single most recent event is kept; the rest
+are dropped rather than shown twice. Rescheduled Interviews and Interviews
+Today are facts about an event, not a candidate's state, so they sit
+outside this rule.
+
+## Who owes feedback
+
+One rule, shared by Feedback Overdue and Interviews Today (`owersFor()` in
+`ashby.js`). Nobody owes a scorecard on:
+
+- a debrief (`isDebrief` on the interview), or
+- an interview whose **name** is in `NO_FEEDBACK_INTERVIEWS` (matched whole,
+  ignoring case and extra spaces; titles come from `interview.info` and are
+  cached in `<DATA_DIR>/interview-titles-cache.json`). This is by interview
+  name, never by person: a host who also runs real interviews still owes
+  feedback on those.
+
+Otherwise everyone on the event owes one unless Ashby marks them
+`isFeedbackRequired: false`. The list is for clear cases only. Excluding a real
+interview hides its missing feedback for good, while leaving an exempt one in
+only shows a row someone can dismiss. Lists as set on 2026-11-17:
+
+| Client | `NO_FEEDBACK_INTERVIEWS` |
+| --- | --- |
+| Luminai | `Welcome,Lunch` (Grace and Gabrielle host Welcome and are marked feedback-required in Ashby) |
+| Forus | `[Forus] Onsite Day,Onsite Day with Forus,Onsite Day,[Forus] Account Executive (Provider Growth) Onsite,Lunch with Team,Lunch,[Forus] Check-In (Sell call)` |
+| January | `Verbal Offer` |
+| Pace, Poetic, Runlayer | none |
+
+Deliberately left in (possibly just slow, which is what the dashboard should
+show): Forus's "[Forus] Check In", "Project Orientation", "[Forus] CEO
+Interview" and "Founder Conversation", and Pace's "Yonah 1:1".
 
 ## Pages
 
@@ -37,11 +67,11 @@ and `app.js` — plain DOM show/hide via the `hidden` attribute, no router):
 
 - **Dashboard** (default) — a left sidebar (Triage queues: Feedback
   Overdue/Needs Scheduling/Availability Submitted/Rescheduled Interviews,
-  each with a count; Watchlist: Recently Sourced/Stale Candidates, likewise),
+  each with a count; Watchlist: Recently Sourced, likewise),
   one merged, sortable **Action queue** table for the four Triage queues
-  (see § Action queue below), Recently Sourced and Stale Candidates as their
-  own sections below it, Onsite Interviews Today as a timeline in the
-  persistent right margin, and the department/job/recruiter/coordinator
+  (see § Action queue below; stale rows are in it, marked), Recently Sourced
+  as its own section below it, Onsite Interviews Today and Interviews Today
+  in the persistent right margin, and the department/job/recruiter/coordinator
   filter bar above all of it.
 - **Interviewer Info** — Interviewer Weekly Limits and Interviewer
   Training, which aren't tied to a candidate and aren't affected by the
@@ -102,7 +132,7 @@ table — no new data, purely a client-side reshaping of the same four
 
 Every section has a stable key — its field name in the `/api/issues`
 snapshot (`issues.js`/`ashby.js`) and its `DISABLED_SECTIONS` entry (see
-below). `staleCandidates`/`recentSourced`/`onsiteToday`/`interviewerLimits`/
+below). `recentSourced`/`onsiteToday`/`interviewsToday`/`interviewerLimits`/
 `interviewerTraining`/the three Offers keys also use it as their
 `<section data-key="...">` attribute in `index.html`; `feedbackOverdue`/
 `needsScheduling`/`availabilitySubmitted`/`rescheduledInterviews` don't —
@@ -114,10 +144,10 @@ below) instead of each having their own section:
 | `feedbackOverdue` | Feedback Overdue |
 | `needsScheduling` | Needs Scheduling |
 | `availabilitySubmitted` | Availability Submitted |
-| `staleCandidates` | Stale Candidates |
 | `interviewerLimits` | Interviewer Weekly Limits |
 | `recentSourced` | Recently Sourced |
 | `onsiteToday` | Onsite Interviews Today |
+| `interviewsToday` | Interviews Today |
 | `rescheduledInterviews` | Rescheduled Interviews |
 | `interviewerTraining` | Interviewer Training |
 | `offersNotYetSent` | Offers Not Yet Sent |
@@ -158,8 +188,9 @@ than just quietly leaving the section visible.
 ## Department / Job / Recruiter / Coordinator filter
 
 A multi-select menu at the top of the page filters every candidate-facing
-section (Stale Candidates, Feedback Overdue, Needs Scheduling, Availability
-Submitted, Recently Sourced, Onsite Interviews Today). A segmented
+section (Feedback Overdue, Needs Scheduling, Availability Submitted,
+Rescheduled Interviews, Recently Sourced, Onsite Interviews Today,
+Interviews Today). A segmented
 **Department / Job / Recruiter / Coordinator** toggle picks which field it
 filters on — only one is ever live at a time (switching doesn't AND
 multiple fields together, it replaces which one is active), and each
@@ -339,8 +370,9 @@ Fill in `.env`:
 | `ASHBY_APP_BASE_URL` | no | Only change for a custom Ashby domain. |
 | `FEEDBACK_OVERDUE_HOURS` | no | Default `24`. |
 | `NEEDS_SCHEDULING_ALERT_HOURS` | no | Default `48`. This is a dashboard-defined threshold, not an Ashby concept. |
-| `STALE_FEEDBACK_HOURS` | no | Default `350`. Feedback-overdue candidates past this move to Stale Candidates instead. |
-| `STALE_SCHEDULING_HOURS` | no | Default `168` (7 days). Needs-scheduling candidates past this move to Stale Candidates instead. |
+| `STALE_FEEDBACK_HOURS` | no | Default `350`. Feedback Overdue rows past this are marked "stale" in the Action queue. |
+| `STALE_SCHEDULING_HOURS` | no | Default `168` (7 days). Needs Scheduling rows past this are marked "stale" in the Action queue. |
+| `NO_FEEDBACK_INTERVIEWS` | no | Interview names nobody owes feedback on, comma-separated (see § Who owes feedback). Default none. |
 | `INTERVIEWER_LIMIT_BUFFER` | no | Default `1`. An interviewer is flagged once remaining weekly capacity drops to this many slots or fewer. |
 | `SOURCED_LOOKBACK_DAYS` | no | Default `3`. Recently Sourced shows referral/agency applications created within this many days. |
 | `AVAILABILITY_SUBMITTED_ALERT_HOURS` | no | Default `24`. Color-coding threshold only — every submitted-and-unbooked candidate is shown regardless of age. |
@@ -645,7 +677,7 @@ accidental dismiss.
 | `src/index.js` | Entry point — starts the server + background refresh loop. |
 | `src/config.js` | Reads and validates env vars. Also owns `SECTION_KEYS` (see § Section keys) and warns on startup about any unrecognized `DISABLED_SECTIONS` entry. |
 | `src/server.js` | Express app: serves the static dashboard, `GET /api/issues`, `POST /api/refresh`, `POST /api/dismiss`, `POST /api/undismiss`. |
-| `src/ashby.js` | Paginated Ashby client; computes Feedback Overdue, Needs Scheduling, Availability Submitted, Stale Candidates, Interviewer Weekly Limits, Recently Sourced, Onsite Interviews Today, and the three Offers sections. |
+| `src/ashby.js` | Paginated Ashby client; computes Feedback Overdue, Needs Scheduling, Availability Submitted (with stale rows marked), Interviewer Weekly Limits, Recently Sourced, Onsite Interviews Today, and the three Offers sections. |
 | `src/concurrency.js` | `mapWithConcurrency` — bounds parallel `application.info` / `user.interviewerSettings` lookups. |
 | `src/dismissals.js` | Persisted store of dismissed cards (`dismissals.json`); handles "today" expiry and "forever". |
 | `src/issues.js` | Orchestrates the twelve sections (schedule/application-driven, interviewer training pool data, and offer data), guards against overlapping refreshes, filters out dismissed cards at serve time, holds the cached snapshot. |

@@ -49,11 +49,11 @@ let snapshot = {
   readyToSchedule: [],
   feedbackOverdue: [],
   needsScheduling: [],
-  staleCandidates: [],
   interviewerLimits: [],
   recentSourced: [],
   availabilitySubmitted: [],
   onsiteToday: [],
+  interviewsToday: [],
   rescheduledInterviews: [],
   interviewerTraining: [],
   // Tracker-only (TRAINING_TRACKER_CLIENT_ID). trainingPaths/PathOptions/
@@ -88,8 +88,8 @@ async function timed(label, promise) {
 // down listIssues()'s result with it just because they used to be awaited
 // together in one Promise.all. Grouped by which underlying `ashby.js` call
 // produces them, since that's the real unit of failure: listIssues()
-// itself computes feedbackOverdue/needsScheduling/staleCandidates/
-// interviewerLimits/availabilitySubmitted/onsiteToday/rescheduledInterviews
+// itself computes feedbackOverdue/needsScheduling/interviewerLimits/
+// availabilitySubmitted/onsiteToday/interviewsToday/rescheduledInterviews
 // from one shared `interviewSchedule.list` fetch, so those seven sink or
 // swim together (splitting them further isn't meaningful — they share a
 // root cause), same for offersNotYetSent/offersAwaitingAcceptance/
@@ -107,7 +107,7 @@ const TRAINING_KEYS = config.trainingTrackerEnabled
 const SECTION_GROUPS = [
   {
     label: "Schedule-driven sections",
-    keys: ["readyToSchedule", "feedbackOverdue", "needsScheduling", "staleCandidates", "interviewerLimits", "availabilitySubmitted", "onsiteToday", "rescheduledInterviews", ...TRAINING_KEYS],
+    keys: ["readyToSchedule", "feedbackOverdue", "needsScheduling", "interviewerLimits", "availabilitySubmitted", "onsiteToday", "interviewsToday", "rescheduledInterviews", ...TRAINING_KEYS],
     // Ashby's native training data is passed in from the PREVIOUS cycle's
     // snapshot - it is a cross-check shown on a card, never an input to the
     // counts, so being one refresh interval stale is harmless and it isn't
@@ -241,11 +241,12 @@ async function refresh() {
       console.log(
         `[issues] refresh cycle complete: ${snapshot.feedbackOverdue.length} feedback overdue, ` +
           `${snapshot.needsScheduling.length} needs scheduling, ` +
-          `${snapshot.staleCandidates.length} stale, ` +
+          `${[...snapshot.feedbackOverdue, ...snapshot.needsScheduling].filter((e) => e.isStale).length} of those stale, ` +
           `${snapshot.interviewerLimits.length} nearing interview limit, ` +
           `${snapshot.recentSourced.length} recently sourced, ` +
           `${snapshot.availabilitySubmitted.length} availability submitted, ` +
           `${snapshot.onsiteToday.length} onsite today, ` +
+          `${snapshot.interviewsToday.length} interviews today, ` +
           `${snapshot.rescheduledInterviews.length} rescheduled interviews, ` +
           `${snapshot.interviewerTraining.length} interviewer training entries, ` +
           `${snapshot.offersNotYetSent.length} offers not yet sent, ` +
@@ -290,10 +291,10 @@ function applyDismissals(snap) {
     readyToScheduleHidden: ready.hidden,
     feedbackOverdue: snap.feedbackOverdue.filter(keepCandidate),
     needsScheduling: snap.needsScheduling.filter(keepCandidate),
-    staleCandidates: snap.staleCandidates.filter(keepCandidate),
     recentSourced: snap.recentSourced.filter(keepCandidate),
     availabilitySubmitted: snap.availabilitySubmitted.filter(keepCandidate),
     onsiteToday: snap.onsiteToday.filter(keepCandidate),
+    interviewsToday: snap.interviewsToday.filter(keepCandidate),
     rescheduledInterviews: snap.rescheduledInterviews.filter(keepCandidate),
     interviewerLimits: snap.interviewerLimits.filter(keepInterviewer),
     // The tracker's cards have no dismiss control, so a leftover
@@ -336,10 +337,10 @@ function nameForKey(key) {
 const CANDIDATE_NOTE_KEYS = [
   "feedbackOverdue",
   "needsScheduling",
-  "staleCandidates",
   "recentSourced",
   "availabilitySubmitted",
   "onsiteToday",
+  "interviewsToday",
   "rescheduledInterviews",
   "offersNotYetSent",
   "offersAwaitingAcceptance",

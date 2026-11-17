@@ -56,6 +56,11 @@
   // pattern as the department/job/recruiter/coordinator filter and the
   // paused-trainees toggle above.
   let activeSignal = "all";
+  // Stale rows (past STALE_FEEDBACK_HOURS / STALE_SCHEDULING_HOURS) are in
+  // the Action queue by default; the Stale chip takes them out for when
+  // there are enough of them to bury the fresh ones (Forus had 43). Resets to
+  // shown on reload on purpose: folding stale in was about not hiding them.
+  let showStale = true;
 
   // Sections this deployment has turned off (DISABLED_SECTIONS, see
   // config.js) — populated from appConfig once, in applyDisabledSections().
@@ -98,7 +103,6 @@
     "needsScheduling",
     "availabilitySubmitted",
     "rescheduledInterviews",
-    "staleCandidates",
     "recentSourced",
     "offersNotYetSent",
     "offersAwaitingAcceptance",
@@ -133,9 +137,9 @@
     "feedbackOverdue",
     "needsScheduling",
     "availabilitySubmitted",
-    "staleCandidates",
     "recentSourced",
     "onsiteToday",
+    "interviewsToday",
     "rescheduledInterviews",
   ];
 
@@ -590,7 +594,7 @@
           <span class="signal-tag ${queue.signalClass}">${queue.label}</span>
           ${queue.signalDetail(item) ? `<div class="aq-signal-sub">${queue.signalDetail(item)}</div>` : ""}
         </td>
-        <td class="aq-waiting ${sevClass}"${detail ? ` title="${detail}"` : ""}>${queue.waitingLabel(hours)}</td>
+        <td class="aq-waiting ${sevClass}"${detail ? ` title="${detail}"` : ""}>${queue.waitingLabel(hours)}${item.isStale ? ` <span class="stale-label">stale</span>` : ""}</td>
         <td class="aq-dismiss">${dismissHtml(candidateKey(item))}</td>
       </tr>`;
   }
@@ -628,17 +632,11 @@
             <span>Recently sourced</span><span class="queue-count">${filterByEntity(data.recentSourced || []).length}</span>
           </a>`);
       }
-      if (!isSectionDisabled("staleCandidates")) {
-        rows.push(`
-          <a class="queue-nav-item" href="#staleCandidates">
-            <span>Stale candidates</span><span class="queue-count">${filterByEntity(data.staleCandidates || []).length}</span>
-          </a>`);
-      }
       watchlistNav.innerHTML = rows.join("");
     }
   }
 
-  function renderSignalChips(countsByQueue, totalCount, hiddenCount) {
+  function renderSignalChips(countsByQueue, totalCount, hiddenCount, staleCount) {
     const container = document.getElementById("signal-chip-row");
     if (!container) return;
     const chips = [
@@ -648,6 +646,14 @@
       if (isSectionDisabled(queue.key)) continue;
       chips.push(
         `<button type="button" class="signal-chip${activeSignal === queue.key ? " is-active" : ""}" data-signal="${queue.key}">${queue.label} ${countsByQueue[queue.key]}</button>`
+      );
+    }
+    // A toggle, not a signal: it shows or hides stale rows within whichever
+    // signal is picked. Pressed (stale shown) by default. Only offered when
+    // there are stale rows to show or hide.
+    if (staleCount) {
+      chips.push(
+        `<button type="button" class="signal-chip signal-chip-stale${showStale ? "" : " is-off"}" data-stale-toggle aria-pressed="${showStale}" title="${showStale ? "Hide" : "Show"} rows far past their threshold">Stale ${staleCount} · ${showStale ? "shown" : "hidden"}</button>`
       );
     }
     // Set apart from the signals: it lists what's been taken off the
@@ -683,7 +689,8 @@
     const totalCount = allRows.length;
 
     renderQueueNav(countsByQueue, totalCount, data);
-    renderSignalChips(countsByQueue, totalCount, (data.hidden || []).length);
+    const staleCount = allRows.filter((r) => r.item.isStale).length;
+    renderSignalChips(countsByQueue, totalCount, (data.hidden || []).length, staleCount);
     updateActionQueueFootnote(data.thresholds && data.thresholds.rescheduleCountThreshold);
 
     const thead = document.getElementById("action-queue-head");
@@ -701,7 +708,8 @@
         : "Nothing blocked on a coordinator action right now.";
     }
 
-    const visibleRows = activeSignal === "all" ? allRows : allRows.filter((r) => r.queue.key === activeSignal);
+    const visibleRows = (activeSignal === "all" ? allRows : allRows.filter((r) => r.queue.key === activeSignal))
+      .filter((r) => showStale || !r.item.isStale);
 
     const tbody = document.getElementById("action-queue-body");
     if (!tbody) return;
@@ -726,8 +734,8 @@
   const HIDDEN_SECTION_LABELS = {
     readyToSchedule: "Ready to schedule",
     recentSourced: "Recently sourced",
-    staleCandidates: "Stale candidates",
     onsiteToday: "Onsite today",
+    interviewsToday: "Interviews today",
     interviewerLimits: "Weekly limits",
     interviewerTraining: "Interviewer training",
     offersNotYetSent: "Offer not yet sent",
@@ -852,24 +860,6 @@
     } catch (err) {
       console.error(`[restore] request failed for key "${key}":`, err);
     }
-  }
-
-  function renderStale(items, hasError) {
-    const container = document.getElementById("cards-staleCandidates");
-    if (!items.length) {
-      container.innerHTML = emptyStateHtml(hasError, "Nothing flagged");
-      return;
-    }
-    container.innerHTML = items
-      .map((item) =>
-        cardHtml(item, {
-          sev: "critical",
-          ageLabel: `${formatAge(item.hoursStale)} stale`,
-          reasonBadge: item.reasonLabel,
-          detail: owedByList(item.interviewers),
-        })
-      )
-      .join("");
   }
 
   function renderInterviewerLimits(items, hasError) {
@@ -1030,6 +1020,46 @@
       .join("");
   }
 
+  // Interviews today (ashby.js todaysStartedEvents): one row per interview,
+  // each person inline with a quiet marker. ✓ = their scorecard is in; a
+  // faint ring = not in yet. People who don't owe one (hosts, Welcome/Lunch,
+  // feedback-not-required) are muted with no marker, so they can never read
+  // as missing. While the interview is running there are no markers at all,
+  // just "in progress". null `submitted` (lookup failed) also gets no marker.
+  function interviewPersonHtml(person, inProgress) {
+    const name = escapeHtml(person.name || "Unknown");
+    if (!person.owes) return `<span class="it-person it-host">${name}</span>`;
+    if (inProgress || person.submitted === null) return `<span class="it-person">${name}</span>`;
+    return person.submitted
+      ? `<span class="it-person">${name}<span class="it-mark it-in" role="img" aria-label="feedback in" title="Feedback in">✓</span></span>`
+      : `<span class="it-person">${name}<span class="it-mark it-owed" role="img" aria-label="feedback not in yet" title="Feedback not in yet">○</span></span>`;
+  }
+
+  function renderInterviewsToday(items, hasError) {
+    const container = document.getElementById("cards-interviewsToday");
+    if (!container) return;
+    if (!items.length) {
+      container.innerHTML = emptyStateHtml(hasError, "No interviews yet today");
+      return;
+    }
+    container.innerHTML = items
+      .map((item) => {
+        const nameHtml = item.ashbyProfileUrl
+          ? `<a href="${item.ashbyProfileUrl}" target="_blank" rel="noopener">${escapeHtml(item.candidateName || "Unknown candidate")}</a>`
+          : escapeHtml(item.candidateName || "Unknown candidate");
+        const sub = [item.interviewTitle, item.jobTitle].filter(Boolean).map(escapeHtml).join(" · ");
+        const people = (item.people || []).map((p) => interviewPersonHtml(p, item.inProgress)).join("");
+        return `
+          <div class="interview-today-item">
+            <div class="onsite-timeline-time">${formatEventTime(item.startTime)}${item.inProgress ? ` <span class="it-progress">in progress</span>` : ""}</div>
+            <div class="onsite-timeline-name">${nameHtml}</div>
+            ${sub ? `<div class="onsite-timeline-sub">${sub}</div>` : ""}
+            ${people ? `<div class="it-people">${people}</div>` : ""}
+          </div>`;
+      })
+      .join("");
+  }
+
   // startDate is a plain "YYYY-MM-DD" date, no time/timezone component —
   // parsed as UTC calendar-date parts (not `new Date(str)`, which the
   // browser would interpret in local time and could shift the displayed
@@ -1117,8 +1147,8 @@
   const SECTION_TIMESTAMP_KEYS = [
     "interviewerLimits",
     "recentSourced",
-    "staleCandidates",
     "onsiteToday",
+    "interviewsToday",
     "interviewerTraining",
     "offersNotYetSent",
     "offersAwaitingAcceptance",
@@ -1173,7 +1203,7 @@
   // dropped when sections became cards). Collapses a now-empty `.side-margin` too, so
   // a disabled Onsite Interviews Today doesn't leave an empty gap. Only
   // covers keys that still have their own static `[data-key]` section —
-  // recentSourced/staleCandidates/onsiteToday. The four TRIAGE_QUEUES keys
+  // recentSourced/onsiteToday/interviewsToday. The four TRIAGE_QUEUES keys
   // don't (they're merged rows in one table now, not separate sections);
   // renderActionQueue()'s own per-queue isSectionDisabled() checks handle
   // those, same idea, different mechanism since there's no longer a whole
@@ -1220,7 +1250,7 @@
   // and scrolls so the first of them still there sits where it was. If none
   // of them is (all hidden or gone), it falls back to the section they were
   // in.
-  const READING_ITEMS = ".action-queue-row, .card, .onsite-timeline-item, .scheduling-draft";
+  const READING_ITEMS = ".action-queue-row, .card, .onsite-timeline-item, .interview-today-item, .scheduling-draft";
 
   function readingItemId(el) {
     const section = el.closest("section");
@@ -1301,9 +1331,6 @@
     renderActionQueue(data);
     const actionQueueStatus = getSectionStatus(data, "feedbackOverdue");
     renderSectionTimestamp("actionQueue", actionQueueStatus.lastUpdated, actionQueueStatus.lastError);
-    if (!isSectionDisabled("staleCandidates")) {
-      renderStale(filterByEntity(data.staleCandidates || []), sectionHasError(data, "staleCandidates"));
-    }
     if (!isSectionDisabled("interviewerLimits")) {
       // no department/job filter — no job/department concept for an interviewer
       renderInterviewerLimits(data.interviewerLimits || [], sectionHasError(data, "interviewerLimits"));
@@ -1335,6 +1362,9 @@
     if (!isSectionDisabled("onsiteToday")) {
       renderOnsiteToday(filterByEntity(data.onsiteToday || []), sectionHasError(data, "onsiteToday"));
       updateOnsiteSubtitle(data.appConfig && data.appConfig.onsiteStageKeywords);
+    }
+    if (!isSectionDisabled("interviewsToday")) {
+      renderInterviewsToday(filterByEntity(data.interviewsToday || []), sectionHasError(data, "interviewsToday"));
     }
     for (const col of offerColumns) {
       if (isSectionDisabled(col.key)) continue;
@@ -1718,6 +1748,13 @@
     // navigate as before.
     const sectionLink = e.target.closest('a.queue-nav-item[href^="#"]');
     if (sectionLink) trackUsage("section", { detail: (sectionLink.querySelector("span") || sectionLink).textContent.trim() });
+
+    if (e.target.closest("[data-stale-toggle]")) {
+      showStale = !showStale;
+      trackUsage("queue", { detail: showStale ? "Stale shown" : "Stale hidden" });
+      if (lastData) render(lastData);
+      return;
+    }
 
     const signalControl = e.target.closest("[data-signal]");
     if (signalControl) {
