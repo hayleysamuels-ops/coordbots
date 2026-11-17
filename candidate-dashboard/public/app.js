@@ -330,12 +330,11 @@
       signalClass: "signal-critical",
       waitingHours: (item) => item.hoursOverdue,
       waitingLabel: (hours) => `${formatAge(hours)} overdue`,
-      renderDetail: (item) => interviewerList(item.interviewers),
+      renderDetail: (item) => owedByList(item.interviewers),
       // Only feedbackOverdue defines this — the other three queues have no
       // per-row interviewer-panel concept, so their signalDetail is a
       // no-op. See interviewerSummary() above for the "Tom Reyes +2"
-      // truncation and why this can never name a single person as "the"
-      // one who hasn't submitted.
+      // truncation; the names are the people still owing a scorecard.
       signalDetail: (item) => interviewerSummary(item.interviewers),
     },
     {
@@ -390,18 +389,17 @@
     },
   ];
 
-  // Ashby's hasSubmittedFeedback is one boolean per interview EVENT, not
-  // resolved per interviewer (confirmed against a live interviewSchedule.list
-  // result — see the comment on feedbackEntries.push() in ashby.js) — for a
-  // multi-interviewer panel there's no way to know WHICH required
-  // panelist(s) still owe a scorecard, only that at least one does. Both
-  // helpers below are neutral on that basis: they name who's on the panel,
-  // never singling anyone out as "the one who hasn't submitted."
-  //
   // Full list, comma-separated — used as a tooltip/hover-detail where space
   // isn't constrained.
   function interviewerList(interviewers) {
     return interviewers && interviewers.length ? `Interviewers: ${interviewers.map((i) => i.name).join(", ")}` : "";
+  }
+
+  // A Feedback Overdue row's `interviewers` is exactly the people who still
+  // owe a scorecard for that interview, resolved per person server-side
+  // (missingFeedbackOwers in ashby.js) — not the whole panel.
+  function owedByList(interviewers) {
+    return interviewers && interviewers.length ? `Waiting on: ${interviewers.map((i) => i.name).join(", ")}` : "";
   }
 
   // First name plus a count of the rest — "Tom Reyes +2" — for the Action
@@ -868,7 +866,7 @@
           sev: "critical",
           ageLabel: `${formatAge(item.hoursStale)} stale`,
           reasonBadge: item.reasonLabel,
-          detail: interviewerList(item.interviewers),
+          detail: owedByList(item.interviewers),
         })
       )
       .join("");

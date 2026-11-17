@@ -10,7 +10,7 @@ A small dashboard for a recruiting coordinator: at a glance, which candidates
 | Section | What it flags | Source |
 | --- | --- | --- |
 | **Stale Candidates** | Pulled out of the two candidate columns below once feedback is overdue past `STALE_FEEDBACK_HOURS` (default 350h) or a schedule has been pending past `STALE_SCHEDULING_HOURS` (default 168h / 7 days) — these have likely fallen through the cracks, not just freshly overdue. | Same sources as the two rows below. |
-| **Feedback Overdue** | An interview ended and the interviewer still hasn't submitted their scorecard, past `FEEDBACK_OVERDUE_HOURS` (default 24h). Debrief events are excluded — a debrief is an internal wrap-up meeting with no scorecard due back, so it can never be "overdue." | Ashby `interviewSchedule.list` — `interviewEvents[].endTime` + `hasSubmittedFeedback`, cross-referenced against `interview.list`'s `isDebrief` (a real structural field, not org-configured naming — safe for any client). |
+| **Feedback Overdue** | An interview ended and at least one interviewer who owes a scorecard still hasn't submitted it, past `FEEDBACK_OVERDUE_HOURS` (default 24h). The row names exactly who is still missing. Debrief events are excluded — a debrief is an internal wrap-up meeting with no scorecard due back, so it can never be "overdue." A scorecard counts for the person it is **credited to**, not whoever clicked submit: someone sometimes submits on an interviewer's behalf, and that interviewer's feedback is in (see § Per-person feedback). | Ashby `interviewSchedule.list` — `interviewEvents[].endTime` + `hasSubmittedFeedback`, cross-referenced against `interview.list`'s `isDebrief` (a real structural field, not org-configured naming — safe for any client); plus `applicationFeedback.list` per application when the event-level flag says "in". |
 | **Needs Scheduling** | Nothing has been sent to the candidate yet — no availability request, no self-schedule link — past `NEEDS_SCHEDULING_ALERT_HOURS` (default 48h). | Ashby `interviewSchedule.list` — `status: "NeedsScheduling"`. |
 | **Availability Submitted** | The candidate replied with their availability; waiting on someone to book it. Shown regardless of age (not threshold-gated); `AVAILABILITY_SUBMITTED_ALERT_HOURS` (default 24h) only drives the amber/red color-coding. | Ashby `interviewSchedule.list` — `status: "CandidateAvailabilitySubmitted"`. |
 | **Interviewer Weekly Limits** | An interviewer whose remaining weekly interview capacity has dropped to `INTERVIEWER_LIMIT_BUFFER` slots or fewer (default 1) — i.e. their Ashby-configured `weeklyLimit` minus interviews already on their calendar this week (Mon–Sun in `DISPLAY_TIMEZONE`, from every schedule, not just the lookback window). Interviewers with no `weeklyLimit` set never appear. | Ashby `user.interviewerSettings` (the limit) + `interviewSchedule.list` event data (the count). |
@@ -257,6 +257,32 @@ records, not the whole org. It intentionally does *not* apply the
 Active-only / past-Application-Review filter the other sections do: a
 candidate referred or agency-submitted 3 days ago is normally still in
 Application Review and may be any status.
+
+## Per-person feedback
+
+`interviewEvents[].hasSubmittedFeedback` is one flag per interview event,
+and it turns true as soon as **anyone** on the event submits. On a panel it
+can read "in" while a required interviewer has never submitted. Until
+2026-11-17 Feedback Overdue trusted it, so those panels never showed.
+On a live Forus sample, 12 of 50 panels that ended 48h+ earlier were like
+this. Most of them belonged to candidates the dashboard deliberately leaves
+out anyway (not Active, superseded by a later interview, or moved to a
+later stage). On the day of the fix, it added 3 rows at Pace and 1 at
+Poetic, and none elsewhere.
+
+When an event's flag is true and the event would otherwise be overdue,
+`listIssues()` reads `applicationFeedback.list` for that application (at most
+8 at a time) and checks each person who owes feedback against the scorecards
+tied to that exact `interviewEventId`. A flag-false event needs no lookup.
+If the lookup fails for an application, its events keep the old reading
+(flag true = not flagged) and a warning is logged.
+
+**A scorecard counts for `creditedToUser`, not `submittedByUser`.** A
+coordinator or colleague sometimes submits on an interviewer's behalf (3
+such scorecards in the Forus sample). The interviewer it's credited to has
+their feedback in; the person who clicked submit may not even be on the
+panel. `submittedByUser` is used only when a scorecard carries no credit.
+This is intentional. Don't "fix" it to match on the submitter.
 
 ## Correction: "Needs Scheduling" vs. "Availability Submitted"
 

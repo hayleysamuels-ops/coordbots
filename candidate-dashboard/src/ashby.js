@@ -584,6 +584,52 @@ function feedbackOwers(event) {
 }
 
 /**
+ * Which of an event's owers have NOT yet submitted, from the per-scorecard
+ * records of applicationFeedback.list for that event's application.
+ *
+ * Needed because hasSubmittedFeedback is one flag per EVENT that turns true
+ * as soon as ANYONE on it submits. Confirmed live on Forus (2026-11-17): of 50
+ * panels that ended 48h+ earlier, 12 had the flag true while at least one
+ * required interviewer had never submitted. Most fall outside Feedback
+ * Overdue's scope anyway (candidate not Active, superseded, or moved on); on
+ * the day of the fix this added 3 rows at Pace and 1 at Poetic.
+ *
+ * A scorecard counts for whoever it is CREDITED to (creditedToUser), falling
+ * back to submittedByUser only when there's no credit. Deliberate: a
+ * coordinator or colleague sometimes submits on an interviewer's behalf (3
+ * such scorecards in the same Forus sample), and that interviewer's feedback
+ * IS in. Don't switch this to submittedByUser — it would mark the real
+ * interviewer missing and credit someone who wasn't on the panel.
+ * Only scorecards tied to this exact interview event count, so feedback for
+ * a different round on the same application never stands in for this one.
+ */
+function missingFeedbackOwers(event, feedbackRows) {
+  const inFor = new Set();
+  for (const f of feedbackRows || []) {
+    if (f.interviewEventId !== event.id) continue;
+    const credited = (f.creditedToUser && f.creditedToUser.id) || (f.submittedByUser && f.submittedByUser.id);
+    if (credited) inFor.add(credited);
+  }
+  return feedbackOwers(event).filter((i) => !inFor.has(i.id));
+}
+
+// applicationFeedback.list for each application, at most 8 at a time. A
+// failed application maps to null rather than throwing: its events then keep
+// the old event-level reading (flag true = not flagged), so one bad call
+// degrades to the previous behaviour instead of taking down listIssues().
+async function fetchFeedbackByApplication(applicationIds) {
+  const entries = await mapWithConcurrency(applicationIds, 8, async (applicationId) => {
+    try {
+      return [applicationId, await fetchAllPages("applicationFeedback.list", { applicationId })];
+    } catch (err) {
+      console.warn(`[ashby] applicationFeedback.list failed for ${applicationId}; using the event-level flag for its interviews:`, err.message);
+      return [applicationId, null];
+    }
+  });
+  return new Map(entries);
+}
+
+/**
  * A candidate can have multiple schedules over the life of one application
  * (one per interview stage/round) — an earlier round's missing feedback can
  * keep showing as overdue long after the candidate has moved on to (or even
@@ -658,6 +704,7 @@ async function listIssues(options = {}) {
 
   const now = Date.now();
   let feedbackEntries = [];
+  const feedbackCandidates = [];
   let schedulingEntries = [];
   let availabilitySubmitted = [];
   const rescheduledInterviews = [];
@@ -705,7 +752,7 @@ async function listIssues(options = {}) {
         });
       }
 
-      if (event.hasSubmittedFeedback || !event.endTime) continue;
+      if (!event.endTime) continue;
       if (debriefInterviewIds.has(event.interviewId)) continue; // debriefs have no scorecard due back
       const owers = feedbackOwers(event);
       if (!owers.length) continue; // nobody on it owes a scorecard
@@ -732,34 +779,43 @@ async function listIssues(options = {}) {
       const hoursOverdue = (now - new Date(event.endTime).getTime()) / (1000 * 60 * 60);
       if (hoursOverdue < config.feedbackOverdueHours) continue;
 
-      // hasSubmittedFeedback is a single boolean on the EVENT, not resolved
-      // per interviewer — confirmed against a live interviewSchedule.list
-      // result: `interviewers[]` carries each panelist's own
-      // `isFeedbackRequired`, but there's no per-interviewer submitted flag
-      // anywhere, only this one event-level aggregate. So which specific
-      // required interviewer(s) still owe a scorecard is NOT knowable from
-      // this API for a multi-interviewer panel — only that at least one
-      // does. Filtered to isFeedbackRequired !== false (keeping it on a
-      // missing/undefined value, not just true, so an org where this field
-      // is ever absent doesn't silently drop a real panelist) so the list
-      // shown is "who could plausibly still owe this," not literally
-      // everyone who sat in, e.g. excluding a non-required shadowing
-      // trainee — see candidateKey()'s callers in app.js for how this
-      // renders as a neutral panel list rather than naming an individual.
-      feedbackEntries.push({
-        ...app,
-        scheduleId: schedule.id,
-        interviewEventId: event.id,
-        endTime: event.endTime,
-        hoursOverdue: Math.round(hoursOverdue),
-        interviewers: owers
-          .map((i) => ({
-            name: `${i.firstName || ""} ${i.lastName || ""}`.trim() || i.email,
-            email: i.email,
-          })),
-        isStale: hoursOverdue >= config.staleFeedbackHours,
-      });
+      // hasSubmittedFeedback is one flag for the whole EVENT and turns true
+      // when anyone on it submits, so a flag-true event can still have a
+      // required interviewer missing (see missingFeedbackOwers). Those are
+      // held here and resolved per person below, after one
+      // applicationFeedback.list per application involved. A flag-false
+      // event needs no lookup: nobody has submitted, so every ower is missing.
+      feedbackCandidates.push({ schedule, event, app, owers, hoursOverdue });
     }
+  }
+
+  const needsPerPersonCheck = feedbackCandidates.filter((c) => c.event.hasSubmittedFeedback);
+  const feedbackByApplication = await fetchFeedbackByApplication(
+    [...new Set(needsPerPersonCheck.map((c) => c.schedule.applicationId))]
+  );
+  for (const { schedule, event, app, owers, hoursOverdue } of feedbackCandidates) {
+    let missing = owers;
+    if (event.hasSubmittedFeedback) {
+      const rows = feedbackByApplication.get(schedule.applicationId);
+      if (!rows) continue; // couldn't check: keep the old reading (flag true = in)
+      missing = missingFeedbackOwers(event, rows);
+      if (!missing.length) continue;
+    }
+    // `interviewers` is exactly who still owes a scorecard: everyone not
+    // marked isFeedbackRequired false (a missing value counts as required),
+    // minus anyone credited with a scorecard for this event.
+    feedbackEntries.push({
+      ...app,
+      scheduleId: schedule.id,
+      interviewEventId: event.id,
+      endTime: event.endTime,
+      hoursOverdue: Math.round(hoursOverdue),
+      interviewers: missing.map((i) => ({
+        name: `${i.firstName || ""} ${i.lastName || ""}`.trim() || i.email,
+        email: i.email,
+      })),
+      isStale: hoursOverdue >= config.staleFeedbackHours,
+    });
   }
 
   // Collapse every candidate down to their single most recent event across
@@ -1184,4 +1240,5 @@ module.exports = {
   getApiCallCount,
   getApiCallCountByEndpoint,
   feedbackOwers,
+  missingFeedbackOwers,
 };

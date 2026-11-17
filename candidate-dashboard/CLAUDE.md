@@ -222,10 +222,11 @@ is normally still in Application Review and any status).
   distinguish them.** A shadow and a reverse shadow are the same event shape
   (trainee added as an extra interviewer), so the first N counting sessions
   are shadows and the next are reverse shadows, with per-session manual
-  override. Don't replace this with a scorecard heuristic: there is no
-  per-interviewer feedback-submitted flag anywhere in the API (see the
-  `hasSubmittedFeedback` comment in `ashby.js` — it's one event-level
-  aggregate).
+  override. Don't replace this with a scorecard heuristic: the schedule
+  data's `hasSubmittedFeedback` is one event-level aggregate, and while
+  `applicationFeedback.list` does say who submitted (Feedback Overdue uses
+  it, see below), a trainee submitting or not doesn't tell a shadow from a
+  reverse shadow either.
 - **Ashby exposes no interviewer RSVP/attendance, so "didn't attend" is a
   manual discount.** The complete field set on an event's interviewer is
   `id`/`firstName`/`lastName`/`email`/`globalRole`/`isEnabled`/`updatedAt`/
@@ -693,6 +694,15 @@ is normally still in Application Review and any status).
   Feedback Overdue / Needs Scheduling / Availability Submitted (see
   `isPreInterview` in `ashby.js`) — no interview activity is expected at
   that stage.
+- **Feedback Overdue is resolved per person, and a scorecard counts for whoever
+  it is CREDITED to.** `hasSubmittedFeedback` turns true when anyone on the
+  event submits, so for a flag-true event that would otherwise be overdue,
+  `listIssues()` reads `applicationFeedback.list` and `missingFeedbackOwers()`
+  matches scorecards on `interviewEventId` + `creditedToUser` (falling back to
+  `submittedByUser` only when there's no credit). Someone sometimes submits on
+  an interviewer's behalf; that interviewer's feedback is in. Don't switch
+  the match to `submittedByUser`. A failed lookup keeps the old event-level
+  reading for that application. See README § Per-person feedback.
 - **Debrief events are excluded from Feedback Overdue** (and therefore from
   Stale Candidates' feedback-overdue reason too, since that list is derived
   from `feedbackEntries`) **— a debrief is an internal wrap-up meeting with

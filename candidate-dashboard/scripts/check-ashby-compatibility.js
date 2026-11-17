@@ -200,6 +200,24 @@ async function main() {
   console.log(`  ${totalEvents} interview events found, ${eventsWithFeedbackData} carry endTime + hasSubmittedFeedback.`);
 
   verdict(eventsWithFeedbackData > 0, "Feedback Overdue (needs completed interview events with feedback status)");
+
+  // Feedback Overdue also reads applicationFeedback.list (structural fields:
+  // interviewEventId + creditedToUser/submittedByUser) for any interview whose
+  // event-level hasSubmittedFeedback is true, to find a panelist still
+  // missing. Needs the key's candidate-read permission. Without it the
+  // dashboard falls back to the event-level flag and misses those panels.
+  const endedWithFeedback = schedules.find((s) => (s.interviewEvents || []).some((e) => e.hasSubmittedFeedback));
+  if (endedWithFeedback) {
+    let feedbackRows = null;
+    try {
+      feedbackRows = await fetchAllPages("applicationFeedback.list", { applicationId: endedWithFeedback.applicationId });
+    } catch (err) {
+      console.log(`  ✗ applicationFeedback.list failed: ${err.message}`);
+    }
+    const linked = (feedbackRows || []).filter((f) => f.interviewEventId && ((f.creditedToUser && f.creditedToUser.id) || (f.submittedByUser && f.submittedByUser.id))).length;
+    if (feedbackRows) console.log(`  applicationFeedback.list: ${feedbackRows.length} scorecard(s) on one sample application, ${linked} tied to an interview event and a person.`);
+    verdict(linked > 0, "Feedback Overdue per-person check (applicationFeedback.list: which panelist is still missing)");
+  }
   verdict((statusCounts.get("NeedsScheduling") || 0) > 0, 'Needs Scheduling (needs schedules in "NeedsScheduling" status)');
   verdict(
     (statusCounts.get("CandidateAvailabilitySubmitted") || 0) > 0,
