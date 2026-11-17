@@ -243,6 +243,58 @@ Anything referenced by a schedule but missing from the database renders as
 "Unknown role", so this step is not optional: before it existed, 132 of
 Runlayer's 730 events — 18% of the dashboard — sat under Unknown role.
 
+## Alerts
+
+Significant slowdowns and changes are flagged on a banner at the top of the
+dashboard and sent as a once-a-day Slack DM. Every alert compares **the last
+7 complete days against the average of the 4 weeks before** and fires at
+**±15%** (`ALERT_THRESHOLD_PCT`). Today is never in the current window — it
+is only partly elapsed.
+
+Alerts watch the **Carrara-coordinated** scope only: work booked by someone
+on that client's roster. The client's own team's volume is theirs to watch.
+Ended engagements never alert.
+
+| Alert | Fires when | Per |
+|---|---|---|
+| Interview volume | Interviews we coordinated move 15%+ either way | Client |
+| Rework | Reschedules + cancellations on our work rise 15%+ | Client |
+| Booking turnaround | Median stage-entered → booked (business hours, as on the Results tile) slows 15%+ and by at least an hour | Client, coordinator |
+| Overdue scorecards | Interviews we booked, more than `FEEDBACK_OVERDUE_HOURS` past with no scorecard, rise 15%+ | Client |
+| Waiting on next step | Active candidates last interviewed by us `NEXT_STEP_WAIT_DAYS`+ ago with nothing booked since rise 15%+ | Client |
+| Bookings | Interviews a rostered coordinator booked move 15%+ either way | Coordinator |
+| Stale data | A client's last good sync is older than `ALERT_STALE_SYNC_HOURS` | Client |
+
+**Small-number guards.** 6 interviews against an average of 5 is +20% and
+means nothing, so a count must also move by `ALERT_MIN_CHANGE` and one side
+must reach `ALERT_MIN_BASELINE`. Turnaround needs `ALERT_MIN_SAMPLE`
+bookings in each window. Anything at twice the threshold is marked major.
+
+**Overdue scorecards and waiting candidates are snapshots.** Ashby keeps no
+history of either, so each evaluation stores a daily snapshot
+(`alert_snapshots`) and compares today against their average. These two
+stay quiet until a week of snapshots exists.
+
+**Per coordinator** uses the roster, matched exactly as everywhere else,
+pooled across every active client. These are workload signals, not
+performance measures — Ashby records who created a booking, not who chased
+it — so they go to the Slack DM only unless
+`ALERT_BANNER_SHOW_COORDINATORS=true`.
+
+**Stale data pauses alerts.** A sync that has quietly stopped looks exactly
+like a collapse in volume, so a client whose last good sync is too old gets
+one "data is stale" alert instead of a misleading set.
+
+**Holidays will trip the volume alert.** A Thanksgiving week is a real 15%+
+drop; the alert clears once normal volume returns.
+
+The DM goes out on the first sync after `ALERT_DIGEST_HOUR` in
+`ALERT_TIMEZONE`, lists alerts that started since the last one plus any back
+to normal, and never repeats an alert that is still open. It needs a Slack
+app installed in **Carrara's** workspace with `chat:write`, `im:write` and
+`users:read.email`: set `SLACK_BOT_TOKEN` and either `ALERT_SLACK_USER_ID`
+or `ALERT_SLACK_EMAIL`. Without them the banner still works.
+
 ## Run locally
 
 ```bash
@@ -543,6 +595,7 @@ volume). It needs three repo secrets: `COORDINATOR_METRICS_URL`,
 | `GET /api/config` | Client list and display settings; never the API keys |
 | `GET /api/overview` | Cross-client roll-up |
 | `GET /api/client/:id` | One client's full payload |
+| `GET /api/alerts` | Active alerts for the banner |
 | `GET /api/status` | Last sync per client, and whether one is running |
 | `POST /api/sync` | Manual top-up; `?kind=full` re-reads twelve months |
 

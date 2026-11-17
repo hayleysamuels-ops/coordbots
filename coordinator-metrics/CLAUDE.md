@@ -579,6 +579,21 @@ is the short list of things that look wrong and are not.
   clients rather than holding the loop for the whole pass. Not done —
   it is a hot path and was out of scope when found.
 
+- **Alerts watch the coordinated scope only, and exclude today.** The
+  current window is the last 7 *complete* days against the 4 weeks before.
+  Including today makes every morning look like a collapse — the same
+  reason charts fade. Ended clients never alert, for the same reason they
+  never reach a current-period figure.
+
+- **Overdue scorecards and waiting candidates alert from snapshots.**
+  Ashby has no history of either, so `alert_snapshots` builds one; they are
+  silent until 7 days of snapshots exist. Don't try to backfill them.
+
+- **Per-coordinator alerts are Slack-only by default, and are workload
+  signals, not performance measures** — the same caveat as Results. The
+  banner is seen by everyone who can log in; a named person's slowdown
+  shouldn't be. Names come from the roster, matched exactly.
+
 ## Conventions
 
 - No build step and no frontend framework, matching the sibling dashboards.

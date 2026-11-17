@@ -7,6 +7,7 @@ const { basicAuth } = require("./auth");
 const metrics = require("./metrics");
 const sync = require("./sync");
 const store = require("./db");
+const alerts = require("./alerts");
 
 const STARTED_AT = new Date().toISOString();
 
@@ -97,6 +98,17 @@ function createServer() {
   // Sync health: what ran, when, and whether it worked. Surfaced in the UI
   // footer so a silently stale dashboard is visible rather than looking
   // like a quiet week.
+  // Active alerts for the banner. Per-coordinator alerts are left out
+  // unless ALERT_BANNER_SHOW_COORDINATORS=true — everyone who can log in
+  // sees the banner, and those go to the Slack DM instead.
+  app.get("/api/alerts", (req, res) => {
+    res.json({
+      thresholdPct: config.alerts.thresholdPct,
+      baselineWeeks: config.alerts.baselineWeeks,
+      alerts: alerts.activeAlerts({ includeCoordinators: config.alerts.bannerShowsCoordinators }),
+    });
+  });
+
   app.get("/api/status", (req, res) => {
     res.json({
       runs: store.lastSyncRuns(),

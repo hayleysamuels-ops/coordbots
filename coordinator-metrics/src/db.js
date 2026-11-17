@@ -532,6 +532,7 @@ function rescheduleTrackingSince(clientId) {
 
 module.exports = {
   db,
+  transaction,
   setMeta,
   getMeta,
   unresolvedInterviewIds,

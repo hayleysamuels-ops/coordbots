@@ -1619,6 +1619,28 @@ function rebuild() {
     }),
   });
   console.log(`[metrics] rebuilt ${payloads.length} client payloads in ${Date.now() - t0}ms`);
+
+  // Alerts read the payloads just cached, so they run straight after.
+  // Required lazily: alerts.js requires this module.
+  require("./alerts").run();
+}
+
+/**
+ * Booking turnaround samples for alerts, with the scheduler's name kept so
+ * they can be split per coordinator. Same definition as the Results tile:
+ * stage entered → first event booked, in business hours, timestamped at
+ * the booking.
+ */
+function turnaroundSamples(client, sinceIso) {
+  const hours = { start: config.businessHourStart, end: config.businessHourEnd };
+  const out = [];
+  for (const row of selectTurnaround.all(client.id)) {
+    if (!row.booked_at || row.booked_at < sinceIso) continue;
+    const value = businessHoursBetween(row.entered_at, row.booked_at, client.timeZone, hours);
+    if (value == null) continue;
+    out.push({ at: row.booked_at, hours: value, name: row.scheduled_by_name || null });
+  }
+  return out;
 }
 
 function getClient(clientId) {
@@ -1636,6 +1658,7 @@ module.exports = {
   localBuckets,
   isExcludedTitle,
   computeClient,
+  turnaroundSamples,
   PERIODS,
   PERIOD_KEYS,
   DEFAULT_PERIOD,

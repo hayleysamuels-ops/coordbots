@@ -1909,6 +1909,60 @@ function selectTab(key) {
   render();
 }
 
+// --- Alerts banner ---------------------------------------------------------
+
+/**
+ * Significant changes against each metric's own 4-week average. The
+ * overview lists every client's; a client tab lists only its own. Fetched
+ * fresh on every render — it's a few rows, and a stale banner is worse
+ * than none.
+ */
+async function loadAlerts() {
+  try {
+    const res = await fetch("/api/alerts");
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (_) {
+    return null; // the banner is a bonus; never let it blank the page
+  }
+}
+
+function renderAlertBanner(data, activeKey) {
+  if (!data || !data.alerts) return null;
+  const items = data.alerts.filter(
+    (a) => activeKey === "overview" || a.clientId === activeKey || a.scope === "coordinator"
+  );
+  if (items.length === 0) return null;
+
+  const major = items.some((a) => a.severity === "major" || a.scope === "system");
+  return el("section", { class: `alert-banner${major ? " major" : ""}`, role: "status" }, [
+    el("div", { class: "alert-banner-head" }, [
+      el("h2", { text: `${items.length} significant change${items.length === 1 ? "" : "s"}` }),
+      el("p", {
+        class: "section-note",
+        text: `Last 7 complete days vs the ${data.baselineWeeks}-week average · flagged at ±${data.thresholdPct}%`,
+      }),
+    ]),
+    el(
+      "ul",
+      { class: "alert-list" },
+      items.map((a) =>
+        el("li", { class: `alert-item ${a.scope === "system" ? "system" : a.severity}` }, [
+          el("span", {
+            class: "alert-pill",
+            text: a.scope === "system" ? "data" : a.severity === "major" ? "major" : "notable",
+          }),
+          el("div", {}, [
+            el("div", { class: "alert-message", text: a.message }),
+            a.detail ? el("div", { class: "alert-detail", text: a.detail }) : null,
+            el("div", { class: "alert-since", text: `since ${formatWhen(a.since)}` }),
+          ]),
+        ])
+      )
+    ),
+  ]);
+}
+
 async function render() {
   renderTabs();
   applyAccent();
@@ -1918,7 +1972,10 @@ async function render() {
     // An ended engagement only has its own window; any other period is
     // empty by definition, so don't leave the page sitting on one.
     if (payload.status === "ended") state.period = "full";
-    main.replaceChildren(state.active === "overview" ? renderOverview(payload) : renderClient(payload));
+    const alertData = await loadAlerts();
+    const banner = renderAlertBanner(alertData, state.active);
+    const body = state.active === "overview" ? renderOverview(payload) : renderClient(payload);
+    main.replaceChildren(...(banner ? [banner, body] : [body]));
     metaEl.textContent = `Updated ${formatWhen(payload.generatedAt)}`;
   } catch (err) {
     main.replaceChildren(
