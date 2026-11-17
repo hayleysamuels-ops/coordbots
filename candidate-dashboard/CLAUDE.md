@@ -258,8 +258,12 @@ is normally still in Application Review and any status).
   counts after its candidate is rejected, same reasoning as Interviewer
   Weekly Limits. Filtering those to Active would silently stop counting.
 
-- **The page is four tabs (Dashboard / Interviewer Info / Offers / Scheduling),
-  implemented as plain DOM show/hide, not a router.** The Scheduling tab (and
+- **The page is five tabs (Dashboard / Interviewer Info / Offers / Feedback /
+  Scheduling), implemented as plain DOM show/hide, not a router.** (Feedback,
+  the leaderboard, was added 17 November 2026 with its own `#tab-feedback`
+  panel; its button carries `data-key-tab="feedbackLeaderboard"` so
+  `applyDisabledSections()` removes the button with the section. The rest of
+  this bullet predates it.) The Scheduling tab (and
   the ready-to-schedule section) exist only where `SCHEDULING_CLIENT_ID` is set —
   see the scheduling-pilot bullet below; elsewhere the page has three tabs. `index.html` has
   four sibling `.tab-panel` divs (`#tab-dashboard`, `#tab-interviewers`,
@@ -738,6 +742,19 @@ is normally still in Application Review and any status).
   an unresolved title counts as owing, so a lookup failure can't hide a
   missing scorecard. Per-client lists and what was deliberately left off
   are in README § Who owes feedback. Keep the list to clear cases.
+- **The feedback leaderboard shows the top ten only, ranked on share of
+  feedback in, never speed.** Rules live in `src/feedback-leaderboard.js`
+  (pure, tested) and README § Feedback leaderboard: 90 days, minimum 8
+  completed (ended 24h+ ago, not cancelled), `owersFor()` decides who
+  counts, credited-to scorecards, leavers excluded (not in `listUsers()`'s
+  enabled users), ties by faster median time to submit, then volume, then
+  name (median first on purpose: with nearly everyone at 100%, count-first
+  ranked volume). "N others also at 100%" is a count, never names. Don't add
+  a full ranking, a bottom of the table or a "where you sit": that was an
+  explicit product decision. Scorecards come from `src/feedback-sync.js` (org-wide
+  `applicationFeedback.list` by `createdAfter`, then `syncToken`), read one
+  page at a time because the key is shared with the live dashboard. The
+  every-schedule sync keeps `FEEDBACK_LEADERBOARD_DAYS + 2` days for it.
 - **Interviews Today is NOT in the one-row-per-candidate pool**, like
   Rescheduled Interviews: it's a fact about an event. It covers any
   candidate status and skips cancelled schedules. Its per-person feedback

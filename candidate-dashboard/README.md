@@ -22,6 +22,7 @@ A small dashboard for a recruiting coordinator: at a glance, which candidates
 | **Offers Awaiting Acceptance** | Offers actually extended to the candidate, waiting on their decision. Excludes candidates whose application is already `Hired` or `Archived` — Ashby's `offerStatus` can lag the application's real outcome (confirmed live: both statuses showed up here before this exclusion), and neither is actually still "awaiting" anything. | Ashby `offer.list` — `offerStatus: "WaitingOnCandidateResponse"`, application `status` not `Hired`/`Archived`. |
 | **Offers Not Yet Sent** | The offer has been created but never reached the candidate — usually still working through this org's internal approval chain, if it uses one. **No field on the Offer object marks a "sent" event** (checked the full `offer.info` schema: Offer, OfferVersion, `versions[]`, `formDefinition` — no `sentAt`/`extendedAt`/`deliveredAt` anywhere), so this is inferred entirely from `offerStatus`. Confirmed no other `offerStatus` value can leak in here: `WaitingOnCandidateResponse`/`CandidateAccepted`/`CandidateRejected` all mean the candidate has been sent something; `OfferCancelled` is ambiguous but isn't included in this bucket at all. Kept separate from Offers Awaiting Acceptance per product decision: an offer a candidate has never seen isn't something they could be "awaiting acceptance" on. | Ashby `offer.list` — `offerStatus` one of `WaitingOnApprovalStart`/`WaitingOnOfferApproval`/`WaitingOnApprovalDefinition`. |
 | **Offers Signed** | Offers the candidate has accepted (Ashby's `CandidateAccepted` — the closest real signal to "signed"; there's no separate e-signature timestamp exposed) within `OFFERS_SIGNED_LOOKBACK_DAYS` (default 7) of `decidedAt`. | Ashby `offer.list` — `offerStatus: "CandidateAccepted"` + `decidedAt`. |
+| **Feedback Leaderboard** (Feedback tab) | The ten interviewers with the highest share of their completed interviews in the last `FEEDBACK_LEADERBOARD_DAYS` (default 90) where their scorecard is in, among people with at least `FEEDBACK_LEADERBOARD_MIN_INTERVIEWS` (default 8) completed. Top ten only; see § Feedback leaderboard. | `interviewSchedule.list` (the existing every-schedule sync, now kept for the window) + `applicationFeedback.list` org-wide by date, then by sync token + `user.list` (who has left). |
 
 Every candidate appears in **at most one** of Feedback Overdue, Needs
 Scheduling, Availability Submitted and Onsite Interviews Today — never
@@ -84,10 +85,14 @@ and `app.js` — plain DOM show/hide via the `hidden` attribute, no router):
   second one was out of scope for this addition; per-card dismiss still
   works the same as everywhere else.
 
+- **Feedback** — the Feedback Leaderboard. Interviewer-centric like
+  Interviewer Info: no entity filter, no dismiss. Disabling the
+  `feedbackLeaderboard` section removes the tab button too.
+
 - **Scheduling** — coordinator-reviewed discussion drafts and links to full-plan
   booking review, Ashby sign-in, and read-only Google Calendar connection.
 
-The first three tabs render from the issue polling cycle. Scheduling has its own
+The first three tabs and Feedback render from the issue polling cycle. Scheduling has its own
 coordinator-authenticated workflow and links to booking and connection pages.
 
 ## Action queue
@@ -153,6 +158,7 @@ below) instead of each having their own section:
 | `offersNotYetSent` | Offers Not Yet Sent |
 | `offersAwaitingAcceptance` | Offers Awaiting Acceptance |
 | `offersSigned` | Offers Signed |
+| `feedbackLeaderboard` | Feedback Leaderboard (its own tab) |
 
 `config.js`'s `SECTION_KEYS` array is the single source of truth for this
 list — keep it, this table, and each section's `data-key` in sync if a
@@ -315,6 +321,58 @@ their feedback in; the person who clicked submit may not even be on the
 panel. `submittedByUser` is used only when a scorecard carries no credit.
 This is intentional. Don't "fix" it to match on the submitter.
 
+## Feedback leaderboard
+
+Rules agreed on 2026-11-17 (`src/feedback-leaderboard.js`, a pure function,
+tested in `test/feedback-leaderboard.test.js`):
+
+- **The measure is completion.** Rank is the share of a person's completed
+  interviews with their scorecard in. Ties go to the faster median time
+  from interview end to submission, then more completed interviews, then
+  name. Ties are the common case (most people at most clients are at 100%),
+  so among people who are all complete the board shows promptness, which
+  they control, rather than volume (changed from count-first on 17 November
+  2026, before release).
+- **Completed** means the schedule isn't cancelled, and the interview
+  ended within the window and at least `FEEDBACK_OVERDUE_HOURS` (24h) ago,
+  so nothing counts as missing before it's due. A late scorecard still
+  counts as in.
+- **Only people who owe feedback count**, by the same rule as Feedback
+  Overdue (§ Who owes feedback). Hosts, debriefs and `NO_FEEDBACK_INTERVIEWS`
+  events don't count for or against anyone. Someone who only hosts never
+  appears.
+- **A scorecard counts for the person it's credited to**, not who clicked
+  submit (§ Per-person feedback).
+- **Minimum 8 completed interviews** in the window to appear at all.
+- **People who have left are excluded entirely**: anyone not in Ashby's
+  enabled users. If `user.list` fails, the refresh keeps the last good
+  board rather than risk ranking a leaver.
+- **Top ten only.** No full ranking, no bottom of the table, no "where you
+  sit". Under the table, "N others also at 100%" counts qualifying people
+  with every scorecard in who didn't make the ten, without naming them, so
+  a perfect record isn't invisible. With fewer than ten qualifying, only
+  those are shown, with a line saying how many qualified; with none, an
+  empty state. Never placeholder rows.
+
+**Data.** The every-schedule sync (`createScheduleSync`) keeps schedules
+for the window plus two days instead of eight. Scorecards come from
+`src/feedback-sync.js`: `applicationFeedback.list` works org-wide with
+`createdAfter` and returns a `syncToken` on its last page (confirmed on
+January, 2026-11-17). So the first refresh reads every scorecard in the
+window, one page at a time, and later refreshes read only changes. Forus,
+the largest client, is about 60 pages for the first read. It's its own
+refresh group, so that first read never holds up the Dashboard tab.
+
+Preview on 2026-11-17 (before release; Forus not run):
+
+| Client | People with 8+ interviews | Top ten share range |
+| --- | --- | --- |
+| Pace | 32 | 88–100% |
+| Runlayer | 29 | 97–100% |
+| Poetic | 41 | 99–100% |
+| Luminai | 15 | 67–100% |
+| January | 36 | all 100% |
+
 ## Correction: "Needs Scheduling" vs. "Availability Submitted"
 
 An earlier version of this README claimed Ashby's `interviewSchedule.status`
@@ -373,6 +431,8 @@ Fill in `.env`:
 | `STALE_FEEDBACK_HOURS` | no | Default `350`. Feedback Overdue rows past this are marked "stale" in the Action queue. |
 | `STALE_SCHEDULING_HOURS` | no | Default `168` (7 days). Needs Scheduling rows past this are marked "stale" in the Action queue. |
 | `NO_FEEDBACK_INTERVIEWS` | no | Interview names nobody owes feedback on, comma-separated (see § Who owes feedback). Default none. |
+| `FEEDBACK_LEADERBOARD_DAYS` | no | Default `90`. The leaderboard's rolling window. Also how long the every-schedule sync keeps schedules (window + 2 days). |
+| `FEEDBACK_LEADERBOARD_MIN_INTERVIEWS` | no | Default `8`. Completed interviews needed to appear on the leaderboard at all. |
 | `INTERVIEWER_LIMIT_BUFFER` | no | Default `1`. An interviewer is flagged once remaining weekly capacity drops to this many slots or fewer. |
 | `SOURCED_LOOKBACK_DAYS` | no | Default `3`. Recently Sourced shows referral/agency applications created within this many days. |
 | `AVAILABILITY_SUBMITTED_ALERT_HOURS` | no | Default `24`. Color-coding threshold only — every submitted-and-unbooked candidate is shown regardless of age. |

@@ -39,6 +39,7 @@
     <button type="button" class="tab-btn is-active" data-tab="dashboard" aria-pressed="true">Dashboard</button>
     <button type="button" class="tab-btn" data-tab="interviewers" aria-pressed="false">Interviewer Info</button>
     <button type="button" class="tab-btn" data-tab="offers" aria-pressed="false">Offers</button>
+    <button type="button" class="tab-btn" data-tab="feedback" aria-pressed="false" data-key-tab="feedbackLeaderboard">Feedback</button>
     <!-- training:start -->
     <button type="button" class="tab-btn" data-tab="training-history" aria-pressed="false">Training History</button>
     <!-- training:end -->
@@ -248,6 +249,23 @@
           Offers the candidate has accepted in the last 7 days.
         </p>
         <div class="cards" id="cards-offersSigned"></div>
+      </section>
+    </main>
+    </div>
+  </div>
+
+  <div id="tab-feedback" class="tab-panel" hidden>
+    <div class="page-with-margin">
+    <main class="page-stack">
+      <section id="feedbackLeaderboard" class="column wide-section" data-key="feedbackLeaderboard">
+        <h2>Feedback Leaderboard</h2>
+        <span class="section-updated muted" id="updated-feedbackLeaderboard"></span>
+        <p class="column-sub" id="feedbackLeaderboard-sub">
+          The ten interviewers with the highest share of completed interviews
+          where their feedback is in.
+        </p>
+        <div id="cards-feedbackLeaderboard"></div>
+        <p class="column-sub leaderboard-footnote" id="feedbackLeaderboard-footnote"></p>
       </section>
     </main>
     </div>

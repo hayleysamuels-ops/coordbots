@@ -335,6 +335,21 @@ async function main() {
     verdict(unmatched.length < noFeedbackInterviews.length, "NO_FEEDBACK_INTERVIEWS matches at least one interview this client uses");
   }
 
+  // --- Feedback leaderboard ---
+  // Structural only: org-wide applicationFeedback.list by createdAfter, and a
+  // syncToken on the last page for incremental reads afterwards.
+  section("Feedback leaderboard");
+  try {
+    const page = await ashbyPost("applicationFeedback.list", { limit: 100, createdAfter: Date.now() - 2 * 24 * 60 * 60 * 1000 });
+    const rows = page.results || [];
+    const linked = rows.filter((f) => f.interviewEventId && ((f.creditedToUser && f.creditedToUser.id) || (f.submittedByUser && f.submittedByUser.id))).length;
+    console.log(`  ${rows.length} scorecard(s) on the first page for the last 2 days, ${linked} tied to an interview and a person; ${page.moreDataAvailable ? "more pages" : page.syncToken ? "sync token returned" : "no sync token"}.`);
+    verdict(page.success !== false, "Feedback leaderboard (applicationFeedback.list readable org-wide by date)");
+  } catch (err) {
+    console.log(`  ✗ applicationFeedback.list (org-wide) failed: ${err.message}`);
+    verdict(false, "Feedback leaderboard (applicationFeedback.list readable org-wide by date)");
+  }
+
   // --- Recently Sourced / source classification ---
   section("Recently Sourced (source classification)");
   let recentApps = [];

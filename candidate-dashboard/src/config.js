@@ -93,6 +93,7 @@ const SECTION_KEYS = [
   "interviewsToday",
   "rescheduledInterviews",
   "interviewerTraining",
+  "feedbackLeaderboard",
   "offersNotYetSent",
   "offersAwaitingAcceptance",
   "offersSigned",
@@ -288,6 +289,15 @@ const config = {
   // interview hides its missing feedback for good, while including an exempt
   // one only shows a row someone can dismiss. Names can't contain commas.
   noFeedbackInterviews: exactList("NO_FEEDBACK_INTERVIEWS", []).map(normalizeInterviewName),
+
+  // Feedback leaderboard (Feedback tab): the top 10 interviewers by the share
+  // of their completed interviews with their scorecard in, over this many
+  // days, among people with at least FEEDBACK_LEADERBOARD_MIN_INTERVIEWS
+  // completed. "Completed" = ended at least FEEDBACK_OVERDUE_HOURS ago, so a
+  // scorecard isn't counted missing before it's due. Agreed 2026-11-17: 90
+  // days, minimum 8. Only the top 10 are ever shown, by design.
+  feedbackLeaderboardDays: number("FEEDBACK_LEADERBOARD_DAYS", 90),
+  feedbackLeaderboardMinInterviews: number("FEEDBACK_LEADERBOARD_MIN_INTERVIEWS", 8),
 
   // "Offers Signed" section: an offer counts as "signed" once its
   // offerStatus is Ashby's real "CandidateAccepted" value (there's no

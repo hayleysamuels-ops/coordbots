@@ -7,6 +7,8 @@ const interviewerSettingsCache = require("./interviewerSettingsCache");
 const applicationInfoCache = require("./applicationInfoCache");
 const interviewTitleCache = require("./training/interviewTitleCache");
 const { countInterviewLoad, createScheduleSync, weekKey } = require("./interviewer-load");
+const { createFeedbackSync } = require("./feedback-sync");
+const { buildLeaderboard } = require("./feedback-leaderboard");
 
 function authHeader() {
   return `Basic ${Buffer.from(`${config.ashbyApiKey}:`).toString("base64")}`;
@@ -292,7 +294,18 @@ async function fetchOfferApplications(applicationIds, signatures) {
 // listIssues() reads: an interview booked long ago for this week still counts
 // toward it. Kept current with Ashby's syncToken (interviewer-load.js), so
 // after the first full read each refresh costs one call when nothing changed.
-const scheduleSync = createScheduleSync({ fetchPage: (body) => ashbyPost("interviewSchedule.list", body) });
+// Holds schedules for the feedback leaderboard's window plus two days (it
+// used to keep 8 days, enough for the weekly limits alone).
+const scheduleSync = createScheduleSync({
+  fetchPage: (body) => ashbyPost("interviewSchedule.list", body),
+  keepDays: Math.max(8, config.feedbackLeaderboardDays + 2),
+});
+
+// Every scorecard in the same window, org-wide (feedback-sync.js).
+const feedbackSync = createFeedbackSync({
+  fetchPage: (body) => ashbyPost("applicationFeedback.list", body),
+  keepDays: config.feedbackLeaderboardDays + 2,
+});
 
 /**
  * Counts interviews per interviewer for the current calendar week, Monday to
@@ -1012,6 +1025,46 @@ async function listIssues(options = {}) {
   };
 }
 
+/**
+ * The feedback leaderboard (Feedback tab) — rules in feedback-leaderboard.js.
+ * Its own SECTION_GROUPS entry in issues.js, so a failure here never touches
+ * the Dashboard tab. Per refresh, after the first: one schedule sync call
+ * (shared with Interviewer Weekly Limits), one scorecard sync call, a cached
+ * user.list, one interview.list for debriefs, and interview.info only for
+ * interviews never seen before (and only with NO_FEEDBACK_INTERVIEWS set).
+ * The first refresh reads every scorecard in the window (Forus: about 60
+ * pages, one at a time).
+ *
+ * Who has left: listUsers() returns only enabled Ashby users, so anyone not
+ * in it is excluded. If user.list fails this throws, and issues.js keeps the
+ * last good leaderboard rather than showing one that might rank a leaver.
+ */
+async function listFeedbackLeaderboard() {
+  const [schedules, scorecards, users, debriefInterviewIds] = await Promise.all([
+    scheduleSync.schedules(),
+    feedbackSync.scorecards(),
+    listUsers(),
+    fetchDebriefInterviewIds(),
+  ]);
+  const now = Date.now();
+  const windowStart = now - config.feedbackLeaderboardDays * 24 * 60 * 60 * 1000;
+  if (config.noFeedbackInterviews.length) {
+    await resolveInterviewTitles(
+      schedules.flatMap((s) => (s.interviewEvents || []).filter((e) => Date.parse(e.endTime) >= windowStart).map((e) => e.interviewId))
+    );
+  }
+  return buildLeaderboard({
+    schedules,
+    scorecards,
+    enabledUserIds: new Set(users.map((u) => u.id)),
+    owersFor: (event) => owersFor(event, debriefInterviewIds),
+    now,
+    days: config.feedbackLeaderboardDays,
+    minInterviews: config.feedbackLeaderboardMinInterviews,
+    dueAfterHours: config.feedbackOverdueHours,
+  });
+}
+
 // Classify an application's source into "Referral" / "Agency", or null if
 // it's neither. Matches on the sourceType title rather than a hardcoded id,
 // via config.sourceReferralKeywords/sourceAgencyKeywords substrings — every
@@ -1348,6 +1401,7 @@ module.exports = {
   listDepartments,
   listInterviewerTraining,
   listOffers,
+  listFeedbackLeaderboard,
   getApiCallCount,
   getApiCallCountByEndpoint,
   feedbackOwers,

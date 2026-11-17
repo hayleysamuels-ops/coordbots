@@ -67,6 +67,8 @@ let snapshot = {
   offersNotYetSent: [],
   offersAwaitingAcceptance: [],
   offersSigned: [],
+  // { days, minInterviews, qualifying, top[] } once computed; null before.
+  feedbackLeaderboard: null,
   departments: [],
   thresholds,
   appConfig,
@@ -149,6 +151,17 @@ const SECTION_GROUPS = [
     keys: ["offersNotYetSent", "offersAwaitingAcceptance", "offersSigned"],
     fetch: () => timed("listOffers", ashby.listOffers()),
     assign: (snap, result) => Object.assign(snap, result),
+  },
+  {
+    // Interviewer-centric like Interviewer Weekly Limits: no dismissals, no
+    // entity filter. Its own group so its first, heavier read (every
+    // scorecard in the window) never holds up the Dashboard tab.
+    label: "Feedback leaderboard",
+    keys: ["feedbackLeaderboard"],
+    fetch: () => timed("listFeedbackLeaderboard", ashby.listFeedbackLeaderboard()),
+    assign: (snap, result) => {
+      snap.feedbackLeaderboard = result;
+    },
   },
 ];
 
@@ -251,7 +264,8 @@ async function refresh() {
           `${snapshot.interviewerTraining.length} interviewer training entries, ` +
           `${snapshot.offersNotYetSent.length} offers not yet sent, ` +
           `${snapshot.offersAwaitingAcceptance.length} offers awaiting acceptance, ` +
-          `${snapshot.offersSigned.length} offers signed` +
+          `${snapshot.offersSigned.length} offers signed, ` +
+          `${snapshot.feedbackLeaderboard ? snapshot.feedbackLeaderboard.qualifying : "?"} qualifying for the feedback leaderboard` +
           (failed.length ? ` (failed: ${failed.join(", ")})` : "")
       );
       console.log(

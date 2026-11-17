@@ -1060,6 +1060,61 @@
       .join("");
   }
 
+  // Feedback leaderboard (feedback-leaderboard.js has the rules). Top 10
+  // only, by design: no full ranking, no bottom of the table, no "where you
+  // sit". When fewer than 10 people qualify, only they are shown, with a line
+  // saying how many qualified; no placeholder rows. Ties on share are broken
+  // by median time to submit. "N others also at 100%" (a count, never names)
+  // keeps a perfect record from being invisible below the cut.
+  function renderFeedbackLeaderboard(board, hasError) {
+    const container = document.getElementById("cards-feedbackLeaderboard");
+    const footnote = document.getElementById("feedbackLeaderboard-footnote");
+    if (!container) return;
+    if (!board) {
+      container.innerHTML = emptyStateHtml(hasError, "Still reading scorecards for the first time.");
+      if (footnote) footnote.textContent = "";
+      return;
+    }
+    const people = board.qualifying === 1 ? "1 person has" : `${board.qualifying} people have`;
+    const sub = document.getElementById("feedbackLeaderboard-sub");
+    if (sub) {
+      sub.textContent =
+        `Ranked on the share of each interviewer's completed interviews in the last ${board.days} days where their feedback is in; ` +
+        `ties go to whoever submits faster. Only the top ten are shown.`;
+    }
+    if (footnote) {
+      footnote.textContent =
+        `${people} completed at least ${board.minInterviews} interviews in the last ${board.days} days. ` +
+        `An interview counts once it ended a day ago or more. Hosts and interviews nobody owes feedback on don't count, and people who have left aren't shown.`;
+    }
+    if (!board.top.length) {
+      container.innerHTML = emptyStateHtml(hasError, `Nobody has completed ${board.minInterviews} interviews in the last ${board.days} days yet.`);
+      return;
+    }
+    const rows = board.top
+      .map(
+        (p) => `
+          <tr>
+            <td class="lb-rank">${p.rank}</td>
+            <td class="lb-name">${escapeHtml(p.name)}</td>
+            <td class="lb-share">${Math.round(p.share * 100)}%</td>
+            <td class="lb-count">${p.submitted} of ${p.completed}</td>
+            <td class="lb-median">${p.medianHoursToSubmit == null ? "—" : formatAge(p.medianHoursToSubmit)}</td>
+          </tr>`
+      )
+      .join("");
+    container.innerHTML = `
+      <div class="action-queue-wrap">
+        <table class="action-queue-table leaderboard-table">
+          <thead>
+            <tr><th>#</th><th>Interviewer</th><th>Feedback in</th><th>Interviews</th><th>Median time to submit</th></tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      ${board.othersAtFull ? `<p class="column-sub leaderboard-others">${board.othersAtFull === 1 ? "1 other" : `${board.othersAtFull} others`} also at 100%.</p>` : ""}`;
+  }
+
   // startDate is a plain "YYYY-MM-DD" date, no time/timezone component —
   // parsed as UTC calendar-date parts (not `new Date(str)`, which the
   // browser would interpret in local time and could shift the displayed
@@ -1150,6 +1205,7 @@
     "onsiteToday",
     "interviewsToday",
     "interviewerTraining",
+    "feedbackLeaderboard",
     "offersNotYetSent",
     "offersAwaitingAcceptance",
     "offersSigned",
@@ -1216,6 +1272,9 @@
 
       const sideMargin = section.closest(".side-margin");
       section.remove();
+      // A section that is a whole tab (the feedback leaderboard) takes its
+      // tab button with it, so a disabled section never leaves an empty tab.
+      document.querySelectorAll(`.tab-btn[data-key-tab="${key}"]`).forEach((btn) => btn.remove());
 
       if (sideMargin && !sideMargin.querySelector(".column")) sideMargin.remove();
     }
@@ -1365,6 +1424,11 @@
     }
     if (!isSectionDisabled("interviewsToday")) {
       renderInterviewsToday(filterByEntity(data.interviewsToday || []), sectionHasError(data, "interviewsToday"));
+    }
+    if (!isSectionDisabled("feedbackLeaderboard")) {
+      // Not run through filterByEntity: an interviewer isn't tied to one
+      // department/job/recruiter/coordinator (same as Interviewer Info).
+      renderFeedbackLeaderboard(data.feedbackLeaderboard, sectionHasError(data, "feedbackLeaderboard"));
     }
     for (const col of offerColumns) {
       if (isSectionDisabled(col.key)) continue;

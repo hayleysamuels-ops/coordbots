@@ -757,6 +757,38 @@ button#refresh-btn.spinning {
   background: var(--surface-sunken);
 }
 
+/* Feedback leaderboard: the Action queue table's look, with numbers in mono
+   and right-aligned so they line up down the column. */
+.leaderboard-table .lb-rank,
+.leaderboard-table .lb-share,
+.leaderboard-table .lb-count,
+.leaderboard-table .lb-median {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.leaderboard-table .lb-rank {
+  width: 2.5em;
+  color: var(--text-muted);
+}
+
+.leaderboard-table .lb-name {
+  font-weight: 600;
+}
+
+.leaderboard-table .lb-share {
+  font-weight: 600;
+}
+
+.leaderboard-others {
+  margin-top: 10px;
+  color: var(--text-secondary);
+}
+
+.leaderboard-footnote {
+  margin-top: 12px;
+}
+
 .aq-candidate {
   font-weight: 600;
   font-size: 15px;
