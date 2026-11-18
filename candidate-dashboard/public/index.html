@@ -39,10 +39,7 @@
     <button type="button" class="tab-btn is-active" data-tab="dashboard" aria-pressed="true">Dashboard</button>
     <button type="button" class="tab-btn" data-tab="interviewers" aria-pressed="false">Interviewer Info</button>
     <button type="button" class="tab-btn" data-tab="offers" aria-pressed="false">Offers</button>
-    <button type="button" class="tab-btn" data-tab="feedback" aria-pressed="false" data-key-tab="feedbackLeaderboard">Feedback</button>
-    <!-- training:start -->
-    <button type="button" class="tab-btn" data-tab="training-history" aria-pressed="false">Training History</button>
-    <!-- training:end -->
+    <button type="button" class="tab-btn" data-tab="feedback" aria-pressed="false" data-key-tab="feedbackLeaderboard">Feedback Leaderboard</button>
     <!-- scheduling:start -->
     <button type="button" class="tab-btn" data-tab="scheduling" aria-pressed="false">Scheduling</button>
     <!-- scheduling:end -->
@@ -196,29 +193,28 @@
         <div id="training-complete" class="training-group"></div>
         <div id="training-empty"></div>
       </section>
+
+      <!-- Training History: was its own tab until 18 November 2026. A
+           section here, folded closed, because it is the tail of the same
+           tracker and only grows. -->
+      <section id="training-history-section" class="column wide-section">
+        <details class="training-history">
+          <summary><h2>Training History <span class="training-group-count" id="training-history-count"></span></h2></summary>
+          <p class="column-sub">
+            Everyone who has ever completed a path, and anyone archived off
+            one. "Completed (all time)" is the permanent record; the tracker's
+            "Complete — not yet in the Ashby pool" group above is the to-do
+            list, so someone can appear in both until they're added to the
+            pool.
+          </p>
+          <div id="training-history"></div>
+        </details>
+      </section>
       <!-- training:end -->
     </main>
     </div>
   </div>
 
-  <!-- training:start -->
-  <div id="tab-training-history" class="tab-panel" hidden>
-    <div class="page-with-margin">
-    <main class="page-stack">
-      <section class="column wide-section">
-        <h2>Training History</h2>
-        <p class="column-sub">
-          Interviewers who have completed a path, and anyone archived off one.
-          Completing a path here does not add them to the Ashby interviewer
-          pool — this tracker never writes to Ashby, so that stays a manual
-          step.
-        </p>
-        <div id="training-history"></div>
-      </section>
-    </main>
-    </div>
-  </div>
-  <!-- training:end -->
 
   <div id="tab-offers" class="tab-panel" hidden>
     <div class="page-with-margin">

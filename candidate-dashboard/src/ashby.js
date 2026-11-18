@@ -1030,7 +1030,7 @@ async function listIssues(options = {}) {
 }
 
 /**
- * The feedback leaderboard (Feedback tab) — rules in feedback-leaderboard.js.
+ * The feedback leaderboard (its own tab) — rules in feedback-leaderboard.js.
  * Its own SECTION_GROUPS entry in issues.js, so a failure here never touches
  * the Dashboard tab. Per refresh, after the first: one schedule sync call
  * (shared with Interviewer Weekly Limits), one scorecard sync call, a cached

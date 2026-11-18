@@ -258,9 +258,9 @@ is normally still in Application Review and any status).
   counts after its candidate is rejected, same reasoning as Interviewer
   Weekly Limits. Filtering those to Active would silently stop counting.
 
-- **The page is five tabs (Dashboard / Interviewer Info / Offers / Feedback /
-  Scheduling), implemented as plain DOM show/hide, not a router.** (Feedback,
-  the leaderboard, was added 17 November 2026 with its own `#tab-feedback`
+- **The page is five tabs (Dashboard / Interviewer Info / Offers / Feedback Leaderboard /
+  Scheduling), implemented as plain DOM show/hide, not a router.** (Feedback
+  Leaderboard was added 17 November 2026 with its own `#tab-feedback`
   panel; its button carries `data-key-tab="feedbackLeaderboard"` so
   `applyDisabledSections()` removes the button with the section. The rest of
   this bullet predates it.) The Scheduling tab (and

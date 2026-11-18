@@ -22,7 +22,7 @@ A small dashboard for a recruiting coordinator: at a glance, which candidates
 | **Offers Awaiting Acceptance** | Offers actually extended to the candidate, waiting on their decision. Excludes candidates whose application is already `Hired` or `Archived` — Ashby's `offerStatus` can lag the application's real outcome (confirmed live: both statuses showed up here before this exclusion), and neither is actually still "awaiting" anything. | Ashby `offer.list` — `offerStatus: "WaitingOnCandidateResponse"`, application `status` not `Hired`/`Archived`. |
 | **Offers Not Yet Sent** | The offer has been created but never reached the candidate — usually still working through this org's internal approval chain, if it uses one. **No field on the Offer object marks a "sent" event** (checked the full `offer.info` schema: Offer, OfferVersion, `versions[]`, `formDefinition` — no `sentAt`/`extendedAt`/`deliveredAt` anywhere), so this is inferred entirely from `offerStatus`. Confirmed no other `offerStatus` value can leak in here: `WaitingOnCandidateResponse`/`CandidateAccepted`/`CandidateRejected` all mean the candidate has been sent something; `OfferCancelled` is ambiguous but isn't included in this bucket at all. Kept separate from Offers Awaiting Acceptance per product decision: an offer a candidate has never seen isn't something they could be "awaiting acceptance" on. | Ashby `offer.list` — `offerStatus` one of `WaitingOnApprovalStart`/`WaitingOnOfferApproval`/`WaitingOnApprovalDefinition`. |
 | **Offers Signed** | Offers the candidate has accepted (Ashby's `CandidateAccepted` — the closest real signal to "signed"; there's no separate e-signature timestamp exposed) within `OFFERS_SIGNED_LOOKBACK_DAYS` (default 7) of `decidedAt`. | Ashby `offer.list` — `offerStatus: "CandidateAccepted"` + `decidedAt`. |
-| **Feedback Leaderboard** (Feedback tab) | The ten interviewers with the highest share of their completed interviews in the last `FEEDBACK_LEADERBOARD_DAYS` (default 90) where their scorecard is in, among people with at least `FEEDBACK_LEADERBOARD_MIN_INTERVIEWS` (default 8) completed. Top ten only; see § Feedback leaderboard. | `interviewSchedule.list` (the existing every-schedule sync, now kept for the window) + `applicationFeedback.list` org-wide by date, then by sync token + `user.list` (who has left). |
+| **Feedback Leaderboard** (Feedback Leaderboard tab) | The ten interviewers with the highest share of their completed interviews in the last `FEEDBACK_LEADERBOARD_DAYS` (default 90) where their scorecard is in, among people with at least `FEEDBACK_LEADERBOARD_MIN_INTERVIEWS` (default 8) completed. Top ten only; see § Feedback leaderboard. | `interviewSchedule.list` (the existing every-schedule sync, now kept for the window) + `applicationFeedback.list` org-wide by date, then by sync token + `user.list` (who has left). |
 
 Every candidate appears in **at most one** of Feedback Overdue, Needs
 Scheduling, Availability Submitted and Onsite Interviews Today — never
@@ -366,7 +366,7 @@ the largest client, is about 60 pages for the first read.
 (`schedule-sync.json`, `feedback-sync.json`, via `src/syncStateFile.js`) and
 a restart carries on from the saved sync token. Before this (17 November
 2026), every Forus deploy re-read every schedule ever (~350 pages) plus the
-scorecards: 557s with nothing on the Feedback tab, and the Dashboard tab's
+scorecards: 557s with nothing on the Feedback Leaderboard tab, and the Dashboard tab's
 schedule sections waited on the same schedule read. A saved state is
 ignored, and everything read again once, when it is unreadable, from an
 older format, or kept for fewer days than `FEEDBACK_LEADERBOARD_DAYS` now
@@ -490,7 +490,10 @@ actually guarantees for every org:
 
 On only where `TRAINING_TRACKER_CLIENT_ID` is set (Forus). It **replaces** the
 Interviewer Training section above rather than sitting alongside it, and adds a
-Training History tab.
+Training History section under it on the Interviewer Info tab, folded closed
+(its own tab until 18 November 2026). Its "Completed (all time)" list is the
+permanent record; the tracker's "Complete — not yet in the Ashby pool" group is
+the to-do list, so someone can appear in both until they're added to the pool.
 
 ### Why it doesn't use Ashby's training paths
 
@@ -588,8 +591,8 @@ attention-needing** path belongs, and every row carries its own state chip so
 the choice hides nothing: a decision to make outranks a deliberate pause,
 which outranks accidental neglect, which outranks routine progress. A person
 reaches Complete only when **every** path is finished — one finished path
-among several in flight isn't a finished interviewer. Archived paths appear on
-the History tab only, so they never drag a working card into a bucket.
+among several in flight isn't a finished interviewer. Archived paths appear in
+Training History only, so they never drag a working card into a bucket.
 
 A card's left border shades by time since the last interview that **happened**
 on any path (counted or not) — the question is "is this person being used?",

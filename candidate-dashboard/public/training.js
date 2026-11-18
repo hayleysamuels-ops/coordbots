@@ -463,7 +463,7 @@
     const entries = data.interviewerTraining || [];
     const panelHost = document.getElementById("training-attention");
 
-    // Archived paths live on the History tab only, so they never drag a
+    // Archived paths live in Training History only, so they never drag a
     // working card into a bucket or add a dead row to it.
     const live = entries.filter((e) => e.state !== "archived");
     const buckets = { attention: [], paused: [], stalled: [], active: [], complete: [] };
@@ -528,6 +528,8 @@
     // who happens to have one - someone complete on one path and still
     // training on another belongs here for the first path only.
     const done = entries.filter((e) => e.state === "complete" || e.state === "archived");
+    const count = document.getElementById("training-history-count");
+    if (count) count.textContent = done.length ? String(byPerson(done).size) : "";
     if (!done.length) {
       host.innerHTML = `<p class="muted">Nobody has completed or been archived off a path yet.</p>`;
       return;
@@ -540,7 +542,7 @@
         : "";
     };
     host.innerHTML =
-      section("Completed", done.filter((e) => e.state === "complete")) +
+      section("Completed (all time)", done.filter((e) => e.state === "complete")) +
       section("Archived", done.filter((e) => e.state === "archived"));
   }
 

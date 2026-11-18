@@ -485,3 +485,53 @@
 .training-toggle-confirm:hover {
   color: var(--ember);
 }
+
+/* --- Training History (a folded section under the tracker; was a tab) --- */
+
+.training-history > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.training-history > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* A chevron that turns when open, in the heading's own colour. */
+.training-history > summary::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+  flex: none;
+}
+
+.training-history[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+.training-history > summary h2 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.training-history > summary .training-group-count:empty {
+  display: none;
+}
+
+.training-history[open] > .column-sub {
+  margin-top: 8px;
+}
+
+/* History's group headings aren't wrapped in .training-group, so space them here. */
+#training-history .training-cards + .training-group-title {
+  margin-top: 18px;
+}

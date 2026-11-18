@@ -290,7 +290,7 @@ const config = {
   // one only shows a row someone can dismiss. Names can't contain commas.
   noFeedbackInterviews: exactList("NO_FEEDBACK_INTERVIEWS", []).map(normalizeInterviewName),
 
-  // Feedback leaderboard (Feedback tab): the top 10 interviewers by the share
+  // Feedback leaderboard (Feedback Leaderboard tab): the top 10 interviewers by the share
   // of their completed interviews with their scorecard in, over this many
   // days, among people with at least FEEDBACK_LEADERBOARD_MIN_INTERVIEWS
   // completed. "Completed" = ended at least FEEDBACK_OVERDUE_HOURS ago, so a

@@ -20,7 +20,7 @@ test("with the tracker off, the tracker's markup and scripts are gone and the or
   assert.ok(!html.includes("training.js"), "tracker script must not load");
   assert.ok(!html.includes("training.css"), "tracker stylesheet must not load");
   assert.ok(!html.includes("training-active"), "tracker markup must be gone");
-  assert.ok(!html.includes('data-tab="training-history"'), "history tab must be gone");
+  assert.ok(!html.includes('id="training-history"'), "training history must be gone");
   assert.ok(html.includes('id="cards-interviewerTraining"'), "the original Ashby-native section must remain");
   assert.ok(html.includes('id="interviewerTraining-toggle"'), "its paused toggle must remain");
 });
@@ -32,7 +32,7 @@ test("with the tracker on, the original section is gone and the tracker's markup
   assert.ok(!html.includes('id="interviewerTraining-toggle"'), "its paused toggle must be gone");
   assert.ok(html.includes("training.js"), "tracker script must load");
   assert.ok(html.includes('id="training-active"'), "tracker markup must be present");
-  assert.ok(html.includes('data-tab="training-history"'), "history tab must be present");
+  assert.ok(html.includes('id="training-history"'), "training history must be present");
 });
 
 test("exactly one training section id survives either way, never two", () => {
@@ -43,13 +43,15 @@ test("exactly one training section id survives either way, never two", () => {
   }
 });
 
-test("the history tab follows the tab convention app.js relies on", () => {
-  // app.js's tab handler is generic over id="tab-<data-tab value>", so a new
-  // tab needs only a matching button and panel pair - no JS change. If that
-  // pairing ever breaks, the tab silently does nothing when clicked.
+test("training history is a section inside Interviewer Info, not a tab of its own", () => {
+  // Moved from its own tab on 18 November 2026: it is the tail of the same
+  // tracker, folded closed under it.
   const html = pageGate.stripBlocks(INDEX, "training-legacy");
-  assert.ok(html.includes('data-tab="training-history"'));
-  assert.ok(html.includes('id="tab-training-history"'));
+  assert.ok(!html.includes('data-tab="training-history"'), "no tab button");
+  assert.ok(!html.includes('id="tab-training-history"'), "no tab panel");
+  const panel = html.slice(html.indexOf('id="tab-interviewers"'), html.indexOf('id="tab-offers"'));
+  assert.ok(panel.includes('id="training-history"'), "inside the Interviewer Info panel");
+  assert.ok(panel.indexOf('id="training-history"') > panel.indexOf('id="training-active"'), "below the tracker");
 });
 
 test("the scheduling gate still works alongside the training gate, in any order", () => {

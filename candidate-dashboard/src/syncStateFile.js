@@ -10,7 +10,7 @@ const config = require("./config");
 // re-reading everything. Without it, the first refresh after every deploy at
 // Forus made ~350 interviewSchedule.list calls plus ~60
 // applicationFeedback.list calls (557s on 2026-11-17), and the Dashboard and
-// Feedback tabs both waited on it.
+// Feedback Leaderboard tabs both waited on it.
 //
 // Same file pattern as applicationInfoCache.js / interviewerSettingsCache.js:
 // JSON in config.dataDir, written to a temp file and renamed so a restart
