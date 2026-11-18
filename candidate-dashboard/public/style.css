@@ -292,6 +292,12 @@ button#refresh-btn.spinning {
   }
 }
 
+/* display: flex above would otherwise beat the hidden attribute (app.js hides
+   the bar when only one tab is left). */
+.tab-switcher[hidden] {
+  display: none;
+}
+
 .tab-panel[hidden] {
   display: none;
 }

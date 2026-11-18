@@ -152,7 +152,12 @@ const SECTION_GROUPS = [
     fetch: () => timed("listOffers", ashby.listOffers()),
     assign: (snap, result) => Object.assign(snap, result),
   },
-  {
+];
+
+// Only where it's on: switched off (DISABLED_SECTIONS=feedbackLeaderboard) it
+// is never computed, so the ranking never reaches /api/issues (config.js).
+if (config.feedbackLeaderboardEnabled) {
+  SECTION_GROUPS.push({
     // Interviewer-centric like Interviewer Weekly Limits: no dismissals, no
     // entity filter. Its own group so its first, heavier read (every
     // scorecard in the window) never holds up the Dashboard tab.
@@ -162,8 +167,8 @@ const SECTION_GROUPS = [
     assign: (snap, result) => {
       snap.feedbackLeaderboard = result;
     },
-  },
-];
+  });
+}
 
 // Per-section-key { lastUpdated, lastError } — every key in a given
 // SECTION_GROUPS entry always shares the same value (they refresh
@@ -273,8 +278,10 @@ async function refresh() {
           `${snapshot.interviewerTraining.length} interviewer training entries, ` +
           `${snapshot.offersNotYetSent.length} offers not yet sent, ` +
           `${snapshot.offersAwaitingAcceptance.length} offers awaiting acceptance, ` +
-          `${snapshot.offersSigned.length} offers signed, ` +
-          `${snapshot.feedbackLeaderboard ? snapshot.feedbackLeaderboard.qualifying : "?"} qualifying for the feedback leaderboard` +
+          `${snapshot.offersSigned.length} offers signed` +
+          (config.feedbackLeaderboardEnabled
+            ? `, ${snapshot.feedbackLeaderboard ? snapshot.feedbackLeaderboard.qualifying : "?"} qualifying for the feedback leaderboard`
+            : ", feedback leaderboard off") +
           (failed.length ? ` (failed: ${failed.join(", ")})` : "")
       );
       console.log(

@@ -299,7 +299,7 @@ async function fetchOfferApplications(applicationIds, signatures) {
 // used to keep 8 days, enough for the weekly limits alone).
 const scheduleSync = createScheduleSync({
   fetchPage: (body) => ashbyPost("interviewSchedule.list", body),
-  keepDays: Math.max(8, config.feedbackLeaderboardDays + 2),
+  keepDays: config.feedbackLeaderboardEnabled ? Math.max(8, config.feedbackLeaderboardDays + 2) : 8,
   // Kept on the volume so a redeploy doesn't re-read every schedule ever.
   store: createSyncStateFile("schedule-sync.json"),
 });

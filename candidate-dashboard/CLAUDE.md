@@ -308,6 +308,14 @@ is normally still in Application Review and any status).
   computes every section's data regardless of `DISABLED_SECTIONS` — this is
   purely a display-layer toggle, by design (see `config.js`'s
   `disabledSections` comment) — don't add server-side skip logic for it.
+  **One exception: `feedbackLeaderboard`** (`config.feedbackLeaderboardEnabled`,
+  18 November 2026). It ranks named people, so off means never computed and
+  never in `/api/issues`; hiding only the tab would still ship the ranking
+  to every browser. Off, the schedule sync also keeps 8 days, not 92.
+  `applyDisabledSections()` also removes any tab (button and panel) left
+  with no `[data-key]` section, never the Dashboard, and hides the tab bar
+  when one tab is left. `.tab-switcher[hidden]` needs its own
+  `display: none` rule because `.tab-switcher` sets `display: flex`.
   `config.js`'s `SECTION_KEYS` array is the validated source of truth: it
   logs the full recognized list on startup and warns on any
   `DISABLED_SECTIONS` entry that doesn't match one, specifically so a typo

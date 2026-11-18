@@ -410,4 +410,13 @@ for (const key of config.disabledSections) {
   }
 }
 
+// The feedback leaderboard is the one section DISABLED_SECTIONS switches
+// off on the SERVER too, not just on the page. It ranks named people, so
+// hiding the tab while still computing it would leave the ranking in
+// /api/issues for anyone signed in. Off, it is never computed or served, no
+// scorecards are read, and the schedule sync keeps 8 days instead of 92.
+// For small clients (LiteLLM, 18 November 2026: three people qualified out
+// of eight interviewers, so the "top ten" was the whole team ranked).
+config.feedbackLeaderboardEnabled = !config.disabledSections.includes("feedbackLeaderboard");
+
 module.exports = config;

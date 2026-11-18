@@ -55,11 +55,13 @@ only shows a row someone can dismiss. Lists as set on 2026-11-17:
 | Luminai | `Welcome,Lunch` (Grace and Gabrielle host Welcome and are marked feedback-required in Ashby) |
 | Forus | `[Forus] Onsite Day,Onsite Day with Forus,Onsite Day,[Forus] Account Executive (Provider Growth) Onsite,Lunch with Team,Lunch,[Forus] Check-In (Sell call)` |
 | January | `Verbal Offer` |
+| LiteLLM | `Lunch with the Team,Coffee` (set 18 November 2026) |
 | Pace, Poetic, Runlayer | none |
 
 Deliberately left in (possibly just slow, which is what the dashboard should
 show): Forus's "[Forus] Check In", "Project Orientation", "[Forus] CEO
-Interview" and "Founder Conversation", and Pace's "Yonah 1:1".
+Interview" and "Founder Conversation", Pace's "Yonah 1:1", and LiteLLM's
+"General Chat", "Intro Chat" and "Chat with Krrish".
 
 ## Pages
 
@@ -362,6 +364,14 @@ January, 2026-11-17). So the first refresh reads every scorecard in the
 window, one page at a time, and later refreshes read only changes. Forus,
 the largest client, is about 60 pages for the first read.
 
+**Off for small clients.** `DISABLED_SECTIONS=feedbackLeaderboard` turns it
+off on the server as well as the page: it is never computed, no scorecards
+are read, and the ranking never reaches `/api/issues` (hiding only the tab
+would still have sent it to every signed-in browser). With few interviewers
+a "top ten" is the whole team ranked, which is the full ranking the board
+was designed not to show. Off at LiteLLM (18 November 2026: 3 of 8
+interviewers had 8+ interviews in 90 days).
+
 **Kept across restarts.** Both syncs save their state on the volume
 (`schedule-sync.json`, `feedback-sync.json`, via `src/syncStateFile.js`) and
 a restart carries on from the saved sync token. Before this (17 November
@@ -463,7 +473,7 @@ Fill in `.env`:
 | `CLIENT_ACCENT_COLOR` | no | Overrides the header accent color (topbar border + title text, default Carrara ember) so each client deployment is visually distinguishable at a glance. Any valid CSS color. |
 | `DISPLAY_TIMEZONE` | no | Default `America/New_York`. Real IANA time zone name (e.g. `America/Los_Angeles`, `Europe/London`) — formats every absolute time in the UI (`app.js`, via `appConfig`) and computes the "is this today" day boundary for Onsite Interviews Today (`ashby.js`, read directly). **Must be an IANA name, not a fixed abbreviation** — `EST`/`PST`/`CST` etc. silently resolve to a fixed UTC offset that never observes daylight saving (confirmed: Node resolves `EST` to the fixed `America/Panama`, not real US Eastern time), reading an hour off for roughly half the year. Warns on startup (not silently) if the value looks like a fixed abbreviation instead of an IANA name. |
 | `RECRUITER_ROLE_NAME` / `COORDINATOR_ROLE_NAME` | no | Defaults `Recruiter` / `Recruiting Coordinator`. Exact `hiringTeamRole.list` values (not a substring match) used for the Recruiter/Coordinator filter. **This org's actual role names, not an Ashby standard** — verify with `scripts/check-ashby-compatibility.js` before onboarding a new client. |
-| `DISABLED_SECTIONS` | no | Comma-separated section keys (see § Section keys) to hide from this client's dashboard entirely. Empty by default (nothing hidden). An unrecognized key logs a startup warning rather than silently doing nothing. |
+| `DISABLED_SECTIONS` | no | Comma-separated section keys (see § Section keys) to hide from this client's dashboard entirely. Empty by default (nothing hidden). An unrecognized key logs a startup warning rather than silently doing nothing. A tab whose sections are all off disappears (button and panel), and with only the Dashboard left the tab bar is hidden too. `feedbackLeaderboard` is also switched off on the server: never computed, never sent to the page (see § Feedback leaderboard). |
 | `SCHEDULING_CLIENT_ID` | no | Turns on the scheduling pilot for this dashboard (see § Scheduling review). Empty by default: the Scheduling tab, the ready-to-schedule section, the booking and connection pages and their API routes all return 404, and the queue keeps the name "Needs scheduling". |
 
 ## Onboarding a new client

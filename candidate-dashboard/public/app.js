@@ -1266,6 +1266,11 @@
   // section to remove for just one of the four.
   function applyDisabledSections(disabledSections) {
     disabledSectionKeys = new Set(disabledSections || []);
+    // Note which tabs hold sections at all, before any are removed (this runs
+    // on every render; the mark is only ever set). Scheduling has none.
+    document.querySelectorAll(".tab-panel").forEach((panel) => {
+      if (panel.querySelector("[data-key]")) panel.dataset.hasSections = "true";
+    });
     for (const key of disabledSectionKeys) {
       const section = document.querySelector(`[data-key="${key}"]`);
       if (!section) continue; // already removed on a previous render, or not a static-section key
@@ -1278,6 +1283,28 @@
 
       if (sideMargin && !sideMargin.querySelector(".column")) sideMargin.remove();
     }
+    // A tab with every one of its sections off goes entirely, button and
+    // panel (LiteLLM: no weekly limits and no training pools, so no
+    // Interviewer Info tab; no Ashby offers, so no Offers tab). If it was
+    // the open tab, fall back to the Dashboard.
+    document.querySelectorAll('.tab-panel[data-has-sections="true"]').forEach((panel) => {
+      // Never the Dashboard: its Action queue isn't a [data-key] section.
+      if (panel.id === "tab-dashboard" || panel.querySelector("[data-key]")) return;
+      const tab = panel.id.replace(/^tab-/, "");
+      const wasOpen = !panel.hidden;
+      document.querySelectorAll(`.tab-btn[data-tab="${tab}"]`).forEach((btn) => btn.remove());
+      panel.remove();
+      if (wasOpen) {
+        document.getElementById("tab-dashboard")?.removeAttribute("hidden");
+        document.querySelectorAll('.tab-btn[data-tab="dashboard"]').forEach((btn) => {
+          btn.classList.add("is-active");
+          btn.setAttribute("aria-pressed", "true");
+        });
+      }
+    });
+    // One tab left is no choice: hide the tab bar rather than show a lone button.
+    const switcher = document.querySelector(".tab-switcher");
+    if (switcher) switcher.hidden = switcher.querySelectorAll(".tab-btn").length < 2;
   }
 
   // Client-specific display config (page title, header accent color,

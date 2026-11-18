@@ -50,6 +50,17 @@ coordinator notes were ever saved there. coordinator-metrics deliberately still 
 Profound as an `ended` client, as our record of our own work; see
 `coordinator-metrics/CLAUDE.md`.
 
+**LiteLLM** (onboarding, 18 November 2026). Settings agreed: `ONSITE_STAGE_KEYWORDS=onsite`,
+`DISPLAY_TIMEZONE=America/Los_Angeles`, `NO_FEEDBACK_INTERVIEWS=Lunch with the Team,Coffee`,
+and Interviewer Weekly Limits, Interviewer Training, Offers, Availability Submitted and
+the feedback leaderboard switched off (no weekly limits, no interviewer pools, no Ashby
+offers ever, booking links instead of availability requests, and too few interviewers
+for a top ten). **To do: swap its Ashby key for a read-only one.** The key in use was
+created with read AND write scopes (candidates, jobs, offers, interviews, organization,
+API keys). The dashboard only reads, so the write access is unused, but a leaked key
+could change their Ashby. Ask LiteLLM for a key with read scopes only, then replace
+`ASHBY_API_KEY` on Railway and in `candidate-dashboard/.env.litellm`.
+
 ## Two things called scheduling-worker
 
 `scheduling-worker/` in this repo is a copy of the Poetic work-trial tracker. No
