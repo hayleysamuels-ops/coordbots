@@ -755,6 +755,17 @@ is normally still in Application Review and any status).
   `applicationFeedback.list` by `createdAfter`, then `syncToken`), read one
   page at a time because the key is shared with the live dashboard. The
   every-schedule sync keeps `FEEDBACK_LEADERBOARD_DAYS + 2` days for it.
+- **Both sync-token reads are kept on the volume** (`schedule-sync.json`,
+  `feedback-sync.json`, written through `src/syncStateFile.js`), so a
+  redeploy continues from the saved token. Without it every Forus deploy
+  re-read every schedule ever plus 90 days of scorecards (557s on 17
+  November 2026), and the Dashboard tab's schedule sections waited on it
+  too, because Interviewer Weekly Limits reads the same schedule sync.
+  Saved state is trusted only if it covers the current window (scorecards:
+  `coveredFrom`; schedules: `keepDays`), otherwise one full read. Saves
+  are throttled to every 10 minutes after the full read; an older token
+  only replays more changes. Don't drop the state on an expired token any
+  other way than the existing full-read fallback.
 - **Interviews Today is NOT in the one-row-per-candidate pool**, like
   Rescheduled Interviews: it's a fact about an event. It covers any
   candidate status and skips cancelled schedules. Its per-person feedback
@@ -801,8 +812,10 @@ is normally still in Application Review and any status).
   Ashby's org timezone setting (unverified whether Ashby even has one exposed
   via the API). Its counts come from every interview schedule, not the
   `SCHEDULE_LOOKBACK_DAYS` window: `createScheduleSync` reads the whole
-  history once, then only changes via Ashby's `syncToken`, and drops from
-  memory schedules whose events all ended more than 8 days ago. The same
+  history once, then only changes via Ashby's `syncToken` (state kept on
+  the volume across restarts), and drops schedules whose events all ended
+  more than `FEEDBACK_LEADERBOARD_DAYS + 2` days ago (8 before the
+  leaderboard). The same
   counts, filtered to places where the person gives feedback, feed the
   scheduling pilot's interviewer load (`ashby.interviewerLoad()`).
 - **Availability Submitted is not threshold-gated on the server** — unlike

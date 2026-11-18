@@ -8,6 +8,7 @@ const applicationInfoCache = require("./applicationInfoCache");
 const interviewTitleCache = require("./training/interviewTitleCache");
 const { countInterviewLoad, createScheduleSync, weekKey } = require("./interviewer-load");
 const { createFeedbackSync } = require("./feedback-sync");
+const { createSyncStateFile } = require("./syncStateFile");
 const { buildLeaderboard } = require("./feedback-leaderboard");
 
 function authHeader() {
@@ -299,12 +300,15 @@ async function fetchOfferApplications(applicationIds, signatures) {
 const scheduleSync = createScheduleSync({
   fetchPage: (body) => ashbyPost("interviewSchedule.list", body),
   keepDays: Math.max(8, config.feedbackLeaderboardDays + 2),
+  // Kept on the volume so a redeploy doesn't re-read every schedule ever.
+  store: createSyncStateFile("schedule-sync.json"),
 });
 
 // Every scorecard in the same window, org-wide (feedback-sync.js).
 const feedbackSync = createFeedbackSync({
   fetchPage: (body) => ashbyPost("applicationFeedback.list", body),
   keepDays: config.feedbackLeaderboardDays + 2,
+  store: createSyncStateFile("feedback-sync.json"),
 });
 
 /**
@@ -1032,8 +1036,9 @@ async function listIssues(options = {}) {
  * (shared with Interviewer Weekly Limits), one scorecard sync call, a cached
  * user.list, one interview.list for debriefs, and interview.info only for
  * interviews never seen before (and only with NO_FEEDBACK_INTERVIEWS set).
- * The first refresh reads every scorecard in the window (Forus: about 60
- * pages, one at a time).
+ * The first refresh on a fresh volume reads every scorecard in the window
+ * (Forus: about 60 pages, one at a time); after that the sync state is kept
+ * on the volume (syncStateFile.js), so a redeploy doesn't repeat it.
  *
  * Who has left: listUsers() returns only enabled Ashby users, so anyone not
  * in it is excluded. If user.list fails this throws, and issues.js keeps the

@@ -18,13 +18,53 @@
 // scorecard is that interviewer's (same rule as missingFeedbackOwers in
 // ashby.js). Scorecards with no interview event can't be matched to an
 // interview and are dropped.
+//
+// With a `store` (syncStateFile.js; ashby.js passes
+// <DATA_DIR>/feedback-sync.json), the scorecards and sync token are kept on
+// the volume, so a restart carries on from the saved token instead of
+// reading 90 days again. The saved state is used only if its full read
+// reached back far enough for today's window (`coveredFrom`), so raising
+// FEEDBACK_LEADERBOARD_DAYS forces one full read. An expired token falls
+// back to a full read exactly as it does in memory. Saved after a full read,
+// then at most every `saveEveryMs`: an older saved token only means the
+// next boot replays a few more minutes of changes.
 
 const DAY = 24 * 60 * 60 * 1000;
 
-function createFeedbackSync({ fetchPage, now = () => Date.now(), keepDays = 92, log = console }) {
+const STATE_VERSION = 1;
+
+function createFeedbackSync({ fetchPage, now = () => Date.now(), keepDays = 92, log = console, store = null, saveEveryMs = 10 * 60 * 1000 }) {
   const byId = new Map();
   let token = null;
   let inFlight = null;
+  let coveredFrom = null; // createdAfter of the full read the current state came from
+  let lastSaved = 0;
+
+  function restore() {
+    const state = store && store.load();
+    if (!state) return;
+    if (state.version !== STATE_VERSION || !state.token || !Array.isArray(state.scorecards) || !(state.coveredFrom <= now() - keepDays * DAY)) {
+      log.warn("[feedback-sync] saved scorecards don't cover the current window; reading every scorecard again.");
+      return;
+    }
+    for (const [id, eventId, userId, submittedAt] of state.scorecards) byId.set(id, { eventId, userId, submittedAt });
+    token = state.token;
+    coveredFrom = state.coveredFrom;
+    lastSaved = now();
+    log.log(`[feedback-sync] restored ${byId.size} scorecards saved ${Math.round((Date.now() - Date.parse(state.savedAt)) / 60000)}m ago; continuing from the sync token.`);
+  }
+
+  function save(force) {
+    if (!store || !token || (!force && now() - lastSaved < saveEveryMs)) return;
+    store.save({
+      version: STATE_VERSION,
+      savedAt: new Date().toISOString(),
+      coveredFrom,
+      token,
+      scorecards: [...byId].map(([id, f]) => [id, f.eventId, f.userId, f.submittedAt]),
+    });
+    lastSaved = now();
+  }
 
   async function readAll(body) {
     const results = [];
@@ -60,13 +100,22 @@ function createFeedbackSync({ fetchPage, now = () => Date.now(), keepDays = 92, 
         token = null;
       }
     }
-    if (!read) read = await readAll({ limit: 100, createdAfter: now() - keepDays * DAY });
+    let full = false;
+    if (!read) {
+      full = true;
+      const createdAfter = now() - keepDays * DAY;
+      read = await readAll({ limit: 100, createdAfter });
+      coveredFrom = createdAfter;
+    }
     for (const f of read.results) keep(f);
     if (read.syncToken) token = read.syncToken;
     const cutoff = now() - keepDays * DAY;
     for (const [id, f] of byId) if (Date.parse(f.submittedAt) < cutoff) byId.delete(id);
+    save(full);
     return [...byId.values()];
   }
+
+  restore();
 
   return {
     // Current scorecards; concurrent callers share one read.

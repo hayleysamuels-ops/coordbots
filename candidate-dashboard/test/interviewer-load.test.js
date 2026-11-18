@@ -56,6 +56,24 @@ test('every schedule is read once, then only changes through the sync token; an 
   assert.deepEqual(calls.slice(-2),[{limit:100,syncToken:'expired'},{limit:100}]);
 });
 
+test('the schedule sync is kept on the volume: a restart continues from the saved token, history included',async()=>{
+  let saved=null;const store={load:()=>saved&&JSON.parse(JSON.stringify(saved)),save:s=>{saved=s;}};const quiet={warn(){},log(){}};
+  const now=Date.parse('2026-11-05T12:00Z');
+  const booked={id:'booked',status:'Scheduled',interviewEvents:[{...ev('2026-11-10T18:00Z',[['a',false]],{interviewId:'w'}),endTime:'2026-11-10T19:00Z'}]};
+  const first=createScheduleSync({fetchPage:async()=>({results:[booked],moreDataAvailable:false,syncToken:'t1'}),now:()=>now,keepDays:92,store,log:quiet});
+  await first.schedules();
+  assert.equal(saved.token,'t1');
+  const calls=[];
+  const second=createScheduleSync({fetchPage:async b=>{calls.push(b);return{results:[],moreDataAvailable:false,syncToken:'t2'};},now:()=>now,keepDays:92,store,log:quiet});
+  assert.deepEqual((await second.schedules()).map(s=>s.id),['booked']);
+  assert.deepEqual(calls,[{limit:100,syncToken:'t1'}]);
+  assert.equal(second.feedbackHistory('w','a'),false);
+  // Kept for fewer days than now needed: read everything.
+  const longer=createScheduleSync({fetchPage:async b=>{calls.push(b);return{results:[],moreDataAvailable:false,syncToken:'t3'};},now:()=>now,keepDays:182,store,log:quiet});
+  await longer.schedules();
+  assert.deepEqual(calls.at(-1),{limit:100});
+});
+
 test('the post\'s wording: who was suggested over whom, with both counts',()=>{
   const o={chosen:{name:'Keshav Malhotra',count:0},over:{name:'Ariel Perez Chavez',count:2},weekLabel:'this week'};
   assert.equal(describeLoadOverride(o),'Keshav Malhotra suggested over Ariel Perez Chavez — Ariel has 2 interviews this week, Keshav has 0.');

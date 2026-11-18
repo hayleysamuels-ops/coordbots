@@ -53,9 +53,42 @@ function countInterviewLoad(schedules, { timeZone, counts = () => true, excludeS
 // back through the sync). What each interviewer last had as isFeedbackRequired
 // on each interview is kept from the whole history (feedbackHistory), for
 // sessions not yet booked.
-function createScheduleSync({ fetchPage, now = () => Date.now(), keepDays = 8, log = console }) {
+//
+// With a `store` (syncStateFile.js; ashby.js passes
+// <DATA_DIR>/schedule-sync.json), the kept schedules, feedbackHistory and
+// sync token are saved on the volume and a restart carries on from the token
+// instead of re-reading every schedule ever (Forus: ~350 pages, the bulk of
+// a 9-minute first refresh that held up the Dashboard tab). Used only if it
+// was kept for at least as many days as now (raising
+// FEEDBACK_LEADERBOARD_DAYS forces one full read); an expired token falls
+// back to a full read as before. Saved after a full read, then at most every
+// `saveEveryMs`.
+const SCHEDULE_STATE_VERSION = 1;
+function createScheduleSync({ fetchPage, now = () => Date.now(), keepDays = 8, log = console, store = null, saveEveryMs = 10 * 60 * 1000 }) {
   const byId = new Map(), feedback = new Map();
-  let token = null, inFlight = null;
+  let token = null, inFlight = null, lastSaved = 0;
+  function restore() {
+    const state = store && store.load();
+    if (!state) return;
+    if (state.version !== SCHEDULE_STATE_VERSION || !state.token || !Array.isArray(state.schedules) || !Array.isArray(state.feedback) || !(state.keepDays >= keepDays)) {
+      log.warn("[interviewer-load] saved schedules don't cover the current window; reading every schedule again.");
+      return;
+    }
+    for (const s of state.schedules) byId.set(s.id, s);
+    for (const [interviewId, people] of state.feedback) feedback.set(interviewId, new Map(people.map(([userId, at, required]) => [userId, { at, required }])));
+    token = state.token;
+    lastSaved = now();
+    log.log(`[interviewer-load] restored ${byId.size} schedules saved ${Math.round((Date.now() - Date.parse(state.savedAt)) / 60000)}m ago; continuing from the sync token.`);
+  }
+  function save(force) {
+    if (!store || !token || (!force && now() - lastSaved < saveEveryMs)) return;
+    store.save({
+      version: SCHEDULE_STATE_VERSION, savedAt: new Date().toISOString(), keepDays, token,
+      schedules: [...byId.values()],
+      feedback: [...feedback].map(([interviewId, people]) => [interviewId, [...people].map(([userId, x]) => [userId, x.at, x.required])]),
+    });
+    lastSaved = now();
+  }
   async function readAll(body) {
     const results = [];
     let cursor = null, last = null;
@@ -88,13 +121,16 @@ function createScheduleSync({ fetchPage, now = () => Date.now(), keepDays = 8, l
         byId.clear(); token = null;
       }
     }
-    if (!read) read = await readAll({ limit: 100 });
+    const full = !read;
+    if (full) read = await readAll({ limit: 100 });
     for (const s of read.results) { byId.set(s.id, s); remember(s); }
     if (read.syncToken) token = read.syncToken;
     const cutoff = now() - keepDays * DAY;
     for (const [id, s] of byId) if (!(s.interviewEvents || []).some(e => Date.parse(e.endTime) > cutoff)) byId.delete(id);
+    save(full);
     return [...byId.values()];
   }
+  restore();
   return {
     // Current schedules; concurrent callers share one read.
     schedules() { if (!inFlight) inFlight = sync().finally(() => { inFlight = null; }); return inFlight; },

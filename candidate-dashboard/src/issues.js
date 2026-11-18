@@ -181,8 +181,17 @@ for (const group of SECTION_GROUPS) {
 // Item counts per key, for the "committed" log line below — group.keys'
 // values are always arrays (every SECTION_GROUPS entry's assign() writes
 // arrays into snapshot), so this is safe without per-key type checking.
+// Most sections are arrays (logged as a count). The feedback leaderboard is
+// an object; log how many people qualified and how many are shown instead
+// of `undefined`.
 function describeCounts(group) {
-  return group.keys.map((key) => `${key}=${(snapshot[key] || []).length}`).join(", ");
+  return group.keys
+    .map((key) => {
+      const value = snapshot[key];
+      if (value && !Array.isArray(value) && Array.isArray(value.top)) return `${key}=${value.top.length} shown of ${value.qualifying} qualifying`;
+      return `${key}=${(value || []).length}`;
+    })
+    .join(", ");
 }
 
 // Commits ONE group's result the instant it settles, independent of how

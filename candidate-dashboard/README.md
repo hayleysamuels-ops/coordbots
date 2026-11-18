@@ -360,8 +360,20 @@ for the window plus two days instead of eight. Scorecards come from
 `createdAfter` and returns a `syncToken` on its last page (confirmed on
 January, 2026-11-17). So the first refresh reads every scorecard in the
 window, one page at a time, and later refreshes read only changes. Forus,
-the largest client, is about 60 pages for the first read. It's its own
-refresh group, so that first read never holds up the Dashboard tab.
+the largest client, is about 60 pages for the first read.
+
+**Kept across restarts.** Both syncs save their state on the volume
+(`schedule-sync.json`, `feedback-sync.json`, via `src/syncStateFile.js`) and
+a restart carries on from the saved sync token. Before this (17 November
+2026), every Forus deploy re-read every schedule ever (~350 pages) plus the
+scorecards: 557s with nothing on the Feedback tab, and the Dashboard tab's
+schedule sections waited on the same schedule read. A saved state is
+ignored, and everything read again once, when it is unreadable, from an
+older format, or kept for fewer days than `FEEDBACK_LEADERBOARD_DAYS` now
+needs; an expired sync token does the same. State is saved straight after
+a full read, then at most every 10 minutes, so a restart replays at most
+ten minutes of changes. To force a full read, delete the two files from
+the volume and restart.
 
 Preview on 2026-11-17 (before release; Forus not run):
 
@@ -439,7 +451,7 @@ Fill in `.env`:
 | `REFRESH_INTERVAL_MINUTES` | no | How often the server re-pulls Ashby for the nine sections. Default `5`. The page itself polls the cached snapshot every 60s regardless. |
 | `RESCHEDULE_COUNT_THRESHOLD` | no | Default `2`. Flags an interview event once its (self-tracked) reschedule count exceeds this. See § Rescheduled Interviews above. |
 | `OFFERS_SIGNED_LOOKBACK_DAYS` | no | Default `7`. Offers Signed shows offers accepted (`decidedAt`) within this many days. Real Ashby enum field, not org-configured naming — no compatibility-script verification needed, unlike the keyword-matched vars below. |
-| `DATA_DIR` | no | Where dismissals (`dismissals.json`) and self-tracked history (`reschedule-tracking.json`) are persisted. Resolution order: `RAILWAY_VOLUME_MOUNT_PATH` (set automatically by Railway when a volume is attached — no manual config needed there) → `DATA_DIR` → `./data`. On any other cloud host, set `DATA_DIR` to a mounted volume so this state survives redeploys; on Railway, just attach a volume and both env vars can be left unset. The resolved path is logged on startup (`[server] Data directory: ...`). |
+| `DATA_DIR` | no | Where dismissals (`dismissals.json`), self-tracked history (`reschedule-tracking.json`) and the schedule and scorecard sync state (`schedule-sync.json`, `feedback-sync.json`) are persisted. Resolution order: `RAILWAY_VOLUME_MOUNT_PATH` (set automatically by Railway when a volume is attached — no manual config needed there) → `DATA_DIR` → `./data`. On any other cloud host, set `DATA_DIR` to a mounted volume so this state survives redeploys; on Railway, just attach a volume and both env vars can be left unset. The resolved path is logged on startup (`[server] Data directory: ...`). |
 | `SCHEDULE_LOOKBACK_DAYS` | no | Default `30`. How far back `interviewSchedule.list` is pulled for the schedule-driven sections. Tune per client's interview volume — see § Scope. |
 | `SOURCE_REFERRAL_KEYWORDS` / `SOURCE_AGENCY_KEYWORDS` | no | Defaults `referr` / `agenc`. Comma-separated, case-insensitive substrings matched against `source.sourceType.title` to classify Recently Sourced. **Every Ashby org names these differently** — run `scripts/check-ashby-compatibility.js` against a new client before trusting the defaults. Set to an empty value to disable a category. |
 | `ONSITE_STAGE_KEYWORDS` | no | Default `final,exec`. Comma-separated, case-insensitive substrings matched against interview stage titles to approximate "onsite" (Ashby has no real location signal — see § Onsite Interviews Today). **January's convention, not an Ashby default** — verify with `scripts/check-ashby-compatibility.js` before onboarding a new client. Empty value disables the section. |
@@ -741,6 +753,7 @@ accidental dismiss.
 | `src/concurrency.js` | `mapWithConcurrency` — bounds parallel `application.info` / `user.interviewerSettings` lookups. |
 | `src/dismissals.js` | Persisted store of dismissed cards (`dismissals.json`); handles "today" expiry and "forever". |
 | `src/issues.js` | Orchestrates the twelve sections (schedule/application-driven, interviewer training pool data, and offer data), guards against overlapping refreshes, filters out dismissed cards at serve time, holds the cached snapshot. |
+| `src/syncStateFile.js` | Where the schedule and scorecard syncs keep their state on the volume (`schedule-sync.json`, `feedback-sync.json`), so a restart continues from the saved sync token. |
 | `src/rescheduleTracking.js` | Persisted (`<DATA_DIR>/reschedule-tracking.json`) reschedule counter per interview event id, since Ashby has none of its own — see § Rescheduled Interviews above. |
 | `public/` | The dashboard itself — plain HTML/CSS/JS, polls `/api/issues` every 60s. |
 
@@ -758,9 +771,9 @@ accidental dismiss.
 - Interview-schedule lookback is 30 days — anything older and still
   unresolved wouldn't surface (see Scope above for the tradeoff). Interviewer
   Weekly Limits is not bounded by it: it counts from every schedule, kept
-  current with Ashby's `syncToken` (`src/interviewer-load.js`; the first read
-  after a restart is the whole history, then each refresh reads only what
-  changed), so an interview booked months ago for this week still counts.
+  current with Ashby's `syncToken` (`src/interviewer-load.js`; the whole
+  history is read once, then each refresh reads only what changed, and the
+  state is kept on the volume across restarts, see § Feedback leaderboard), so an interview booked months ago for this week still counts.
 - Interviewer Weekly Limits counts interviews for the current calendar week,
   Monday to Sunday in `DISPLAY_TIMEZONE` (was Monday 00:00 UTC until November
   5, 2026), regardless of timezone settings in Ashby itself. Cancelled

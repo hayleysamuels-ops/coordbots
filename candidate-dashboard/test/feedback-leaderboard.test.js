@@ -129,3 +129,49 @@ test('scorecard sync: one full read by date, then the sync token; credit beats s
   assert.equal(calls[2].syncToken, 't1');
   assert.equal(second.length, 3);
 });
+
+// Kept on the volume (feedback-sync.json) so a redeploy carries on from the
+// saved sync token instead of reading 90 days of scorecards again.
+function memoryStore(initial = null) {
+  let saved = initial, saves = 0;
+  return { load: () => (saved ? JSON.parse(JSON.stringify(saved)) : null), save: (s) => { saved = s; saves += 1; }, get saved() { return saved; }, get saves() { return saves; } };
+}
+const quiet = { warn() {}, log() {} };
+
+test('scorecard sync on the volume: a restart continues from the saved token, no full read', async () => {
+  const store = memoryStore();
+  let clock = NOW;
+  const first = createFeedbackSync({ fetchPage: async () => ({ results: [{ id: 'f1', interviewEventId: 'e1', creditedToUser: { id: 'ana' }, submittedAt: iso(NOW - D) }], moreDataAvailable: false, syncToken: 't1' }), now: () => clock, keepDays: 92, store, log: quiet });
+  await first.scorecards();
+  assert.equal(store.saves, 1, 'saved straight after the full read');
+  assert.equal(store.saved.token, 't1');
+
+  clock = NOW + 2 * H; // the redeploy
+  const calls = [];
+  const second = createFeedbackSync({ fetchPage: async (body) => { calls.push(body); return { results: [{ id: 'f2', interviewEventId: 'e2', creditedToUser: { id: 'ben' }, submittedAt: iso(clock - H) }], moreDataAvailable: false, syncToken: 't2' }; }, now: () => clock, keepDays: 92, store, log: quiet });
+  const after = await second.scorecards();
+  assert.deepEqual(calls, [{ limit: 100, syncToken: 't1' }]);
+  assert.deepEqual(after.map((s) => s.userId).sort(), ['ana', 'ben']);
+});
+
+test('scorecard sync on the volume: saves are throttled, and a longer window or unreadable state reads everything', async () => {
+  const store = memoryStore();
+  let clock = NOW, n = 0;
+  const page = async (body) => ({ results: [], moreDataAvailable: false, syncToken: `t${++n}`, body });
+  const sync = createFeedbackSync({ fetchPage: page, now: () => clock, keepDays: 92, store, log: quiet, saveEveryMs: 10 * 60 * 1000 });
+  await sync.scorecards();
+  clock += 60 * 1000; await sync.scorecards();
+  assert.equal(store.saves, 1, 'not again a minute later');
+  clock += 10 * 60 * 1000; await sync.scorecards();
+  assert.equal(store.saves, 2);
+
+  // FEEDBACK_LEADERBOARD_DAYS raised: the saved read doesn't reach back far enough.
+  const calls = [];
+  const longer = createFeedbackSync({ fetchPage: async (body) => { calls.push(body); return { results: [], moreDataAvailable: false, syncToken: 'x' }; }, now: () => clock, keepDays: 182, store, log: quiet });
+  await longer.scorecards();
+  assert.ok(calls[0].createdAfter, 'full read by date');
+
+  const junk = createFeedbackSync({ fetchPage: async (body) => { calls.push(body); return { results: [], moreDataAvailable: false, syncToken: 'y' }; }, now: () => clock, keepDays: 92, store: memoryStore({ version: 99 }), log: quiet });
+  await junk.scorecards();
+  assert.ok(calls.at(-1).createdAfter);
+});
