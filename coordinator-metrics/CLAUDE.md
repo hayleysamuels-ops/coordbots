@@ -593,6 +593,10 @@ is the short list of things that look wrong and are not.
   signals, not performance measures** — the same caveat as Results. The
   banner is seen by everyone who can log in; a named person's slowdown
   shouldn't be. Names come from the roster, matched exactly.
+  Hayley Samuels is excluded by default (`ALERT_EXCLUDE_COORDINATORS`):
+  she leads the team and books too rarely for her own numbers to carry a
+  signal — one slow booking read as a 983% slowdown. Her bookings still
+  count toward client figures.
 
 ## Conventions
 

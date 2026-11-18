@@ -326,6 +326,12 @@ const config = {
     // Per-coordinator alerts go to Slack only unless this is true, because
     // everyone who can log in to the dashboard sees the banner.
     bannerShowsCoordinators: process.env.ALERT_BANNER_SHOW_COORDINATORS === "true",
+    // Rostered people who never get per-coordinator alerts. Their bookings
+    // still count toward their clients' figures — this only stops alerts
+    // about them as a person. Hayley leads the team and books too rarely
+    // for her own numbers to mean anything (one slow booking read as a
+    // 983% slowdown). Set empty to watch everyone on the roster.
+    excludeCoordinators: nameList("ALERT_EXCLUDE_COORDINATORS", ["Hayley Samuels"]),
     timeZone: validateTimeZone(process.env.ALERT_TIMEZONE, "America/Denver", "Alerts"),
     digestHour: number("ALERT_DIGEST_HOUR", 8),
     // Skip a client's alerts when its last good sync is older than this,

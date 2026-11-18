@@ -11,7 +11,7 @@ process.env.CLIENTS = "acme";
 process.env.ASHBY_API_KEY_ACME = "test-key";
 process.env.CLIENT_TIMEZONE_ACME = "America/New_York";
 process.env.SLACK_BOT_TOKEN = "";
-process.env.CARRARA_COORDINATORS_ACME = "Maggie Stout";
+process.env.CARRARA_COORDINATORS_ACME = "Maggie Stout,Hayley Samuels";
 
 const store = require("../src/db");
 const metrics = require("../src/metrics");
@@ -135,6 +135,26 @@ test("end to end: volume drop, slower turnaround, per-coordinator, and clearing"
   metrics.rebuild();
   const after = alerts.activeAlerts();
   assert.ok(!after.find((a) => a.scope === "client" && a.metric === "volume"), "volume alert cleared");
+});
+
+test("excluded people never get per-coordinator alerts, and old ones vanish quietly", () => {
+  // An alert about Hayley left over from before she was excluded.
+  store.db
+    .prepare(
+      `INSERT INTO alerts (key, scope, client_id, subject, metric, direction, severity, message, detail, first_seen, last_seen, notified_at, resolved_at)
+       VALUES ('coordinator:hayley samuels:turnaround:up', 'coordinator', NULL, 'Hayley Samuels', 'turnaround', 'up', 'major',
+               'Hayley Samuels: booking turnaround slowed 983%', NULL, ?, ?, ?, NULL)`
+    )
+    .run(new Date().toISOString(), new Date().toISOString(), new Date().toISOString());
+
+  // Hayley books 10 a week for a month, then none: a 100% drop.
+  for (let week = 1; week <= 4; week += 1) {
+    for (let i = 0; i < 10; i += 1) seed({ daysAgo: 7 * week + 1 + (i % 6), waitHours: 2, by: "Hayley Samuels" });
+  }
+  metrics.rebuild();
+
+  const all = store.db.prepare("SELECT * FROM alerts WHERE subject = 'Hayley Samuels'").all();
+  assert.strictEqual(all.length, 0, "no open or resolved alert about Hayley, so no 'back to normal' line either");
 });
 
 test("overdue scorecards alert against their own daily snapshots", () => {

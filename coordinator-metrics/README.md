@@ -280,6 +280,9 @@ pooled across every active client. These are workload signals, not
 performance measures — Ashby records who created a booking, not who chased
 it — so they go to the Slack DM only unless
 `ALERT_BANNER_SHOW_COORDINATORS=true`.
+People listed in `ALERT_EXCLUDE_COORDINATORS` (default: Hayley Samuels)
+never get per-coordinator alerts; their bookings still count toward their
+clients' figures.
 
 **Stale data pauses alerts.** A sync that has quietly stopped looks exactly
 like a collapse in volume, so a client whose last good sync is too old gets

@@ -341,6 +341,8 @@ function evaluateCoordinators(activeClients, samplesByClient, sinceIso, now) {
   const tz = A.timeZone;
   const win = windows(tz, now);
 
+  const excluded = new Set(A.excludeCoordinators.map(config.normalizeName));
+
   const display = new Map(); // normalised -> roster spelling
   for (const c of activeClients) for (const n of c.coordinators || []) display.set(config.normalizeName(n), n);
 
@@ -355,13 +357,13 @@ function evaluateCoordinators(activeClients, samplesByClient, sinceIso, now) {
     const roster = rosterSetOf(client);
     for (const row of selectBookingsByScheduler.all(client.id, sinceIso)) {
       const key = config.normalizeName(row.scheduled_by_name);
-      if (!roster.has(key)) continue;
+      if (!roster.has(key) || excluded.has(key)) continue;
       if (metrics.isExcludedTitle(row.interview_title, client.excludedTitleKeywords)) continue;
       push(bookings, key, { key: metrics.localBuckets(row.created_at, tz).day, events: 1 });
     }
     for (const s of samplesByClient.get(client.id) || []) {
       const key = config.normalizeName(s.name);
-      if (!roster.has(key)) continue;
+      if (!roster.has(key) || excluded.has(key)) continue;
       push(turnaround, key, { day: metrics.localBuckets(s.at, tz).day, hours: s.hours });
     }
   }
@@ -416,6 +418,16 @@ const setMeta = db.prepare(`
 
 function alertKey(a) {
   return [a.scope, a.clientId || a.subject.toLowerCase(), a.metric, a.direction].join(":");
+}
+
+// Someone newly excluded shouldn't reappear as "back to normal" in the next
+// DM: their alerts are removed outright rather than resolved.
+function dropExcluded() {
+  const excluded = new Set(A.excludeCoordinators.map(config.normalizeName));
+  const remove = db.prepare(`DELETE FROM alerts WHERE key = ?`);
+  for (const row of db.prepare(`SELECT key, subject FROM alerts WHERE scope = 'coordinator'`).all()) {
+    if (excluded.has(config.normalizeName(row.subject))) remove.run(row.key);
+  }
 }
 
 const applyState = store.transaction((found, nowIso) => {
@@ -483,6 +495,7 @@ function evaluate(now = Date.now()) {
     console.error(`[alerts] coordinator evaluate failed: ${err.message}`);
   }
 
+  dropExcluded();
   applyState(found, new Date(now).toISOString());
   return found;
 }
