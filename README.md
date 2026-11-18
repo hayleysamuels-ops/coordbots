@@ -51,7 +51,7 @@ coordinator notes were ever saved there. coordinator-metrics deliberately still 
 Profound as an `ended` client, as our record of our own work; see
 `coordinator-metrics/CLAUDE.md`.
 
-**LiteLLM** (live 18 November 2026, https://coordbots-production-ba3e268d.up.railway.app). Settings agreed: `ONSITE_STAGE_KEYWORDS=onsite`,
+**LiteLLM** (live 18 November 2026, https://litellm-candidate-dash.up.railway.app). Settings agreed: `ONSITE_STAGE_KEYWORDS=onsite`,
 `DISPLAY_TIMEZONE=America/Los_Angeles`, `NO_FEEDBACK_INTERVIEWS=Lunch with the Team,Coffee`,
 and Interviewer Weekly Limits, Interviewer Training, Offers, Availability Submitted and
 the feedback leaderboard switched off (no weekly limits, no interviewer pools, no Ashby
