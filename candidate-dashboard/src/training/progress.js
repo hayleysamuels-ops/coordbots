@@ -53,6 +53,15 @@ function completedEvents(schedules, now) {
         endTime: event.endTime,
         interviewerUserIds: event.interviewerUserIds || [],
         interviewers: event.interviewers || [],
+        // Which interviewer pool each panelist was drawn from, where Ashby
+        // recorded it. This is the ONLY field that distinguishes two
+        // interviews sharing a title and job - at Forus, Bug Bash Python and
+        // Bug Bash JavaScript are the same interview record on the same job,
+        // separable only by pool. It is recorded on roughly 43% of those
+        // events, hence the fallbacks in sessionsFor below.
+        interviewerPoolIds: [
+          ...new Set((event.interviewers || []).map((i) => i.interviewerPool && i.interviewerPool.id).filter(Boolean)),
+        ],
       });
     }
   }
@@ -82,9 +91,45 @@ function isDuringPause(enrolment, startTime) {
 // Builds every session for one enrolment, in chronological order, with the
 // reason each one does or doesn't count. Classification is deliberately NOT
 // applied here — counts have to be known first (see classify below).
-function sessionsFor(enrolment, path, events, jobByApplicationId) {
+// Decides whether a pool-scoped path can claim an event, and how confidently.
+//
+// Only relevant when two paths share an interview title and job and are
+// separated by interviewer pool (Bug Bash Python vs JavaScript at Forus).
+// Returns one of:
+//   "yes"      - confidently this path's
+//   "no"       - confidently not
+//   "assumed"  - pool wasn't recorded, but this trainee trains on only one of
+//                the sibling paths, so it is attributed here and labelled
+//   "ask"      - pool wasn't recorded and the trainee trains on more than one,
+//                so a human has to say which
+//
+// Why inference rather than pool membership: at Forus every JavaScript-
+// qualified interviewer is ALSO Python-qualified (5 of 5), so the panel's
+// membership can never establish "this was JavaScript". Only the pool
+// recorded on the event can, and it is absent more often than not.
+function poolVerdict(event, path, siblingPaths, enrolledPathIds, assignment) {
+  if (!path.interviewerPoolId) return "yes"; // path isn't pool-scoped
+  if (assignment) return assignment === path.id ? "yes" : "no";
+  if (event.interviewerPoolIds.includes(path.interviewerPoolId)) return "yes";
+  if (event.interviewerPoolIds.some((id) => siblingPaths.some((p) => p.interviewerPoolId === id))) return "no";
+  // Count the candidate paths the trainee is actually on, THIS path included.
+  // Counting only the siblings is wrong: a trainee enrolled on both Python and
+  // JavaScript has exactly one enrolled sibling from either path's point of
+  // view, which would read as "only trains on one" and silently attribute the
+  // session to whichever path asked - the precise mis-attribution this
+  // verdict exists to prevent.
+  const candidates = [path, ...siblingPaths].filter((p) => enrolledPathIds.has(p.id));
+  return candidates.length <= 1 ? "assumed" : "ask";
+}
+
+function sessionsFor(enrolment, path, events, jobByApplicationId, context = {}) {
   const interviewIds = new Set(path.interviewIds);
   const enrolledAtMs = new Date(enrolment.enrolledAt).getTime();
+  // Other pool-scoped paths covering the same interview and job - the ones
+  // this event could otherwise belong to.
+  const siblingPaths = (context.siblingPathsByPathId && context.siblingPathsByPathId.get(path.id)) || [];
+  const enrolledPathIds = (context.enrolledPathIdsByUser && context.enrolledPathIdsByUser.get(enrolment.userId)) || new Set();
+  const eventPaths = context.eventPaths || {};
   const sessions = [];
 
   for (const event of events) {
@@ -92,6 +137,9 @@ function sessionsFor(enrolment, path, events, jobByApplicationId) {
     const job = jobByApplicationId.get(event.applicationId);
     if (!job || job.jobId !== path.jobId) continue;
     if (!event.interviewerUserIds.includes(enrolment.userId)) continue;
+
+    const verdict = poolVerdict(event, path, siblingPaths, enrolledPathIds, eventPaths[event.eventId]);
+    if (verdict === "no") continue;
     // "Start from today": only sessions from enrolment onward count
     // automatically. Anything earlier is added deliberately as a manual
     // credit instead, so enrolling someone mid-training can never
@@ -110,6 +158,11 @@ function sessionsFor(enrolment, path, events, jobByApplicationId) {
     const soleInterviewer = event.interviewerUserIds.length <= 1;
     const needsConfirmation = soleInterviewer && !override.role && !override.discounted;
     const duringPause = isDuringPause(enrolment, event.startTime);
+    // "ask" means two pool-scoped paths both plausibly own this session and
+    // the trainee is on both. It must not count for either until assigned,
+    // or the same interview would advance two paths at once.
+    const needsPathChoice = verdict === "ask" && !override.discounted;
+    const poolAssumed = verdict === "assumed";
 
     sessions.push({
       kind: "derived",
@@ -127,7 +180,16 @@ function sessionsFor(enrolment, path, events, jobByApplicationId) {
       note: override.note || "",
       needsConfirmation,
       duringPause,
-      counts: !override.discounted && !needsConfirmation && !duringPause,
+      needsPathChoice,
+      poolAssumed,
+      // The paths this session could belong to, for the buttons that resolve
+      // it. Only populated when a choice is actually needed.
+      pathChoices: needsPathChoice
+        ? [path, ...siblingPaths]
+            .filter((p) => enrolledPathIds.has(p.id))
+            .map((p) => ({ pathId: p.id, label: p.interviewerPoolTitle || p.label }))
+        : [],
+      counts: !override.discounted && !needsConfirmation && !duringPause && !needsPathChoice,
     });
   }
 
@@ -227,10 +289,39 @@ function attachAshbyNative(result, ashbyByUserId) {
  * @param {number}   now                epoch ms
  * @param {number}   stalledAfterDays   no session for this long -> stalled
  */
-function computeTraining({ schedules, jobByApplicationId, paths, enrolments, ashbyTraining, now, stalledAfterDays }) {
+// Paths that cover the same interview and job as each other, i.e. the ones a
+// pool filter is there to tell apart. Keyed by path id for direct lookup.
+function siblingPathsByPathId(paths) {
+  const byPath = new Map();
+  for (const path of paths) {
+    const interviewIds = new Set(path.interviewIds);
+    byPath.set(
+      path.id,
+      paths.filter(
+        (other) =>
+          other.id !== path.id &&
+          other.jobId === path.jobId &&
+          other.interviewIds.some((id) => interviewIds.has(id))
+      )
+    );
+  }
+  return byPath;
+}
+
+function computeTraining({ schedules, jobByApplicationId, paths, enrolments, ashbyTraining, now, stalledAfterDays, eventPaths }) {
   const events = completedEvents(schedules, now);
   const pathsById = new Map(paths.map((p) => [p.id, p]));
   const ashbyByUserId = new Map((ashbyTraining || []).map((t) => [t.userId, t]));
+
+  const context = {
+    siblingPathsByPathId: siblingPathsByPathId(paths),
+    enrolledPathIdsByUser: enrolments.reduce((map, e) => {
+      if (!map.has(e.userId)) map.set(e.userId, new Set());
+      map.get(e.userId).add(e.pathId);
+      return map;
+    }, new Map()),
+    eventPaths: eventPaths || {},
+  };
 
   const results = [];
   for (const enrolment of enrolments) {
@@ -238,7 +329,7 @@ function computeTraining({ schedules, jobByApplicationId, paths, enrolments, ash
     if (!path) continue; // path deleted out from under it; store.removePath prunes these
 
     const requirements = requirementsFor(enrolment, path);
-    const sessions = sessionsFor(enrolment, path, events, jobByApplicationId);
+    const sessions = sessionsFor(enrolment, path, events, jobByApplicationId, context);
     const { shadows, reverseShadows } = classify(sessions, requirements);
 
     const complete = shadows >= requirements.shadows && reverseShadows >= requirements.reverseShadows;
@@ -257,6 +348,8 @@ function computeTraining({ schedules, jobByApplicationId, paths, enrolments, ash
 
     const pendingDuringPause = sessions.filter((s) => s.duringPause).length;
     const needsConfirmation = sessions.filter((s) => s.needsConfirmation).length;
+    const needsPathChoice = sessions.filter((s) => s.needsPathChoice).length;
+    const poolAssumed = sessions.filter((s) => s.poolAssumed && s.counts).length;
 
     results.push(
       attachAshbyNative(
@@ -289,6 +382,8 @@ function computeTraining({ schedules, jobByApplicationId, paths, enrolments, ash
           stalled: state === "active" && daysSinceActivity >= stalledAfterDays,
           pendingDuringPause,
           needsConfirmation,
+          needsPathChoice,
+          poolAssumed,
           disagreements: [],
         },
         ashbyByUserId
@@ -327,4 +422,4 @@ function suggestedPathInterviews({ schedules, jobByApplicationId, paths, intervi
   return suggestions;
 }
 
-module.exports = { computeTraining, suggestedPathInterviews, completedEvents, classify, SHADOW, REVERSE_SHADOW };
+module.exports = { computeTraining, suggestedPathInterviews, completedEvents, classify, siblingPathsByPathId, SHADOW, REVERSE_SHADOW };

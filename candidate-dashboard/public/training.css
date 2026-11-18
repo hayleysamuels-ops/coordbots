@@ -485,3 +485,16 @@
 .training-toggle-confirm:hover {
   color: var(--ember);
 }
+
+/* Names the interviewer pool a path is scoped to, where two paths share an
+   interview title and job (Bug Bash Python vs JavaScript). */
+.training-pool-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  background: var(--ember-wash);
+  color: var(--ember-press);
+  border-radius: var(--radius-pill);
+  padding: 1px 7px;
+  margin-left: 6px;
+  white-space: nowrap;
+}

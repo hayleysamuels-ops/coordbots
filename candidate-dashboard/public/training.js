@@ -24,6 +24,9 @@
   let openPanel = null; // "enrol" | "paths" | null
   const expanded = new Set();
   let users = null;
+  // Which interview option the Paths panel has selected. Held in state because
+  // the pool dropdown below it depends on which option is chosen.
+  let pathPickerKey = null;
 
   // ---------------------------------------------------------------- helpers
 
@@ -84,6 +87,17 @@
           `<button type="button" class="training-link training-toggle-confirm">confirm now</button>`
       );
     }
+    if (entry.needsPathChoice) {
+      out.push(
+        `<span class="training-badge badge-warn">${entry.needsPathChoice} to assign</span>` +
+          `<button type="button" class="training-link training-toggle-confirm">assign now</button>`
+      );
+    }
+    if (entry.poolAssumed) {
+      out.push(
+        `<span class="training-badge badge-quiet" title="Ashby didn't record which interviewer pool these were for, so they were attributed to the only path this person trains on.">${entry.poolAssumed} assumed</span>`
+      );
+    }
     if (entry.pendingDuringPause) {
       out.push(`<span class="training-badge badge-warn">${entry.pendingDuringPause} while paused</span>`);
     }
@@ -121,8 +135,30 @@
       </li>`;
   }
 
+  // Two pool-scoped paths could both own this session and the trainee is on
+  // both, so only a human can settle it. Assigning is global to the event, so
+  // one click also removes it from the sibling path - the same interview can
+  // never advance two paths at once.
+  function unassignedSessionRow(entry, s) {
+    return `
+      <li class="training-session is-unconfirmed">
+        <span class="training-session-when">${esc(dateLabel(s.at))}</span>
+        <span class="training-confirm-q">Ashby didn't record the pool — which was this?</span>
+        <span class="training-confirm-actions">
+          ${s.pathChoices
+            .map(
+              (c) =>
+                `<button type="button" class="training-btn training-btn-quiet training-assign-path" data-event="${esc(s.eventId)}" data-assign-path="${esc(c.pathId)}">${esc(c.label)}</button>`
+            )
+            .join("")}
+          <button type="button" class="training-link training-not-training" data-event="${esc(s.eventId)}">Not training</button>
+        </span>
+      </li>`;
+  }
+
   function sessionRow(entry, s) {
     if (s.needsConfirmation) return unconfirmedSessionRow(entry, s);
+    if (s.needsPathChoice) return unassignedSessionRow(entry, s);
 
     const when = dateLabel(s.at);
     const who = (s.coInterviewers || []).map((c) => c.name).join(", ");
@@ -130,6 +166,8 @@
       ? "not counted"
       : s.duringPause
       ? "happened while paused — not counted"
+      : s.poolAssumed
+      ? "pool not recorded — assumed this path"
       : "";
     const roleSelect =
       s.kind === "manual"
@@ -329,6 +367,13 @@
     // than one interviewer come first, since those are the only ones where
     // shadowing happens at all.
     const options = (data.trainingPathOptions || []).filter((o) => !o.alreadyConfigured);
+    const optionKey = (o) => `${o.interviewTitle}|${o.jobId}`;
+    const selected = options.find((o) => optionKey(o) === pathPickerKey) || options[0];
+    // Only offer a pool scope where one is actually needed: an interview+job
+    // that genuinely ran under more than one pool. At Forus that is Bug Bash,
+    // where Python and JavaScript share a title and a job and the pool is the
+    // only thing telling them apart.
+    const poolChoices = selected && selected.pools.length > 1 ? selected.pools : [];
     const suggestions = data.trainingSuggestions || [];
     return `
       <div class="training-panel">
@@ -343,7 +388,9 @@
             ? `<ul class="training-path-list">${paths
                 .map(
                   (p) => `<li>
-                    <span>${esc(p.label)}</span>
+                    <span>${esc(p.label)}${
+                      p.interviewerPoolTitle ? ` <span class="training-pool-tag">${esc(p.interviewerPoolTitle)}</span>` : ""
+                    }</span>
                     <span class="muted">${p.requiredShadows}+${p.requiredReverseShadows} · ${p.interviewIds.length} Ashby interview${
                     p.interviewIds.length === 1 ? "" : "s"
                   }</span>
@@ -370,6 +417,11 @@
             : ""
         }
         <h4>Add a path</h4>
+        ${
+          poolChoices.length
+            ? `<p class="muted">This interview ran under more than one interviewer pool. Pick one to track them separately — Ashby records the pool on roughly half of these interviews, and the rest are attributed to whichever path the trainee is on.</p>`
+            : ""
+        }
         <div class="training-field">
           <input type="search" id="training-path-filter" placeholder="Filter interviews…" autocomplete="off" />
         </div>
@@ -380,12 +432,29 @@
                 ? options
                     .map(
                       (o, i) =>
-                        `<option value="${i}">${esc(o.label)} — ${o.shadowedEventCount} multi-interviewer of ${o.eventCount} recent</option>`
+                        `<option value="${i}"${optionKey(o) === (selected && optionKey(selected)) ? " selected" : ""}>${esc(o.label)} — ${o.shadowedEventCount} multi-interviewer of ${o.eventCount} recent${
+                          o.pools.length > 1 ? ` · ${o.pools.length} pools` : ""
+                        }</option>`
                     )
                     .join("")
                 : "<option value=''>No interviews scheduled recently</option>"
             }
           </select>
+          ${
+            poolChoices.length
+              ? `<select id="training-path-pool" title="Interviewer pool">
+                   <option value="">Any pool</option>
+                   ${poolChoices
+                     .map(
+                       (pool) =>
+                         `<option value="${esc(pool.id)}"${pool.alreadyConfigured ? " disabled" : ""}>${esc(pool.title)}${
+                           pool.alreadyConfigured ? " (already a path)" : ""
+                         }</option>`
+                     )
+                     .join("")}
+                 </select>`
+              : ""
+          }
           <input type="number" min="0" max="20" id="training-path-shadows" value="2" title="Shadows required" />
           <input type="number" min="0" max="20" id="training-path-reverse" value="2" title="Reverse shadows required" />
           <button type="button" class="training-btn" id="training-path-save">Add path</button>
@@ -439,7 +508,8 @@
   // is last because a person only lands there when every path is finished -
   // one finished path among several in flight isn't a finished interviewer.
   function bucketFor(rows) {
-    const needsDecision = (e) => e.needsConfirmation || e.pendingDuringPause || (e.disagreements || []).length;
+    const needsDecision = (e) =>
+      e.needsConfirmation || e.needsPathChoice || e.pendingDuringPause || (e.disagreements || []).length;
     if (rows.some((e) => e.state === "active" && needsDecision(e))) return "attention";
     if (rows.some((e) => e.state === "paused")) return "paused";
     if (rows.some((e) => e.state === "active" && e.stalled)) return "stalled";
@@ -598,6 +668,9 @@
       if (t.classList.contains("training-confirm")) {
         return act("session", { userId: ctx.userId, pathId: ctx.pathId, eventId: t.dataset.event, role: t.dataset.role });
       }
+      if (t.classList.contains("training-assign-path")) {
+        return act("session/assign-path", { eventId: t.dataset.event, pathId: t.dataset.assignPath });
+      }
       if (t.classList.contains("training-not-training")) {
         return act("session", {
           userId: ctx.userId,
@@ -639,12 +712,19 @@
       const index = document.getElementById("training-path-option").value;
       const option = (latest.trainingPathOptions || []).filter((o) => !o.alreadyConfigured)[Number(index)];
       if (!option) return;
+      const poolSelect = document.getElementById("training-path-pool");
+      const poolId = poolSelect ? poolSelect.value : "";
+      const pool = poolId ? (option.pools || []).find((x) => x.id === poolId) : null;
       return act("paths", {
         interviewTitle: option.interviewTitle,
         interviewIds: option.interviewIds,
         jobId: option.jobId,
         jobTitle: option.jobTitle,
-        label: option.label,
+        // Naming the pool in the label is what makes two otherwise identical
+        // paths distinguishable everywhere they appear.
+        label: pool ? `${option.label} (${pool.title})` : option.label,
+        interviewerPoolId: pool ? pool.id : null,
+        interviewerPoolTitle: pool ? pool.title : "",
         requiredShadows: parseInt(document.getElementById("training-path-shadows").value, 10),
         requiredReverseShadows: parseInt(document.getElementById("training-path-reverse").value, 10),
       });
@@ -684,6 +764,14 @@
   document.addEventListener("change", async (event) => {
     const t = event.target;
     if (!(t instanceof HTMLElement)) return;
+    // The pool dropdown lists only the pools seen on the SELECTED interview,
+    // so changing the interview has to rebuild it.
+    if (t.id === "training-path-option") {
+      const option = (latest.trainingPathOptions || []).filter((o) => !o.alreadyConfigured)[Number(t.value)];
+      pathPickerKey = option ? `${option.interviewTitle}|${option.jobId}` : null;
+      if (latest) render(latest, false);
+      return;
+    }
     const ctx = cardContext(t);
     if (!ctx) return;
     if (t.classList.contains("training-role")) {
