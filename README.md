@@ -7,7 +7,7 @@ For Luminai's scheduling pilot (gated by `SCHEDULING_CLIENT_ID`), start with the
 
 | Directory | What it is | Railway service |
 |---|---|---|
-| `candidate-dashboard/` | Per-client coordinator dashboard | `coordbots` in each of the six dashboard projects below |
+| `candidate-dashboard/` | Per-client coordinator dashboard | `coordbots` in each of the seven dashboard projects below |
 | `candidate-dashboard/worker/` | Luminai scheduling worker | `scheduling-worker` in dashboard-luminai |
 | `ashby-scorecard-bot/` | Ashby → Slack scorecard reminders | `Feedback Reminder Bot` |
 | `candidate-channel-bot/` | Ashby → Slack: archives a candidate's channel when their application is archived or hired. Luminai only for now | `candidate-channel-bot` in dashboard-luminai |
@@ -24,7 +24,7 @@ which only the Luminai `scheduling-worker` service builds, and every `candidate-
 
 **Never add `candidate-dashboard/scheduling-rules/` to a watch-path exclusion.** Unlike
 `docs/`, these files are read at runtime, so a rules change has to redeploy. A change
-redeploys all six dashboards; only the one whose `SCHEDULING_CLIENT_ID` matches a file
+redeploys all seven dashboards; only the one whose `SCHEDULING_CLIENT_ID` matches a file
 reads it.
 
 | Project | Service | Builds from |
@@ -35,11 +35,12 @@ reads it.
 | dashboard-poetic | `coordbots` | this repo, branch `main`, root `/candidate-dashboard`, rebuilds only on changes under `/candidate-dashboard/**` except `/candidate-dashboard/worker/**` and `/candidate-dashboard/docs/**` |
 | dashboard-forus | `coordbots` | this repo, branch `main`, root `/candidate-dashboard`, rebuilds only on changes under `/candidate-dashboard/**` except `/candidate-dashboard/worker/**` and `/candidate-dashboard/docs/**` |
 | dashboard-runlayer | `coordbots` | this repo, branch `main`, root `/candidate-dashboard`, rebuilds only on changes under `/candidate-dashboard/**` except `/candidate-dashboard/worker/**` and `/candidate-dashboard/docs/**` |
+| dashboard-litellm | `coordbots` | this repo, branch `main`, root `/candidate-dashboard`, rebuilds only on changes under `/candidate-dashboard/**` except `/candidate-dashboard/worker/**` and `/candidate-dashboard/docs/**`. Created 18 November 2026 with the CLI; root directory, builder and watch paths were set through `railway api` (`serviceInstanceUpdate`) because `railway environment edit --service-config` reported success and changed nothing. Volume `coordbots-volume` at `/data`. |
 | poetic-worktrialtracker | `work-trial-tracker` | the separate `hayleysamuels-ops/work-trial-tracker` repo, branch `main`, repo root |
 | poetic-worktrialtracker | `scheduling-worker` | no connected repo: deployed by CLI upload (`railway up`), Dockerfile `worker/Dockerfile`, last deployed 18 September 2026 |
 | poetic-worktrialtracker | `Postgres` | Railway Postgres image |
 | Feedback Reminder Bot | `Feedback Reminder Bot` | this repo, branch `main`, root `/ashby-scorecard-bot`, rebuilds only on changes under `/ashby-scorecard-bot/**` |
-| coordinator-metrics | `coordinator-metrics` | this repo, branch `main`, root `/coordinator-metrics`, rebuilds only on changes under `/coordinator-metrics/**` except `*.md`. **Its watch patterns come from `coordinator-metrics/railway.json`, not the dashboard** — config-as-code overrides the UI, so editing them there is silently ignored. Unlike the six per-client dashboards this is a SINGLE deployment holding every client's Ashby key, with a volume for its SQLite history |
+| coordinator-metrics | `coordinator-metrics` | this repo, branch `main`, root `/coordinator-metrics`, rebuilds only on changes under `/coordinator-metrics/**` except `*.md`. **Its watch patterns come from `coordinator-metrics/railway.json`, not the dashboard** — config-as-code overrides the UI, so editing them there is silently ignored. Unlike the seven per-client dashboards this is a SINGLE deployment holding every client's Ashby key, with a volume for its SQLite history |
 | dashboard-luminai | `candidate-channel-bot` | this repo, branch `main`, root `/candidate-channel-bot`, rebuilds only on changes under `/candidate-channel-bot/**` |
 
 **Profound is no longer a coordination client** (17 November 2026). Leave it out of every
@@ -50,7 +51,7 @@ coordinator notes were ever saved there. coordinator-metrics deliberately still 
 Profound as an `ended` client, as our record of our own work; see
 `coordinator-metrics/CLAUDE.md`.
 
-**LiteLLM** (onboarding, 18 November 2026). Settings agreed: `ONSITE_STAGE_KEYWORDS=onsite`,
+**LiteLLM** (live 18 November 2026, https://coordbots-production-ba3e268d.up.railway.app). Settings agreed: `ONSITE_STAGE_KEYWORDS=onsite`,
 `DISPLAY_TIMEZONE=America/Los_Angeles`, `NO_FEEDBACK_INTERVIEWS=Lunch with the Team,Coffee`,
 and Interviewer Weekly Limits, Interviewer Training, Offers, Availability Submitted and
 the feedback leaderboard switched off (no weekly limits, no interviewer pools, no Ashby
