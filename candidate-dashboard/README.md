@@ -135,6 +135,33 @@ table — no new data, purely a client-side reshaping of the same four
   `candidateKey()`/`dismissHtml()` as every other section, just inside a
   table cell instead of a card.
 
+## Scorecard reminders
+
+Where `REMINDER_BOT_URL` and `REMINDER_BOT_SECRET` are set (Pace, from 18 November
+2026), each Feedback Overdue row in the Action queue has a **Remind** button. It sends
+everyone still missing a scorecard for that interview a Slack DM: "Hi Ana, Kitty Qu
+asked me to send this." then "Please submit your feedback for Cara Moss!", the name
+linking to the candidate's Ashby page.
+
+- **One sender.** The dashboard never messages anyone itself. `POST /api/remind`
+  (`src/reminder-route.js`) asks the scorecard reminder bot (`ashby-scorecard-bot/`,
+  `POST /remind`), a second service in the same Railway project with no public address.
+  The bot runs manual-only: no Ashby webhooks and no automatic reminders.
+- **Google sign-in only.** The message names whoever pressed the button, so the shared
+  password gets no button and a 403 from the route.
+- **Who gets it** is the row's `interviewers` from the dashboard's own snapshot, never
+  the browser's: exactly who still owes a scorecard (§ Who owes feedback). The bot
+  re-checks Ashby just before sending and can only drop people who have submitted since.
+- **Limit:** one reminder per person per interview every 4 hours
+  (`MANUAL_REMINDER_COOLDOWN_HOURS` on the bot), kept on the bot's volume. Five clicks
+  in a row send one message each; the rest come back as "reminded too recently".
+- **What the page shows:** a toast saying who was reminded and who wasn't and why
+  (already submitted, reminded too recently, or no Slack account with their Ashby email),
+  then "Reminded 10:42 AM by Kitty Qu" on the row for everyone, from
+  `<DATA_DIR>/reminders-sent.json` (`src/reminder-history.js`, kept 14 days, never the
+  sender's email).
+- **Usage log:** "Sent a scorecard reminder" with the candidate and the names reminded.
+
 ## Section keys
 
 Every section has a stable key — its field name in the `/api/issues`
@@ -446,6 +473,8 @@ Fill in `.env`:
 | `SESSION_HOURS` | no | How long a sign-in lasts. Default `24`. Nothing ends a session earlier, so this is how long someone removed from the company's Workspace keeps access. |
 | `PASSWORD_SIGNIN` | no | With sign-in on, the shared password is a form on the sign-in page (no longer a Basic Auth header), and every use is logged (`[auth] Password sign-in`). `off` removes it and ends every password session. Rotating `DASHBOARD_PASSWORD` also ends them. The scheduling pilot's coordinator logins work as before. |
 | `ADMIN_EMAILS` | no | With Google sign-in on, turns on the usage log (`src/usage-log.js`) and lists exactly who can read it at `/usage`, e.g. `someone@carrara.is`. Unset, nothing is recorded and `/usage` is a 404. Records sign-ins, page/tab/queue/section opens, Ashby links opened, hides, snoozes, restores, notes (not their text) and refreshes, kept 90 days on the volume. |
+| `REMINDER_BOT_URL` | no | Turns on the Remind button on Feedback Overdue rows, with `REMINDER_BOT_SECRET`: the scorecard reminder bot's address on Railway's private network, e.g. `http://scorecard-bot.railway.internal:3000`. See § Scorecard reminders. Pace only. |
+| `REMINDER_BOT_SECRET` | with reminders | The bot's `REMIND_SECRET`. Only one of the two set warns at startup and leaves reminders off. |
 | `ASHBY_API_KEY` | yes | Reads applications and interview schedules. |
 | `ASHBY_APP_BASE_URL` | no | Only change for a custom Ashby domain. |
 | `FEEDBACK_OVERDUE_HOURS` | no | Default `24`. |

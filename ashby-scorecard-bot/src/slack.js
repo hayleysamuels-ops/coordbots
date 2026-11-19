@@ -119,4 +119,34 @@ async function sendScorecardReminder(interviewer, context) {
   return false;
 }
 
-module.exports = { sendScorecardReminder, findUserIdByEmail };
+// A reminder someone asked for from the dashboard (POST /remind). The first
+// line says who asked, so it doesn't read as an automatic nudge; the ask is
+// one sentence, with the candidate's name linking to their Ashby page. No
+// fallback-channel post: the dashboard tells the person who pressed the
+// button instead.
+const slackText = (v) => String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+function buildManualMessage({ interviewerName, candidateName, candidateUrl, requestedByName }) {
+  const first = interviewerName ? interviewerName.split(" ")[0] : "there";
+  const name = slackText(candidateName || "your candidate");
+  const linked = candidateUrl && /^https:\/\//.test(candidateUrl) ? `<${candidateUrl}|${name.replace(/\|/g, "¦")}>` : name;
+  const asker = requestedByName ? `${slackText(requestedByName)} asked me to send this.` : "Someone on the recruiting team asked me to send this.";
+  return `Hi ${first}, ${asker}\n\nPlease submit your feedback for ${linked}!`;
+}
+
+// Returns { sent: true } or { sent: false, reason }.
+async function sendManualReminder(interviewer, context, { client = slack, lookup = findUserIdByEmail } = {}) {
+  const userId = await lookup(interviewer.email);
+  if (!userId) {
+    console.warn(`[slack] No Slack user for ${interviewer.email}; manual reminder not sent.`);
+    return { sent: false, reason: "no Slack account with their Ashby email" };
+  }
+  await client.chat.postMessage({
+    channel: userId, // a user ID posts to the app's DM with them
+    text: buildManualMessage({ interviewerName: interviewer.name, ...context }),
+    unfurl_links: false,
+  });
+  console.log(`[slack] Manual reminder sent to ${interviewer.email} (${userId}).`);
+  return { sent: true };
+}
+
+module.exports = { sendScorecardReminder, sendManualReminder, buildManualMessage, findUserIdByEmail };

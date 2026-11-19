@@ -953,6 +953,7 @@ async function listIssues(options = {}) {
       endTime: event.endTime,
       hoursOverdue: Math.round(hoursOverdue),
       interviewers: missing.map((i) => ({
+        id: i.id,
         name: `${i.firstName || ""} ${i.lastName || ""}`.trim() || i.email,
         email: i.email,
       })),

@@ -77,6 +77,10 @@
   // date with no time-of-day component — see its own comment for why it
   // stays pinned to UTC instead).
   let displayTimeZone = "America/New_York";
+  // Scorecard reminders (reminder-route.js): on where appConfig says so, and
+  // the button shows only to someone signed in with Google (verifiedViewer).
+  let remindersEnabled = false;
+  const remindersInFlight = new Set(); // interviewEventIds being sent
 
   function isSectionDisabled(key) {
     return disabledSectionKeys.has(key);
@@ -464,6 +468,65 @@
       </div>`;
   }
 
+  // "10:42 AM" today, "Tue 10:42 AM" before that, in DISPLAY_TIMEZONE.
+  function formatReminderTime(ms) {
+    const day = (d) => new Intl.DateTimeFormat("en-CA", { timeZone: displayTimeZone }).format(d);
+    const sameDay = day(new Date(ms)) === day(new Date());
+    return new Date(ms).toLocaleString([], { ...(sameDay ? {} : { weekday: "short" }), hour: "numeric", minute: "2-digit", timeZone: displayTimeZone });
+  }
+
+  // A Feedback Overdue row's reminder control: who last sent one (everyone
+  // sees it) and the Remind button (Google sign-in only, since the Slack
+  // message names whoever pressed it). The server picks who gets it from
+  // its own data: exactly the row's `interviewers`.
+  // Returns { button, last }: the button sits in the row with Snooze/Hide,
+  // the "Reminded …" line under them, so the column stays narrow.
+  function reminderHtml(item) {
+    if (!remindersEnabled || !item.interviewEventId) return { button: "", last: "" };
+    const r = item.reminder;
+    const last = r ? `<div class="aq-reminded" title="${escapeHtml(`Sent to ${(r.sent || []).join(", ")}`)}">Reminded ${escapeHtml(formatReminderTime(r.at))} by ${escapeHtml(r.byName || "someone")}</div>` : "";
+    if (!verifiedViewer()) return { button: "", last };
+    const busy = remindersInFlight.has(item.interviewEventId);
+    const names = (item.interviewers || []).map((i) => i.name).join(", ");
+    const button = `<button class="remind-btn" data-event-id="${escapeHtml(item.interviewEventId)}" ${busy ? "disabled" : ""}
+          title="${escapeHtml(`Send ${names || "the interviewers"} a Slack reminder`)}">${busy ? "Sending…" : "Remind"}</button>`;
+    return { button, last };
+  }
+
+  async function sendReminder(interviewEventId) {
+    if (remindersInFlight.has(interviewEventId)) return;
+    remindersInFlight.add(interviewEventId);
+    if (lastData) render(lastData);
+    let message;
+    try {
+      const res = await fetch("/api/remind", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ interviewEventId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        message = body.error || "Couldn't send the reminder.";
+      } else {
+        const parts = [];
+        if (body.sent.length) parts.push(`Reminded ${body.sent.map((s) => s.name).join(", ")} on Slack.`);
+        for (const s of body.skipped) {
+          const when = s.lastAt ? ` (${formatReminderTime(s.lastAt)})` : "";
+          parts.push(`Not sent to ${s.name}: ${s.reason}${when}.`);
+        }
+        message = parts.join(" ") || "Nobody to remind.";
+        if (body.snapshot) lastData = body.snapshot;
+      }
+    } catch (err) {
+      console.error("[remind]", err);
+      message = "Couldn't reach the dashboard. Nothing was sent.";
+    } finally {
+      remindersInFlight.delete(interviewEventId);
+    }
+    if (lastData) render(lastData);
+    showUndoToast(null, null, message);
+  }
+
   // ready-scheduling.js renders its own cards but reuses this control, so
   // its Snooze/Hide buttons go through the same delegated listeners below.
   window.dismissHtml = dismissHtml;
@@ -595,7 +658,10 @@
           ${queue.signalDetail(item) ? `<div class="aq-signal-sub">${queue.signalDetail(item)}</div>` : ""}
         </td>
         <td class="aq-waiting ${sevClass}"${detail ? ` title="${detail}"` : ""}>${queue.waitingLabel(hours)}${item.isStale ? ` <span class="stale-label">stale</span>` : ""}</td>
-        <td class="aq-dismiss">${dismissHtml(candidateKey(item))}</td>
+        <td class="aq-dismiss">${(() => {
+          const remind = queue.key === "feedbackOverdue" ? reminderHtml(item) : { button: "", last: "" };
+          return `<div class="aq-actions">${remind.button}${dismissHtml(candidateKey(item))}</div>${remind.last}`;
+        })()}</td>
       </tr>`;
   }
 
@@ -1323,6 +1389,7 @@
     if (appConfig.displayTimeZone) {
       displayTimeZone = appConfig.displayTimeZone;
     }
+    remindersEnabled = Boolean(appConfig.remindersEnabled);
     if (appConfig.needsSchedulingLabel) {
       TRIAGE_QUEUES.find((queue) => queue.key === "needsScheduling").label = appConfig.needsSchedulingLabel;
     }
@@ -1768,6 +1835,12 @@
       const alreadyHandled =
         lastPointerActivation && lastPointerActivation.el === control && Date.now() - lastPointerActivation.time < 1000;
       if (!alreadyHandled) activateDismissControl(e.target);
+      return;
+    }
+
+    const remindBtn = e.target.closest(".remind-btn");
+    if (remindBtn) {
+      sendReminder(remindBtn.dataset.eventId);
       return;
     }
 

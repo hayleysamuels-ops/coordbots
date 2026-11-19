@@ -13,6 +13,7 @@ const { noIndex } = require("./no-index");
 const { siteVerificationSettings, siteVerification } = require("./site-verification");
 const { signInSettings, createSignIn } = require("./signin");
 const { createUsageLog, BROWSER_EVENTS } = require("./usage-log");
+const { createReminderRoute } = require("./reminder-route");
 const { usagePage } = require("./usage-page");
 
 function createServer() {
@@ -370,6 +371,28 @@ function createServer() {
     record(req, String(text || "").trim() ? "note_saved" : "note_deleted", { detail: nameFor("candidate:" + candidateId), candidateId });
     res.json(issues.getSnapshot());
   });
+
+  // The Remind button on a Feedback Overdue row (reminder-route.js). Not
+  // mounted at all unless REMINDER_BOT_URL and REMINDER_BOT_SECRET are set.
+  if (config.remindersEnabled) {
+    const reminderRoute = createReminderRoute({
+      botUrl: config.reminderBotUrl,
+      botSecret: config.reminderBotSecret,
+      history: issues.reminderHistory,
+      findEntry: (id) => (issues.getSnapshot().feedbackOverdue || []).find((i) => i.interviewEventId === id) || null,
+    });
+    app.post("/api/remind", async (req, res) => {
+      const { interviewEventId } = req.body || {};
+      const { status, body } = await reminderRoute.send(interviewEventId, req.viewer);
+      if (status === 200) {
+        const names = body.sent.map((s) => s.name).join(", ");
+        // Who was reminded and for which candidate; never the message.
+        if (body.sent.length) record(req, "reminder_sent", { detail: `${body.candidateName || "candidate"}: ${names}`, candidateId: body.candidateId });
+        return res.json({ ...body, snapshot: issues.getSnapshot() });
+      }
+      res.status(status).json(body);
+    });
+  }
 
   app.post("/api/notes/delete", (req, res) => {
     const { candidateId } = req.body || {};

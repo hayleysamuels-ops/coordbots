@@ -201,7 +201,11 @@ async function listSubmittedFeedback(applicationId) {
     if (json.success === false) return null;
     const results = json.results || [];
     return results.map((f) => {
-      const user = f.submittedByUser || f.user || {};
+      // Whoever the scorecard is CREDITED to, not whoever typed it in:
+      // someone sometimes submits on an interviewer's behalf, and then the
+      // interviewer's feedback is in. Same rule as the dashboard's
+      // missingFeedbackOwers. submittedByUser only when there's no credit.
+      const user = f.creditedToUser || f.submittedByUser || f.user || {};
       const event = f.interviewEvent || {};
       return {
         submitterEmail: pick(user, ["email", "emailAddress"]) || pick(f, ["userEmail"]) || null,

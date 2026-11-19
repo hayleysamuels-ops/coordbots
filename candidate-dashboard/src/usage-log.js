@@ -39,6 +39,7 @@ const EVENTS = {
   restore: "Restored",
   note_saved: "Saved a note",
   note_deleted: "Deleted a note",
+  reminder_sent: "Sent a scorecard reminder",
   refresh: "Pressed refresh",
   usage_view: "Opened the usage log",
 };

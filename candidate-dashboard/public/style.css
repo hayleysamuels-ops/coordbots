@@ -892,6 +892,43 @@ button#refresh-btn.spinning {
   text-align: right;
 }
 
+/* Scorecard reminder control on Feedback Overdue rows (reminderHtml() in
+   app.js): Remind in the row with Snooze/Hide, who last sent one beneath. */
+.aq-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+}
+.remind-btn {
+  border: 1px solid var(--border-default);
+  background: var(--surface);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: calc(var(--radius-control) - 2px);
+}
+.remind-btn:hover:not(:disabled) {
+  background: var(--surface-sunken);
+  border-color: var(--text-muted);
+}
+.remind-btn:disabled {
+  cursor: progress;
+  color: var(--text-muted);
+}
+.aq-reminded {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  margin-left: auto;
+  max-width: 13rem;
+  text-align: right;
+}
+
 /* A coordinator's own free-text note on a candidate (src/notes.js, never
    written to Ashby) — shared by candidate cards (.card-top's sibling, see
    cardHtml() in app.js) and Action queue rows (inside .aq-candidate, see

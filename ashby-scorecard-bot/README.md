@@ -4,6 +4,34 @@ When an interview scheduled in **Ashby** ends, this bot sends the interviewer a
 **Slack DM** reminding them to submit their scorecard, with a direct link — then
 escalating follow-ups (default 24h, and a final 48h SLA reminder) until it's in.
 
+## Two modes: manual-only (the default) and automatic
+
+**Manual-only** (`AUTOMATIC_REMINDERS` unset or off) sends nothing on its own:
+no webhook route, no 30-second loop, no Ashby webhooks needed. It sends only
+when a dashboard asks, on `POST /remind` (needs `REMIND_SECRET`). This is how
+it runs for Pace (18 November 2026), as a second service in the
+`dashboard-pace` Railway project with no public address: the candidate
+dashboard's Remind button calls it over Railway's private network. See
+`candidate-dashboard/README.md` § Scorecard reminders.
+
+`POST /remind` takes `{ interviewEventId, applicationId, candidateName,
+candidateUrl, jobTitle, interviewers: [{ userId, email, name }], requestedBy: { name, email } }`
+with `Authorization: Bearer <REMIND_SECRET>`. It re-checks Ashby and only ever
+drops interviewers who have submitted since; it never adds anyone. One reminder
+per person per interview per `MANUAL_REMINDER_COOLDOWN_HOURS` (default 4), kept
+in `<DATA_DIR>/manual-reminders.json`. The DM is "Hi Ana, Kitty Qu asked me to
+send this." then "Please submit your feedback for Cara Moss!", the name linking to
+`candidateUrl` (the scorecard if none is given). The answer lists
+who was sent one and who was skipped and why.
+
+**Automatic** (`AUTOMATIC_REMINDERS=on`) is the original behaviour described
+below: Ashby webhooks, reminders at 0, 24 and 48 hours. Turning it on later is
+a setting plus the two Ashby webhooks, not a rebuild.
+
+"Already submitted" means a scorecard **credited to** the interviewer
+(`creditedToUser`, falling back to `submittedByUser`), in both modes: someone
+sometimes submits on an interviewer's behalf, and then theirs is in.
+
 ## How it works (and one important caveat)
 
 Ashby does **not** publish an "interview ended" webhook. Its interview webhooks
@@ -42,7 +70,6 @@ Ashby ──webhook──▶ /webhooks/ashby ──▶ store ──▶ 30s loop 
 2. Under **OAuth & Permissions → Bot Token Scopes**, add:
    - `chat:write` — send messages
    - `users:read` and `users:read.email` — find a user by their email
-   - `im:write` — open a DM channel
 3. Click **Install to Workspace** and copy the **Bot User OAuth Token**
    (starts with `xoxb-`). That's your `SLACK_BOT_TOKEN`.
 
@@ -59,8 +86,11 @@ cp .env.example .env
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `SLACK_BOT_TOKEN` | yes | Slack bot token (`xoxb-…`) |
-| `ASHBY_WEBHOOK_SECRET` | yes | Secret you'll enter in Ashby; used to verify signatures |
+| `SLACK_BOT_TOKEN` | yes | Slack bot token (`xoxb-…`). Needs `chat:write`, `users:read`, `users:read.email`. |
+| `AUTOMATIC_REMINDERS` | no | `on` for the webhook-driven reminders at `REMINDER_SCHEDULE_HOURS`. Default off: manual-only. |
+| `REMIND_SECRET` | for the dashboard | Bearer token the dashboard sends on `POST /remind`. Unset, that route doesn't exist. |
+| `MANUAL_REMINDER_COOLDOWN_HOURS` | no | Default `4`: one dashboard reminder per person per interview in that time. |
+| `ASHBY_WEBHOOK_SECRET` | automatic mode | Secret you'll enter in Ashby; used to verify signatures |
 | `ASHBY_API_KEY` | recommended | Enables "skip if already submitted" + enriches the DM with candidate name/job title (`candidatesRead` permission) |
 | `REMINDER_DELAY_MINUTES` | no | Baseline minutes after end time before the first reminder (default `0`) |
 | `REMINDER_SCHEDULE_HOURS` | no | Escalating reminder times in hours after end (default `0,24,48`) |

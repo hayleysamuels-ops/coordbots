@@ -390,4 +390,4 @@ async function start() {
   );
 }
 
-module.exports = { start, applyWebhook, tick, load, sweepExcluded, _state: () => reminders };
+module.exports = { start, applyWebhook, tick, load, sweepExcluded, filterAlreadySubmitted, _state: () => reminders };

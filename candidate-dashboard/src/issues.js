@@ -43,7 +43,13 @@ const appConfig = {
   // from the "Ready to schedule" section; without it, the queue keeps its
   // original name.
   needsSchedulingLabel: config.schedulingEnabled ? "Scheduling not started" : "Needs scheduling",
+  // The Remind button on Feedback Overdue rows (reminder-route.js); the page
+  // also needs a Google sign-in before it shows it.
+  remindersEnabled: config.remindersEnabled,
 };
+
+// Last reminder sent per interview, shown on its row (reminder-history.js).
+const reminderHistory = config.remindersEnabled ? require("./reminder-history").createReminderHistory() : null;
 
 let snapshot = {
   readyToSchedule: [],
@@ -407,9 +413,13 @@ function applyTraining(snap) {
   return fresh ? { ...snap, ...fresh } : snap;
 }
 
+function applyReminders(snap) {
+  return reminderHistory ? reminderHistory.apply(snap) : snap;
+}
+
 function getSnapshot() {
   return {
-    ...applyNotes(applyDismissals(applyTraining(snapshot))),
+    ...applyReminders(applyNotes(applyDismissals(applyTraining(snapshot)))),
     lastUpdated,
     lastError,
     // Shallow-copied, unlike snapshot's own fields above — those get
@@ -430,4 +440,4 @@ function getSnapshot() {
   };
 }
 
-module.exports = { start, getSnapshot, refresh, nameForKey };
+module.exports = { start, getSnapshot, refresh, nameForKey, reminderHistory };

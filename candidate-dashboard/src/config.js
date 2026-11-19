@@ -339,6 +339,13 @@ const config = {
   // mark.
   clientLogo: (process.env.CLIENT_LOGO || "").trim().toLowerCase(),
 
+  // Scorecard reminders from the Action queue: the reminder bot's address
+  // on Railway's private network (e.g. http://scorecard-bot.railway.internal:3000)
+  // and the secret it expects (the bot's REMIND_SECRET). Both set turns the
+  // Remind button on; it shows only to people signed in with Google.
+  reminderBotUrl: (process.env.REMINDER_BOT_URL || "").trim().replace(/\/+$/, ""),
+  reminderBotSecret: process.env.REMINDER_BOT_SECRET || "",
+
   // Search Console's ownership file for this dashboard's address, e.g.
   // google1234abcd.html (site-verification.js). Empty serves nothing.
   googleSiteVerification: process.env.GOOGLE_SITE_VERIFICATION || "",
@@ -418,5 +425,12 @@ for (const key of config.disabledSections) {
 // For small clients (LiteLLM, 18 November 2026: three people qualified out
 // of eight interviewers, so the "top ten" was the whole team ranked).
 config.feedbackLeaderboardEnabled = !config.disabledSections.includes("feedbackLeaderboard");
+
+// Scorecard reminders (reminder-route.js): on with both settings. One
+// without the other is a half-finished setup, so say so.
+config.remindersEnabled = Boolean(config.reminderBotUrl && config.reminderBotSecret);
+if (Boolean(config.reminderBotUrl) !== Boolean(config.reminderBotSecret)) {
+  console.warn("[config] Warning: REMINDER_BOT_URL and REMINDER_BOT_SECRET must be set together; scorecard reminders are off.");
+}
 
 module.exports = config;
