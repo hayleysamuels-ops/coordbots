@@ -189,6 +189,15 @@ to come in that period).
 - **Bars** are one neutral grey, scaled to the second-busiest person when the busiest
   is more than 1.5 times them (Pace: 107 this month against 49), with that bar notched
   at the end. A name search appears from 60 people.
+- **Shared calendar accounts** are left out by name with `INTERVIEWER_LOAD_EXCLUDE`. Forus
+  (19 November 2026): `recruiting@forus.com`, which holds each candidate's whole onsite day
+  ("[Forus] Onsite Day" and similar) as one 4 to 9.5 hour event, several at once: 202 such
+  events in 90 days, 191 starting while another was running. Counted, it sat at the top of
+  Forus's list. Checked the other six the same day (events of 4 hours or more, accounts
+  overlapping themselves, role-style addresses): none has a shared account. Poetic's long
+  events are work-trial "Build Time" (4 to 5 hours, real people, no feedback owed); its
+  overlaps are work-trial lunches and dinners with one host. Run the same check when
+  onboarding a client.
 - **Data:** `interviewerLoadSnapshot()` in `src/interviewer-load.js` over the schedule
   sync the dashboard already keeps, and the cached user list. No new Ashby reads. The
   sync keeps 92 days wherever this section is on (it was 8 at LiteLLM).
@@ -505,6 +514,7 @@ Fill in `.env`:
 | `SESSION_HOURS` | no | How long a sign-in lasts. Default `24`. Nothing ends a session earlier, so this is how long someone removed from the company's Workspace keeps access. |
 | `PASSWORD_SIGNIN` | no | With sign-in on, the shared password is a form on the sign-in page (no longer a Basic Auth header), and every use is logged (`[auth] Password sign-in`). `off` removes it and ends every password session. Rotating `DASHBOARD_PASSWORD` also ends them. The scheduling pilot's coordinator logins work as before. |
 | `ADMIN_EMAILS` | no | With Google sign-in on, turns on the usage log (`src/usage-log.js`) and lists exactly who can read it at `/usage`, e.g. `someone@carrara.is`. Unset, nothing is recorded and `/usage` is a 404. Records sign-ins, page/tab/queue/section opens, Ashby links opened, hides, snoozes, restores, notes (not their text) and refreshes, kept 90 days on the volume. |
+| `INTERVIEWER_LOAD_EXCLUDE` | no | Shared calendar accounts left out of Interviewer Load (counts and, later, hours), by email, comma-separated, case-insensitive. Named on purpose, never a pattern. Forus: `recruiting@forus.com`. See § Interviewer load. |
 | `REMINDER_BOT_URL` | no | Turns on the Remind button on Feedback Overdue rows, with `REMINDER_BOT_SECRET`: the scorecard reminder bot's address on Railway's private network, e.g. `http://scorecard-bot.railway.internal:3000`. See § Scorecard reminders. Pace only. |
 | `REMINDER_BOT_SECRET` | with reminders | The bot's `REMIND_SECRET`. Only one of the two set warns at startup and leaves reminders off. |
 | `ASHBY_API_KEY` | yes | Reads applications and interview schedules. |

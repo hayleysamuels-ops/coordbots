@@ -88,3 +88,17 @@ test("the Weekly Limits count and this agree on the week", () => {
     assert.equal(w.done + w.booked, limits.get(id).weeks.get(weekKey(NOW, TZ)));
   }
 });
+
+test("named shared calendar accounts are left out, whatever the case; nobody else is", () => {
+  const shared = { id: "u-shared", firstName: "Recruiting", lastName: "", email: "Recruiting@Example-Client.com" };
+  const lookalike = { id: "u-real", firstName: "Rec", lastName: "Ruiter", email: "recruiting.lead@example-client.com" };
+  const all = [...users, { id: "u-shared", name: "Recruiting", email: shared.email }, { id: "u-real", name: "Rec Ruiter", email: lookalike.email }];
+  const snap = interviewerLoadSnapshot([
+    sched([ev("2026-11-17T16:00:00Z", [shared], { minutes: 540 })]),
+    sched([ev("2026-11-17T17:00:00Z", [ana, shared])]),
+    sched([ev("2026-11-18T17:00:00Z", [lookalike])]),
+  ], { users: all, timeZone: TZ, now: NOW, exclude: ["recruiting@example-client.com"] });
+  assert.equal(row(snap, "u-shared"), undefined);
+  assert.equal(row(snap, "u-ana").week.done, 1);
+  assert.equal(row(snap, "u-real").week.done, 1);
+});

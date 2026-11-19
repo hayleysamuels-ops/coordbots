@@ -169,7 +169,11 @@ function dayKey(ms, timeZone) {
 // user (`users`, from listUsers; leavers drop out). People at zero for a
 // period are kept: who did nothing this week is half the point. Without a
 // user list (that read failed), nobody is dropped.
-function interviewerLoadSnapshot(schedules, { users = null, timeZone, now = Date.now(), rosterDays = 90 }) {
+//
+// `exclude`: emails of shared calendar accounts that aren't people
+// (INTERVIEWER_LOAD_EXCLUDE), left out entirely.
+function interviewerLoadSnapshot(schedules, { users = null, timeZone, now = Date.now(), rosterDays = 90, exclude = [] }) {
+  const excluded = new Set(exclude.map((e) => String(e).trim().toLowerCase()).filter(Boolean));
   const keys = { day: dayKey(now, timeZone), week: weekKey(now, timeZone), month: dayKey(now, timeZone).slice(0, 7) };
   const rosterFrom = now - rosterDays * DAY;
   const enabled = users ? new Map(users.map((u) => [u.id, u])) : null;
@@ -186,6 +190,7 @@ function interviewerLoadSnapshot(schedules, { users = null, timeZone, now = Date
       const at = { day, week: weekKey(start, timeZone), month: day.slice(0, 7) };
       for (const interviewer of event.interviewers || []) {
         if (!interviewer.id || (enabled && !enabled.has(interviewer.id))) continue;
+        if (excluded.size && excluded.has(String(interviewer.email || (enabled && enabled.get(interviewer.id)?.email) || "").toLowerCase())) continue;
         let row = rows.get(interviewer.id);
         if (!row) {
           const user = enabled && enabled.get(interviewer.id);

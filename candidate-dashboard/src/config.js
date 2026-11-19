@@ -290,6 +290,12 @@ const config = {
   // interview hides its missing feedback for good, while including an exempt
   // one only shows a row someone can dismiss. Names can't contain commas.
   noFeedbackInterviews: exactList("NO_FEEDBACK_INTERVIEWS", []).map(normalizeInterviewName),
+  // Shared calendar accounts left out of Interviewer Load entirely (counts and
+  // hours): an address on interviews that isn't a person. Named, never a
+  // pattern match, so a real person can't be hidden by a lookalike address.
+  // Forus: recruiting@forus.com, which holds every candidate's whole onsite
+  // day as one 4-9.5h block, several at once. Emails, case-insensitive.
+  interviewerLoadExclude: list("INTERVIEWER_LOAD_EXCLUDE", []),
 
   // Feedback leaderboard (Feedback Leaderboard tab): the top 10 interviewers by the share
   // of their completed interviews with their scorecard in, over this many

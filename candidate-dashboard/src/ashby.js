@@ -1393,7 +1393,7 @@ async function listInterviewerLoad() {
       return null;
     }),
   ]);
-  return interviewerLoadSnapshot(schedules, { users, timeZone: config.displayTimeZone, rosterDays: INTERVIEWER_LOAD_ROSTER_DAYS });
+  return interviewerLoadSnapshot(schedules, { users, timeZone: config.displayTimeZone, rosterDays: INTERVIEWER_LOAD_ROSTER_DAYS, exclude: config.interviewerLoadExclude });
 }
 
 /**
