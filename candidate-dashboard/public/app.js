@@ -1149,6 +1149,7 @@
   // (Pace: 107 this month against 49) doesn't flatten everyone else; the
   // capped bar is marked.
   let loadPeriod = "week";
+  let loadListedCount = null;
   let loadSearch = "";
   const LOAD_PERIOD_WORDS = { day: "today", week: "this week", month: "this month" };
 
@@ -1203,6 +1204,7 @@
     if (search) search.hidden = load.rows.length < 60;
     const words = LOAD_PERIOD_WORDS[loadPeriod];
     if (!load.rows.length) {
+      loadListedCount = 0; // "000", not "···": the count is known, it's zero
       container.innerHTML = emptyStateHtml(hasError, `Nobody has interviewed in the last ${load.rosterDays} days.`);
       return;
     }
@@ -1241,6 +1243,9 @@
     const count = (r) => { const v = viewOf(r); return v.done + v.booked; };
     const minutes = (r) => viewOf(r).minutes || 0;
     const rows = load.rows.filter((r) => (!q || r.name.toLowerCase().includes(q)) && (!filtering || (r.roles || []).some((i) => roleOn[i])));
+    // The switcher's count: everyone this card lists (the filter applies, the
+    // name search doesn't), zeros included.
+    loadListedCount = q ? load.rows.filter((r) => !filtering || (r.roles || []).some((i) => roleOn[i])).length : rows.length;
     // Hours lead (load is time); the count breaks ties.
     const busy = rows.filter((r) => count(r) > 0).sort((a, b) => minutes(b) - minutes(a) || count(b) - count(a) || a.name.localeCompare(b.name));
     const idle = rows.filter((r) => count(r) === 0);
@@ -1302,6 +1307,68 @@
     const wasOpen = container.querySelector(".load-idle")?.open;
     container.innerHTML = table + idleHtml;
     if (wasOpen) { const d = container.querySelector(".load-idle"); if (d) d.open = true; }
+  }
+
+  // Interviewer Info's section switcher. Every section on the tab carries
+  // data-switch (load / limits / training; Training History goes with
+  // training); the left column lists one item per value present, as large
+  // type with a zero-padded count, and only the selected item's sections show.
+  // Fewer than two items (LiteLLM: Load only): no list, sections as before.
+  // The choice is remembered per browser.
+  const INFO_SWITCH_LABELS = { load: "Load", limits: "Weekly limits", training: "Training" };
+  let infoSection = (() => { try { return localStorage.getItem("interviewerInfoSection") || "load"; } catch (_) { return "load"; } })();
+  let infoSwitchKeys = "";
+
+  function infoSwitchCount(key, data) {
+    if (key === "load") return loadListedCount;
+    if (key === "limits") return (data.interviewerLimits || []).length;
+    if (key === "training") {
+      // Our tracker (Pace, Forus): people still in training. Elsewhere,
+      // Ashby's trainees.
+      return typeof window.trainingInTrainingCount === "number" ? window.trainingInTrainingCount : (data.interviewerTraining || []).length;
+    }
+    return null;
+  }
+
+  function renderInfoSwitcher(data) {
+    const tab = document.getElementById("tab-interviewers");
+    const nav = document.getElementById("info-switcher");
+    if (!tab || !nav) return;
+    const sections = [...tab.querySelectorAll("section[data-switch]")];
+    const keys = [...new Set(sections.map((s) => s.dataset.switch))];
+    if (keys.length < 2) {
+      nav.hidden = true;
+      tab.classList.remove("has-switcher");
+      sections.forEach((s) => { s.hidden = false; });
+      return;
+    }
+    if (!keys.includes(infoSection)) infoSection = keys[0];
+    tab.classList.add("has-switcher");
+    nav.hidden = false;
+    if (infoSwitchKeys !== keys.join()) {
+      infoSwitchKeys = keys.join();
+      nav.innerHTML = keys.map((k) => `
+        <button type="button" class="info-switch-btn" role="tab" id="info-switch-${k}" data-switch-to="${k}">
+          <span class="info-switch-count"></span><span class="info-switch-name">${INFO_SWITCH_LABELS[k] || k}</span>
+        </button>`).join("");
+    }
+    for (const btn of nav.querySelectorAll(".info-switch-btn")) {
+      const k = btn.dataset.switchTo;
+      const on = k === infoSection;
+      btn.setAttribute("aria-selected", on ? "true" : "false");
+      btn.tabIndex = on ? 0 : -1;
+      const n = data ? infoSwitchCount(k, data) : null;
+      btn.querySelector(".info-switch-count").textContent = typeof n === "number" ? String(n).padStart(3, "0") : "···";
+    }
+    sections.forEach((s) => { s.hidden = s.dataset.switch !== infoSection; });
+  }
+
+  function selectInfoSection(key, focus) {
+    infoSection = key;
+    try { localStorage.setItem("interviewerInfoSection", key); } catch (_) { /* private window: not remembered */ }
+    renderInfoSwitcher(lastData);
+    syncFilterBar();
+    if (focus) document.getElementById(`info-switch-${key}`)?.focus();
   }
 
   function renderFeedbackLeaderboard(board, hasError) {
@@ -1625,7 +1692,14 @@
 
   function render(data) {
     const place = readingPlace();
-    renderSections(data);
+    try {
+      renderSections(data);
+    } finally {
+      // Even if a section's render throws, Interviewer Info's switcher still
+      // draws (without it every section shows, stacked, as before).
+      renderInfoSwitcher(data);
+      syncFilterBar();
+    }
     keepReadingPlace(place);
   }
 
@@ -1709,6 +1783,9 @@
     if (!isSectionDisabled("offersSigned")) {
       updateOffersSignedSubtitle(data.thresholds && data.thresholds.offersSignedLookbackDays);
     }
+
+    renderInfoSwitcher(data);
+    syncFilterBar();
 
     for (const key of SECTION_TIMESTAMP_KEYS) {
       if (isSectionDisabled(key)) continue;
@@ -2022,6 +2099,12 @@
       return;
     }
 
+    const switchBtn = e.target.closest(".info-switch-btn");
+    if (switchBtn) {
+      selectInfoSection(switchBtn.dataset.switchTo);
+      return;
+    }
+
     const loadBtn = e.target.closest(".load-period-btn");
     if (loadBtn) {
       loadPeriod = loadBtn.dataset.loadPeriod;
@@ -2288,8 +2371,15 @@
     const bar = document.getElementById("filter-bar");
     if (!bar) return;
     const open = [...document.querySelectorAll(".tab-panel")].find((p) => !p.hidden);
-    const follows = open && (open.id === "tab-dashboard" || (open.id === "tab-interviewers" && open.querySelector('[data-key="interviewerLoad"]')));
-    bar.hidden = !follows;
+    const loadSection = open && open.id === "tab-interviewers" && open.querySelector('[data-key="interviewerLoad"]');
+    bar.hidden = !(open && (open.id === "tab-dashboard" || loadSection));
+    // Interviewer Info with Weekly limits or Training selected: nothing there
+    // follows the filter, so the bar is out of use, but keeps its space so
+    // switching sections doesn't shift the page.
+    const idle = Boolean(loadSection && loadSection.hidden);
+    bar.classList.toggle("is-idle", idle);
+    bar.setAttribute("aria-hidden", idle ? "true" : "false");
+    bar.toggleAttribute("inert", idle);
   }
 
   async function loadViewer() {
@@ -2306,6 +2396,15 @@
     el.innerHTML = `${who} · ${usageLink}<form method="post" action="/signout"><button type="submit" class="signout-btn">Sign out</button></form>`;
     el.hidden = false;
   }
+
+  document.getElementById("info-switcher")?.addEventListener("keydown", (e) => {
+    const btns = [...document.querySelectorAll(".info-switch-btn")];
+    const i = btns.findIndex((b) => b.dataset.switchTo === infoSection);
+    const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+    if (!step || i < 0) return;
+    e.preventDefault();
+    selectInfoSection(btns[(i + step + btns.length) % btns.length].dataset.switchTo, true);
+  });
 
   const loadSearchInput = document.getElementById("load-search");
   if (loadSearchInput) {

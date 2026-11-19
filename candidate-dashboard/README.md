@@ -165,6 +165,26 @@ the button never sends). The DM doesn't say who asked; the dashboard records tha
   sender's email).
 - **Usage log:** "Sent a scorecard reminder" with the candidate and the names reminded.
 
+## Interviewer Info: the section switcher
+
+Since 19 November 2026 the Interviewer Info tab shows one section at a time. A left
+column lists them as large type with a zero-padded count: **Load** (people listed,
+following the filter), **Weekly limits** (people at or near their limit), **Training**
+(people still in training on the tracker at Pace and Forus; Ashby's trainees
+elsewhere; Training History goes with it). Serif names and mono counts at page-title
+size; the selected one in ink, the others in muted grey; no boxes or fills. Clicking a
+name swaps the card on the right; the column stays put (sticky beside a long card) and
+the browser remembers the choice. Built as tabs for keyboard and screen readers (arrow
+keys move between them). Under 900px wide the column becomes one scrolling row above
+the card. With fewer than two sections on (LiteLLM: Load only) there's no column and
+the section shows as before, with its heading. The filter bar shows only while Load is
+selected; with another section selected it keeps its space (invisible, unusable) so
+switching never moves the column. Under 900px wide it goes entirely instead: there it
+wraps to about three rows, and a blank band over every section but Load was worse than
+the switcher row moving when you change section. Every section carries `data-switch` in index.html;
+`renderInfoSwitcher()` in app.js builds the column from whichever are present. The
+Dashboard's sidebar deliberately looks different (many destinations, small type).
+
 ## Interviewer load
 
 The first section on the Interviewer Info tab (19 November 2026): for everyone who has

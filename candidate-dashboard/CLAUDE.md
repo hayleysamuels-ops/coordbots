@@ -151,6 +151,11 @@ is normally still in Application Review and any status).
   as "dashboard password" with a random per-sign-in id; no IPs. Admins are
   recorded but filtered out of `/usage` unless "Include admins". The privacy
   page's "Usage log" section describes all of this: keep them in step.
+- Interviewer Info's section switcher (`renderInfoSwitcher` in app.js): one
+  section at a time, chosen from a left column of large type with counts. A new
+  section on that tab needs a `data-switch` value (and a label in
+  INFO_SWITCH_LABELS), or it shows under every item. Runs in a `finally` after
+  renderSections so a section's render error can't take the column down.
 - Interviewer Load (`interviewerLoadSnapshot` in `src/interviewer-load.js`,
   `listInterviewerLoad` in `ashby.js`, its own SECTION_GROUPS entry): calendar
   load per person for today / this week / this month. Counts EVERYTHING on the

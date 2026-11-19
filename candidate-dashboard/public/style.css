@@ -315,6 +315,10 @@ button#refresh-btn.spinning {
 /* Eyebrow label (DESIGN.md § Typography): mono, uppercase, wide tracking.
    No coloured tick: colour is reserved for state. */
 .filter-bar[hidden] { display: none; }
+/* On Interviewer Info with a section that ignores the filter selected: the
+   bar keeps its space (so switching sections never moves the list) but is
+   invisible and can't be used. */
+.filter-bar.is-idle { visibility: hidden; }
 
 .filter-bar-label {
   color: var(--text-secondary);
@@ -763,6 +767,68 @@ button#refresh-btn.spinning {
 
 .action-queue-table tbody tr:hover {
   background: var(--surface-sunken);
+}
+
+/* Interviewer Info's section switcher (renderInfoSwitcher in app.js): the
+   type is the control. Serif names (titles) and mono counts (numbers) at
+   page-title size; the selected item in ink, the rest in muted grey (4.2:1 on
+   the page, so they still read as choices). No boxes, borders or fills. It
+   stays in view beside a long card. */
+.info-switcher {
+  flex: 0 0 330px;
+  position: sticky;
+  top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 6px;
+}
+.info-switcher[hidden] { display: none; }
+.info-switch-btn {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-size: 32px;
+  line-height: 1.2;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.info-switch-btn:hover { color: var(--text-secondary); }
+.info-switch-btn[aria-selected="true"] { color: var(--text-primary); }
+.info-switch-btn:focus-visible { outline: 3px solid var(--text-primary); outline-offset: 3px; }
+.info-switch-count {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.info-switch-name {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  white-space: nowrap;
+}
+/* The list names the section, so the card doesn't repeat it. */
+.has-switcher .switch-title { display: none; }
+.has-switcher section[data-switch][hidden] { display: none; }
+@media (max-width: 900px) {
+  /* On a phone the bar wraps to about three rows, so keeping its space would
+     leave a blank band over every section but Load. Here it goes entirely;
+     the switcher row moves when you change section, but only on narrow
+     screens (decision, 19 November 2026). */
+  .filter-bar.is-idle { display: none; }
+  .info-switcher {
+    position: static;
+    flex: none;
+    width: 100%;
+    flex-direction: row;
+    gap: 22px;
+    overflow-x: auto;
+    padding: 0 0 4px;
+  }
+  .info-switch-btn { font-size: 20px; gap: 8px; white-space: nowrap; }
 }
 
 /* Interviewer load (renderInterviewerLoad in app.js). The period toggle

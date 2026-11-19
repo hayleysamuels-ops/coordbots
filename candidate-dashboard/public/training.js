@@ -472,6 +472,9 @@
       if (bucket) buckets[bucket].push(rows);
     }
 
+    // Interviewer Info's switcher shows how many people are still in training.
+    window.trainingInTrainingCount = buckets.attention.length + buckets.paused.length + buckets.stalled.length + buckets.active.length;
+
     const panelHtml = openPanel === "enrol" ? enrolPanel(data) : openPanel === "paths" ? pathsPanel(data) : "";
 
     group(panelHost, "Needs a decision", "Ashby can't resolve these on its own.", buckets.attention);

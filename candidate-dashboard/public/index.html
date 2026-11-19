@@ -142,9 +142,12 @@
 
   <div id="tab-interviewers" class="tab-panel" hidden>
     <div class="page-with-margin">
+    <!-- The section switcher (app.js renderInfoSwitcher): one item per
+         data-switch value present, shown only when there are two or more. -->
+    <nav class="info-switcher" id="info-switcher" role="tablist" aria-label="Interviewer Info sections" hidden></nav>
     <main class="page-stack">
-      <section id="interviewerLoad" class="column wide-section" data-key="interviewerLoad">
-        <h2>Interviewer Load</h2>
+      <section id="interviewerLoad" class="column wide-section" data-key="interviewerLoad" data-switch="load">
+        <h2 class="switch-title">Interviewer Load</h2>
         <span class="section-updated muted" id="updated-interviewerLoad"></span>
         <p class="column-sub">
           Everything on someone's calendar: interviews, Welcomes, lunches and
@@ -167,8 +170,8 @@
         <div id="cards-interviewerLoad"></div>
       </section>
 
-      <section id="interviewerLimits" class="column wide-section" data-key="interviewerLimits">
-        <h2>Interviewer Weekly Limits</h2>
+      <section id="interviewerLimits" class="column wide-section" data-key="interviewerLimits" data-switch="limits">
+        <h2 class="switch-title">Interviewer Weekly Limits</h2>
         <span class="section-updated muted" id="updated-interviewerLimits"></span>
         <p class="column-sub">
           Interviewers at or nearing their Ashby-configured weekly interview
@@ -180,8 +183,8 @@
       </section>
 
       <!-- training-legacy:start -->
-      <section id="interviewerTraining" class="column wide-section" data-key="interviewerTraining">
-        <h2>Interviewer Training</h2>
+      <section id="interviewerTraining" class="column wide-section" data-key="interviewerTraining" data-switch="training">
+        <h2 class="switch-title">Interviewer Training</h2>
         <span class="section-updated muted" id="updated-interviewerTraining"></span>
         <p class="column-sub">
           Interviewers currently in a pool's training path — shadow and
@@ -194,10 +197,10 @@
       <!-- training-legacy:end -->
 
       <!-- training:start -->
-      <section id="interviewerTraining" class="column wide-section" data-key="interviewerTraining">
+      <section id="interviewerTraining" class="column wide-section" data-key="interviewerTraining" data-switch="training">
         <div class="training-head">
           <div>
-            <h2>Interviewer Training</h2>
+            <h2 class="switch-title">Interviewer Training</h2>
             <span class="section-updated muted" id="updated-interviewerTraining"></span>
           </div>
           <div class="training-head-actions">
@@ -222,7 +225,7 @@
       <!-- Training History: was its own tab until 18 November 2026. A
            section here, folded closed, because it is the tail of the same
            tracker and only grows. -->
-      <section id="training-history-section" class="column wide-section">
+      <section id="training-history-section" class="column wide-section" data-switch="training">
         <details class="training-history">
           <summary><h2>Training History <span class="training-group-count" id="training-history-count"></span></h2></summary>
           <p class="column-sub">
