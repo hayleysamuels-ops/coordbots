@@ -45,23 +45,25 @@
     <!-- scheduling:end -->
   </nav>
 
-  <div id="tab-dashboard" class="tab-panel">
-    <div class="filter-bar">
-      <span class="filter-bar-label">Filter by</span>
-      <div class="filter-mode-toggle" role="group" aria-label="Filter by">
-        <button type="button" class="filter-mode-btn is-active" data-mode="department" aria-pressed="true">Department</button>
-        <button type="button" class="filter-mode-btn" data-mode="job" aria-pressed="false">Job</button>
-        <button type="button" class="filter-mode-btn" data-mode="recruiter" aria-pressed="false">Recruiter</button>
-        <button type="button" class="filter-mode-btn" data-mode="coordinator" aria-pressed="false">Coordinator</button>
-      </div>
-      <div class="entity-filter">
-        <button id="entity-filter-btn" type="button" aria-haspopup="true" aria-expanded="false">
-          All departments
-        </button>
-        <div id="entity-filter-menu" class="entity-filter-menu" hidden></div>
-      </div>
+  <!-- Above the tabs: the Dashboard and Interviewer Load follow it; app.js
+       (syncFilterBar) hides it on tabs where nothing does. -->
+  <div class="filter-bar" id="filter-bar">
+    <span class="filter-bar-label">Filter by</span>
+    <div class="filter-mode-toggle" role="group" aria-label="Filter by">
+      <button type="button" class="filter-mode-btn is-active" data-mode="department" aria-pressed="true">Department</button>
+      <button type="button" class="filter-mode-btn" data-mode="job" aria-pressed="false">Job</button>
+      <button type="button" class="filter-mode-btn" data-mode="recruiter" aria-pressed="false">Recruiter</button>
+      <button type="button" class="filter-mode-btn" data-mode="coordinator" aria-pressed="false">Coordinator</button>
     </div>
+    <div class="entity-filter">
+      <button id="entity-filter-btn" type="button" aria-haspopup="true" aria-expanded="false">
+        All departments
+      </button>
+      <div id="entity-filter-menu" class="entity-filter-menu" hidden></div>
+    </div>
+  </div>
 
+  <div id="tab-dashboard" class="tab-panel">
     <div class="page-with-margin">
     <aside class="queue-sidebar">
       <div class="queue-group">
@@ -148,10 +150,11 @@
           Everything on someone's calendar: interviews, Welcomes, lunches and
           debriefs. Cancelled interviews don't count. Everyone who has
           interviewed in the last 90 days, including people with none in this
-          period. Not affected by the department/job/recruiter/coordinator
-          filter. Overlapping bookings are counted once in the hours.
+          period. Follows the department/job/recruiter/coordinator filter
+          above. Overlapping bookings are counted once in the hours.
         </p>
         <p class="column-sub" id="load-hours-note" hidden></p>
+        <p class="load-filter-note" id="load-filter-note" hidden></p>
         <div class="load-controls">
           <div class="load-period-toggle" role="group" aria-label="Period">
             <button type="button" class="load-period-btn" data-load-period="day" aria-pressed="false">Today</button>
@@ -171,8 +174,7 @@
           Interviewers at or nearing their Ashby-configured weekly interview
           limit, for the current calendar week. Interviewers with no limit set
           never appear here. Not affected by the department/job/recruiter/
-          coordinator filter — that's on the Dashboard tab and doesn't apply
-          here.
+          coordinator filter above.
         </p>
         <div class="cards" id="cards-interviewerLimits"></div>
       </section>

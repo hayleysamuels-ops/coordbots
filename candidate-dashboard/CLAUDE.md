@@ -158,8 +158,12 @@ is normally still in Application Review and any status).
   keep it that way. Zeros are kept on purpose. Hours lead (overlap counted once;
   `INTERVIEWER_LOAD_UNTIMED_INTERVIEWS` titles count but aren't timed, and the
   row says so). `INTERVIEWER_LOAD_EXCLUDE` names shared calendar accounts (Forus).
-  Limits and week-stepping deliberately deferred; role filter next
-  (README § Interviewer load).
+  Follows the entity filter, whose bar now sits ABOVE the tabs and shows only
+  on Dashboard and Interviewer Info (`syncFilterBar()`): never let a selection
+  be in force on a tab where the bar is hidden. Filtered rows always show
+  "N of total"; keep that. Role details: `applicationRoles.js`, never expired
+  by age. Limits and week-stepping deliberately deferred (README § Interviewer
+  load).
 - `src/reminder-route.js`, `src/reminder-history.js` — the Remind button on
   Feedback Overdue rows, only where `REMINDER_BOT_URL` and `REMINDER_BOT_SECRET`
   are set (Pace). The dashboard never sends a Slack message itself: it asks the

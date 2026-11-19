@@ -87,4 +87,12 @@ function flush() {
 
 load();
 
-module.exports = { get, set, flush };
+// The cached application whatever its age or signature, or null. For data
+// that doesn't go stale the way status and stage do: Interviewer Load's role
+// details (applicationRoles.js) only need the job and hiring team.
+function peek(applicationId) {
+  const entry = store[applicationId];
+  return entry ? entry.app : null;
+}
+
+module.exports = { get, set, flush, peek };

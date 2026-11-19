@@ -191,7 +191,18 @@ function dayKey(ms, timeZone) {
 // candidates' meals at once). `untimed(interviewId)` true means the event
 // counts toward the number but not the hours (INTERVIEWER_LOAD_UNTIMED_
 // INTERVIEWS, e.g. Poetic's "Build Time"); `untimed` per period counts those.
-function interviewerLoadSnapshot(schedules, { users = null, timeZone, now = Date.now(), rosterDays = 90, exclude = [], untimed = () => false }) {
+//
+// Roles, for the page's department/job/recruiter/coordinator filter:
+// `roleOf(applicationId)` gives the candidate's application's
+// { departmentId, jobId, jobTitle, recruiterId, recruiterName, coordinatorId,
+// coordinatorName }, or null while it isn't known yet. Each distinct one goes
+// in `roles` once; each period carries `byRole`: [roleIndex, done, booked,
+// minutes, untimed] (minutes with overlap counted once within that role), and
+// each row `roles`: every role they interviewed for in the roster window, for
+// who appears when filtered. An interview with no known role still counts in
+// the totals, never in a filtered view; `unmatched` says how many of this
+// period's are like that.
+function interviewerLoadSnapshot(schedules, { users = null, timeZone, now = Date.now(), rosterDays = 90, exclude = [], untimed = () => false, roleOf = () => null }) {
   const excluded = new Set(exclude.map((e) => String(e).trim().toLowerCase()).filter(Boolean));
   const keys = { day: dayKey(now, timeZone), week: weekKey(now, timeZone), month: dayKey(now, timeZone).slice(0, 7) };
   const rosterFrom = now - rosterDays * DAY;
@@ -199,8 +210,21 @@ function interviewerLoadSnapshot(schedules, { users = null, timeZone, now = Date
   const rows = new Map();
   const blank = () => ({ done: 0, booked: 0, minutes: 0, untimed: 0 });
   const PERIODS = ["day", "week", "month"];
+  const roles = [];
+  const roleIndex = new Map();
+  const ROLE_FIELDS = ["departmentId", "jobId", "jobTitle", "recruiterId", "recruiterName", "coordinatorId", "coordinatorName"];
+  const roleFor = (applicationId) => {
+    const r = applicationId ? roleOf(applicationId) : null;
+    if (!r) return -1;
+    const clean = Object.fromEntries(ROLE_FIELDS.map((f) => [f, r[f] || null]));
+    const key = JSON.stringify(ROLE_FIELDS.map((f) => clean[f]));
+    if (!roleIndex.has(key)) { roleIndex.set(key, roles.length); roles.push(clean); }
+    return roleIndex.get(key);
+  };
+  const unmatched = { day: 0, week: 0, month: 0 };
   for (const schedule of schedules) {
     if (schedule.status === "Cancelled") continue;
+    const role = roleFor(schedule.applicationId);
     for (const event of schedule.interviewEvents || []) {
       const start = Date.parse(event.startTime);
       if (!Number.isFinite(start) || start < rosterFrom) continue;
@@ -215,27 +239,47 @@ function interviewerLoadSnapshot(schedules, { users = null, timeZone, now = Date
         if (!row) {
           const user = enabled && enabled.get(interviewer.id);
           const name = (user && user.name) || `${interviewer.firstName || ""} ${interviewer.lastName || ""}`.trim() || interviewer.email || "Unknown";
-          row = { userId: interviewer.id, name, day: blank(), week: blank(), month: blank(), spans: { day: [], week: [], month: [] } };
+          row = { userId: interviewer.id, name, day: blank(), week: blank(), month: blank(), roleSet: new Set(), spans: { day: [], week: [], month: [] }, byRole: { day: new Map(), week: new Map(), month: new Map() } };
           rows.set(interviewer.id, row);
         }
+        if (role >= 0) row.roleSet.add(role);
         const timed = Number.isFinite(end) && end > start && !untimed(event.interviewId);
+        const isUntimed = !timed && untimed(event.interviewId);
         for (const period of PERIODS) {
           if (at[period] !== keys[period]) continue;
           row[period][state]++;
           if (timed) row.spans[period].push([start, end]);
-          else if (untimed(event.interviewId)) row[period].untimed++;
+          else if (isUntimed) row[period].untimed++;
+          if (role < 0) continue;
+          const g = row.byRole[period].get(role) || { done: 0, booked: 0, spans: [], untimed: 0 };
+          g[state]++;
+          if (timed) g.spans.push([start, end]);
+          else if (isUntimed) g.untimed++;
+          row.byRole[period].set(role, g);
         }
       }
     }
   }
   for (const row of rows.values()) {
-    for (const period of PERIODS) row[period].minutes = mergedMinutes(row.spans[period]);
-    delete row.spans;
+    for (const period of PERIODS) {
+      row[period].minutes = mergedMinutes(row.spans[period]);
+      row[period].byRole = [...row.byRole[period]].map(([i, g]) => [i, g.done, g.booked, mergedMinutes(g.spans), g.untimed]);
+    }
+    row.roles = [...row.roleSet];
+    delete row.spans; delete row.byRole; delete row.roleSet;
+  }
+  // Interviews in each period whose role isn't known yet (counted in totals,
+  // left out of filtered views), across the people listed.
+  for (const row of rows.values()) for (const period of PERIODS) {
+    const matched = row[period].byRole.reduce((n, g) => n + g[1] + g[2], 0);
+    unmatched[period] += row[period].done + row[period].booked - matched;
   }
   return {
     periods: keys,
     timeZone,
     rosterDays,
+    roles,
+    unmatched,
     rows: [...rows.values()].sort((a, b) => a.name.localeCompare(b.name)),
   };
 }

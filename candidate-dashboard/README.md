@@ -194,8 +194,29 @@ to come in that period).
   time. Checked every client for long titles with real people on them (3 hours or more):
   Pace's are real 3-hour panels; LiteLLM's 3.5 to 5 hour "Interview" (feedback owed, two
   people) is probably real, to confirm with them.
+- **Follows the department / job / recruiter / coordinator filter** (19 November 2026).
+  The filter bar moved above the tabs and shows on the Dashboard and Interviewer Info only
+  (hidden on Offers and Feedback Leaderboard, so a selection is never in force out of
+  sight); one selection drives both. Each interview carries its candidate's application's
+  job, department, recruiter and coordinator. Filtered, a row reads "3 **of 20**", "1.5 h
+  **of 14 h**": the selected roles' share, then the person's whole-period total, so a
+  filtered row is never read as someone's whole load; a note above the table says so. The
+  bar's length stays the person's total, the darker part the share. Who appears: anyone who
+  interviewed for a selected role in the last 90 days. Weekly Limits and Training still
+  ignore the filter. The filter's options now also include roles that only have interviews
+  (no flagged candidate), so a role picked for Interviewer Load can leave the Dashboard tab
+  empty.
+  - **Role details** come from `<DATA_DIR>/application-roles.json` (`applicationRoles.js`):
+    seeded from the application cache whatever its age (a job rarely changes; that cache
+    deletes entries after 45 days, too soon for 90), then up to 100 `application.info`
+    lookups per refresh, two at a time (Forus's first fill, about 450, takes a few
+    refreshes). Until an application is known, its interviews count in the totals only, and
+    the note says how many.
+  - **Known overstatement:** with two or more roles selected, someone double-booked across
+    exactly those roles has the overlap counted twice in their filtered hours. Their "of"
+    total is always exact.
 - **Not yet, on purpose:** no Ashby limits or over-limit note (Interviewer Weekly Limits
-  still shows those), no stepping to other weeks, no role filter (next). The
+  still shows those), no stepping to other weeks. The
   over-limit note waits on checking what Ashby's own limits count (its composer).
   Ashby has daily as well as weekly limits (`user.interviewerSettings`: `dailyLimit`,
   `weeklyLimit`).

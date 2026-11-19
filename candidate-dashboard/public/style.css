@@ -314,6 +314,8 @@ button#refresh-btn.spinning {
 
 /* Eyebrow label (DESIGN.md § Typography): mono, uppercase, wide tracking.
    No coloured tick: colour is reserved for state. */
+.filter-bar[hidden] { display: none; }
+
 .filter-bar-label {
   color: var(--text-secondary);
   font-family: var(--font-mono);
@@ -840,10 +842,33 @@ button#refresh-btn.spinning {
 }
 /* Past the scale (the busiest, far above everyone else): the bar runs to
    the edge and ends in a notch so it doesn't read as "exactly full". */
-.load-bar.is-capped {
+.load-bar.is-capped,
+.load-bar-track.is-capped {
   border-radius: 0;
   clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 50%, calc(100% - 6px) 100%, 0 100%);
 }
+/* Filtered: "3 of 20" — the role's share, then the person's whole-period
+   total muted, so a filtered row can't be misread as their whole load. */
+.load-of { color: var(--text-muted); font-weight: 400; }
+.load-filter-note {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+.load-filter-note[hidden] { display: none; }
+/* Filtered bars: the full length is the person's total, the darker part the
+   selected roles' share. */
+.load-bar-track {
+  position: relative;
+  height: 10px;
+  background: var(--border-subtle, var(--surface-sunken));
+  border-radius: 0 4px 4px 0;
+}
+.load-bar-track .load-bar { position: absolute; left: 0; top: 0; }
+
 .load-idle {
   margin-top: 12px;
   color: var(--text-secondary);

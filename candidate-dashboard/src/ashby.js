@@ -10,6 +10,12 @@ const { countInterviewLoad, createScheduleSync, weekKey, interviewerLoadSnapshot
 
 // Interviewer load lists anyone who interviewed in this many days.
 const INTERVIEWER_LOAD_ROSTER_DAYS = 90;
+// Role details for Interviewer Load's filter (applicationRoles.js), and how
+// many unknown applications to look up per refresh: the key is shared with
+// the live dashboard, so a client's first fill (Forus: ~450) is spread over
+// a few refreshes rather than done at once.
+const applicationRoles = require("./applicationRoles").createApplicationRoles();
+const ROLE_LOOKUPS_PER_REFRESH = 100;
 const { createFeedbackSync } = require("./feedback-sync");
 const { createSyncStateFile } = require("./syncStateFile");
 const { buildLeaderboard } = require("./feedback-leaderboard");
@@ -1379,6 +1385,51 @@ async function listUsers() {
   return users;
 }
 
+// An application's role details: the job, its department, and the hiring
+// team's recruiter and coordinator (the dashboard's four filter types).
+function roleFromApplication(app) {
+  const r = buildApplicationRecord(app);
+  return {
+    departmentId: r.departmentId || null, jobId: r.jobId || null, jobTitle: r.jobId ? r.jobTitle : null,
+    recruiterId: r.recruiterId || null, recruiterName: r.recruiterName || null,
+    coordinatorId: r.coordinatorId || null, coordinatorName: r.coordinatorName || null,
+  };
+}
+
+// Makes sure every application on a schedule in Interviewer Load's window
+// has role details saved: first from the application cache whatever its age,
+// then up to ROLE_LOOKUPS_PER_REFRESH application.info calls, two at a time.
+// Until an application is known, its interviews count in the totals but not
+// in a filtered view (the page says how many).
+async function fillApplicationRoles(schedules) {
+  const from = Date.now() - (INTERVIEWER_LOAD_ROSTER_DAYS + 2) * 24 * 60 * 60 * 1000;
+  const ids = new Set();
+  for (const s of schedules) {
+    if (s.applicationId && (s.interviewEvents || []).some((e) => Date.parse(e.startTime) >= from)) ids.add(s.applicationId);
+  }
+  const unknown = [];
+  for (const id of ids) {
+    if (applicationRoles.has(id)) continue;
+    const cached = applicationInfoCache.peek(id);
+    if (cached) applicationRoles.set(id, roleFromApplication(cached));
+    else unknown.push(id);
+  }
+  const batch = unknown.slice(0, ROLE_LOOKUPS_PER_REFRESH);
+  if (batch.length) {
+    console.log(`[ashby] Interviewer load: ${unknown.length} applications without role details yet; looking up ${batch.length} this refresh.`);
+    await mapWithConcurrency(batch, 2, async (id) => {
+      try {
+        const json = await ashbyPost("application.info", { applicationId: id });
+        if (json.results) applicationRoles.set(id, roleFromApplication(json.results));
+      } catch (err) {
+        console.warn(`[ashby] application.info failed for ${id} (Interviewer load role):`, err.message);
+      }
+    });
+  }
+  applicationRoles.prune(ids);
+  applicationRoles.flush();
+}
+
 /**
  * The Interviewer Info tab's Interviewer load section (interviewerLoadSnapshot
  * in interviewer-load.js): today, this week and this month, everyone who
@@ -1405,9 +1456,11 @@ async function listInterviewerLoad() {
     );
     untimed = (interviewId) => config.interviewerLoadUntimed.includes(config.normalizeInterviewName(interviewTitleCache.get(interviewId)));
   }
+  await fillApplicationRoles(schedules);
   return interviewerLoadSnapshot(schedules, {
     users, timeZone: config.displayTimeZone, rosterDays: INTERVIEWER_LOAD_ROSTER_DAYS,
     exclude: config.interviewerLoadExclude, untimed,
+    roleOf: (id) => applicationRoles.get(id),
   });
 }
 

@@ -147,14 +147,26 @@
     "rescheduledInterviews",
   ];
 
-  function collectDistinct(data, idKey, nameKey) {
-    const byId = new Map();
+  // What the filter's options are drawn from: the candidates on screen, and
+  // the roles Interviewer Load has interviews for (its `roles` carry the same
+  // jobId/departmentId/recruiterId/coordinatorId fields), so a role with
+  // interviews but no flagged candidate can still be picked. One filter for
+  // both tabs means one list.
+  function filterSourceItems(data) {
+    const items = [];
     for (const key of CANDIDATE_SECTION_KEYS) {
       if (isSectionDisabled(key)) continue;
-      for (const item of (data || {})[key] || []) {
-        if (item[idKey] && !byId.has(item[idKey])) {
-          byId.set(item[idKey], item[nameKey] || "Unknown");
-        }
+      items.push(...((data || {})[key] || []));
+    }
+    if (!isSectionDisabled("interviewerLoad") && data && data.interviewerLoad) items.push(...(data.interviewerLoad.roles || []));
+    return items;
+  }
+
+  function collectDistinct(data, idKey, nameKey) {
+    const byId = new Map();
+    for (const item of filterSourceItems(data)) {
+      if (item[idKey] && !byId.has(item[idKey])) {
+        byId.set(item[idKey], item[nameKey] || "Unknown");
       }
     }
     return [...byId.entries()]
@@ -175,11 +187,8 @@
   function collectDistinctDepartments(data) {
     const byId = new Map(lastDepartments.map((d) => [d.id, d]));
     const ids = new Set();
-    for (const key of CANDIDATE_SECTION_KEYS) {
-      if (isSectionDisabled(key)) continue;
-      for (const item of (data || {})[key] || []) {
-        if (item.departmentId) ids.add(item.departmentId);
-      }
+    for (const item of filterSourceItems(data)) {
+      if (item.departmentId) ids.add(item.departmentId);
     }
     const options = [...ids].map((id) => {
       const dep = byId.get(id);
@@ -1198,13 +1207,47 @@
       return;
     }
     const q = search && !search.hidden ? loadSearch.trim().toLowerCase() : "";
-    const count = (r) => r[loadPeriod].done + r[loadPeriod].booked;
-    const minutes = (r) => r[loadPeriod].minutes || 0;
-    const rows = load.rows.filter((r) => !q || r.name.toLowerCase().includes(q));
+
+    // The filter above the tabs (department/job/recruiter/coordinator). Each
+    // interview carries its candidate's role (load.roles); a filtered row
+    // shows the selected roles' share "of" the person's whole-period total,
+    // so a filtered row can't be read as someone's whole load. Who appears:
+    // anyone who interviewed for a selected role in the roster window.
+    const sel = activeSelection();
+    const filtering = sel.ids.size > 0 && Array.isArray(load.roles);
+    const roleOn = filtering ? load.roles.map((r) => sel.ids.has(r[sel.key])) : [];
+    const totalOf = (r) => r[loadPeriod];
+    const viewOf = (r) => {
+      if (!filtering) return totalOf(r);
+      const v = { done: 0, booked: 0, minutes: 0, untimed: 0 };
+      for (const [i, done, booked, mins, untimed] of totalOf(r).byRole || []) {
+        if (!roleOn[i]) continue;
+        v.done += done; v.booked += booked; v.minutes += mins; v.untimed += untimed;
+      }
+      return v;
+    };
+    const filterNote = document.getElementById("load-filter-note");
+    if (filterNote) {
+      filterNote.hidden = !filtering;
+      if (filtering) {
+        const names = currentEntityOptions().filter((o) => sel.ids.has(o.id)).map((o) => o.name);
+        const list = names.length ? names.join(", ") : `${sel.ids.size} ${sel.ids.size === 1 ? sel.noun : sel.pluralNoun}`;
+        const what = { departmentId: `candidates in ${list}`, jobId: list, recruiterId: `candidates whose recruiter is ${list}`, coordinatorId: `candidates whose coordinator is ${list}` }[sel.key] || list;
+        const unmatched = (load.unmatched && load.unmatched[loadPeriod]) || 0;
+        filterNote.textContent = `Showing interviews for ${what}. "of" is each person's total ${words} across every role.` +
+          (unmatched ? ` ${unmatched} ${unmatched === 1 ? "interview" : "interviews"} ${words} aren't matched to a role yet, so they're only in the totals.` : "");
+      }
+    }
+    const count = (r) => { const v = viewOf(r); return v.done + v.booked; };
+    const minutes = (r) => viewOf(r).minutes || 0;
+    const rows = load.rows.filter((r) => (!q || r.name.toLowerCase().includes(q)) && (!filtering || (r.roles || []).some((i) => roleOn[i])));
     // Hours lead (load is time); the count breaks ties.
     const busy = rows.filter((r) => count(r) > 0).sort((a, b) => minutes(b) - minutes(a) || count(b) - count(a) || a.name.localeCompare(b.name));
     const idle = rows.filter((r) => count(r) === 0);
-    const mins = busy.map(minutes).sort((a, b) => b - a);
+    // Bars are scaled on each person's whole-period total, so a filtered
+    // bar's length still shows their whole load and its darker part the share.
+    const totalMinutes = (r) => totalOf(r).minutes || 0;
+    const mins = busy.map(totalMinutes).sort((a, b) => b - a);
     // Scale to the second-busiest, unless the top one is within 1.5x of it.
     const scale = (mins.length > 1 && mins[0] > mins[1] * 1.5 ? mins[1] : mins[0]) || 1;
     const untimedLine = (n) => {
@@ -1213,28 +1256,37 @@
       const tip = untimedNames.length > 1 ? ` title="${escapeHtml(`Not timed: ${untimedNames.join(", ")}`)}"` : "";
       return `<div class="load-untimed"${tip}>+ ${n} ${escapeHtml(what)}</div>`;
     };
+    const pctOf = (m) => (m > 0 ? Math.max(2, Math.round((Math.min(m, scale) / scale) * 100)) : 0);
     const rowHtml = (r) => {
-      const c = count(r);
-      const m = minutes(r);
-      const { done, booked, untimed } = r[loadPeriod];
-      const capped = m > scale;
-      const pct = m > 0 ? Math.max(2, Math.round((Math.min(m, scale) / scale) * 100)) : 0;
-      const tip = `${r.name}: ${c} ${c === 1 ? "interview" : "interviews"} ${words} (${done} done, ${booked} booked), ${formatLoadHours(m)}` +
-        (untimed ? `, plus ${untimed} not timed` : "");
+      const v = viewOf(r);
+      const t = totalOf(r);
+      const c = v.done + v.booked;
+      const tc = t.done + t.booked;
+      const capped = t.minutes > scale;
+      const totalPct = pctOf(t.minutes);
+      const tip = filtering
+        ? `${r.name}: ${c} of ${tc} ${tc === 1 ? "interview" : "interviews"} ${words}, ${formatLoadHours(v.minutes)} of ${formatLoadHours(t.minutes)}`
+        : `${r.name}: ${c} ${c === 1 ? "interview" : "interviews"} ${words} (${v.done} done, ${v.booked} booked), ${formatLoadHours(v.minutes)}` + (v.untimed ? `, plus ${v.untimed} not timed` : "");
+      const of = (text) => (filtering ? ` <span class="load-of">of ${text}</span>` : "");
+      let bar = "";
+      if (filtering && totalPct) {
+        const share = t.minutes ? Math.min(100, Math.round((v.minutes / t.minutes) * 100)) : 0;
+        bar = `<div class="load-bar-track${capped ? " is-capped" : ""}" style="width:${totalPct}%">${share ? `<div class="load-bar" style="width:${share}%"></div>` : ""}</div>`;
+      } else if (totalPct) {
+        bar = `<div class="load-bar${capped ? " is-capped" : ""}" style="width:${totalPct}%"></div>`;
+      }
       return `
           <tr>
             <td class="load-name">${escapeHtml(r.name)}</td>
-            <td class="load-total">${c}</td>
-            <td class="load-hours">${formatLoadHours(m)}${untimedLine(untimed)}</td>
-            <td class="load-split">${done} · ${booked}</td>
-            <td class="load-bar-cell" title="${escapeHtml(tip)}">
-              ${pct ? `<div class="load-bar${capped ? " is-capped" : ""}" style="width:${pct}%"></div>` : ""}
-            </td>
+            <td class="load-total">${c}${of(tc)}</td>
+            <td class="load-hours">${formatLoadHours(v.minutes)}${of(formatLoadHours(t.minutes))}${untimedLine(v.untimed)}</td>
+            <td class="load-split">${v.done} · ${v.booked}</td>
+            <td class="load-bar-cell" title="${escapeHtml(tip)}">${bar}</td>
           </tr>`;
     };
     const idleHtml = idle.length
       ? `<details class="load-idle">
-          <summary>${idle.length} with no interviews ${words}</summary>
+          <summary>${idle.length} ${filtering ? `who've interviewed for this recently, none ${words}` : `with no interviews ${words}`}</summary>
           <p class="load-idle-names">${idle.map((r) => escapeHtml(r.name)).join(" · ")}</p>
         </details>`
       : "";
@@ -1245,7 +1297,7 @@
             <tbody>${busy.map(rowHtml).join("")}</tbody>
           </table>
         </div>`
-      : emptyStateHtml(false, q ? "Nobody by that name has interviews in this period." : `Nobody has interviews ${words}.`);
+      : emptyStateHtml(false, q ? "Nobody by that name has interviews in this period." : filtering && !rows.length ? `Nobody has interviewed for this in the last ${load.rosterDays} days.` : `Nobody has interviews ${words}${filtering ? " for this" : ""}.`);
     // Keep an opened "no interviews" list open across the 60s re-render.
     const wasOpen = container.querySelector(".load-idle")?.open;
     container.innerHTML = table + idleHtml;
@@ -1492,6 +1544,7 @@
     // One tab left is no choice: hide the tab bar rather than show a lone button.
     const switcher = document.querySelector(".tab-switcher");
     if (switcher) switcher.hidden = switcher.querySelectorAll(".tab-btn").length < 2;
+    syncFilterBar();
   }
 
   // Client-specific display config (page title, header accent color,
@@ -2223,8 +2276,21 @@
       document.querySelectorAll(".tab-panel").forEach((panel) => {
         panel.toggleAttribute("hidden", panel.id !== `tab-${target}`);
       });
+      syncFilterBar();
     });
   });
+
+  // The filter bar sits above the tabs and shows only where something
+  // follows it: the Dashboard, and Interviewer Info when Interviewer Load is
+  // on. Elsewhere (Offers, Feedback Leaderboard, Scheduling) it's hidden, so
+  // a selection is never in force without the control in view.
+  function syncFilterBar() {
+    const bar = document.getElementById("filter-bar");
+    if (!bar) return;
+    const open = [...document.querySelectorAll(".tab-panel")].find((p) => !p.hidden);
+    const follows = open && (open.id === "tab-dashboard" || (open.id === "tab-interviewers" && open.querySelector('[data-key="interviewerLoad"]')));
+    bar.hidden = !follows;
+  }
 
   async function loadViewer() {
     try {

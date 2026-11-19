@@ -135,6 +135,45 @@ test("untimed interviews count toward the number, not the hours, and are counted
 
 test("every row carries hours fields even with nothing timed", () => {
   const snap = interviewerLoadSnapshot([sched([ev("2026-09-01T18:00:00Z", [ben])])], { users, timeZone: TZ, now: NOW });
-  assert.deepEqual(row(snap, "u-ben").week, { done: 0, booked: 0, minutes: 0, untimed: 0 });
+  assert.deepEqual(row(snap, "u-ben").week, { done: 0, booked: 0, minutes: 0, untimed: 0, byRole: [] });
   assert.equal(JSON.stringify(snap).includes("spans"), false, "working fields don't reach the page");
+  assert.equal(JSON.stringify(snap).includes("roleSet"), false);
+});
+
+test("roles: each interview is split by its candidate's role; unknown ones stay in the totals only", () => {
+  const eng = { departmentId: "d-eng", jobId: "j-swe", jobTitle: "Software Engineer", recruiterId: "r-1", recruiterName: "Rae Ruiz", coordinatorId: null, coordinatorName: null };
+  const sales = { departmentId: "d-sales", jobId: "j-ae", jobTitle: "Account Executive", recruiterId: "r-1", recruiterName: "Rae Ruiz", coordinatorId: null, coordinatorName: null };
+  const roleOf = (id) => ({ "app-eng": eng, "app-sales": sales }[id] || null);
+  const s = (app, events) => ({ ...sched(events), applicationId: app });
+  const snap = interviewerLoadSnapshot([
+    s("app-eng", [ev("2026-11-17T17:00:00Z", [ana], { minutes: 60 })]),
+    s("app-eng", [ev("2026-11-18T17:00:00Z", [ana], { minutes: 30 })]),
+    s("app-sales", [ev("2026-11-18T19:00:00Z", [ana], { minutes: 45 })]),
+    s("app-unknown", [ev("2026-11-18T21:00:00Z", [ana], { minutes: 15 })]),
+    s("app-sales", [ev("2026-09-10T17:00:00Z", [ben])]), // ben: sales only, months ago
+  ], { users, timeZone: TZ, now: NOW, roleOf });
+  assert.equal(snap.roles.length, 2);
+  const iEng = snap.roles.findIndex((r) => r.jobId === "j-swe");
+  const iSales = snap.roles.findIndex((r) => r.jobId === "j-ae");
+  const a = row(snap, "u-ana");
+  assert.equal(a.week.done + a.week.booked, 4, "the total includes the unknown one");
+  assert.equal(a.week.minutes, 150);
+  const byRole = Object.fromEntries(a.week.byRole.map(([i, done, booked, minutes, untimed]) => [i, { n: done + booked, minutes, untimed }]));
+  assert.deepEqual(byRole[iEng], { n: 2, minutes: 90, untimed: 0 });
+  assert.deepEqual(byRole[iSales], { n: 1, minutes: 45, untimed: 0 });
+  assert.equal(snap.unmatched.week, 1);
+  assert.deepEqual(a.roles.sort(), [iEng, iSales].sort());
+  assert.deepEqual(row(snap, "u-ben").roles, [iSales], "who appears when filtered to Sales");
+});
+
+test("saved role details never expire by age, and drop out when no schedule needs them", () => {
+  const fs = require("node:fs"), os = require("node:os"), path = require("node:path");
+  const { createApplicationRoles } = require("../src/applicationRoles");
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "roles-")), "application-roles.json");
+  const a = createApplicationRoles({ file, log: { warn() {} } });
+  a.set("app-1", { jobId: "j-1" }); a.set("app-2", { jobId: "j-2" }); a.flush();
+  const b = createApplicationRoles({ file, log: { warn() {} } });
+  assert.equal(b.get("app-1").jobId, "j-1");
+  b.prune(new Set(["app-2"])); b.flush();
+  assert.equal(createApplicationRoles({ file, log: { warn() {} } }).has("app-1"), false);
 });
