@@ -38,6 +38,8 @@ function parseRequest(body) {
       interviewEventId, applicationId, interviewers,
       candidateName: str(b.candidateName, 200), jobTitle: str(b.jobTitle, 200),
       candidateUrl: /^https:\/\//.test(str(b.candidateUrl, 600) || "") ? str(b.candidateUrl, 600) : null,
+      // When the interview ended, for "It's been 3 days since the interview!".
+      interviewEndedAt: Number.isFinite(Date.parse(str(b.interviewEndedAt, 40) || "")) ? str(b.interviewEndedAt, 40) : null,
       requestedByName: requestedByName || requestedByEmail, requestedByEmail,
     },
   };
@@ -100,6 +102,8 @@ function createRemindNow({ filterAlreadySubmitted, sendManualReminder, interview
           // The candidate's Ashby page, or the scorecard if the dashboard had none.
           candidateUrl: request.candidateUrl || scorecardUrl,
           requestedByName: request.requestedByName,
+          interviewEndedAt: request.interviewEndedAt,
+          now: t,
         });
       } catch (err) {
         log.warn(`[remind] Slack refused the message to ${i.email}: ${err.message}`);

@@ -32,6 +32,7 @@ function createReminderRoute({ botUrl, botSecret, findEntry, history, fetchImpl 
           applicationId: entry.applicationId,
           candidateName: entry.candidateName || null,
           candidateUrl: entry.ashbyProfileUrl || null,
+          interviewEndedAt: entry.endTime || null,
           jobTitle: entry.jobTitle || null,
           interviewers: interviewers.map((i) => ({ userId: i.id || null, email: i.email, name: i.name })),
           requestedBy: { name: viewer.name || viewer.email, email: viewer.email },

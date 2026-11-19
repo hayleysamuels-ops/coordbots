@@ -15,13 +15,15 @@ dashboard's Remind button calls it over Railway's private network. See
 `candidate-dashboard/README.md` § Scorecard reminders.
 
 `POST /remind` takes `{ interviewEventId, applicationId, candidateName,
-candidateUrl, jobTitle, interviewers: [{ userId, email, name }], requestedBy: { name, email } }`
+candidateUrl, interviewEndedAt, jobTitle, interviewers: [{ userId, email, name }], requestedBy: { name, email } }`
 with `Authorization: Bearer <REMIND_SECRET>`. It re-checks Ashby and only ever
 drops interviewers who have submitted since; it never adds anyone. One reminder
 per person per interview per `MANUAL_REMINDER_COOLDOWN_HOURS` (default 4), kept
-in `<DATA_DIR>/manual-reminders.json`, with who asked. The DM is just "Hi Ana --
-Please submit your feedback for Cara Moss!", the name linking to `candidateUrl`
-(the scorecard if none is given); it doesn't say who asked. The answer lists
+in `<DATA_DIR>/manual-reminders.json`, with who asked. The DM is one line:
+"Please submit your feedback for Cara Moss! It's been 3 days since the interview!",
+the name linking to `candidateUrl` (the scorecard if none is given), the count from
+`interviewEndedAt` in whole days rounded down (whole hours under a day, nothing under
+an hour). It doesn't say who asked. The answer lists
 who was sent one and who was skipped and why.
 
 **Automatic** (`AUTOMATIC_REMINDERS=on`) is the original behaviour described

@@ -13,7 +13,7 @@ const { createReminderHistory } = require("../src/reminder-history");
 const EVENT = "11111111-1111-4111-8111-111111111111";
 const entry = {
   interviewEventId: EVENT, applicationId: "22222222-2222-4222-8222-222222222222", candidateId: "c-1",
-  candidateName: "Cara Moss", jobTitle: "Engineer", ashbyProfileUrl: "https://app.ashbyhq.com/candidates/c-1",
+  candidateName: "Cara Moss", jobTitle: "Engineer", endTime: "2026-11-15T17:00:00.000Z", ashbyProfileUrl: "https://app.ashbyhq.com/candidates/c-1",
   interviewers: [{ id: "u-ana", name: "Ana Diaz", email: "ana@example-client.com" }, { id: "u-ben", name: "Ben Ito", email: "ben@example-client.com" }],
 };
 const kit = { method: "google", email: "kit@example-client.com", name: "Kit Quinn" };
@@ -57,6 +57,7 @@ test("who it goes to comes from the dashboard's row, and the bot is told who ask
   assert.deepEqual(body.requestedBy, { name: "Kit Quinn", email: "kit@example-client.com" });
   assert.equal(body.candidateName, "Cara Moss");
   assert.equal(body.candidateUrl, "https://app.ashbyhq.com/candidates/c-1");
+  assert.equal(body.interviewEndedAt, "2026-11-15T17:00:00.000Z");
   assert.deepEqual(out.body.skipped, [{ name: "Ben Ito", reason: "already submitted" }]);
 });
 

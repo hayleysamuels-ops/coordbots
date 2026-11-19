@@ -119,17 +119,34 @@ async function sendScorecardReminder(interviewer, context) {
   return false;
 }
 
-// A reminder someone asked for from the dashboard (POST /remind): a greeting
-// and one sentence, with the candidate's name linking to their Ashby page.
-// Who pressed the button isn't in the message; the dashboard records it (row
-// line, usage log) and the bot's cooldown file keeps it. No fallback-channel
-// post: the dashboard tells the person who pressed the button instead.
+// A reminder someone asked for from the dashboard (POST /remind): one line,
+// the candidate's name linking to their Ashby page, then how long since the
+// interview ENDED (not since it became overdue). Who pressed the button isn't
+// in the message; the dashboard records it (row line, usage log) and the
+// bot's cooldown file keeps it. No fallback-channel post: the dashboard tells
+// the person who pressed the button instead.
+const HOUR_MS = 60 * 60 * 1000;
 const slackText = (v) => String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-function buildManualMessage({ interviewerName, candidateName, candidateUrl }) {
-  const first = interviewerName ? interviewerName.split(" ")[0] : "there";
+
+// Whole days since the end, rounded down so it never overstates: 47 hours is
+// "1 day". Under a day, whole hours (the dashboard only offers the button
+// once a row is FEEDBACK_OVERDUE_HOURS past the end, 24 at Pace, so this is
+// for a lower threshold or a direct call). Under an hour, or no usable end
+// time, nothing: the ask stands alone.
+function sinceInterview(endedAt, now = Date.now()) {
+  const end = Date.parse(endedAt || "");
+  if (!Number.isFinite(end)) return "";
+  const hours = Math.floor((now - end) / HOUR_MS);
+  if (hours < 1) return "";
+  if (hours < 24) return ` It's been ${hours} hour${hours === 1 ? "" : "s"} since the interview!`;
+  const days = Math.floor(hours / 24);
+  return ` It's been ${days} day${days === 1 ? "" : "s"} since the interview!`;
+}
+
+function buildManualMessage({ candidateName, candidateUrl, interviewEndedAt, now = Date.now() }) {
   const name = slackText(candidateName || "your candidate");
   const linked = candidateUrl && /^https:\/\//.test(candidateUrl) ? `<${candidateUrl}|${name.replace(/\|/g, "¦")}>` : name;
-  return `Hi ${slackText(first)} -- Please submit your feedback for ${linked}!`;
+  return `Please submit your feedback for ${linked}!${sinceInterview(interviewEndedAt, now)}`;
 }
 
 // Returns { sent: true } or { sent: false, reason }.
@@ -148,4 +165,4 @@ async function sendManualReminder(interviewer, context, { client = slack, lookup
   return { sent: true };
 }
 
-module.exports = { sendScorecardReminder, sendManualReminder, buildManualMessage, findUserIdByEmail };
+module.exports = { sendScorecardReminder, sendManualReminder, buildManualMessage, sinceInterview, findUserIdByEmail };

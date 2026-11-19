@@ -139,9 +139,11 @@ table — no new data, purely a client-side reshaping of the same four
 
 Where `REMINDER_BOT_URL` and `REMINDER_BOT_SECRET` are set (Pace, from 18 November
 2026), each Feedback Overdue row in the Action queue has a **Remind** button. It sends
-everyone still missing a scorecard for that interview a Slack DM: "Hi Ana -- Please
-submit your feedback for Cara Moss!", the name linking to the candidate's Ashby page.
-The DM doesn't say who asked; the dashboard records that.
+everyone still missing a scorecard for that interview a one-line Slack DM: "Please
+submit your feedback for Cara Moss! It's been 3 days since the interview!", the name
+linking to the candidate's Ashby page, the count in whole days since the interview
+ended (rounded down; whole hours under a day, which the 24-hour overdue threshold means
+the button never sends). The DM doesn't say who asked; the dashboard records that.
 
 - **One sender.** The dashboard never messages anyone itself. `POST /api/remind`
   (`src/reminder-route.js`) asks the scorecard reminder bot (`ashby-scorecard-bot/`,

@@ -90,11 +90,28 @@ test("the request is checked", () => {
   assert.equal(ok.request.requestedByName, "Kit Quinn");
 });
 
-test("message wording: greeting and the one-sentence ask, the name linked, nobody named as asking", () => {
-  const m = buildManualMessage({ interviewerName: "Ana Diaz", candidateName: "Cara Moss", candidateUrl: "https://app.ashbyhq.com/candidates/c-1", requestedByName: "Kit Quinn" });
-  assert.equal(m, "Hi Ana -- Please submit your feedback for <https://app.ashbyhq.com/candidates/c-1|Cara Moss>!");
-  const odd = buildManualMessage({ interviewerName: "Ana Diaz", candidateName: "A <b> & C|D", candidateUrl: "javascript:x" });
-  assert.equal(odd, "Hi Ana -- Please submit your feedback for A &lt;b&gt; &amp; C|D!");
+test("message wording: one line, the name linked, days since the interview ended", () => {
+  const now = Date.UTC(2026, 10, 18, 17, 0);
+  const at = (h) => new Date(now - h * 3600000).toISOString();
+  const m = (h) => buildManualMessage({ candidateName: "Cara Moss", candidateUrl: "https://app.ashbyhq.com/candidates/c-1", interviewEndedAt: h === null ? null : at(h), now });
+  assert.equal(m(72), "Please submit your feedback for <https://app.ashbyhq.com/candidates/c-1|Cara Moss>! It's been 3 days since the interview!");
+  assert.equal(m(24), "Please submit your feedback for <https://app.ashbyhq.com/candidates/c-1|Cara Moss>! It's been 1 day since the interview!");
+  assert.match(m(47), /It's been 1 day since/, "rounded down, never overstated");
+  assert.match(m(48), /It's been 2 days since/);
+  assert.match(m(5), /It's been 5 hours since the interview!$/);
+  assert.match(m(1.5), /It's been 1 hour since the interview!$/);
+  assert.equal(m(0.5), "Please submit your feedback for <https://app.ashbyhq.com/candidates/c-1|Cara Moss>!");
+  assert.equal(m(null), "Please submit your feedback for <https://app.ashbyhq.com/candidates/c-1|Cara Moss>!");
+  assert.ok(!m(72).includes("\n"));
+  const odd = buildManualMessage({ candidateName: "A <b> & C|D", candidateUrl: "javascript:x" });
+  assert.equal(odd, "Please submit your feedback for A &lt;b&gt; &amp; C|D!");
+});
+
+test("the interview's end time reaches the message", async () => {
+  const h = harness();
+  await h.make().remind(request({ interviewEndedAt: "2026-11-15T17:00:00.000Z" }));
+  assert.equal(h.sent[0].ctx.interviewEndedAt, "2026-11-15T17:00:00.000Z");
+  assert.equal(parseRequest({ ...request(), requestedBy: { email: "k@x" }, interviewEndedAt: "not a date" }).request.interviewEndedAt, null);
 });
 
 async function serve(settings, remindNow) {
