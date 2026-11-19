@@ -139,15 +139,16 @@ table — no new data, purely a client-side reshaping of the same four
 
 Where `REMINDER_BOT_URL` and `REMINDER_BOT_SECRET` are set (Pace, from 18 November
 2026), each Feedback Overdue row in the Action queue has a **Remind** button. It sends
-everyone still missing a scorecard for that interview a Slack DM: "Hi Ana, Kitty Qu
-asked me to send this." then "Please submit your feedback for Cara Moss!", the name
-linking to the candidate's Ashby page.
+everyone still missing a scorecard for that interview a Slack DM: "Hi Ana -- Please
+submit your feedback for Cara Moss!", the name linking to the candidate's Ashby page.
+The DM doesn't say who asked; the dashboard records that.
 
 - **One sender.** The dashboard never messages anyone itself. `POST /api/remind`
   (`src/reminder-route.js`) asks the scorecard reminder bot (`ashby-scorecard-bot/`,
   `POST /remind`), a second service in the same Railway project with no public address.
   The bot runs manual-only: no Ashby webhooks and no automatic reminders.
-- **Google sign-in only.** The message names whoever pressed the button, so the shared
+- **Google sign-in only.** Every reminder is recorded under a verified name (the row's
+  "Reminded … by", the usage log, the bot's log), so the shared
   password gets no button and a 403 from the route.
 - **Who gets it** is the row's `interviewers` from the dashboard's own snapshot, never
   the browser's: exactly who still owes a scorecard (§ Who owes feedback). The bot

@@ -476,8 +476,8 @@
   }
 
   // A Feedback Overdue row's reminder control: who last sent one (everyone
-  // sees it) and the Remind button (Google sign-in only, since the Slack
-  // message names whoever pressed it). The server picks who gets it from
+  // sees it) and the Remind button (Google sign-in only, so every reminder is
+  // recorded under a verified name). The server picks who gets it from
   // its own data: exactly the row's `interviewers`.
   // Returns { button, last }: the button sits in the row with Snooze/Hide,
   // the "Reminded …" line under them, so the column stays narrow.

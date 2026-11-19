@@ -119,18 +119,17 @@ async function sendScorecardReminder(interviewer, context) {
   return false;
 }
 
-// A reminder someone asked for from the dashboard (POST /remind). The first
-// line says who asked, so it doesn't read as an automatic nudge; the ask is
-// one sentence, with the candidate's name linking to their Ashby page. No
-// fallback-channel post: the dashboard tells the person who pressed the
-// button instead.
+// A reminder someone asked for from the dashboard (POST /remind): a greeting
+// and one sentence, with the candidate's name linking to their Ashby page.
+// Who pressed the button isn't in the message; the dashboard records it (row
+// line, usage log) and the bot's cooldown file keeps it. No fallback-channel
+// post: the dashboard tells the person who pressed the button instead.
 const slackText = (v) => String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-function buildManualMessage({ interviewerName, candidateName, candidateUrl, requestedByName }) {
+function buildManualMessage({ interviewerName, candidateName, candidateUrl }) {
   const first = interviewerName ? interviewerName.split(" ")[0] : "there";
   const name = slackText(candidateName || "your candidate");
   const linked = candidateUrl && /^https:\/\//.test(candidateUrl) ? `<${candidateUrl}|${name.replace(/\|/g, "¦")}>` : name;
-  const asker = requestedByName ? `${slackText(requestedByName)} asked me to send this.` : "Someone on the recruiting team asked me to send this.";
-  return `Hi ${first}, ${asker}\n\nPlease submit your feedback for ${linked}!`;
+  return `Hi ${slackText(first)} -- Please submit your feedback for ${linked}!`;
 }
 
 // Returns { sent: true } or { sent: false, reason }.

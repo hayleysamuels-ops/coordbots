@@ -38,7 +38,7 @@ const request = (over = {}) => ({
   candidateName: "Cara Moss", jobTitle: "Engineer", candidateUrl: "https://app.ashbyhq.com/candidates/c-1", requestedByName: "Kit Quinn", requestedByEmail: "kit@example-client.com", ...over,
 });
 
-test("only people still missing get a DM, and it names who asked", async () => {
+test("only people still missing get a DM", async () => {
   const h = harness({ submitted: ["ben@example-client.com"] });
   const out = await h.make().remind(request());
   assert.deepEqual(out.sent, [{ name: "Ana Diaz" }]);
@@ -90,11 +90,11 @@ test("the request is checked", () => {
   assert.equal(ok.request.requestedByName, "Kit Quinn");
 });
 
-test("message wording: who asked, then the one-sentence ask with the name linked", () => {
+test("message wording: greeting and the one-sentence ask, the name linked, nobody named as asking", () => {
   const m = buildManualMessage({ interviewerName: "Ana Diaz", candidateName: "Cara Moss", candidateUrl: "https://app.ashbyhq.com/candidates/c-1", requestedByName: "Kit Quinn" });
-  assert.equal(m, "Hi Ana, Kit Quinn asked me to send this.\n\nPlease submit your feedback for <https://app.ashbyhq.com/candidates/c-1|Cara Moss>!");
-  const odd = buildManualMessage({ interviewerName: "Ana Diaz", candidateName: "A <b> & C|D", candidateUrl: "javascript:x", requestedByName: "Kit Quinn" });
-  assert.equal(odd.split("\n\n")[1], "Please submit your feedback for A &lt;b&gt; &amp; C|D!");
+  assert.equal(m, "Hi Ana -- Please submit your feedback for <https://app.ashbyhq.com/candidates/c-1|Cara Moss>!");
+  const odd = buildManualMessage({ interviewerName: "Ana Diaz", candidateName: "A <b> & C|D", candidateUrl: "javascript:x" });
+  assert.equal(odd, "Hi Ana -- Please submit your feedback for A &lt;b&gt; &amp; C|D!");
 });
 
 async function serve(settings, remindNow) {

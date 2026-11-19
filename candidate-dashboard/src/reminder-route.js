@@ -5,8 +5,8 @@
 // reminder bot (ashby-scorecard-bot/, POST /remind) over Railway's private
 // network, so there is one place that sends reminders.
 //
-// - Only someone signed in with Google can send one: the message names them,
-//   so it must be a verified name, never "dashboard password".
+// - Only someone signed in with Google can send one: each reminder is
+//   recorded under a verified name, never "dashboard password".
 // - Who gets it comes from the dashboard's own snapshot (the row's
 //   `interviewers`, exactly who still owes a scorecard), never from the
 //   browser. The bot re-checks Ashby and can only drop people.

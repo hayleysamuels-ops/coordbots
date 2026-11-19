@@ -155,8 +155,8 @@ is normally still in Application Review and any status).
   Feedback Overdue rows, only where `REMINDER_BOT_URL` and `REMINDER_BOT_SECRET`
   are set (Pace). The dashboard never sends a Slack message itself: it asks the
   scorecard reminder bot (`../ashby-scorecard-bot`, `POST /remind`, private
-  network, manual-only) so there is ONE sender. Google sign-in only (the DM names
-  who asked); recipients come from the server's own snapshot row, never the
+  network, manual-only) so there is ONE sender. Google sign-in only (each
+  reminder is recorded under a verified name; the DM itself names nobody); recipients come from the server's own snapshot row, never the
   browser; the bot re-checks Ashby and may only DROP people. The bot owns the
   cooldown; `reminders-sent.json` is display only ("Reminded 10:42 by …"),
   applied at serve time like dismissals. README § Scorecard reminders.
