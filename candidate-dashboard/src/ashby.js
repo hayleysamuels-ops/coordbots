@@ -1393,7 +1393,22 @@ async function listInterviewerLoad() {
       return null;
     }),
   ]);
-  return interviewerLoadSnapshot(schedules, { users, timeZone: config.displayTimeZone, rosterDays: INTERVIEWER_LOAD_ROSTER_DAYS, exclude: config.interviewerLoadExclude });
+  // Titles only matter where INTERVIEWER_LOAD_UNTIMED_INTERVIEWS is set, and
+  // only for events in this month (with a week either side for the week
+  // view). Cached for good once read (interviewTitleCache). An unresolved
+  // title counts as timed, so a failed lookup never hides hours.
+  let untimed = () => false;
+  if (config.interviewerLoadUntimed.length) {
+    const now = Date.now();
+    await resolveInterviewTitles(
+      schedules.flatMap((s) => (s.interviewEvents || []).filter((e) => Math.abs(Date.parse(e.startTime) - now) < 40 * 24 * 60 * 60 * 1000).map((e) => e.interviewId))
+    );
+    untimed = (interviewId) => config.interviewerLoadUntimed.includes(config.normalizeInterviewName(interviewTitleCache.get(interviewId)));
+  }
+  return interviewerLoadSnapshot(schedules, {
+    users, timeZone: config.displayTimeZone, rosterDays: INTERVIEWER_LOAD_ROSTER_DAYS,
+    exclude: config.interviewerLoadExclude, untimed,
+  });
 }
 
 /**

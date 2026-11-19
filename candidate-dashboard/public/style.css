@@ -815,6 +815,7 @@ button#refresh-btn.spinning {
 .load-search[hidden] { display: none; }
 .load-table .load-name { font-weight: 600; }
 .load-table .load-total,
+.load-table .load-hours,
 .load-table .load-split {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -822,6 +823,13 @@ button#refresh-btn.spinning {
   white-space: nowrap;
 }
 .load-table td.load-total { font-weight: 700; }
+.load-table td.load-hours { font-weight: 700; }
+.load-untimed {
+  font-weight: 400;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
 .load-table td.load-split { color: var(--text-secondary); }
 .load-table .load-bar-cell { width: 45%; }
 /* One neutral bar per row, 4px rounded data end, anchored left. */
@@ -843,7 +851,8 @@ button#refresh-btn.spinning {
 .load-idle summary { cursor: pointer; font-weight: 600; }
 .load-idle-names { margin: 6px 0 0; line-height: 1.6; }
 @media (max-width: 640px) {
-  .load-table .load-bar-cell { display: none; }
+  .load-table .load-bar-cell,
+  .load-table .load-split { display: none; }
   .load-search { margin-left: 0; width: 100%; }
 }
 

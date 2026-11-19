@@ -46,6 +46,8 @@ const appConfig = {
   // The Remind button on Feedback Overdue rows (reminder-route.js); the page
   // also needs a Google sign-in before it shows it.
   remindersEnabled: config.remindersEnabled,
+  // Interviewer Load: titles that count as interviews but not hours.
+  interviewerLoadUntimed: config.interviewerLoadUntimedNames,
 };
 
 // Last reminder sent per interview, shown on its row (reminder-history.js).

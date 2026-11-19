@@ -1159,6 +1159,12 @@
     return `${startText} – ${wd(end)} ${end.getUTCDate()} ${mon(end)}`;
   }
 
+  // "4.8 h" under 10 hours, "18 h" from 10.
+  function formatLoadHours(minutes) {
+    const h = minutes / 60;
+    return `${h < 10 ? h.toFixed(1) : Math.round(h)} h`;
+  }
+
   function renderInterviewerLoad(load, hasError) {
     const container = document.getElementById("cards-interviewerLoad");
     if (!container) return;
@@ -1169,6 +1175,15 @@
     });
     const label = document.getElementById("load-period-label");
     const search = document.getElementById("load-search");
+    // Titles this client counts as interviews but not hours (Poetic: Build Time).
+    const untimedNames = (lastData && lastData.appConfig && lastData.appConfig.interviewerLoadUntimed) || [];
+    const hoursNote = document.getElementById("load-hours-note");
+    if (hoursNote) {
+      hoursNote.hidden = !untimedNames.length;
+      hoursNote.textContent = untimedNames.length
+        ? `Hours leave out ${untimedNames.join(" and ")} blocks: they count as interviews, but the interviewer isn't with the candidate the whole time.`
+        : "";
+    }
     if (!load) {
       if (label) label.textContent = "";
       container.innerHTML = emptyStateHtml(hasError, "Still reading interview schedules for the first time.");
@@ -1183,26 +1198,37 @@
       return;
     }
     const q = search && !search.hidden ? loadSearch.trim().toLowerCase() : "";
-    const total = (r) => r[loadPeriod].done + r[loadPeriod].booked;
+    const count = (r) => r[loadPeriod].done + r[loadPeriod].booked;
+    const minutes = (r) => r[loadPeriod].minutes || 0;
     const rows = load.rows.filter((r) => !q || r.name.toLowerCase().includes(q));
-    const busy = rows.filter((r) => total(r) > 0).sort((a, b) => total(b) - total(a) || a.name.localeCompare(b.name));
-    const idle = rows.filter((r) => total(r) === 0);
-    const totals = busy.map(total);
+    // Hours lead (load is time); the count breaks ties.
+    const busy = rows.filter((r) => count(r) > 0).sort((a, b) => minutes(b) - minutes(a) || count(b) - count(a) || a.name.localeCompare(b.name));
+    const idle = rows.filter((r) => count(r) === 0);
+    const mins = busy.map(minutes).sort((a, b) => b - a);
     // Scale to the second-busiest, unless the top one is within 1.5x of it.
-    const scale = totals.length > 1 && totals[0] > totals[1] * 1.5 ? totals[1] : totals[0] || 1;
+    const scale = (mins.length > 1 && mins[0] > mins[1] * 1.5 ? mins[1] : mins[0]) || 1;
+    const untimedLine = (n) => {
+      if (!n) return "";
+      const what = untimedNames.length === 1 ? untimedNames[0] : "not timed";
+      const tip = untimedNames.length > 1 ? ` title="${escapeHtml(`Not timed: ${untimedNames.join(", ")}`)}"` : "";
+      return `<div class="load-untimed"${tip}>+ ${n} ${escapeHtml(what)}</div>`;
+    };
     const rowHtml = (r) => {
-      const t = total(r);
-      const { done, booked } = r[loadPeriod];
-      const capped = t > scale;
-      const pct = Math.max(2, Math.round((Math.min(t, scale) / scale) * 100));
-      const tip = `${r.name}: ${t} ${t === 1 ? "interview" : "interviews"} ${words}, ${done} done, ${booked} booked`;
+      const c = count(r);
+      const m = minutes(r);
+      const { done, booked, untimed } = r[loadPeriod];
+      const capped = m > scale;
+      const pct = m > 0 ? Math.max(2, Math.round((Math.min(m, scale) / scale) * 100)) : 0;
+      const tip = `${r.name}: ${c} ${c === 1 ? "interview" : "interviews"} ${words} (${done} done, ${booked} booked), ${formatLoadHours(m)}` +
+        (untimed ? `, plus ${untimed} not timed` : "");
       return `
           <tr>
             <td class="load-name">${escapeHtml(r.name)}</td>
-            <td class="load-total">${t}</td>
+            <td class="load-total">${c}</td>
+            <td class="load-hours">${formatLoadHours(m)}${untimedLine(untimed)}</td>
             <td class="load-split">${done} · ${booked}</td>
             <td class="load-bar-cell" title="${escapeHtml(tip)}">
-              <div class="load-bar${capped ? " is-capped" : ""}" style="width:${pct}%"></div>
+              ${pct ? `<div class="load-bar${capped ? " is-capped" : ""}" style="width:${pct}%"></div>` : ""}
             </td>
           </tr>`;
     };
@@ -1215,7 +1241,7 @@
     const table = busy.length
       ? `<div class="action-queue-wrap">
           <table class="action-queue-table load-table">
-            <thead><tr><th>Name</th><th class="load-total">Interviews</th><th class="load-split">Done · Booked</th><th class="load-bar-cell" aria-label="Interviews, as a bar"></th></tr></thead>
+            <thead><tr><th>Name</th><th class="load-total">Interviews</th><th class="load-hours">Hours</th><th class="load-split">Done · Booked</th><th class="load-bar-cell" aria-label="Hours, as a bar"></th></tr></thead>
             <tbody>${busy.map(rowHtml).join("")}</tbody>
           </table>
         </div>`

@@ -296,6 +296,13 @@ const config = {
   // Forus: recruiting@forus.com, which holds every candidate's whole onsite
   // day as one 4-9.5h block, several at once. Emails, case-insensitive.
   interviewerLoadExclude: list("INTERVIEWER_LOAD_EXCLUDE", []),
+  // Interview names (matched whole, like NO_FEEDBACK_INTERVIEWS) that count
+  // toward Interviewer Load's interview number but not its hours: a long
+  // block a real person is on but isn't with the candidate for. Poetic:
+  // "Build Time" (work-trial build blocks, 3.3-5h; checked with Poetic).
+  interviewerLoadUntimed: exactList("INTERVIEWER_LOAD_UNTIMED_INTERVIEWS", []).map(normalizeInterviewName),
+  // The same names as written, for the page ("+ 2 Build Time").
+  interviewerLoadUntimedNames: exactList("INTERVIEWER_LOAD_UNTIMED_INTERVIEWS", []),
 
   // Feedback leaderboard (Feedback Leaderboard tab): the top 10 interviewers by the share
   // of their completed interviews with their scorecard in, over this many

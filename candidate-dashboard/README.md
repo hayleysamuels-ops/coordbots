@@ -181,8 +181,21 @@ to come in that period).
 - **Who appears:** anyone on a non-cancelled interview that started in the last 90 days
   or is booked ahead, who is still an enabled Ashby user. People at zero are kept,
   folded into one "N with no interviews this week" line that opens to their names.
-- **Counts only, on purpose, for now:** no hours, no Ashby limits or over-limit note
-  (Interviewer Weekly Limits still shows those), no stepping to other weeks. The
+- **Hours** (19 November 2026) beside the count, and they lead: the order and the bar
+  follow hours. Time on the calendar with an overlap counted once per person (one host on
+  two candidates' lunches at once is one lunch). Under 10 hours one decimal ("4.8 h"),
+  whole hours from 10.
+- **Interviews that count but aren't timed:** `INTERVIEWER_LOAD_UNTIMED_INTERVIEWS`, names
+  matched whole like `NO_FEEDBACK_INTERVIEWS`. They add to the interview number, not the
+  hours, and the row says so ("+ 5 Build Time") so a low hours figure explains itself; a
+  note above the table names them. Poetic: `Build Time` (work-trial build blocks, 3.3 to 5
+  hours; Poetic confirmed the engineer isn't with the candidate throughout). "Working Time"
+  isn't on the list: nobody has been on one in 92 days of schedules; it's the candidate's
+  time. Checked every client for long titles with real people on them (3 hours or more):
+  Pace's are real 3-hour panels; LiteLLM's 3.5 to 5 hour "Interview" (feedback owed, two
+  people) is probably real, to confirm with them.
+- **Not yet, on purpose:** no Ashby limits or over-limit note (Interviewer Weekly Limits
+  still shows those), no stepping to other weeks, no role filter (next). The
   over-limit note waits on checking what Ashby's own limits count (its composer).
   Ashby has daily as well as weekly limits (`user.interviewerSettings`: `dailyLimit`,
   `weeklyLimit`).
@@ -514,7 +527,8 @@ Fill in `.env`:
 | `SESSION_HOURS` | no | How long a sign-in lasts. Default `24`. Nothing ends a session earlier, so this is how long someone removed from the company's Workspace keeps access. |
 | `PASSWORD_SIGNIN` | no | With sign-in on, the shared password is a form on the sign-in page (no longer a Basic Auth header), and every use is logged (`[auth] Password sign-in`). `off` removes it and ends every password session. Rotating `DASHBOARD_PASSWORD` also ends them. The scheduling pilot's coordinator logins work as before. |
 | `ADMIN_EMAILS` | no | With Google sign-in on, turns on the usage log (`src/usage-log.js`) and lists exactly who can read it at `/usage`, e.g. `someone@carrara.is`. Unset, nothing is recorded and `/usage` is a 404. Records sign-ins, page/tab/queue/section opens, Ashby links opened, hides, snoozes, restores, notes (not their text) and refreshes, kept 90 days on the volume. |
-| `INTERVIEWER_LOAD_EXCLUDE` | no | Shared calendar accounts left out of Interviewer Load (counts and, later, hours), by email, comma-separated, case-insensitive. Named on purpose, never a pattern. Forus: `recruiting@forus.com`. See § Interviewer load. |
+| `INTERVIEWER_LOAD_UNTIMED_INTERVIEWS` | no | Interview names (matched whole, comma-separated) that count toward Interviewer Load's interview number but not its hours: long blocks a real person is on but isn't with the candidate for. Poetic: `Build Time`. |
+| `INTERVIEWER_LOAD_EXCLUDE` | no | Shared calendar accounts left out of Interviewer Load (counts and hours), by email, comma-separated, case-insensitive. Named on purpose, never a pattern. Forus: `recruiting@forus.com`. See § Interviewer load. |
 | `REMINDER_BOT_URL` | no | Turns on the Remind button on Feedback Overdue rows, with `REMINDER_BOT_SECRET`: the scorecard reminder bot's address on Railway's private network, e.g. `http://scorecard-bot.railway.internal:3000`. See § Scorecard reminders. Pace only. |
 | `REMINDER_BOT_SECRET` | with reminders | The bot's `REMIND_SECRET`. Only one of the two set warns at startup and leaves reminders off. |
 | `ASHBY_API_KEY` | yes | Reads applications and interview schedules. |

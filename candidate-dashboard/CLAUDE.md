@@ -155,8 +155,11 @@ is normally still in Application Review and any status).
   `listInterviewerLoad` in `ashby.js`, its own SECTION_GROUPS entry): calendar
   load per person for today / this week / this month. Counts EVERYTHING on the
   calendar (not `owersFor()`), the same rule as Weekly Limits, so the two agree;
-  keep it that way. Zeros are kept on purpose. Counts only: hours, limits and
-  week-stepping were deliberately deferred (README § Interviewer load).
+  keep it that way. Zeros are kept on purpose. Hours lead (overlap counted once;
+  `INTERVIEWER_LOAD_UNTIMED_INTERVIEWS` titles count but aren't timed, and the
+  row says so). `INTERVIEWER_LOAD_EXCLUDE` names shared calendar accounts (Forus).
+  Limits and week-stepping deliberately deferred; role filter next
+  (README § Interviewer load).
 - `src/reminder-route.js`, `src/reminder-history.js` — the Remind button on
   Feedback Overdue rows, only where `REMINDER_BOT_URL` and `REMINDER_BOT_SECRET`
   are set (Pace). The dashboard never sends a Slack message itself: it asks the

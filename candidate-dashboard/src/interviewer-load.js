@@ -146,6 +146,19 @@ function createScheduleSync({ fetchPage, now = () => Date.now(), keepDays = 8, l
   };
 }
 
+// Minutes covered by [start, end] spans, overlaps counted once.
+function mergedMinutes(spans) {
+  let total = 0, curStart = null, curEnd = null;
+  for (const [a, b] of spans.sort((x, y) => x[0] - y[0])) {
+    if (curEnd === null || a > curEnd) {
+      if (curEnd !== null) total += curEnd - curStart;
+      curStart = a; curEnd = b;
+    } else if (b > curEnd) curEnd = b;
+  }
+  if (curEnd !== null) total += curEnd - curStart;
+  return Math.round(total / 60000);
+}
+
 // The calendar day (YYYY-MM-DD) containing `ms`, in `timeZone`.
 function dayKey(ms, timeZone) {
   return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(ms);
@@ -172,13 +185,20 @@ function dayKey(ms, timeZone) {
 //
 // `exclude`: emails of shared calendar accounts that aren't people
 // (INTERVIEWER_LOAD_EXCLUDE), left out entirely.
-function interviewerLoadSnapshot(schedules, { users = null, timeZone, now = Date.now(), rosterDays = 90, exclude = [] }) {
+//
+// Hours: `minutes` per period is the time on someone's calendar with any
+// overlap counted once (Poetic's work-trial lunches put one host on two
+// candidates' meals at once). `untimed(interviewId)` true means the event
+// counts toward the number but not the hours (INTERVIEWER_LOAD_UNTIMED_
+// INTERVIEWS, e.g. Poetic's "Build Time"); `untimed` per period counts those.
+function interviewerLoadSnapshot(schedules, { users = null, timeZone, now = Date.now(), rosterDays = 90, exclude = [], untimed = () => false }) {
   const excluded = new Set(exclude.map((e) => String(e).trim().toLowerCase()).filter(Boolean));
   const keys = { day: dayKey(now, timeZone), week: weekKey(now, timeZone), month: dayKey(now, timeZone).slice(0, 7) };
   const rosterFrom = now - rosterDays * DAY;
   const enabled = users ? new Map(users.map((u) => [u.id, u])) : null;
   const rows = new Map();
-  const blank = () => ({ done: 0, booked: 0 });
+  const blank = () => ({ done: 0, booked: 0, minutes: 0, untimed: 0 });
+  const PERIODS = ["day", "week", "month"];
   for (const schedule of schedules) {
     if (schedule.status === "Cancelled") continue;
     for (const event of schedule.interviewEvents || []) {
@@ -195,12 +215,22 @@ function interviewerLoadSnapshot(schedules, { users = null, timeZone, now = Date
         if (!row) {
           const user = enabled && enabled.get(interviewer.id);
           const name = (user && user.name) || `${interviewer.firstName || ""} ${interviewer.lastName || ""}`.trim() || interviewer.email || "Unknown";
-          row = { userId: interviewer.id, name, day: blank(), week: blank(), month: blank() };
+          row = { userId: interviewer.id, name, day: blank(), week: blank(), month: blank(), spans: { day: [], week: [], month: [] } };
           rows.set(interviewer.id, row);
         }
-        for (const period of ["day", "week", "month"]) if (at[period] === keys[period]) row[period][state]++;
+        const timed = Number.isFinite(end) && end > start && !untimed(event.interviewId);
+        for (const period of PERIODS) {
+          if (at[period] !== keys[period]) continue;
+          row[period][state]++;
+          if (timed) row.spans[period].push([start, end]);
+          else if (untimed(event.interviewId)) row[period].untimed++;
+        }
       }
     }
+  }
+  for (const row of rows.values()) {
+    for (const period of PERIODS) row[period].minutes = mergedMinutes(row.spans[period]);
+    delete row.spans;
   }
   return {
     periods: keys,
