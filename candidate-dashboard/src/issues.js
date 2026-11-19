@@ -75,6 +75,7 @@ let snapshot = {
   offersSigned: [],
   // { days, minInterviews, qualifying, top[] } once computed; null before.
   feedbackLeaderboard: null,
+  interviewerLoad: null,
   departments: [],
   thresholds,
   appConfig,
@@ -176,6 +177,19 @@ if (config.feedbackLeaderboardEnabled) {
   });
 }
 
+// Interviewer load (Interviewer Info tab): its own group so it never waits on
+// the candidate reads. Off (DISABLED_SECTIONS=interviewerLoad), never computed.
+if (config.interviewerLoadEnabled) {
+  SECTION_GROUPS.push({
+    label: "Interviewer load",
+    keys: ["interviewerLoad"],
+    fetch: () => timed("listInterviewerLoad", ashby.listInterviewerLoad()),
+    assign: (snap, result) => {
+      snap.interviewerLoad = result;
+    },
+  });
+}
+
 // Per-section-key { lastUpdated, lastError } — every key in a given
 // SECTION_GROUPS entry always shares the same value (they refresh
 // together), but this is keyed by the individual frontend-facing section
@@ -200,6 +214,7 @@ function describeCounts(group) {
     .map((key) => {
       const value = snapshot[key];
       if (value && !Array.isArray(value) && Array.isArray(value.top)) return `${key}=${value.top.length} shown of ${value.qualifying} qualifying`;
+      if (value && !Array.isArray(value) && Array.isArray(value.rows)) return `${key}=${value.rows.length} interviewers, ${value.rows.filter((r) => r.week.done + r.week.booked === 0).length} with none this week`;
       return `${key}=${(value || []).length}`;
     })
     .join(", ");

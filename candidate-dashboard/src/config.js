@@ -88,6 +88,7 @@ const SECTION_KEYS = [
   "needsScheduling",
   "availabilitySubmitted",
   "interviewerLimits",
+  "interviewerLoad",
   "recentSourced",
   "onsiteToday",
   "interviewsToday",
@@ -425,6 +426,13 @@ for (const key of config.disabledSections) {
 // For small clients (LiteLLM, 18 November 2026: three people qualified out
 // of eight interviewers, so the "top ten" was the whole team ranked).
 config.feedbackLeaderboardEnabled = !config.disabledSections.includes("feedbackLeaderboard");
+
+// Interviewer load (Interviewer Info tab) needs 90 days of schedules for who
+// appears, so it decides how long the schedule sync keeps them (ashby.js).
+// Off, it's never computed and that window doesn't grow for it: the second
+// exception to DISABLED_SECTIONS being display-only, for the same reason as
+// the leaderboard (what it costs to read).
+config.interviewerLoadEnabled = !config.disabledSections.includes("interviewerLoad");
 
 // Scorecard reminders (reminder-route.js): on with both settings. One
 // without the other is a half-finished setup, so say so.

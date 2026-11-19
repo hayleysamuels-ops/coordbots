@@ -1132,6 +1132,100 @@
   // saying how many qualified; no placeholder rows. Ties on share are broken
   // by median time to submit. "N others also at 100%" (a count, never names)
   // keeps a perfect record from being invisible below the cut.
+  // Interviewer load (interviewerLoadSnapshot in interviewer-load.js): one
+  // row per person for the chosen period, busiest first, people at zero
+  // folded into one line. The period toggle and name search re-render from
+  // lastData, no request. Bars are one neutral grey (colour is for state,
+  // DESIGN.md) scaled to the second-busiest person, so a single outlier
+  // (Pace: 107 this month against 49) doesn't flatten everyone else; the
+  // capped bar is marked.
+  let loadPeriod = "week";
+  let loadSearch = "";
+  const LOAD_PERIOD_WORDS = { day: "today", week: "this week", month: "this month" };
+
+  // "Thu 19 Nov", "Mon 16 – Sun 22 Nov", "November 2026". Built by hand:
+  // toLocaleDateString's en-US order scrambled the week ("16 Mon – Sun, Nov 22").
+  // The keys are calendar dates already in DISPLAY_TIMEZONE, so read as UTC.
+  function loadPeriodLabel(period, key) {
+    const [y, m, d] = (period === "month" ? key + "-01" : key).split("-").map(Number);
+    const at = (dd) => new Date(Date.UTC(y, m - 1, dd));
+    const wd = (dt) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][dt.getUTCDay()];
+    const mon = (dt) => ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][dt.getUTCMonth()];
+    if (period === "month") return `${["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][m - 1]} ${y}`;
+    const start = at(d);
+    if (period === "day") return `${wd(start)} ${start.getUTCDate()} ${mon(start)}`;
+    const end = at(d + 6);
+    const startText = `${wd(start)} ${start.getUTCDate()}${start.getUTCMonth() === end.getUTCMonth() ? "" : " " + mon(start)}`;
+    return `${startText} – ${wd(end)} ${end.getUTCDate()} ${mon(end)}`;
+  }
+
+  function renderInterviewerLoad(load, hasError) {
+    const container = document.getElementById("cards-interviewerLoad");
+    if (!container) return;
+    document.querySelectorAll(".load-period-btn").forEach((b) => {
+      const on = b.dataset.loadPeriod === loadPeriod;
+      b.classList.toggle("is-active", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    const label = document.getElementById("load-period-label");
+    const search = document.getElementById("load-search");
+    if (!load) {
+      if (label) label.textContent = "";
+      container.innerHTML = emptyStateHtml(hasError, "Still reading interview schedules for the first time.");
+      return;
+    }
+    if (label) label.textContent = loadPeriodLabel(loadPeriod, load.periods[loadPeriod]);
+    // Search only where the list is long enough to need it.
+    if (search) search.hidden = load.rows.length < 60;
+    const words = LOAD_PERIOD_WORDS[loadPeriod];
+    if (!load.rows.length) {
+      container.innerHTML = emptyStateHtml(hasError, `Nobody has interviewed in the last ${load.rosterDays} days.`);
+      return;
+    }
+    const q = search && !search.hidden ? loadSearch.trim().toLowerCase() : "";
+    const total = (r) => r[loadPeriod].done + r[loadPeriod].booked;
+    const rows = load.rows.filter((r) => !q || r.name.toLowerCase().includes(q));
+    const busy = rows.filter((r) => total(r) > 0).sort((a, b) => total(b) - total(a) || a.name.localeCompare(b.name));
+    const idle = rows.filter((r) => total(r) === 0);
+    const totals = busy.map(total);
+    // Scale to the second-busiest, unless the top one is within 1.5x of it.
+    const scale = totals.length > 1 && totals[0] > totals[1] * 1.5 ? totals[1] : totals[0] || 1;
+    const rowHtml = (r) => {
+      const t = total(r);
+      const { done, booked } = r[loadPeriod];
+      const capped = t > scale;
+      const pct = Math.max(2, Math.round((Math.min(t, scale) / scale) * 100));
+      const tip = `${r.name}: ${t} ${t === 1 ? "interview" : "interviews"} ${words}, ${done} done, ${booked} booked`;
+      return `
+          <tr>
+            <td class="load-name">${escapeHtml(r.name)}</td>
+            <td class="load-total">${t}</td>
+            <td class="load-split">${done} · ${booked}</td>
+            <td class="load-bar-cell" title="${escapeHtml(tip)}">
+              <div class="load-bar${capped ? " is-capped" : ""}" style="width:${pct}%"></div>
+            </td>
+          </tr>`;
+    };
+    const idleHtml = idle.length
+      ? `<details class="load-idle">
+          <summary>${idle.length} with no interviews ${words}</summary>
+          <p class="load-idle-names">${idle.map((r) => escapeHtml(r.name)).join(" · ")}</p>
+        </details>`
+      : "";
+    const table = busy.length
+      ? `<div class="action-queue-wrap">
+          <table class="action-queue-table load-table">
+            <thead><tr><th>Name</th><th class="load-total">Interviews</th><th class="load-split">Done · Booked</th><th class="load-bar-cell" aria-label="Interviews, as a bar"></th></tr></thead>
+            <tbody>${busy.map(rowHtml).join("")}</tbody>
+          </table>
+        </div>`
+      : emptyStateHtml(false, q ? "Nobody by that name has interviews in this period." : `Nobody has interviews ${words}.`);
+    // Keep an opened "no interviews" list open across the 60s re-render.
+    const wasOpen = container.querySelector(".load-idle")?.open;
+    container.innerHTML = table + idleHtml;
+    if (wasOpen) { const d = container.querySelector(".load-idle"); if (d) d.open = true; }
+  }
+
   function renderFeedbackLeaderboard(board, hasError) {
     const container = document.getElementById("cards-feedbackLeaderboard");
     const footnote = document.getElementById("feedbackLeaderboard-footnote");
@@ -1266,6 +1360,7 @@
   // table, not four sections, each disableable independently via
   // TRIAGE_QUEUES rather than this list.
   const SECTION_TIMESTAMP_KEYS = [
+    "interviewerLoad",
     "interviewerLimits",
     "recentSourced",
     "onsiteToday",
@@ -1487,6 +1582,10 @@
     if (!isSectionDisabled("interviewerLimits")) {
       // no department/job filter — no job/department concept for an interviewer
       renderInterviewerLimits(data.interviewerLimits || [], sectionHasError(data, "interviewerLimits"));
+    }
+    if (!isSectionDisabled("interviewerLoad")) {
+      // Interviewer-centric like Weekly Limits: no entity filter.
+      renderInterviewerLoad(data.interviewerLoad, sectionHasError(data, "interviewerLoad"));
     }
     if (!isSectionDisabled("interviewerTraining")) {
       // same — not tied to a candidate. With the training tracker on
@@ -1844,6 +1943,13 @@
       return;
     }
 
+    const loadBtn = e.target.closest(".load-period-btn");
+    if (loadBtn) {
+      loadPeriod = loadBtn.dataset.loadPeriod;
+      if (lastData) renderInterviewerLoad(lastData.interviewerLoad, sectionHasError(lastData, "interviewerLoad"));
+      return;
+    }
+
     const restoreBtn = e.target.closest(".hidden-restore-btn");
     if (restoreBtn) {
       restoreHidden(restoreBtn.dataset.key);
@@ -2107,6 +2213,14 @@
     const usageLink = viewer.admin ? `<a href="/usage">Usage log</a> · ` : "";
     el.innerHTML = `${who} · ${usageLink}<form method="post" action="/signout"><button type="submit" class="signout-btn">Sign out</button></form>`;
     el.hidden = false;
+  }
+
+  const loadSearchInput = document.getElementById("load-search");
+  if (loadSearchInput) {
+    loadSearchInput.addEventListener("input", () => {
+      loadSearch = loadSearchInput.value;
+      if (lastData) renderInterviewerLoad(lastData.interviewerLoad, sectionHasError(lastData, "interviewerLoad"));
+    });
   }
 
   loadViewer().finally(load);

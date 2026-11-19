@@ -255,6 +255,20 @@ async function main() {
   console.log(`  ${withLimit} of ${sampledInterviewerIds.length} sampled interviewers have a weeklyLimit configured in Ashby.`);
   verdict(withLimit > 0, "Interviewer Weekly Limits (needs at least some interviewers with weeklyLimit set in Ashby — this is an org configuration choice, not something this dashboard can detect further)");
 
+  // --- Interviewer load ---
+  // Structural fields only (schedule status, event start/end times, the
+  // event's interviewers), so no per-client tuning. It counts everything on
+  // someone's calendar, Welcomes and debriefs included; it only needs Ashby to
+  // be where interviews are booked.
+  section("Interviewer load (Interviewer Info tab)");
+  const timedEvents = schedules
+    .filter((s) => s.status !== "Cancelled")
+    .flatMap((s) => s.interviewEvents || [])
+    .filter((e) => e.startTime && (e.interviewers || []).some((i) => i.id)).length;
+  console.log(`  ${timedEvents} non-cancelled interview events with a start time and an interviewer; ${interviewerIds.size} people.`);
+  console.log("  Structural fields only (status, startTime/endTime, interviewers): no keyword tuning needed.");
+  verdict(timedEvents > 0, "Interviewer load (needs interviews booked through Ashby, with interviewers on them)");
+
   // --- Interviewer Training ---
   section("Interviewer Training");
   let pools = [];

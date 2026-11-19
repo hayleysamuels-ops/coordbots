@@ -6,7 +6,10 @@ const rescheduleTracking = require("./rescheduleTracking");
 const interviewerSettingsCache = require("./interviewerSettingsCache");
 const applicationInfoCache = require("./applicationInfoCache");
 const interviewTitleCache = require("./training/interviewTitleCache");
-const { countInterviewLoad, createScheduleSync, weekKey } = require("./interviewer-load");
+const { countInterviewLoad, createScheduleSync, weekKey, interviewerLoadSnapshot } = require("./interviewer-load");
+
+// Interviewer load lists anyone who interviewed in this many days.
+const INTERVIEWER_LOAD_ROSTER_DAYS = 90;
 const { createFeedbackSync } = require("./feedback-sync");
 const { createSyncStateFile } = require("./syncStateFile");
 const { buildLeaderboard } = require("./feedback-leaderboard");
@@ -299,7 +302,13 @@ async function fetchOfferApplications(applicationIds, signatures) {
 // used to keep 8 days, enough for the weekly limits alone).
 const scheduleSync = createScheduleSync({
   fetchPage: (body) => ashbyPost("interviewSchedule.list", body),
-  keepDays: config.feedbackLeaderboardEnabled ? Math.max(8, config.feedbackLeaderboardDays + 2) : 8,
+  // 8 days covers the weekly limits; the leaderboard and interviewer load
+  // need longer, each only where it's on.
+  keepDays: Math.max(
+    8,
+    config.feedbackLeaderboardEnabled ? config.feedbackLeaderboardDays + 2 : 0,
+    config.interviewerLoadEnabled ? INTERVIEWER_LOAD_ROSTER_DAYS + 2 : 0,
+  ),
   // Kept on the volume so a redeploy doesn't re-read every schedule ever.
   store: createSyncStateFile("schedule-sync.json"),
 });
@@ -1371,6 +1380,23 @@ async function listUsers() {
 }
 
 /**
+ * The Interviewer Info tab's Interviewer load section (interviewerLoadSnapshot
+ * in interviewer-load.js): today, this week and this month, everyone who
+ * interviewed in the last 90 days and is still an enabled user, zeros kept.
+ * No new Ashby reads: the schedule sync is shared and the user list cached.
+ */
+async function listInterviewerLoad() {
+  const [schedules, users] = await Promise.all([
+    scheduleSync.schedules(),
+    listUsers().catch((err) => {
+      console.warn("[ashby] user.list failed; Interviewer load keeps everyone, leavers included:", err.message);
+      return null;
+    }),
+  ]);
+  return interviewerLoadSnapshot(schedules, { users, timeZone: config.displayTimeZone, rosterDays: INTERVIEWER_LOAD_ROSTER_DAYS });
+}
+
+/**
  * Interviewer load for the calendar-checked proposal (scheduling-rules
  * interviewerLoad, booking-routes.js): each person's interviews per week,
  * Monday to Sunday in `timeZone`, over every schedule that isn't cancelled
@@ -1400,6 +1426,7 @@ async function interviewerLoad({ timeZone, countsTitle = () => true, excludeSche
 
 module.exports = {
   interviewerLoad,
+  listInterviewerLoad,
   countInterviewsThisWeek,
   listIssues,
   listUsers,

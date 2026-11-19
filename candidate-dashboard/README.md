@@ -165,11 +165,39 @@ the button never sends). The DM doesn't say who asked; the dashboard records tha
   sender's email).
 - **Usage log:** "Sent a scorecard reminder" with the candidate and the names reminded.
 
+## Interviewer load
+
+The first section on the Interviewer Info tab (19 November 2026): for everyone who has
+interviewed recently, how many interviews they have **today**, **this week** (Monday to
+Sunday) or **this month**, calendar periods in `DISPLAY_TIMEZONE`, chosen with a
+toggle (this week by default). Each total is split into done (ended) and booked (still
+to come in that period).
+
+- **What counts:** everything on someone's calendar where Ashby lists them as an
+  interviewer: interviews, Welcomes, lunches, debriefs. Not the who-owes-feedback rule:
+  a Welcome costs the time whether or not a scorecard is due. Cancelled schedules don't
+  count. No-shows do, because Ashby records no attendance. The same rule Interviewer
+  Weekly Limits uses (`countInterviewsThisWeek`), so the two agree on the week.
+- **Who appears:** anyone on a non-cancelled interview that started in the last 90 days
+  or is booked ahead, who is still an enabled Ashby user. People at zero are kept,
+  folded into one "N with no interviews this week" line that opens to their names.
+- **Counts only, on purpose, for now:** no hours, no Ashby limits or over-limit note
+  (Interviewer Weekly Limits still shows those), no stepping to other weeks. The
+  over-limit note waits on checking what Ashby's own limits count (its composer).
+  Ashby has daily as well as weekly limits (`user.interviewerSettings`: `dailyLimit`,
+  `weeklyLimit`).
+- **Bars** are one neutral grey, scaled to the second-busiest person when the busiest
+  is more than 1.5 times them (Pace: 107 this month against 49), with that bar notched
+  at the end. A name search appears from 60 people.
+- **Data:** `interviewerLoadSnapshot()` in `src/interviewer-load.js` over the schedule
+  sync the dashboard already keeps, and the cached user list. No new Ashby reads. The
+  sync keeps 92 days wherever this section is on (it was 8 at LiteLLM).
+
 ## Section keys
 
 Every section has a stable key — its field name in the `/api/issues`
 snapshot (`issues.js`/`ashby.js`) and its `DISABLED_SECTIONS` entry (see
-below). `recentSourced`/`onsiteToday`/`interviewsToday`/`interviewerLimits`/
+below). `recentSourced`/`onsiteToday`/`interviewsToday`/`interviewerLimits`/`interviewerLoad`/
 `interviewerTraining`/the three Offers keys also use it as their
 `<section data-key="...">` attribute in `index.html`; `feedbackOverdue`/
 `needsScheduling`/`availabilitySubmitted`/`rescheduledInterviews` don't —
@@ -182,6 +210,7 @@ below) instead of each having their own section:
 | `needsScheduling` | Needs Scheduling |
 | `availabilitySubmitted` | Availability Submitted |
 | `interviewerLimits` | Interviewer Weekly Limits |
+| `interviewerLoad` | Interviewer Load (Interviewer Info tab). Off, it's never computed, like the leaderboard. |
 | `recentSourced` | Recently Sourced |
 | `onsiteToday` | Onsite Interviews Today |
 | `interviewsToday` | Interviews Today |

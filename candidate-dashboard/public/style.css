@@ -763,6 +763,90 @@ button#refresh-btn.spinning {
   background: var(--surface-sunken);
 }
 
+/* Interviewer load (renderInterviewerLoad in app.js). The period toggle
+   looks like .filter-mode-toggle but has its own class: app.js's entity
+   filter listens for every .filter-mode-btn click. */
+.load-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 4px 0 12px;
+}
+.load-period-toggle {
+  display: flex;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+.load-period-btn {
+  border: none;
+  background: var(--surface);
+  color: var(--text-secondary);
+  padding: 5px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+}
+.load-period-btn:not(:first-child) { border-left: 1px solid var(--border-default); }
+.load-period-btn:hover { color: var(--text-primary); }
+.load-period-btn.is-active {
+  background: var(--surface-sunken);
+  color: var(--text-primary);
+  font-weight: 700;
+}
+.load-period-label {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+.load-search {
+  margin-left: auto;
+  font: inherit;
+  font-size: 14px;
+  padding: 5px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--text-primary);
+  min-width: 12rem;
+}
+.load-search[hidden] { display: none; }
+.load-table .load-name { font-weight: 600; }
+.load-table .load-total,
+.load-table .load-split {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.load-table td.load-total { font-weight: 700; }
+.load-table td.load-split { color: var(--text-secondary); }
+.load-table .load-bar-cell { width: 45%; }
+/* One neutral bar per row, 4px rounded data end, anchored left. */
+.load-bar {
+  height: 10px;
+  background: var(--text-muted);
+  border-radius: 0 4px 4px 0;
+}
+/* Past the scale (the busiest, far above everyone else): the bar runs to
+   the edge and ends in a notch so it doesn't read as "exactly full". */
+.load-bar.is-capped {
+  border-radius: 0;
+  clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 50%, calc(100% - 6px) 100%, 0 100%);
+}
+.load-idle {
+  margin-top: 12px;
+  color: var(--text-secondary);
+}
+.load-idle summary { cursor: pointer; font-weight: 600; }
+.load-idle-names { margin: 6px 0 0; line-height: 1.6; }
+@media (max-width: 640px) {
+  .load-table .load-bar-cell { display: none; }
+  .load-search { margin-left: 0; width: 100%; }
+}
+
 /* Feedback leaderboard: the Action queue table's look, with numbers in mono
    and right-aligned so they line up down the column. */
 .leaderboard-table .lb-rank,
@@ -1573,6 +1657,7 @@ button#refresh-btn.spinning {
   }
   .tab-btn.is-active,
   .filter-mode-btn.is-active,
+  .load-period-btn.is-active,
   .signal-chip.is-active,
   .queue-nav-item.is-active {
     background: #e2ddd8;

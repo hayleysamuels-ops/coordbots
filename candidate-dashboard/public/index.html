@@ -141,6 +141,28 @@
   <div id="tab-interviewers" class="tab-panel" hidden>
     <div class="page-with-margin">
     <main class="page-stack">
+      <section id="interviewerLoad" class="column wide-section" data-key="interviewerLoad">
+        <h2>Interviewer Load</h2>
+        <span class="section-updated muted" id="updated-interviewerLoad"></span>
+        <p class="column-sub">
+          Everything on someone's calendar: interviews, Welcomes, lunches and
+          debriefs. Cancelled interviews don't count. Everyone who has
+          interviewed in the last 90 days, including people with none in this
+          period. Not affected by the department/job/recruiter/coordinator
+          filter.
+        </p>
+        <div class="load-controls">
+          <div class="load-period-toggle" role="group" aria-label="Period">
+            <button type="button" class="load-period-btn" data-load-period="day" aria-pressed="false">Today</button>
+            <button type="button" class="load-period-btn is-active" data-load-period="week" aria-pressed="true">This week</button>
+            <button type="button" class="load-period-btn" data-load-period="month" aria-pressed="false">This month</button>
+          </div>
+          <span class="load-period-label" id="load-period-label"></span>
+          <input type="search" class="load-search" id="load-search" placeholder="Find a person" aria-label="Find a person" hidden>
+        </div>
+        <div id="cards-interviewerLoad"></div>
+      </section>
+
       <section id="interviewerLimits" class="column wide-section" data-key="interviewerLimits">
         <h2>Interviewer Weekly Limits</h2>
         <span class="section-updated muted" id="updated-interviewerLimits"></span>

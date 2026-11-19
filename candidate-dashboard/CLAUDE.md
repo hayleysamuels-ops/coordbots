@@ -151,6 +151,12 @@ is normally still in Application Review and any status).
   as "dashboard password" with a random per-sign-in id; no IPs. Admins are
   recorded but filtered out of `/usage` unless "Include admins". The privacy
   page's "Usage log" section describes all of this: keep them in step.
+- Interviewer Load (`interviewerLoadSnapshot` in `src/interviewer-load.js`,
+  `listInterviewerLoad` in `ashby.js`, its own SECTION_GROUPS entry): calendar
+  load per person for today / this week / this month. Counts EVERYTHING on the
+  calendar (not `owersFor()`), the same rule as Weekly Limits, so the two agree;
+  keep it that way. Zeros are kept on purpose. Counts only: hours, limits and
+  week-stepping were deliberately deferred (README § Interviewer load).
 - `src/reminder-route.js`, `src/reminder-history.js` — the Remind button on
   Feedback Overdue rows, only where `REMINDER_BOT_URL` and `REMINDER_BOT_SECRET`
   are set (Pace). The dashboard never sends a Slack message itself: it asks the
@@ -317,8 +323,10 @@ is normally still in Application Review and any status).
   computes every section's data regardless of `DISABLED_SECTIONS` — this is
   purely a display-layer toggle, by design (see `config.js`'s
   `disabledSections` comment) — don't add server-side skip logic for it.
-  **One exception: `feedbackLeaderboard`** (`config.feedbackLeaderboardEnabled`,
-  18 November 2026). It ranks named people, so off means never computed and
+  **Two exceptions: `feedbackLeaderboard`** (`config.feedbackLeaderboardEnabled`,
+  18 November 2026) **and `interviewerLoad`** (`config.interviewerLoadEnabled`,
+  19 November 2026: off, it isn't computed and the schedule sync doesn't keep
+  92 days for it). It ranks named people, so off means never computed and
   never in `/api/issues`; hiding only the tab would still ship the ranking
   to every browser. Off, the schedule sync also keeps 8 days, not 92.
   `applyDisabledSections()` also removes any tab (button and panel) left

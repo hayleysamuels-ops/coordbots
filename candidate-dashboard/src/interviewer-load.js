@@ -146,4 +146,63 @@ function createScheduleSync({ fetchPage, now = () => Date.now(), keepDays = 8, l
   };
 }
 
-module.exports = { weekKey, countInterviewLoad, createScheduleSync };
+// The calendar day (YYYY-MM-DD) containing `ms`, in `timeZone`.
+function dayKey(ms, timeZone) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(ms);
+}
+
+// The Interviewer Info tab's Interviewer load section: for everyone who has
+// interviewed recently, how many interviews they have today, this week
+// (Monday to Sunday) and this month, calendar periods in `timeZone`, each
+// split into done (ended) and booked (not ended yet, so the rest of the
+// period's calendar counts too).
+//
+// Load is everything on someone's calendar, unlike who owes feedback: a
+// Welcome, lunch or debrief costs the time whether or not a scorecard is
+// due. Cancelled schedules don't count (Ashby marks the schedule, and an
+// event removed from a schedule is simply gone). No-shows count: Ashby
+// records no attendance. Same rule as Interviewer Weekly Limits
+// (countInterviewsThisWeek), so the two sections agree on the week.
+//
+// Who appears: anyone listed on a non-cancelled interview that started in
+// the last `rosterDays` or is booked ahead, who is still an enabled Ashby
+// user (`users`, from listUsers; leavers drop out). People at zero for a
+// period are kept: who did nothing this week is half the point. Without a
+// user list (that read failed), nobody is dropped.
+function interviewerLoadSnapshot(schedules, { users = null, timeZone, now = Date.now(), rosterDays = 90 }) {
+  const keys = { day: dayKey(now, timeZone), week: weekKey(now, timeZone), month: dayKey(now, timeZone).slice(0, 7) };
+  const rosterFrom = now - rosterDays * DAY;
+  const enabled = users ? new Map(users.map((u) => [u.id, u])) : null;
+  const rows = new Map();
+  const blank = () => ({ done: 0, booked: 0 });
+  for (const schedule of schedules) {
+    if (schedule.status === "Cancelled") continue;
+    for (const event of schedule.interviewEvents || []) {
+      const start = Date.parse(event.startTime);
+      if (!Number.isFinite(start) || start < rosterFrom) continue;
+      const end = Date.parse(event.endTime);
+      const state = (Number.isFinite(end) ? end : start) <= now ? "done" : "booked";
+      const day = dayKey(start, timeZone);
+      const at = { day, week: weekKey(start, timeZone), month: day.slice(0, 7) };
+      for (const interviewer of event.interviewers || []) {
+        if (!interviewer.id || (enabled && !enabled.has(interviewer.id))) continue;
+        let row = rows.get(interviewer.id);
+        if (!row) {
+          const user = enabled && enabled.get(interviewer.id);
+          const name = (user && user.name) || `${interviewer.firstName || ""} ${interviewer.lastName || ""}`.trim() || interviewer.email || "Unknown";
+          row = { userId: interviewer.id, name, day: blank(), week: blank(), month: blank() };
+          rows.set(interviewer.id, row);
+        }
+        for (const period of ["day", "week", "month"]) if (at[period] === keys[period]) row[period][state]++;
+      }
+    }
+  }
+  return {
+    periods: keys,
+    timeZone,
+    rosterDays,
+    rows: [...rows.values()].sort((a, b) => a.name.localeCompare(b.name)),
+  };
+}
+
+module.exports = { weekKey, dayKey, countInterviewLoad, interviewerLoadSnapshot, createScheduleSync };
