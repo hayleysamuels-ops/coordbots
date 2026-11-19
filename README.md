@@ -9,7 +9,7 @@ For Luminai's scheduling pilot (gated by `SCHEDULING_CLIENT_ID`), start with the
 |---|---|---|
 | `candidate-dashboard/` | Per-client coordinator dashboard | `coordbots` in each of the seven dashboard projects below |
 | `candidate-dashboard/worker/` | Luminai scheduling worker | `scheduling-worker` in dashboard-luminai |
-| `ashby-scorecard-bot/` | Ashby → Slack scorecard reminders | none at present; Pace's manual-only deployment is being built (see below) |
+| `ashby-scorecard-bot/` | Ashby → Slack scorecard reminders, sent when someone presses Remind on a dashboard (manual-only: no automatic reminders) | `scorecard-bot` in dashboard-pace |
 | `candidate-channel-bot/` | Ashby → Slack: archives a candidate's channel when their application is archived or hired. Luminai only for now | `candidate-channel-bot` in dashboard-luminai |
 | `scheduling-worker/` | Copy of the Poetic work-trial tracker (squashed from work-trial-tracker `feature/scheduling-discussion-approvals` at `bbb1052`) | none: nothing deploys from this directory |
 | `coordinator-metrics/` | Cross-client coordinator volume dashboard: one tab per client plus an overview, twelve months of Ashby history in a SQLite file on a volume | `coordinator-metrics` in project `coordinator-metrics` |
@@ -40,6 +40,7 @@ reads it.
 | poetic-worktrialtracker | `scheduling-worker` | no connected repo: deployed by CLI upload (`railway up`), Dockerfile `worker/Dockerfile`, last deployed 18 September 2026 |
 | poetic-worktrialtracker | `Postgres` | Railway Postgres image |
 | coordinator-metrics | `coordinator-metrics` | this repo, branch `main`, root `/coordinator-metrics`, rebuilds only on changes under `/coordinator-metrics/**` except `*.md`. **Its watch patterns come from `coordinator-metrics/railway.json`, not the dashboard** — config-as-code overrides the UI, so editing them there is silently ignored. Unlike the seven per-client dashboards this is a SINGLE deployment holding every client's Ashby key, with a volume for its SQLite history |
+| dashboard-pace | `scorecard-bot` | this repo, branch `main`, root `/ashby-scorecard-bot`, rebuilds only on changes under `/ashby-scorecard-bot/**`. Created 18 November 2026. Manual-only (`AUTOMATIC_REMINDERS` unset): no Ashby webhooks, nothing sent unprompted. **No public address**, on purpose: the Pace dashboard calls it at `http://scorecard-bot.railway.internal:3000` (its `REMINDER_BOT_URL`). Never run `railway domain` on it, which creates one. Uses Pace's own Slack app (bot user `talent_os`) and the Pace dashboard's Ashby key. Volume `scorecard-bot-volume` at `/data` (the 4-hour cooldown). |
 | dashboard-luminai | `candidate-channel-bot` | this repo, branch `main`, root `/candidate-channel-bot`, rebuilds only on changes under `/candidate-channel-bot/**` |
 
 **The Feedback Reminder Bot project was Console's and is gone** (18 November 2026). Console is not a
