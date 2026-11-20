@@ -169,6 +169,16 @@ is normally still in Application Review and any status).
   "N of total"; keep that. Role details: `applicationRoles.js`, never expired
   by age. Limits and week-stepping deliberately deferred (README § Interviewer
   load).
+  **Split by stage** (20 November 2026): bars are cut into the client's Ashby
+  stage GROUPS (never stage names: Pace's "Intermediate" sits in two groups),
+  at most five, rest "Other". `INTERVIEWER_LOAD_STAGE_GROUPS` picks them where
+  set (January, Poetic: more than five); unset, the five busiest interview
+  groups. Don't switch the default back to "first five in plan order": it
+  dropped Poetic's Work Trial (56% of hours). No interview groups (Runlayer,
+  LiteLLM) = no split, deliberately. Shades are a grey lightness ramp, not
+  hues (DESIGN.md § Stage shades). `interviewStageCache.js` holds each stage's
+  group; no split until every stage in the 90 days is known. On phones the bar
+  sits under the row instead of being hidden; keep it.
 - `src/reminder-route.js`, `src/reminder-history.js` — the Remind button on
   Feedback Overdue rows, only where `REMINDER_BOT_URL` and `REMINDER_BOT_SECRET`
   are set (Pace). The dashboard never sends a Slack message itself: it asks the

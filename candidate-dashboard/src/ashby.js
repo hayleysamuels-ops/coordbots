@@ -6,7 +6,7 @@ const rescheduleTracking = require("./rescheduleTracking");
 const interviewerSettingsCache = require("./interviewerSettingsCache");
 const applicationInfoCache = require("./applicationInfoCache");
 const interviewTitleCache = require("./training/interviewTitleCache");
-const { countInterviewLoad, createScheduleSync, weekKey, interviewerLoadSnapshot } = require("./interviewer-load");
+const { countInterviewLoad, createScheduleSync, weekKey, interviewerLoadSnapshot, chooseStageSegments, minutesByStageGroup, MAX_STAGE_SEGMENTS } = require("./interviewer-load");
 
 // Interviewer load lists anyone who interviewed in this many days.
 const INTERVIEWER_LOAD_ROSTER_DAYS = 90;
@@ -16,6 +16,10 @@ const INTERVIEWER_LOAD_ROSTER_DAYS = 90;
 // a few refreshes rather than done at once.
 const applicationRoles = require("./applicationRoles").createApplicationRoles();
 const ROLE_LOOKUPS_PER_REFRESH = 100;
+// Each interview stage's group, for Interviewer Load's split by stage
+// (interviewStageCache.js); lookups per refresh, for the same reason.
+const interviewStageCache = require("./interviewStageCache").createInterviewStageCache();
+const STAGE_LOOKUPS_PER_REFRESH = 100;
 const { createFeedbackSync } = require("./feedback-sync");
 const { createSyncStateFile } = require("./syncStateFile");
 const { buildLeaderboard } = require("./feedback-leaderboard");
@@ -1457,11 +1461,69 @@ async function listInterviewerLoad() {
     untimed = (interviewId) => config.interviewerLoadUntimed.includes(config.normalizeInterviewName(interviewTitleCache.get(interviewId)));
   }
   await fillApplicationRoles(schedules);
+  const { stages, stageOf } = await loadStageSegments(schedules);
   return interviewerLoadSnapshot(schedules, {
     users, timeZone: config.displayTimeZone, rosterDays: INTERVIEWER_LOAD_ROSTER_DAYS,
     exclude: config.interviewerLoadExclude, untimed,
     roleOf: (id) => applicationRoles.get(id),
+    stages, stageOf,
   });
+}
+
+/**
+ * Interviewer Load's split by stage: which stage groups get a segment
+ * (chooseStageSegments) and which segment each stage falls in. Reads
+ * interviewStageGroup.list once per refresh, and interviewStage.info for
+ * stages not seen before or last read over a week ago, at most
+ * STAGE_LOOKUPS_PER_REFRESH a refresh (Forus: ~290 stages to start with),
+ * because the key is shared with the live dashboard. No split until every
+ * stage in the roster window is known, so a half-read client never shows
+ * real work as Other. Any failure: no split this refresh, bars as before.
+ */
+async function loadStageSegments(schedules) {
+  const none = { stages: null, stageOf: () => -1 };
+  try {
+    const from = Date.now() - (INTERVIEWER_LOAD_ROSTER_DAYS + 2) * 24 * 60 * 60 * 1000;
+    const ids = new Set();
+    for (const s of schedules) {
+      if (s.status !== "Cancelled" && s.interviewStageId && (s.interviewEvents || []).some((e) => Date.parse(e.startTime) >= from)) ids.add(s.interviewStageId);
+    }
+    const { never, stale } = interviewStageCache.due(ids);
+    const batch = never.concat(stale).slice(0, STAGE_LOOKUPS_PER_REFRESH);
+    if (batch.length) {
+      if (never.length) console.log(`[ashby] Interviewer load: ${never.length} interview stages without a group yet; looking up ${Math.min(never.length, batch.length)} this refresh.`);
+      await mapWithConcurrency(batch, 2, async (interviewStageId) => {
+        try {
+          const json = await ashbyPost("interviewStage.info", { interviewStageId });
+          const r = json.results || {};
+          interviewStageCache.set(interviewStageId, { groupId: r.interviewStageGroupId || null, title: r.title || null });
+        } catch (err) {
+          // Ashby said no (a deleted stage): remember it as Other. A network
+          // or HTTP failure: try again next refresh.
+          if (!/-> HTTP /.test(err.message)) interviewStageCache.set(interviewStageId, {});
+          console.warn(`[ashby] interviewStage.info failed for ${interviewStageId} (Interviewer load stage):`, err.message);
+        }
+      });
+    }
+    interviewStageCache.prune(ids);
+    interviewStageCache.flush();
+    const missing = [...ids].filter((id) => !interviewStageCache.has(id)).length;
+    if (missing) {
+      console.log(`[ashby] Interviewer load: no split by stage yet, ${missing} stages still to look up.`);
+      return none;
+    }
+    const groups = await fetchAllPages("interviewStageGroup.list", {});
+    const groupOf = (stageId) => (interviewStageCache.get(stageId) || {}).groupId || null;
+    const { segments, unknown, dropped } = chooseStageSegments(groups, minutesByStageGroup(schedules, { from, groupOf }), config.interviewerLoadStageGroups);
+    if (unknown.length) console.warn(`[ashby] INTERVIEWER_LOAD_STAGE_GROUPS names no stage group called ${unknown.map((t) => `"${t}"`).join(", ")}; left out.`);
+    if (dropped.length) console.warn(`[ashby] INTERVIEWER_LOAD_STAGE_GROUPS names more than ${MAX_STAGE_SEGMENTS}; ${dropped.join(", ")} counted as Other.`);
+    if (!segments) return none;
+    const index = new Map(segments.map((g, i) => [g.id, i]));
+    return { stages: segments.map((g) => g.title), stageOf: (stageId) => (index.has(groupOf(stageId)) ? index.get(groupOf(stageId)) : -1) };
+  } catch (err) {
+    console.warn("[ashby] Interviewer load: no split by stage this refresh:", err.message);
+    return none;
+  }
 }
 
 /**

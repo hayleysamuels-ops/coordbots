@@ -84,6 +84,20 @@
   --serious-wash: var(--ember-wash);
   --critical: #b0370b;
   --critical-wash: #f7d9cd;
+
+  /* --- Stage shades (Interviewer Load's bar, DESIGN.md § Stage shades):
+     one warm grey (ardesia's hue) in five lightness steps, early stage light
+     to late stage dark. An order, not categories, so no new hue: it reads
+     the same in greyscale and to colour-blind viewers. Step 3 is --nuvola's
+     lightness. Checked: monotone, adjacent ΔL ≥ 0.06 (OKLCH), lightest
+     2.11:1 on --surface. --stage-line draws Other's hatch and the filtered
+     view's "other roles" outline. --- */
+  --stage-1: #b9b1ab;
+  --stage-2: #98908b;
+  --stage-3: #79716c;
+  --stage-4: #5b544f;
+  --stage-5: #3e3833;
+  --stage-line: #a39b95;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -114,6 +128,16 @@
     --serious-wash: rgba(255, 122, 69, 0.16);
     --critical: #ffb198;
     --critical-wash: rgba(255, 177, 152, 0.18);
+
+    /* Stage shades chosen for the dark card, not flipped: late stages are
+       the light end, so the latest work still stands out. Dimmest 2.22:1
+       on the card surface. */
+    --stage-1: #706964;
+    --stage-2: #88807b;
+    --stage-3: #a09893;
+    --stage-4: #b9b1ab;
+    --stage-5: #d3cac5;
+    --stage-line: #88807b;
   }
 }
 
@@ -935,16 +959,92 @@ button#refresh-btn.spinning {
 }
 .load-bar-track .load-bar { position: absolute; left: 0; top: 0; }
 
+/* Split by stage: segments in stage order, a 2px surface gap between them,
+   the 4px rounded data end on the last. Widths are flex-grow shares. */
+.stage-bar {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+}
+.stage-bar > i { display: block; height: 100%; flex-basis: 0; min-width: 2px; }
+.stage-bar > i:last-child { border-radius: 0 4px 4px 0; }
+.stage-bar.is-capped > i:last-child { border-radius: 0; }
+.stage-1 { background: var(--stage-1); }
+.stage-2 { background: var(--stage-2); }
+.stage-3 { background: var(--stage-3); }
+.stage-4 { background: var(--stage-4); }
+.stage-5 { background: var(--stage-5); }
+/* Other (not one of the client's chosen stage groups): hatched, not a step. */
+.stage-other {
+  background: repeating-linear-gradient(135deg, var(--stage-line) 0 1.5px, transparent 1.5px 4px);
+  box-shadow: inset 0 0 0 1px var(--stage-line);
+}
+/* Filtered: the person's other roles, an outline so the selection reads as
+   the filled part. */
+.stage-rest { background: transparent; box-shadow: inset 0 0 0 1px var(--stage-line); }
+
+/* The legend: one row under the period controls. */
+.stage-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+.stage-legend[hidden] { display: none; }
+.stage-legend li { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
+.stage-legend li.is-zero { color: var(--text-muted); }
+.stage-legend-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+}
+.stage-legend-hours {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.stage-swatch { width: 14px; height: 10px; border-radius: 2px; flex: none; }
+
 .load-idle {
   margin-top: 12px;
   color: var(--text-secondary);
 }
 .load-idle summary { cursor: pointer; font-weight: 600; }
 .load-idle-names { margin: 6px 0 0; line-height: 1.6; }
+/* Phone: the bar keeps its stage mix, on a full-width line under the row,
+   rather than being hidden. Done · Booked stays off (it's in the tooltip). */
 @media (max-width: 640px) {
-  .load-table .load-bar-cell,
   .load-table .load-split { display: none; }
+  .load-table thead { display: none; }
+  .load-table tbody tr {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    column-gap: 12px;
+    align-items: baseline;
+  }
+  .load-table tbody td { border-bottom: none; }
+  .load-table tbody td.load-bar-cell {
+    grid-column: 1 / -1;
+    width: auto;
+    padding-top: 0;
+    border-bottom: 1px solid var(--gridline);
+  }
+  /* Filtered, the figures read "14 of 20", "7.3 h of 10 h": too wide to sit
+     beside a name, so the name takes its own line and the figures go under it. */
+  .load-table.is-filtered tbody tr { grid-template-columns: auto 1fr; }
+  .load-table.is-filtered tbody td.load-name { grid-column: 1 / -1; padding-bottom: 2px; }
+  .load-table.is-filtered tbody td.load-total,
+  .load-table.is-filtered tbody td.load-hours { padding-top: 2px; }
+  .load-table.is-filtered tbody td.load-total { text-align: left; }
   .load-search { margin-left: 0; width: 100%; }
+  .stage-legend { gap: 4px 12px; }
 }
 
 /* Feedback leaderboard: the Action queue table's look, with numbers in mono

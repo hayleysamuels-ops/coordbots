@@ -240,9 +240,45 @@ to come in that period).
   over-limit note waits on checking what Ashby's own limits count (its composer).
   Ashby has daily as well as weekly limits (`user.interviewerSettings`: `dailyLimit`,
   `weeklyLimit`).
-- **Bars** are one neutral grey, scaled to the second-busiest person when the busiest
+- **Bars** are neutral greys, scaled to the second-busiest person when the busiest
   is more than 1.5 times them (Pace: 107 this month against 49), with that bar notched
-  at the end. A name search appears from 60 people.
+  at the end. A name search appears from 60 people. On a phone the bar sits on its own
+  full-width line under each row (until 20 November 2026 it was hidden there); with a
+  filter on, the name also takes its own line, above the "14 of 20" figures.
+- **Split by stage** (20 November 2026): each bar is cut into the client's own Ashby
+  stage groups, in plan order, with a legend above the table. Shades are one warm grey in
+  five lightness steps, early stage light to late stage dark (DESIGN.md § Stage shades),
+  never hues. Anything outside the chosen groups is hatched "Other". Filtered, the
+  selected roles' share is split by stage and the person's other roles follow as an
+  outline. The legend's shades and order never change with the period or filter; the
+  hours beside them do. Segments are shares of the person's hours, so an overlap across
+  two stages can't make a bar too long.
+  - **Which groups:** at most five. `INTERVIEWER_LOAD_STAGE_GROUPS` names them, in order,
+    where it's set. Unset: the five interview (Active) groups with the most hours in 90
+    days, in plan order. No interview groups at all: no split, bars as before.
+  - **Per client, checked 20 November 2026** (90 days of schedules, read-only):
+    | Client | Interview groups | Segments | Other |
+    |---|---|---|---|
+    | Pace | 4 | Intro, Skills Screen, Deep Dive, Onsite (unset) | 8% |
+    | Forus | 6 | Initial Screen, First Round, Second Round, Final Round, Onsite (unset; References, 10 h, is Other) | 3% |
+    | January | 7 | set: `IPS,HMS,Round 1,Final Round,CEO Interview` | 2% |
+    | Poetic | 6 | set: `Initial Screen,Skills Assessment,Case Study,Background Screen,Work Trial` | 0% |
+    | Luminai | 6 | Initial Screen, Hiring Manager Screen, Skills Assessment, Onsite, Founder Interview(s) (unset; Pre-Sell has no hours) | 10% |
+    | Runlayer | 0 | none: no stage groups in Ashby (28 stage names) | n/a |
+    | LiteLLM | 0 | none: no stage groups in Ashby (4 stage names) | n/a |
+
+    Picking the first five in plan order was rejected: it dropped Poetic's Work Trial (56%
+    of its hours) and January's CEO Interview. Grouping by stage name was rejected too:
+    Pace's "Intermediate" is a Skills Screen in one plan and a Deep Dive in another. Forus
+    and Luminai have stages in plans with no group set (3%, 9%); they're Other until the
+    client sets a group in Ashby. Runlayer and LiteLLM get the split as soon as they set
+    up stage groups.
+  - **Data:** `interviewStage.info` per stage for its group, kept in
+    `<DATA_DIR>/interview-stages.json` (`interviewStageCache.js`) and read again after a
+    week; up to 100 lookups a refresh, two at a time (Forus starts with about 290). A
+    stage Ashby won't return (deleted: three at Pace) is kept as Other. Plus one
+    `interviewStageGroup.list` per refresh. No split until every stage in the 90 days is
+    known, so a half-read client never shows real work as Other.
 - **Shared calendar accounts** are left out by name with `INTERVIEWER_LOAD_EXCLUDE`. Forus
   (19 November 2026): `recruiting@forus.com`, which holds each candidate's whole onsite day
   ("[Forus] Onsite Day" and similar) as one 4 to 9.5 hour event, several at once: 202 such
@@ -253,7 +289,8 @@ to come in that period).
   overlaps are work-trial lunches and dinners with one host. Run the same check when
   onboarding a client.
 - **Data:** `interviewerLoadSnapshot()` in `src/interviewer-load.js` over the schedule
-  sync the dashboard already keeps, and the cached user list. No new Ashby reads. The
+  sync the dashboard already keeps, and the cached user list. The only Ashby reads it
+  adds are the stage lookups above. The
   sync keeps 92 days wherever this section is on (it was 8 at LiteLLM).
 
 ## Section keys
@@ -570,6 +607,7 @@ Fill in `.env`:
 | `ADMIN_EMAILS` | no | With Google sign-in on, turns on the usage log (`src/usage-log.js`) and lists exactly who can read it at `/usage`, e.g. `someone@carrara.is`. Unset, nothing is recorded and `/usage` is a 404. Records sign-ins, page/tab/queue/section opens, Ashby links opened, hides, snoozes, restores, notes (not their text) and refreshes, kept 90 days on the volume. |
 | `INTERVIEWER_LOAD_UNTIMED_INTERVIEWS` | no | Interview names (matched whole, comma-separated) that count toward Interviewer Load's interview number but not its hours: long blocks a real person is on but isn't with the candidate for. Poetic: `Build Time`. |
 | `INTERVIEWER_LOAD_EXCLUDE` | no | Shared calendar accounts left out of Interviewer Load (counts and hours), by email, comma-separated, case-insensitive. Named on purpose, never a pattern. Forus: `recruiting@forus.com`. See § Interviewer load. |
+| `INTERVIEWER_LOAD_STAGE_GROUPS` | no | Ashby stage groups (titles, comma-separated, case-insensitive) that get their own shade in Interviewer Load's bar, in order, at most five; the rest is Other. Unset: the five interview groups with the most hours in 90 days. Set where a client has more than five: January `IPS,HMS,Round 1,Final Round,CEO Interview`; Poetic `Initial Screen,Skills Assessment,Case Study,Background Screen,Work Trial`. See § Interviewer load. |
 | `REMINDER_BOT_URL` | no | Turns on the Remind button on Feedback Overdue rows, with `REMINDER_BOT_SECRET`: the scorecard reminder bot's address on Railway's private network, e.g. `http://scorecard-bot.railway.internal:3000`. See § Scorecard reminders. Pace only. |
 | `REMINDER_BOT_SECRET` | with reminders | The bot's `REMIND_SECRET`. Only one of the two set warns at startup and leaves reminders off. |
 | `ASHBY_API_KEY` | yes | Reads applications and interview schedules. |
@@ -622,6 +660,11 @@ actually guarantees for every org:
   `COORDINATOR_ROLE_NAME`) matches an exact `hiringTeamRole.list` value —
   this org's roles happen to be "Recruiter"/"Recruiting Coordinator", but
   that's this org's naming, not an Ashby default.
+- **Interviewer Load's split by stage** uses the client's Ashby stage groups
+  (structural: `interviewStageGroup.list`, `interviewStage.info`), but how many
+  they have is up to them. The compatibility script lists their interview groups
+  with 90 days of hours. More than five: set `INTERVIEWER_LOAD_STAGE_GROUPS`. None:
+  no split until they set some up. See § Interviewer load.
 ## Interviewer training tracker
 
 On only where `TRAINING_TRACKER_CLIENT_ID` is set (Forus). It **replaces** the

@@ -177,3 +177,86 @@ test("saved role details never expire by age, and drop out when no schedule need
   b.prune(new Set(["app-2"])); b.flush();
   assert.equal(createApplicationRoles({ file, log: { warn() {} } }).has("app-1"), false);
 });
+
+// Split by stage (stages / stageOf): each period's byStage, and byRole's
+// sixth element, minutes per segment then Other.
+const { chooseStageSegments, minutesByStageGroup } = require("../src/interviewer-load");
+const staged = (stageId, events, status = "Scheduled") => ({ ...sched(events, status), interviewStageId: stageId });
+
+test("byStage: minutes per stage segment, then Other; none without stages", () => {
+  const schedules = [
+    staged("st-intro", [ev("2026-11-17T16:00:00Z", [ana], { minutes: 30 })]),
+    staged("st-onsite", [ev("2026-11-18T16:00:00Z", [ana], { minutes: 120 })]),
+    staged("st-review", [ev("2026-11-18T20:00:00Z", [ana], { minutes: 15 })]), // not a segment: Other
+    staged(undefined, [ev("2026-11-16T20:00:00Z", [ana], { minutes: 45 })]),    // no stage: Other
+  ];
+  const stageOf = (id) => ({ "st-intro": 0, "st-onsite": 1 }[id] ?? -1);
+  const snap = interviewerLoadSnapshot(schedules, { users, timeZone: TZ, now: NOW, stages: ["Intro", "Onsite"], stageOf });
+  assert.deepEqual(snap.stages, ["Intro", "Onsite"]);
+  const a = row(snap, "u-ana");
+  assert.deepEqual(a.week.byStage, [30, 120, 60]);
+  assert.equal(a.week.minutes, 210);
+  const plain = interviewerLoadSnapshot(schedules, { users, timeZone: TZ, now: NOW });
+  assert.equal(plain.stages, null);
+  assert.equal(row(plain, "u-ana").week.byStage, undefined);
+});
+
+test("byStage counts overlap once within a stage, and untimed interviews not at all", () => {
+  const snap = interviewerLoadSnapshot([
+    staged("st-a", [ev("2026-11-17T16:00:00Z", [ana], { minutes: 60 })]),
+    staged("st-a", [ev("2026-11-17T16:30:00Z", [ana], { minutes: 60 })]), // 30 min overlap
+    staged("st-a", [{ ...ev("2026-11-17T20:00:00Z", [ana]), interviewId: "build" }]),
+  ], { users, timeZone: TZ, now: NOW, stages: ["A"], stageOf: () => 0, untimed: (id) => id === "build" });
+  assert.deepEqual(row(snap, "u-ana").week.byStage, [90, 0]);
+});
+
+test("byRole carries the same split, for the filtered view", () => {
+  const roleOf = (id) => ({ "app-1": { jobId: "j1" }, "app-2": { jobId: "j2" } }[id]);
+  const snap = interviewerLoadSnapshot([
+    { ...staged("st-intro", [ev("2026-11-17T16:00:00Z", [ana], { minutes: 30 })]), applicationId: "app-1" },
+    { ...staged("st-onsite", [ev("2026-11-18T16:00:00Z", [ana], { minutes: 60 })]), applicationId: "app-2" },
+  ], { users, timeZone: TZ, now: NOW, roleOf, stages: ["Intro", "Onsite"], stageOf: (id) => (id === "st-intro" ? 0 : 1) });
+  const byJob = Object.fromEntries(row(snap, "u-ana").week.byRole.map((e) => [snap.roles[e[0]].jobId, e[5]]));
+  assert.deepEqual(byJob, { j1: [30, 0, 0], j2: [0, 60, 0] });
+});
+
+const G = (id, title, order, stageType = "Active") => ({ id, title, order, stageType });
+const poeticGroups = [G("ar", "Application Review", 0, "PreInterviewScreen"), G("is", "Initial Screen", 1), G("as", "Additional Screen", 2), G("sk", "Skills Assessment", 3), G("cs", "Case Study", 4), G("bg", "Background Screen", 5), G("wt", "Work Trial", 6), G("of", "Offer", 7, "Offer")];
+// Poetic's 90-day minutes by group (hours ×60), rounded.
+const poeticMinutes = new Map([["is", 330 * 60], ["as", 6 * 60], ["sk", 299 * 60], ["cs", 266 * 60], ["bg", 83 * 60], ["wt", 1260 * 60], ["of", 600]]);
+
+test("unset: the five interview groups with the most hours, in plan order", () => {
+  const { segments } = chooseStageSegments(poeticGroups, poeticMinutes);
+  // Plan order alone would have kept Additional Screen (6h) and dropped Work Trial (1,260h).
+  assert.deepEqual(segments.map((g) => g.title), ["Initial Screen", "Skills Assessment", "Case Study", "Background Screen", "Work Trial"]);
+});
+
+test("unset: only Active groups with hours count; none at all means no split", () => {
+  assert.deepEqual(chooseStageSegments([G("a", "Intro", 1), G("b", "Onsite", 2), G("o", "Offer", 3, "Offer")], new Map([["a", 60], ["o", 600]])).segments.map((g) => g.title), ["Intro"]);
+  // Runlayer and LiteLLM: no interview stage groups.
+  const runlayer = [G("ar", "Application Review", 0, "PreInterviewScreen"), G("of", "Offer", 1, "Offer"), G("x", "Archived", 2, "Archived"), G("h", "Hired", 3, "Hired")];
+  assert.equal(chooseStageSegments(runlayer, new Map([["of", 500]])).segments, null);
+  assert.equal(chooseStageSegments(null, new Map()).segments, null);
+});
+
+test("configured: those groups in the order given, case-insensitive; unknown names reported; past five dropped", () => {
+  const r = chooseStageSegments(poeticGroups, poeticMinutes, ["work trial", "Initial  Screen", "Nope"]);
+  assert.deepEqual(r.segments.map((g) => g.title), ["Work Trial", "Initial Screen"]);
+  assert.deepEqual(r.unknown, ["Nope"]);
+  const six = chooseStageSegments(poeticGroups, poeticMinutes, ["Initial Screen", "Additional Screen", "Skills Assessment", "Case Study", "Background Screen", "Work Trial"]);
+  assert.equal(six.segments.length, 5);
+  assert.deepEqual(six.dropped, ["Work Trial"]);
+  // Nothing found: no split, never a silent fallback to the automatic choice.
+  assert.equal(chooseStageSegments(poeticGroups, poeticMinutes, ["Nope"]).segments, null);
+});
+
+test("minutesByStageGroup: per interviewer, from the window start, cancelled and ungrouped skipped", () => {
+  const from = Date.parse("2026-11-01T00:00:00Z");
+  const m = minutesByStageGroup([
+    staged("st-1", [ev("2026-11-10T16:00:00Z", [ana, ben], { minutes: 60 })]),
+    staged("st-1", [ev("2026-10-10T16:00:00Z", [ana], { minutes: 60 })]),          // before the window
+    staged("st-1", [ev("2026-11-11T16:00:00Z", [ana], { minutes: 60 })], "Cancelled"),
+    staged("st-x", [ev("2026-11-12T16:00:00Z", [ana], { minutes: 60 })]),          // no group
+  ], { from, groupOf: (id) => (id === "st-1" ? "g1" : null) });
+  assert.deepEqual([...m], [["g1", 120]]);
+});

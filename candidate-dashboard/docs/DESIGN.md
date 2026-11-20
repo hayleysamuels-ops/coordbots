@@ -15,7 +15,8 @@ See § Scheduling pages.
 1. **Colour means state, never decoration.** Almost everything is neutral: ink, grey,
    white and a tinted page. Colour appears only where something needs attention, is
    handled, or has a consequence. A number is black until it's a problem, then it
-   turns red.
+   turns red. One exception holds to this rule's spirit: Interviewer Load's stage shades
+   are greys, not hues (§ Stage shades).
 2. **Colour is never the only signal.** Every coloured element also carries words:
    "Out now", "PART-COVERED", "Archive". It must still read in greyscale.
 3. **Three typefaces, three jobs.** A serif for titles, a sans for content, and a mono
@@ -155,6 +156,29 @@ it counts a problem and is above zero. Zero is never red.
 **Inline state text.** A whole line can take a state ink, e.g. "Runlayer ·
 uncovered: Oct 1–6" in `--warning`. Only the line with the problem is coloured, never
 the block around it.
+
+## Stage shades (data, not state)
+
+Added 20 November 2026 for Interviewer Load's split by stage. It's the one place the
+page shows a kind of thing rather than a state, and it does so without adding a hue.
+
+- **One warm grey in five lightness steps** (`--stage-1` … `--stage-5`, ardesia's hue).
+  Light mode runs light (early stage) to dark (late); dark mode has its own steps, late
+  stages being the light end, so the latest work still stands out. Step 3 is
+  `--nuvola`'s lightness.
+- **Why not hues:** stages are an order, so an ordinal ramp is the right encoding, and
+  with no second hue it reads the same in greyscale and to colour-blind viewers. The
+  only hues we have are moss, lemon and ember, which already mean good, warning and
+  serious. As categories they fail anyway: ember and lemon are ΔE 3.1 apart under
+  protanopia (8 is needed), moss and lemon 8.6 apart with normal vision (15 is needed).
+- **Checked** (OKLCH): lightness monotone, adjacent steps ≥ 0.06 apart, lightest step
+  2.11:1 on the light card, dimmest 2.22:1 on the dark card.
+- **Not a step:** Other is hatched, and the filtered view's "other roles" is an outline,
+  both in `--stage-line`. A client with fewer than five segments uses steps spread out
+  and ending on step 5.
+- **Never colour alone:** a legend names every shade, and each bar's tooltip lists its
+  stages and hours.
+- Don't reuse these shades for state, and don't reuse state colours for stages.
 
 ## Loading, empty and error
 

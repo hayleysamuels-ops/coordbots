@@ -269,6 +269,42 @@ async function main() {
   console.log("  Structural fields only (status, startTime/endTime, interviewers): no keyword tuning needed.");
   verdict(timedEvents > 0, "Interviewer load (needs interviews booked through Ashby, with interviewers on them)");
 
+  // Split by stage: structural (interviewStageGroup.list, each stage's
+  // interviewStageGroupId), but how many interview groups a client has is
+  // their choice. More than five: set INTERVIEWER_LOAD_STAGE_GROUPS. None: no
+  // split (Runlayer, LiteLLM on 20 November 2026). See README § Interviewer load.
+  try {
+    const groups = await fetchAllPages("interviewStageGroup.list", {});
+    const active = groups.filter((g) => g.stageType === "Active").sort((a, b) => a.order - b.order);
+    const loadStageIds = [...new Set(schedules.filter((s) => s.status !== "Cancelled").map((s) => s.interviewStageId).filter(Boolean))];
+    const stageGroup = new Map(
+      (await mapWithConcurrency(loadStageIds.slice(0, 100), 4, (interviewStageId) =>
+        ashbyPost("interviewStage.info", { interviewStageId }).then((json) => [interviewStageId, json.results && json.results.interviewStageGroupId]).catch(() => [interviewStageId, null])
+      ))
+    );
+    const hours = new Map();
+    let total = 0;
+    for (const s of schedules) {
+      if (s.status === "Cancelled") continue;
+      for (const e of s.interviewEvents || []) {
+        const h = ((Date.parse(e.endTime) - Date.parse(e.startTime)) / 3600000) * (e.interviewers || []).length;
+        if (!(h > 0)) continue;
+        total += h;
+        const g = stageGroup.get(s.interviewStageId);
+        if (g) hours.set(g, (hours.get(g) || 0) + h);
+      }
+    }
+    console.log(`  Stage groups for the bar's split by stage: ${active.length} interview (Active) groups.`);
+    for (const g of active) console.log(`    - ${g.title}: ${Math.round(hours.get(g.id) || 0)} h`);
+    const grouped = active.reduce((sum, g) => sum + (hours.get(g.id) || 0), 0);
+    if (total) console.log(`  ${Math.round(100 - (100 * grouped) / total)}% of interview hours are on stages outside these groups (shown as Other).`);
+    if (!active.length) console.log("  No interview stage groups: Interviewer Load shows no split by stage until the client sets some up.");
+    else if (active.length > 5) console.log("  More than five: set INTERVIEWER_LOAD_STAGE_GROUPS to the five to show, in order.");
+    console.log("  ○ INFO — split by stage (optional; the section works without it)");
+  } catch (err) {
+    console.log(`  ✗ stage groups unreadable (${err.message}): Interviewer Load shows no split by stage.`);
+  }
+
   // --- Interviewer Training ---
   section("Interviewer Training");
   let pools = [];

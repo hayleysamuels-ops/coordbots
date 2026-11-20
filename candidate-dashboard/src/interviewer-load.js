@@ -202,7 +202,20 @@ function dayKey(ms, timeZone) {
 // who appears when filtered. An interview with no known role still counts in
 // the totals, never in a filtered view; `unmatched` says how many of this
 // period's are like that.
-function interviewerLoadSnapshot(schedules, { users = null, timeZone, now = Date.now(), rosterDays = 90, exclude = [], untimed = () => false, roleOf = () => null }) {
+//
+// Stages, for the bar's split by stage: `stages` is the segment names (from
+// chooseStageSegments) or null for no split (the client has no interview
+// stage groups, or the stage lookups aren't complete yet). `stageOf(
+// interviewStageId)` gives a segment index, or anything else for "Other".
+// With a split, each period carries `byStage`: minutes per segment then
+// Other (overlap counted once within each), and each byRole entry gains the
+// same array as a sixth element. Segments are drawn as shares of the
+// person's total, so overlap across two stages can't make a bar too long.
+function interviewerLoadSnapshot(schedules, { users = null, timeZone, now = Date.now(), rosterDays = 90, exclude = [], untimed = () => false, roleOf = () => null, stages = null, stageOf = () => -1 }) {
+  const split = Array.isArray(stages) && stages.length > 0;
+  const buckets = split ? stages.length + 1 : 0;
+  const bucketOf = (stageId) => { const i = stageOf(stageId); return Number.isInteger(i) && i >= 0 && i < buckets - 1 ? i : buckets - 1; };
+  const stageSpans = () => Array.from({ length: buckets }, () => []);
   const excluded = new Set(exclude.map((e) => String(e).trim().toLowerCase()).filter(Boolean));
   const keys = { day: dayKey(now, timeZone), week: weekKey(now, timeZone), month: dayKey(now, timeZone).slice(0, 7) };
   const rosterFrom = now - rosterDays * DAY;
@@ -225,6 +238,7 @@ function interviewerLoadSnapshot(schedules, { users = null, timeZone, now = Date
   for (const schedule of schedules) {
     if (schedule.status === "Cancelled") continue;
     const role = roleFor(schedule.applicationId);
+    const bucket = split ? bucketOf(schedule.interviewStageId) : -1;
     for (const event of schedule.interviewEvents || []) {
       const start = Date.parse(event.startTime);
       if (!Number.isFinite(start) || start < rosterFrom) continue;
@@ -239,7 +253,7 @@ function interviewerLoadSnapshot(schedules, { users = null, timeZone, now = Date
         if (!row) {
           const user = enabled && enabled.get(interviewer.id);
           const name = (user && user.name) || `${interviewer.firstName || ""} ${interviewer.lastName || ""}`.trim() || interviewer.email || "Unknown";
-          row = { userId: interviewer.id, name, day: blank(), week: blank(), month: blank(), roleSet: new Set(), spans: { day: [], week: [], month: [] }, byRole: { day: new Map(), week: new Map(), month: new Map() } };
+          row = { userId: interviewer.id, name, day: blank(), week: blank(), month: blank(), roleSet: new Set(), spans: { day: [], week: [], month: [] }, stageSpans: { day: stageSpans(), week: stageSpans(), month: stageSpans() }, byRole: { day: new Map(), week: new Map(), month: new Map() } };
           rows.set(interviewer.id, row);
         }
         if (role >= 0) row.roleSet.add(role);
@@ -250,10 +264,12 @@ function interviewerLoadSnapshot(schedules, { users = null, timeZone, now = Date
           row[period][state]++;
           if (timed) row.spans[period].push([start, end]);
           else if (isUntimed) row[period].untimed++;
+          if (timed && split) row.stageSpans[period][bucket].push([start, end]);
           if (role < 0) continue;
-          const g = row.byRole[period].get(role) || { done: 0, booked: 0, spans: [], untimed: 0 };
+          const g = row.byRole[period].get(role) || { done: 0, booked: 0, spans: [], untimed: 0, stageSpans: split ? stageSpans() : null };
           g[state]++;
           if (timed) g.spans.push([start, end]);
+          if (timed && split) g.stageSpans[bucket].push([start, end]);
           else if (isUntimed) g.untimed++;
           row.byRole[period].set(role, g);
         }
@@ -263,10 +279,15 @@ function interviewerLoadSnapshot(schedules, { users = null, timeZone, now = Date
   for (const row of rows.values()) {
     for (const period of PERIODS) {
       row[period].minutes = mergedMinutes(row.spans[period]);
-      row[period].byRole = [...row.byRole[period]].map(([i, g]) => [i, g.done, g.booked, mergedMinutes(g.spans), g.untimed]);
+      if (split) row[period].byStage = row.stageSpans[period].map(mergedMinutes);
+      row[period].byRole = [...row.byRole[period]].map(([i, g]) => {
+        const entry = [i, g.done, g.booked, mergedMinutes(g.spans), g.untimed];
+        if (split) entry.push(g.stageSpans.map(mergedMinutes));
+        return entry;
+      });
     }
     row.roles = [...row.roleSet];
-    delete row.spans; delete row.byRole; delete row.roleSet;
+    delete row.spans; delete row.byRole; delete row.roleSet; delete row.stageSpans;
   }
   // Interviews in each period whose role isn't known yet (counted in totals,
   // left out of filtered views), across the people listed.
@@ -280,8 +301,65 @@ function interviewerLoadSnapshot(schedules, { users = null, timeZone, now = Date
     rosterDays,
     roles,
     unmatched,
+    stages: split ? stages.slice() : null,
     rows: [...rows.values()].sort((a, b) => a.name.localeCompare(b.name)),
   };
 }
 
-module.exports = { weekKey, dayKey, countInterviewLoad, interviewerLoadSnapshot, createScheduleSync };
+// Which of a client's Ashby stage groups get their own segment of the bar
+// (at most five; everything else is Other).
+// `groups`: interviewStageGroup.list ({ id, title, order, stageType }).
+// `minutesByGroup`: Map(groupId → interview minutes in the roster window).
+// `configured`: INTERVIEWER_LOAD_STAGE_GROUPS, group titles in the order to
+// draw them. Set, it decides, so a group's shade never changes on its own
+// (January has seven interview groups, Poetic six; picking the first five
+// in plan order dropped Poetic's Work Trial, 56% of its hours). Unset: the
+// five Active groups with the most minutes, in plan order. No Active group
+// with minutes (Runlayer, LiteLLM: no interview stage groups at all): null,
+// no split. Returns { segments: [{ id, title }] | null, unknown: [titles
+// configured but not found], dropped: [configured past the fifth] }.
+const MAX_STAGE_SEGMENTS = 5;
+function chooseStageSegments(groups, minutesByGroup, configured = []) {
+  const norm = (s) => String(s || "").trim().toLowerCase().replace(/\s+/g, " ");
+  const list = Array.isArray(groups) ? groups : [];
+  if (configured.length) {
+    const byTitle = new Map();
+    for (const g of list) if (!byTitle.has(norm(g.title))) byTitle.set(norm(g.title), g);
+    const found = [], unknown = [];
+    for (const name of configured) {
+      const g = byTitle.get(norm(name));
+      if (!g) unknown.push(name);
+      else if (!found.includes(g)) found.push(g);
+    }
+    const kept = found.slice(0, MAX_STAGE_SEGMENTS);
+    const dropped = found.slice(MAX_STAGE_SEGMENTS).map((g) => g.title);
+    return { segments: kept.length ? kept.map((g) => ({ id: g.id, title: g.title })) : null, unknown, dropped };
+  }
+  const minutes = (g) => minutesByGroup.get(g.id) || 0;
+  const top = list.filter((g) => g.stageType === "Active" && minutes(g) > 0)
+    .sort((a, b) => minutes(b) - minutes(a) || a.order - b.order)
+    .slice(0, MAX_STAGE_SEGMENTS)
+    .sort((a, b) => a.order - b.order);
+  return { segments: top.length ? top.map((g) => ({ id: g.id, title: g.title })) : null, unknown: [], dropped: [] };
+}
+
+// Interview minutes per stage group over events starting from `from`, every
+// interviewer counted (the share of work, not calendar time), cancelled
+// schedules skipped. `groupOf(interviewStageId)` → groupId or null.
+function minutesByStageGroup(schedules, { from, groupOf }) {
+  const out = new Map();
+  for (const s of schedules) {
+    if (s.status === "Cancelled") continue;
+    const groupId = groupOf(s.interviewStageId);
+    if (!groupId) continue;
+    for (const e of s.interviewEvents || []) {
+      const start = Date.parse(e.startTime), end = Date.parse(e.endTime);
+      if (!(start >= from) || !(end > start)) continue;
+      const people = (e.interviewers || []).length;
+      out.set(groupId, (out.get(groupId) || 0) + ((end - start) / 60000) * people);
+    }
+  }
+  return out;
+}
+
+module.exports = { weekKey, dayKey, countInterviewLoad, interviewerLoadSnapshot, chooseStageSegments, minutesByStageGroup, MAX_STAGE_SEGMENTS, createScheduleSync };

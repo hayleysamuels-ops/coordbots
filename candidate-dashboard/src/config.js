@@ -303,6 +303,14 @@ const config = {
   interviewerLoadUntimed: exactList("INTERVIEWER_LOAD_UNTIMED_INTERVIEWS", []).map(normalizeInterviewName),
   // The same names as written, for the page ("+ 2 Build Time").
   interviewerLoadUntimedNames: exactList("INTERVIEWER_LOAD_UNTIMED_INTERVIEWS", []),
+  // Ashby stage groups (titles, case-insensitive) that get their own segment
+  // of Interviewer Load's bar, in the order to draw them, at most five;
+  // every other stage counts as Other. Unset: the five interview groups with
+  // the most hours in 90 days, in plan order (chooseStageSegments). Set where
+  // a client has more than five, so the choice is deliberate and stable:
+  // January, Poetic. A client with no interview stage groups (Runlayer,
+  // LiteLLM) gets no split either way.
+  interviewerLoadStageGroups: exactList("INTERVIEWER_LOAD_STAGE_GROUPS", []),
 
   // Feedback leaderboard (Feedback Leaderboard tab): the top 10 interviewers by the share
   // of their completed interviews with their scorecard in, over this many

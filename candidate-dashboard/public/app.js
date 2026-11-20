@@ -1144,14 +1144,18 @@
   // Interviewer load (interviewerLoadSnapshot in interviewer-load.js): one
   // row per person for the chosen period, busiest first, people at zero
   // folded into one line. The period toggle and name search re-render from
-  // lastData, no request. Bars are one neutral grey (colour is for state,
-  // DESIGN.md) scaled to the second-busiest person, so a single outlier
-  // (Pace: 107 this month against 49) doesn't flatten everyone else; the
-  // capped bar is marked.
+  // lastData, no request. Bars are neutral greys (colour is for state,
+  // DESIGN.md), split into stage shades where the client has stage groups,
+  // scaled to the second-busiest person, so a single outlier (Pace: 107
+  // this month against 49) doesn't flatten everyone else; the capped bar is
+  // marked. On a phone the bar sits on its own line under the row.
   let loadPeriod = "week";
   let loadListedCount = null;
   let loadSearch = "";
   const LOAD_PERIOD_WORDS = { day: "today", week: "this week", month: "this month" };
+  // Which of the five stage shades (--stage-1 … --stage-5) a client with N
+  // segments uses: spread out, always ending on the strongest.
+  const LOAD_STAGE_STEPS = { 1: [5], 2: [3, 5], 3: [1, 3, 5], 4: [1, 2, 4, 5], 5: [1, 2, 3, 4, 5] };
 
   // "Thu 19 Nov", "Mon 16 – Sun 22 Nov", "November 2026". Built by hand:
   // toLocaleDateString's en-US order scrambled the week ("16 Mon – Sun, Nov 22").
@@ -1185,6 +1189,8 @@
     });
     const label = document.getElementById("load-period-label");
     const search = document.getElementById("load-search");
+    const legend = document.getElementById("load-stage-legend");
+    if (legend) legend.hidden = true; // shown below once there are rows to key
     // Titles this client counts as interviews but not hours (Poetic: Build Time).
     const untimedNames = (lastData && lastData.appConfig && lastData.appConfig.interviewerLoadUntimed) || [];
     const hoursNote = document.getElementById("load-hours-note");
@@ -1219,12 +1225,22 @@
     const filtering = sel.ids.size > 0 && Array.isArray(load.roles);
     const roleOn = filtering ? load.roles.map((r) => sel.ids.has(r[sel.key])) : [];
     const totalOf = (r) => r[loadPeriod];
+    // Split by stage (load.stages: the client's stage groups with their own
+    // shade, at most five; null where the client has none, e.g. Runlayer).
+    // One warm grey in five lightness steps, early light to late dark (dark
+    // mode: late light), not hues: stages are an order, and colour stays for
+    // state (DESIGN.md § Stage shades). Fewer than five groups spread over
+    // the steps, always ending on the strongest.
+    const stageNames = Array.isArray(load.stages) && load.stages.length ? load.stages : null;
+    const stageClasses = stageNames ? (LOAD_STAGE_STEPS[stageNames.length] || LOAD_STAGE_STEPS[5]).map((s) => `stage-${s}`).concat(["stage-other"]) : [];
+    const stageLabels = stageNames ? stageNames.concat(["Other"]) : [];
     const viewOf = (r) => {
       if (!filtering) return totalOf(r);
-      const v = { done: 0, booked: 0, minutes: 0, untimed: 0 };
-      for (const [i, done, booked, mins, untimed] of totalOf(r).byRole || []) {
+      const v = { done: 0, booked: 0, minutes: 0, untimed: 0, byStage: stageNames ? stageLabels.map(() => 0) : null };
+      for (const [i, done, booked, mins, untimed, byStage] of totalOf(r).byRole || []) {
         if (!roleOn[i]) continue;
         v.done += done; v.booked += booked; v.minutes += mins; v.untimed += untimed;
+        if (v.byStage && Array.isArray(byStage)) byStage.forEach((m, k) => { v.byStage[k] += m; });
       }
       return v;
     };
@@ -1237,6 +1253,7 @@
         const what = { departmentId: `candidates in ${list}`, jobId: list, recruiterId: `candidates whose recruiter is ${list}`, coordinatorId: `candidates whose coordinator is ${list}` }[sel.key] || list;
         const unmatched = (load.unmatched && load.unmatched[loadPeriod]) || 0;
         filterNote.textContent = `Showing interviews for ${what}. "of" is each person's total ${words} across every role.` +
+          (stageNames ? " The outlined part of a bar is their other roles." : "") +
           (unmatched ? ` ${unmatched} ${unmatched === 1 ? "interview" : "interviews"} ${words} aren't matched to a role yet, so they're only in the totals.` : "");
       }
     }
@@ -1269,12 +1286,27 @@
       const tc = t.done + t.booked;
       const capped = t.minutes > scale;
       const totalPct = pctOf(t.minutes);
-      const tip = filtering
+      // Each stage's merged minutes; the shares are scaled to the hours shown,
+      // since an overlap across two stages is counted once in the total.
+      const stageMins = stageNames && Array.isArray(v.byStage) ? v.byStage : null;
+      const stageSum = stageMins ? stageMins.reduce((a, b) => a + b, 0) : 0;
+      const stageTip = stageMins && stageSum
+        ? "\n" + stageLabels.map((name, k) => (stageMins[k] ? `${name} ${formatLoadHours(stageMins[k])}` : "")).filter(Boolean).join(" · ") +
+          (filtering && t.minutes > v.minutes ? ` · other roles ${formatLoadHours(t.minutes - v.minutes)}` : "")
+        : "";
+      const tip = (filtering
         ? `${r.name}: ${c} of ${tc} ${tc === 1 ? "interview" : "interviews"} ${words}, ${formatLoadHours(v.minutes)} of ${formatLoadHours(t.minutes)}`
-        : `${r.name}: ${c} ${c === 1 ? "interview" : "interviews"} ${words} (${v.done} done, ${v.booked} booked), ${formatLoadHours(v.minutes)}` + (v.untimed ? `, plus ${v.untimed} not timed` : "");
+        : `${r.name}: ${c} ${c === 1 ? "interview" : "interviews"} ${words} (${v.done} done, ${v.booked} booked), ${formatLoadHours(v.minutes)}` + (v.untimed ? `, plus ${v.untimed} not timed` : "")) + stageTip;
       const of = (text) => (filtering ? ` <span class="load-of">of ${text}</span>` : "");
       let bar = "";
-      if (filtering && totalPct) {
+      if (stageMins && totalPct) {
+        // Segments in stage order with a 2px gap; filtered, the person's
+        // other roles follow as an outline, so length is still their whole load.
+        const segs = [];
+        if (stageSum) stageMins.forEach((m, k) => { if (m > 0) segs.push(`<i class="${stageClasses[k]}" style="flex-grow:${((m / stageSum) * v.minutes).toFixed(1)}"></i>`); });
+        if (filtering && t.minutes > v.minutes) segs.push(`<i class="stage-rest" style="flex-grow:${(t.minutes - v.minutes).toFixed(1)}"></i>`);
+        bar = segs.length ? `<div class="stage-bar${capped ? " is-capped" : ""}" style="width:${totalPct}%">${segs.join("")}</div>` : "";
+      } else if (filtering && totalPct) {
         const share = t.minutes ? Math.min(100, Math.round((v.minutes / t.minutes) * 100)) : 0;
         bar = `<div class="load-bar-track${capped ? " is-capped" : ""}" style="width:${totalPct}%">${share ? `<div class="load-bar" style="width:${share}%"></div>` : ""}</div>`;
       } else if (totalPct) {
@@ -1297,12 +1329,24 @@
       : "";
     const table = busy.length
       ? `<div class="action-queue-wrap">
-          <table class="action-queue-table load-table">
+          <table class="action-queue-table load-table${filtering ? " is-filtered" : ""}">
             <thead><tr><th>Name</th><th class="load-total">Interviews</th><th class="load-hours">Hours</th><th class="load-split">Done · Booked</th><th class="load-bar-cell" aria-label="Hours, as a bar"></th></tr></thead>
             <tbody>${busy.map(rowHtml).join("")}</tbody>
           </table>
         </div>`
       : emptyStateHtml(false, q ? "Nobody by that name has interviews in this period." : filtering && !rows.length ? `Nobody has interviewed for this in the last ${load.rosterDays} days.` : `Nobody has interviews ${words}${filtering ? " for this" : ""}.`);
+    // The legend: every shade in stage order, the same whatever the period or
+    // filter (a shade never moves); the hours beside each follow them.
+    if (legend) {
+      legend.hidden = !stageNames;
+      if (stageNames) {
+        const hoursBy = stageLabels.map((_, k) => busy.reduce((sum, r) => sum + ((viewOf(r).byStage || [])[k] || 0), 0));
+        const rest = filtering ? busy.reduce((sum, r) => sum + Math.max(0, (totalOf(r).minutes || 0) - (viewOf(r).minutes || 0)), 0) : 0;
+        legend.innerHTML = `<li class="stage-legend-eyebrow" aria-hidden="true">Stage</li>` +
+          stageLabels.map((name, k) => `<li class="${hoursBy[k] ? "" : "is-zero"}"><span class="stage-swatch ${stageClasses[k]}"></span>${escapeHtml(name)} <span class="stage-legend-hours">${formatLoadHours(hoursBy[k])}</span></li>`).join("") +
+          (filtering ? `<li><span class="stage-swatch stage-rest"></span>Other roles <span class="stage-legend-hours">${formatLoadHours(rest)}</span></li>` : "");
+      }
+    }
     // Keep an opened "no interviews" list open across the 60s re-render.
     const wasOpen = container.querySelector(".load-idle")?.open;
     container.innerHTML = table + idleHtml;
