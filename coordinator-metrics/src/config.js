@@ -342,6 +342,15 @@ const config = {
     slackEmail: process.env.ALERT_SLACK_EMAIL || "",
     dashboardUrl: (process.env.DASHBOARD_URL || "").replace(/\/+$/, ""),
   },
+
+  // --- Friday summary (see README § Friday summary) ---
+  // Sent to the same Slack DM as the alerts, timed in ALERT_TIMEZONE.
+  weekly: {
+    enabled: process.env.WEEKLY_SUMMARY_ENABLED !== "false",
+    // 0 = Sunday … 5 = Friday.
+    day: number("WEEKLY_SUMMARY_DAY", 5),
+    hour: number("WEEKLY_SUMMARY_HOUR", 15),
+  },
 };
 
 module.exports = config;

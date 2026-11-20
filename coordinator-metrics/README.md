@@ -298,6 +298,36 @@ app installed in **Carrara's** workspace with `chat:write`, `im:write` and
 `users:read.email`: set `SLACK_BOT_TOKEN` and either `ALERT_SLACK_USER_ID`
 or `ALERT_SLACK_EMAIL`. Without them the banner still works.
 
+## Friday summary
+
+Every Friday at `WEEKLY_SUMMARY_HOUR` (15:00) in `ALERT_TIMEZONE`, the same
+Slack DM as the alerts gets a summary of the work week, written to be
+forwarded as-is:
+
+- **Overall**: interviews coordinated, interview hours, booking speed
+  (median stage-entered → booked, business hours, pooled across clients),
+  and next week's load.
+- **By client**: interviews coordinated per active client.
+- **Open alerts**: anything currently flagged at client level.
+
+Everything is Carrara-coordinated work at active clients, Monday through
+Friday, compared with the **same weekdays** in each of the previous 4
+weeks. Interviews count by the day they run, so Friday's later interviews
+are already in. Flags use the alert rule (15%, red at 30%, same
+small-number guards); booking speed is flagged only when it slows.
+
+**Next week's load** compares what is on the calendar for next Mon–Sun now
+with what was on the calendar for the following week at the same moment in
+each baseline week. Against whole finished weeks it would always read low.
+
+A **thread reply** lists each rostered coordinator's bookings this week and
+their median time to book — for Hayley, not for forwarding. Same rules as
+the per-coordinator alerts: exact roster names, alphabetical, excluded
+people left out, workload rather than performance.
+
+Preview it any time at `GET /api/weekly-summary`. Turn it off with
+`WEEKLY_SUMMARY_ENABLED=false`.
+
 ## Run locally
 
 ```bash
@@ -599,6 +629,7 @@ volume). It needs three repo secrets: `COORDINATOR_METRICS_URL`,
 | `GET /api/overview` | Cross-client roll-up |
 | `GET /api/client/:id` | One client's full payload |
 | `GET /api/alerts` | Active alerts for the banner |
+| `GET /api/weekly-summary` | Preview of the Friday summary, as plain text |
 | `GET /api/status` | Last sync per client, and whether one is running |
 | `POST /api/sync` | Manual top-up; `?kind=full` re-reads twelve months |
 

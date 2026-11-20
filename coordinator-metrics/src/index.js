@@ -4,6 +4,7 @@ const config = require("./config");
 const { createServer } = require("./server");
 const metrics = require("./metrics");
 const sync = require("./sync");
+const weekly = require("./weekly");
 
 const app = createServer();
 
@@ -16,6 +17,7 @@ app.listen(config.port, () => {
   metrics.rebuild();
 
   sync.startScheduler();
+  weekly.start();
 
   if (config.syncOnBoot) {
     // Incremental on boot: a fresh deployment with an empty volume gets

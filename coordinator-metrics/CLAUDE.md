@@ -598,6 +598,17 @@ is the short list of things that look wrong and are not.
   signal — one slow booking read as a 983% slowdown. Her bookings still
   count toward client figures.
 
+- **The Friday summary compares Mon–Fri with the SAME weekdays of prior
+  weeks, never with whole weeks.** Against a full week every Friday reads
+  as a 30% drop. Next week's load is compared with what was booked ahead
+  at the same moment in earlier weeks, for the same reason.
+
+- **The Friday summary's main message names no one; people go in the
+  thread reply.** The main message is meant to be forwarded to leadership
+  as-is. Its team-wide booking speed pools clients into one median for the
+  team against its own history — it is not a per-client figure and must
+  not grow per-client turnaround lines (see Results, not comparable).
+
 ## Conventions
 
 - No build step and no frontend framework, matching the sibling dashboards.

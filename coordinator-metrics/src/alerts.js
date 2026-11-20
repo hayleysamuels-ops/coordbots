@@ -610,4 +610,8 @@ function run() {
     .catch((err) => console.error(`[alerts] digest failed: ${err.message}`));
 }
 
-module.exports = { run, evaluate, activeAlerts, maybeSendDigest, significant, windows, digestText };
+module.exports = {
+  run, evaluate, activeAlerts, maybeSendDigest, significant, windows, digestText,
+  // Shared with weekly.js.
+  median, rosterSetOf, slack, slackRecipient, getMeta, setMeta,
+};

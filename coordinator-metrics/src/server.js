@@ -109,6 +109,14 @@ function createServer() {
     });
   });
 
+  // Preview of the Friday summary as it would be sent right now, as plain
+  // text. Behind the same login as everything else.
+  app.get("/api/weekly-summary", (req, res) => {
+    if (!metrics.getOverview()) return res.status(503).type("text").send("Metrics have not been computed yet.");
+    const summary = require("./weekly").build();
+    res.type("text").send(`${summary.main}\n\n--- thread reply ---\n\n${summary.coordinators}\n`);
+  });
+
   app.get("/api/status", (req, res) => {
     res.json({
       runs: store.lastSyncRuns(),
